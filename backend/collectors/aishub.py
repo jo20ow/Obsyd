@@ -21,7 +21,7 @@ import httpx
 
 from backend.config import settings
 from backend.database import SessionLocal
-from backend.geofences.zones import find_zone, is_tanker
+from backend.geofences.zones import find_zone, is_tanker, ZONES
 from backend.models.vessels import VesselPosition
 
 logger = logging.getLogger(__name__)
@@ -166,10 +166,17 @@ async def _poll_loop():
                     continue
 
                 zone_counts = await _fetch_global(client)
+                total = sum(zone_counts.values()) if zone_counts else 0
                 if zone_counts:
-                    total = sum(zone_counts.values())
                     breakdown = ", ".join(f"{z}={c}" for z, c in sorted(zone_counts.items()))
                     logger.info(f"AISHub: {total} tankers stored ({breakdown})")
+
+                # Log zones with no coverage (terrestrial AIS limitation)
+                all_zone_names = {z["name"] for z in ZONES}
+                covered = set(zone_counts.keys())
+                no_coverage = all_zone_names - covered
+                if no_coverage:
+                    logger.info(f"AISHub: no coverage for {', '.join(sorted(no_coverage))} (terrestrial AIS limitation)")
 
             except asyncio.CancelledError:
                 logger.info("AISHub: poll task cancelled")

@@ -4,7 +4,7 @@ from sqlalchemy import func
 
 from backend.database import get_db
 from backend.models.vessels import VesselPosition, GeofenceEvent
-from backend.geofences.zones import ZONES
+from backend.geofences.zones import ZONES, NO_AIS_COVERAGE
 
 router = APIRouter(prefix="/api/vessels", tags=["vessels"])
 
@@ -81,6 +81,7 @@ async def list_zones():
             "display_name": z["display_name"],
             "bounds": z["bounds"],
             "description": z["description"],
+            "no_ais_coverage": z["name"] in NO_AIS_COVERAGE,
         }
         for z in ZONES
     ]

@@ -15,7 +15,7 @@ from backend.collectors.eia import collect_eia
 from backend.collectors.fred import collect_fred
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.noaa import collect_noaa_alerts
-from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_sentiment
+from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_secondary, collect_gdelt_sentiment
 from backend.collectors.jodi import collect_jodi
 from backend.signals.evaluator import evaluate_signals
 from backend.database import SessionLocal
@@ -79,11 +79,17 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # GDELT: volume every 15 minutes, sentiment daily at 14:00 UTC
+    # GDELT: primary keywords every 15 min, secondary hourly, sentiment daily
     scheduler.add_job(
         collect_gdelt_volume,
         CronTrigger(minute="*/15"),
-        id="gdelt_15min",
+        id="gdelt_primary_15min",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        collect_gdelt_volume_secondary,
+        CronTrigger(minute=30),
+        id="gdelt_secondary_hourly",
         replace_existing=True,
     )
     scheduler.add_job(

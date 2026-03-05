@@ -24,15 +24,25 @@ logger = logging.getLogger(__name__)
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 REQUEST_TIMEOUT = 20
 
-KEYWORDS = [
-    "oil supply disruption",
+# Primary keywords: fetched every 15 minutes
+KEYWORDS_PRIMARY = [
+    "oil price",
     "OPEC",
+    "LNG",
+    "oil supply disruption",
+]
+
+# Secondary keywords: fetched hourly only
+KEYWORDS_SECONDARY = [
     "Suez Canal",
     "Strait of Hormuz",
     "refinery shutdown",
-    "oil price",
-    "LNG",
 ]
+
+# All keywords (used for headlines query and cleanup)
+KEYWORDS = KEYWORDS_PRIMARY + KEYWORDS_SECONDARY
+
+CALL_DELAY = 5  # seconds between GDELT API calls to avoid 429
 
 LLM_PROMPT = """You are an energy market analyst. Analyze these recent news headlines about energy markets and oil.
 
@@ -161,14 +171,16 @@ async def _score_with_anthropic(headlines_text: str) -> dict | None:
         return None
 
 
-async def collect_gdelt_volume():
-    """Stufe 1: Collect volume + tone for all keywords."""
+async def _collect_keywords(keywords: list[str]):
+    """Collect volume + tone for a list of keywords with rate-limiting."""
     records = []
 
     async with httpx.AsyncClient() as client:
-        for keyword in KEYWORDS:
+        for keyword in keywords:
             vol_data = await _fetch_volume(client, keyword)
+            await asyncio.sleep(CALL_DELAY)
             tone_data = await _fetch_tone(client, keyword)
+            await asyncio.sleep(CALL_DELAY)
 
             # Build tone lookup by timestamp
             tone_map = {d["date"]: d["value"] for d in tone_data}
@@ -185,17 +197,13 @@ async def collect_gdelt_volume():
                     avg_tone=tone,
                 ))
 
-            # Rate limit: small delay between keywords
-            await asyncio.sleep(1)
-
     if not records:
-        logger.warning("GDELT: no volume records to store")
-        return
+        return 0
 
     db = SessionLocal()
     try:
         # Delete old data (keep last 24h worth per keyword)
-        for kw in KEYWORDS:
+        for kw in keywords:
             count = db.query(GDELTVolume).filter(GDELTVolume.keyword == kw).count()
             if count > 48:  # keep ~48 data points per keyword
                 oldest = (
@@ -210,12 +218,24 @@ async def collect_gdelt_volume():
 
         db.add_all(records)
         db.commit()
-        logger.info(f"GDELT: stored {len(records)} volume/tone records for {len(KEYWORDS)} keywords")
+        logger.info(f"GDELT: stored {len(records)} volume/tone records for {len(keywords)} keywords")
+        return len(records)
     except Exception as e:
         db.rollback()
         logger.error(f"GDELT: DB write failed: {e}")
+        return 0
     finally:
         db.close()
+
+
+async def collect_gdelt_volume():
+    """Stufe 1: Collect volume + tone for PRIMARY keywords (every 15 min)."""
+    await _collect_keywords(KEYWORDS_PRIMARY)
+
+
+async def collect_gdelt_volume_secondary():
+    """Stufe 1b: Collect volume + tone for SECONDARY keywords (hourly)."""
+    await _collect_keywords(KEYWORDS_SECONDARY)
 
 
 async def collect_gdelt_sentiment():

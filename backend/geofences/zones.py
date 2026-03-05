@@ -52,6 +52,10 @@ ZONES: list[dict] = [
 ]
 
 
+# Zones with no terrestrial AIS coverage (AISHub has no shore stations nearby)
+NO_AIS_COVERAGE = {"suez", "panama", "cape"}
+
+
 def point_in_zone(lat: float, lon: float, zone: dict) -> bool:
     """Check if a lat/lon point is inside a zone's bounding box."""
     (lat_min, lon_min), (lat_max, lon_max) = zone["bounds"]

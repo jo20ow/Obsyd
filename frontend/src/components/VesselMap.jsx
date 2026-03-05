@@ -221,9 +221,11 @@ export default function VesselMap({ zones }) {
                   <span className="font-mono text-xs text-cyan-glow">
                     {z.name.toUpperCase()}
                   </span>
-                  {count > 0 && (
+                  {z.no_ais_coverage ? (
+                    <span className="font-mono text-[9px] text-neutral-600">NO AIS</span>
+                  ) : count > 0 ? (
                     <span className="font-mono text-[10px] text-green-glow">{count}</span>
-                  )}
+                  ) : null}
                 </div>
                 <div className="font-mono text-[10px] text-neutral-600 mt-0.5 leading-tight">
                   {z.display_name}
