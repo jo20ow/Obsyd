@@ -52,6 +52,8 @@ export default function VesselMap({ zones }) {
   const [vessels, setVessels] = useState([])
   const [vesselCount, setVesselCount] = useState(0)
   const [portwatch, setPortwatch] = useState(null)
+  const [marine, setMarine] = useState({})
+  const [hurricanes, setHurricanes] = useState([])
 
   const fetchVessels = useCallback(async () => {
     try {
@@ -70,6 +72,19 @@ export default function VesselMap({ zones }) {
     fetch(`${API}/ports/summary`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d) setPortwatch(d) })
+      .catch(() => {})
+
+    fetch(`${API}/weather/marine`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.zones) setMarine(d.zones) })
+      .catch(() => {})
+
+    fetch(`${API}/weather/alerts`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        const withCoords = data.filter((a) => a.latitude && a.longitude)
+        setHurricanes(withCoords)
+      })
       .catch(() => {})
   }, [])
 
@@ -106,6 +121,22 @@ export default function VesselMap({ zones }) {
         getFillColor: [vessels.length],
       },
     }),
+    new ScatterplotLayer({
+      id: 'hurricanes',
+      data: hurricanes,
+      getPosition: (d) => [d.longitude, d.latitude],
+      getRadius: 18,
+      radiusUnits: 'pixels',
+      radiusMinPixels: 12,
+      radiusMaxPixels: 30,
+      getFillColor: [255, 160, 0, 60],
+      getLineColor: [255, 160, 0, 200],
+      lineWidthUnits: 'pixels',
+      getLineWidth: 2,
+      stroked: true,
+      filled: true,
+      pickable: true,
+    }),
   ]
 
   const getTooltip = ({ object, layer }) => {
@@ -128,6 +159,12 @@ export default function VesselMap({ zones }) {
         style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '6px' },
       }
     }
+    if (layer.id === 'hurricanes') {
+      return {
+        html: `<div style="font-family:monospace;font-size:11px;color:#ffa000;font-weight:bold">${object.event}<br/><span style="color:#c8c8d0;font-weight:normal">${object.area?.substring(0, 80) || ''}</span></div>`,
+        style: { background: '#0a0a0f', border: '1px solid #ffa000', borderRadius: '4px', padding: '8px' },
+      }
+    }
     return null
   }
 
@@ -146,6 +183,12 @@ export default function VesselMap({ zones }) {
             <span className="w-2 h-2 rounded-full bg-red-400" />
             <span className="text-neutral-400">SOG &lt; 0.5 kn</span>
           </span>
+          {hurricanes.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-orange-400" />
+              <span className="text-orange-400">{hurricanes.length} storm alert{hurricanes.length > 1 ? 's' : ''}</span>
+            </span>
+          )}
           <span className="text-neutral-600">30s poll</span>
         </div>
       </div>
@@ -185,16 +228,23 @@ export default function VesselMap({ zones }) {
                 <div className="font-mono text-[10px] text-neutral-600 mt-0.5 leading-tight">
                   {z.display_name}
                 </div>
-                {cp && (
+                {(cp || marine[z.name]) && (
                   <div className="mt-1.5 pt-1.5 border-t border-border">
-                    <div className="font-mono text-[10px] text-neutral-500">
-                      {cp.vessel_count} transits
-                      <span className="text-neutral-600"> / </span>
-                      {cp.vessel_count_tanker} tanker
-                    </div>
-                    {cp.capacity_tanker > 0 && (
-                      <div className="font-mono text-[10px] text-neutral-600">
-                        {(cp.capacity_tanker / 1000).toFixed(0)}k DWT
+                    {cp && (
+                      <div className="font-mono text-[10px] text-neutral-500">
+                        {cp.vessel_count} transits
+                        <span className="text-neutral-600"> / </span>
+                        {cp.vessel_count_tanker} tanker
+                      </div>
+                    )}
+                    {marine[z.name] && (
+                      <div className="font-mono text-[10px] text-neutral-600 mt-0.5">
+                        {marine[z.name].wind_speed != null && (
+                          <span>{marine[z.name].wind_speed.toFixed(0)} kn </span>
+                        )}
+                        {marine[z.name].wave_height != null && (
+                          <span>{marine[z.name].wave_height.toFixed(1)}m</span>
+                        )}
                       </div>
                     )}
                   </div>

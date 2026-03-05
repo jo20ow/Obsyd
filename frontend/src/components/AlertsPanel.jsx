@@ -4,14 +4,19 @@ const API = '/api'
 
 const SEVERITY_STYLES = {
   critical: { dot: 'bg-red-400', text: 'text-red-400', border: 'border-red-500/30' },
+  Extreme: { dot: 'bg-red-400', text: 'text-red-400', border: 'border-red-500/30' },
+  Severe: { dot: 'bg-red-400', text: 'text-red-400', border: 'border-red-500/30' },
   warning: { dot: 'bg-yellow-400', text: 'text-yellow-400', border: 'border-yellow-500/30' },
+  Moderate: { dot: 'bg-yellow-400', text: 'text-yellow-400', border: 'border-yellow-500/30' },
   info: { dot: 'bg-green-glow', text: 'text-green-glow', border: 'border-green-500/30' },
+  Minor: { dot: 'bg-green-glow', text: 'text-green-glow', border: 'border-green-500/30' },
 }
 
 const RULE_ICONS = {
   floating_storage: 'STOR',
   flow_anomaly: 'FLOW',
   cushing_drawdown: 'CUSH',
+  weather: 'WX',
 }
 
 function timeAgo(isoStr) {
@@ -25,13 +30,36 @@ function timeAgo(isoStr) {
 
 export default function AlertsPanel() {
   const [alerts, setAlerts] = useState([])
+  const [weatherAlerts, setWeatherAlerts] = useState([])
 
   useEffect(() => {
     fetch(`${API}/alerts?limit=20`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setAlerts)
       .catch(() => {})
+
+    fetch(`${API}/weather/alerts`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setWeatherAlerts)
+      .catch(() => {})
   }, [])
+
+  // Merge signal alerts and weather alerts into one list
+  const combined = [
+    ...weatherAlerts.map((w) => ({
+      id: `wx-${w.id}`,
+      rule: 'weather',
+      severity: w.severity,
+      title: w.headline || w.event,
+      detail: w.area,
+      zone: '',
+      created_at: w.onset || new Date().toISOString(),
+      isWeather: true,
+    })),
+    ...alerts.map((a) => ({ ...a, isWeather: false })),
+  ]
+
+  const totalCount = combined.length
 
   return (
     <div className="border border-border bg-surface rounded">
@@ -40,26 +68,27 @@ export default function AlertsPanel() {
           SIGNAL ALERTS
         </span>
         <span className="font-mono text-[10px] text-neutral-600">
-          {alerts.length} active
+          {totalCount} active
         </span>
       </div>
 
       <div className="max-h-[400px] overflow-y-auto">
-        {alerts.length === 0 ? (
+        {combined.length === 0 ? (
           <div className="px-4 py-6 text-center font-mono text-xs text-neutral-600">
             No alerts generated yet
           </div>
         ) : (
-          alerts.map((a) => {
+          combined.map((a) => {
             const sev = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.info
             const icon = RULE_ICONS[a.rule] || 'SIG'
+            const isWx = a.isWeather
             return (
               <div
                 key={a.id}
                 className={`px-4 py-3 border-b border-border last:border-b-0 ${sev.border}`}
               >
                 <div className="flex items-start gap-2.5">
-                  <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${sev.text} ${sev.border}`}>
+                  <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${isWx ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
                     {icon}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -68,7 +97,7 @@ export default function AlertsPanel() {
                         {a.title}
                       </span>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full ${isWx ? 'bg-orange-400' : sev.dot}`} />
                         <span className="font-mono text-[10px] text-neutral-600">
                           {timeAgo(a.created_at)}
                         </span>

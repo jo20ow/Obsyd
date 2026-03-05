@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from backend.collectors.eia import collect_eia
 from backend.collectors.fred import collect_fred
 from backend.collectors.portwatch import collect_portwatch
+from backend.collectors.noaa import collect_noaa_alerts
 from backend.signals.evaluator import evaluate_signals
 from backend.database import SessionLocal
 
@@ -68,6 +69,14 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # NOAA: weather alerts every 30 minutes
+    scheduler.add_job(
+        collect_noaa_alerts,
+        CronTrigger(minute="*/30"),
+        id="noaa_30min",
+        replace_existing=True,
+    )
+
     # Signals: evaluate every 5 minutes
     scheduler.add_job(
         evaluate_signals,
@@ -79,7 +88,7 @@ def start_scheduler():
     scheduler.start()
     logger.info(
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
-        "PortWatch (weekly Tue), Signals (every 5min)"
+        "PortWatch (weekly Tue), NOAA (every 30min), Signals (every 5min)"
     )
 
 

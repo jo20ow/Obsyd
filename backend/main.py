@@ -14,7 +14,8 @@ from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.collectors.aisstream import start_aisstream, stop_aisstream
 from backend.collectors.aishub import start_aishub, stop_aishub
 from backend.collectors.portwatch import collect_portwatch
-from backend.routes import health, prices, vessels, alerts, ports
+from backend.collectors.noaa import collect_noaa_alerts
+from backend.routes import health, prices, vessels, alerts, ports, weather
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
     # Fetch PortWatch data on startup (runs in background, non-blocking)
     import asyncio
     asyncio.create_task(collect_portwatch())
+    asyncio.create_task(collect_noaa_alerts())
     yield
     stop_aishub()
     stop_aisstream()
@@ -61,3 +63,4 @@ app.include_router(prices.router)
 app.include_router(vessels.router)
 app.include_router(alerts.router)
 app.include_router(ports.router)
+app.include_router(weather.router)
