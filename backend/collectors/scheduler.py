@@ -15,6 +15,7 @@ from backend.collectors.eia import collect_eia
 from backend.collectors.fred import collect_fred
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.noaa import collect_noaa_alerts
+from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_sentiment
 from backend.signals.evaluator import evaluate_signals
 from backend.database import SessionLocal
 
@@ -77,6 +78,20 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # GDELT: volume every 15 minutes, sentiment daily at 14:00 UTC
+    scheduler.add_job(
+        collect_gdelt_volume,
+        CronTrigger(minute="*/15"),
+        id="gdelt_15min",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        collect_gdelt_sentiment,
+        CronTrigger(hour=14, minute=0),
+        id="gdelt_sentiment_daily",
+        replace_existing=True,
+    )
+
     # Signals: evaluate every 5 minutes
     scheduler.add_job(
         evaluate_signals,
@@ -88,7 +103,8 @@ def start_scheduler():
     scheduler.start()
     logger.info(
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
-        "PortWatch (weekly Tue), NOAA (every 30min), Signals (every 5min)"
+        "PortWatch (weekly Tue), NOAA (every 30min), "
+        "GDELT (every 15min), Signals (every 5min)"
     )
 
 

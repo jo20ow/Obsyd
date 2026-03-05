@@ -3,6 +3,7 @@ import Header from './components/Header'
 import PriceChart from './components/PriceChart'
 import StatCards from './components/StatCards'
 import MacroPanel from './components/MacroPanel'
+import SentimentPanel from './components/SentimentPanel'
 import VesselMap from './components/VesselMap'
 import AlertsPanel from './components/AlertsPanel'
 
@@ -13,17 +14,19 @@ function App() {
   const [liveData, setLiveData] = useState(null)
   const [zones, setZones] = useState([])
   const [aisActive, setAisActive] = useState(false)
+  const [gdeltActive, setGdeltActive] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [eiaRes, zonesRes, liveRes, aisRes] = await Promise.all([
+        const [eiaRes, zonesRes, liveRes, aisRes, gdeltRes] = await Promise.all([
           fetch(`${API}/prices/eia?limit=500`),
           fetch(`${API}/vessels/zones`),
           fetch(`${API}/prices/live`),
           fetch(`${API}/vessels/positions?limit=1`),
+          fetch(`${API}/sentiment/status`),
         ])
         if (!eiaRes.ok) throw new Error(`EIA API: ${eiaRes.status}`)
         if (!zonesRes.ok) throw new Error(`Zones API: ${zonesRes.status}`)
@@ -40,6 +43,11 @@ function App() {
         if (aisRes.ok) {
           const aisData = await aisRes.json()
           setAisActive(aisData.length > 0)
+        }
+
+        if (gdeltRes.ok) {
+          const gdelt = await gdeltRes.json()
+          setGdeltActive(gdelt.active)
         }
       } catch (e) {
         setError(e.message)
@@ -76,7 +84,7 @@ function App() {
 
   return (
     <div className="min-h-screen p-4 lg:p-6">
-      <Header aisActive={aisActive} />
+      <Header aisActive={aisActive} gdeltActive={gdeltActive} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2">
           <PriceChart data={eiaData} />
@@ -84,6 +92,7 @@ function App() {
         <div className="space-y-4">
           <StatCards data={eiaData} live={liveData} />
           <MacroPanel />
+          <SentimentPanel />
         </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">

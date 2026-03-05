@@ -1,4 +1,4 @@
-export default function Header({ aisActive }) {
+export default function Header({ aisActive, gdeltActive }) {
   return (
     <header className="flex items-center justify-between border-b border-border pb-3">
       <div className="flex items-center gap-3">
@@ -13,6 +13,7 @@ export default function Header({ aisActive }) {
         <StatusDot label="EIA" ok />
         <StatusDot label="FRED" ok />
         <StatusDot label="AIS" ok={aisActive} />
+        <StatusDot label="GDELT" ok={gdeltActive} />
       </div>
     </header>
   )
