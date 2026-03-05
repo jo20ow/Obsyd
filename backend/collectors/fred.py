@@ -22,6 +22,12 @@ FRED_SERIES = {
     "DTWEXBGS": {
         "description": "Trade Weighted US Dollar Index (Broad)",  # DXY proxy
     },
+    "DGS10": {
+        "description": "10-Year Treasury Constant Maturity Rate",
+    },
+    "DGS2": {
+        "description": "2-Year Treasury Constant Maturity Rate",
+    },
     "T10Y2Y": {
         "description": "10-Year Treasury Minus 2-Year Treasury (Yield Curve)",
     },

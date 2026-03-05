@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from backend.collectors.eia import collect_eia
 from backend.collectors.fred import collect_fred
 from backend.collectors.portwatch import collect_portwatch
+from backend.signals.evaluator import evaluate_signals
 from backend.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -67,8 +68,19 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Signals: evaluate every 5 minutes
+    scheduler.add_job(
+        evaluate_signals,
+        CronTrigger(minute="*/5"),
+        id="signals_5min",
+        replace_existing=True,
+    )
+
     scheduler.start()
-    logger.info("Scheduler started: EIA (weekly Wed), FRED (daily), PortWatch (weekly Tue)")
+    logger.info(
+        "Scheduler started: EIA (weekly Wed), FRED (daily), "
+        "PortWatch (weekly Tue), Signals (every 5min)"
+    )
 
 
 def stop_scheduler():

@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react'
 import Header from './components/Header'
 import PriceChart from './components/PriceChart'
 import StatCards from './components/StatCards'
+import MacroPanel from './components/MacroPanel'
 import VesselMap from './components/VesselMap'
+import AlertsPanel from './components/AlertsPanel'
 
 const API = '/api'
 
@@ -10,16 +12,18 @@ function App() {
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)
   const [zones, setZones] = useState([])
+  const [aisActive, setAisActive] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [eiaRes, zonesRes, liveRes] = await Promise.all([
+        const [eiaRes, zonesRes, liveRes, aisRes] = await Promise.all([
           fetch(`${API}/prices/eia?limit=500`),
           fetch(`${API}/vessels/zones`),
           fetch(`${API}/prices/live`),
+          fetch(`${API}/vessels/positions?limit=1`),
         ])
         if (!eiaRes.ok) throw new Error(`EIA API: ${eiaRes.status}`)
         if (!zonesRes.ok) throw new Error(`Zones API: ${zonesRes.status}`)
@@ -31,6 +35,11 @@ function App() {
         if (liveRes.ok) {
           const live = await liveRes.json()
           if (live.available) setLiveData(live.prices)
+        }
+
+        if (aisRes.ok) {
+          const aisData = await aisRes.json()
+          setAisActive(aisData.length > 0)
         }
       } catch (e) {
         setError(e.message)
@@ -67,17 +76,23 @@ function App() {
 
   return (
     <div className="min-h-screen p-4 lg:p-6">
-      <Header />
+      <Header aisActive={aisActive} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2">
           <PriceChart data={eiaData} />
         </div>
-        <div>
+        <div className="space-y-4">
           <StatCards data={eiaData} live={liveData} />
+          <MacroPanel />
         </div>
       </div>
-      <div className="mt-4">
-        <VesselMap zones={zones} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        <div className="lg:col-span-2">
+          <VesselMap zones={zones} />
+        </div>
+        <div>
+          <AlertsPanel />
+        </div>
       </div>
     </div>
   )

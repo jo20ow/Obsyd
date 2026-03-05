@@ -1,4 +1,4 @@
-export default function Header() {
+export default function Header({ aisActive }) {
   return (
     <header className="flex items-center justify-between border-b border-border pb-3">
       <div className="flex items-center gap-3">
@@ -12,7 +12,7 @@ export default function Header() {
       <div className="flex items-center gap-4">
         <StatusDot label="EIA" ok />
         <StatusDot label="FRED" ok />
-        <StatusDot label="AIS" />
+        <StatusDot label="AIS" ok={aisActive} />
       </div>
     </header>
   )
