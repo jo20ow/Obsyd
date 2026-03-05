@@ -5,6 +5,7 @@ Called periodically by the scheduler to generate alerts.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -22,20 +23,37 @@ logger = logging.getLogger(__name__)
 
 
 def _compute_zone_stats(db: Session, zone_name: str) -> dict:
-    """Compute current stats for a zone from vessel positions."""
+    """Compute current slow-mover count and 7-day average for a zone."""
+    # Current slow movers: latest position per MMSI, then count SOG < 0.5
+    latest_ids = (
+        db.query(func.max(VesselPosition.id))
+        .filter(VesselPosition.zone == zone_name)
+        .group_by(VesselPosition.mmsi)
+        .subquery()
+    )
     positions = (
         db.query(VesselPosition)
-        .filter(VesselPosition.zone == zone_name)
-        .order_by(VesselPosition.timestamp.desc())
-        .limit(500)
+        .filter(VesselPosition.id.in_(latest_ids))
         .all()
     )
 
-    if not positions:
-        return {"count": 0, "slow_movers": 0}
+    slow_movers = sum(1 for p in positions if p.sog < 0.5)
 
-    slow = sum(1 for p in positions if p.sog < 0.5)
-    return {"count": len(positions), "slow_movers": slow}
+    # 7-day history: count slow movers from geofence events
+    events = (
+        db.query(GeofenceEvent.slow_movers)
+        .filter(GeofenceEvent.zone == zone_name)
+        .order_by(GeofenceEvent.date.desc())
+        .limit(7)
+        .all()
+    )
+
+    if len(events) >= 7:
+        avg_slow_7d = sum(e.slow_movers for e in events) / len(events)
+    else:
+        avg_slow_7d = None  # insufficient history
+
+    return {"count": len(positions), "slow_movers": slow_movers, "avg_slow_7d": avg_slow_7d}
 
 
 async def evaluate_signals():
@@ -46,10 +64,8 @@ async def evaluate_signals():
         for zone in ZONES:
             stats = _compute_zone_stats(db, zone["name"])
             if stats["slow_movers"] > 0:
-                # Use a rough avg dwell estimate based on slow mover ratio
-                avg_dwell = 72.0 if stats["slow_movers"] > 3 else 24.0
                 check_floating_storage(
-                    db, zone["name"], stats["slow_movers"], avg_dwell
+                    db, zone["name"], stats["slow_movers"], stats["avg_slow_7d"]
                 )
 
         # 2. Flow anomaly: check geofence event history per zone
