@@ -5,6 +5,7 @@ Fetches daily commodity prices (WTI, Brent, Natural Gas).
 Free tier: 25 calls/day. Responses cached for 15 minutes.
 """
 
+import asyncio
 import logging
 import time
 
@@ -72,7 +73,11 @@ async def fetch_live_commodities() -> dict:
         return _cache
 
     results = {}
+    first = True
     for label, cfg in COMMODITIES.items():
+        if not first:
+            await asyncio.sleep(2)
+        first = False
         rows = await _fetch_commodity(cfg["function"])
         if len(rows) < 2:
             continue
