@@ -1,0 +1,71 @@
+"""
+Geofence bounding boxes for energy chokepoints and key port areas.
+
+Each zone is defined as a dict with:
+  - name: Human-readable name
+  - bounds: [[lat_min, lon_min], [lat_max, lon_max]]
+  - description: What this zone monitors
+
+All coordinates are WGS84 (lat/lon).
+AIS ship types 80-89 = tankers (liquid cargo).
+"""
+
+TANKER_SHIP_TYPES = range(80, 90)
+
+ZONES: list[dict] = [
+    {
+        "name": "hormuz",
+        "display_name": "Strait of Hormuz",
+        "bounds": [[25.0, 55.5], [27.0, 57.5]],
+        "description": "Persian Gulf to Arabian Sea transit. ~20% of global oil supply.",
+    },
+    {
+        "name": "suez",
+        "display_name": "Suez Canal / Bab-el-Mandeb",
+        "bounds": [[12.0, 42.5], [31.5, 34.5]],
+        "description": "Red Sea to Mediterranean transit via Suez Canal.",
+    },
+    {
+        "name": "malacca",
+        "display_name": "Strait of Malacca",
+        "bounds": [[1.0, 99.5], [4.5, 104.5]],
+        "description": "Indian Ocean to South China Sea. Key route for Asian oil imports.",
+    },
+    {
+        "name": "panama",
+        "display_name": "Panama Canal",
+        "bounds": [[7.5, -80.5], [10.0, -79.0]],
+        "description": "Atlantic to Pacific transit.",
+    },
+    {
+        "name": "cape",
+        "display_name": "Cape of Good Hope",
+        "bounds": [[-36.0, 17.0], [-33.0, 21.0]],
+        "description": "Alternative route when Suez is disrupted.",
+    },
+    {
+        "name": "houston",
+        "display_name": "Gulf of Mexico / Houston",
+        "bounds": [[27.5, -96.0], [30.0, -93.5]],
+        "description": "Gulf Coast refineries, Houston Ship Channel, LOOP terminal.",
+    },
+]
+
+
+def point_in_zone(lat: float, lon: float, zone: dict) -> bool:
+    """Check if a lat/lon point is inside a zone's bounding box."""
+    (lat_min, lon_min), (lat_max, lon_max) = zone["bounds"]
+    return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
+
+
+def find_zone(lat: float, lon: float) -> dict | None:
+    """Return the first matching zone for a given position, or None."""
+    for zone in ZONES:
+        if point_in_zone(lat, lon, zone):
+            return zone
+    return None
+
+
+def is_tanker(ship_type: int) -> bool:
+    """Check if AIS ship type indicates a tanker (liquid cargo)."""
+    return ship_type in TANKER_SHIP_TYPES

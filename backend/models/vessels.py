@@ -1,0 +1,36 @@
+from datetime import datetime
+
+from sqlalchemy import String, Float, DateTime, Integer
+from sqlalchemy.orm import Mapped, mapped_column
+
+from backend.database import Base
+
+
+class VesselPosition(Base):
+    """AIS vessel position within a geofence zone."""
+    __tablename__ = "vessel_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mmsi: Mapped[str] = mapped_column(String, index=True)
+    ship_name: Mapped[str] = mapped_column(String, default="")
+    ship_type: Mapped[int] = mapped_column(Integer)  # AIS type 80-89 = tanker
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    sog: Mapped[float] = mapped_column(Float)  # Speed Over Ground (knots)
+    cog: Mapped[float] = mapped_column(Float)  # Course Over Ground
+    heading: Mapped[float] = mapped_column(Float, default=0.0)
+    zone: Mapped[str] = mapped_column(String, index=True)  # geofence zone name
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class GeofenceEvent(Base):
+    """Aggregated geofence events (tanker counts, dwell times, anomalies)."""
+    __tablename__ = "geofence_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    zone: Mapped[str] = mapped_column(String, index=True)
+    date: Mapped[str] = mapped_column(String)
+    tanker_count: Mapped[int] = mapped_column(Integer, default=0)
+    avg_dwell_hours: Mapped[float] = mapped_column(Float, default=0.0)
+    slow_movers: Mapped[int] = mapped_column(Integer, default=0)  # SOG < 0.5 kn
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
