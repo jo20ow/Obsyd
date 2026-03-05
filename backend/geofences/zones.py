@@ -22,7 +22,7 @@ ZONES: list[dict] = [
     {
         "name": "suez",
         "display_name": "Suez Canal / Bab-el-Mandeb",
-        "bounds": [[12.0, 42.5], [31.5, 34.5]],
+        "bounds": [[12.0, 32.0], [31.5, 44.0]],
         "description": "Red Sea to Mediterranean transit via Suez Canal.",
     },
     {
@@ -34,7 +34,7 @@ ZONES: list[dict] = [
     {
         "name": "panama",
         "display_name": "Panama Canal",
-        "bounds": [[7.5, -80.5], [10.0, -79.0]],
+        "bounds": [[7.0, -80.5], [10.0, -78.5]],
         "description": "Atlantic to Pacific transit.",
     },
     {
