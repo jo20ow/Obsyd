@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     aishub_username: Optional[str] = None
     aishub_api_key: Optional[str] = None
 
+    # NASA FIRMS (BYOK)
+    firms_api_key: Optional[str] = None
+
     # LLM (BYOK)
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None

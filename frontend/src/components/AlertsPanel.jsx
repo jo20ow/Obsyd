@@ -16,6 +16,7 @@ const RULE_ICONS = {
   floating_storage: 'STOR',
   flow_anomaly: 'FLOW',
   cushing_drawdown: 'CUSH',
+  refinery_thermal: 'THERM',
   weather: 'WX',
 }
 
@@ -88,7 +89,7 @@ export default function AlertsPanel() {
                 className={`px-4 py-3 border-b border-border last:border-b-0 ${sev.border}`}
               >
                 <div className="flex items-start gap-2.5">
-                  <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${isWx ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
+                  <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${(isWx || a.rule === 'refinery_thermal') ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
                     {icon}
                   </div>
                   <div className="flex-1 min-w-0">

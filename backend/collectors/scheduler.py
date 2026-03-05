@@ -17,6 +17,7 @@ from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_secondary, collect_gdelt_sentiment
 from backend.collectors.jodi import collect_jodi
+from backend.collectors.firms import collect_firms
 from backend.signals.evaluator import evaluate_signals
 from backend.database import SessionLocal
 
@@ -107,6 +108,14 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # NASA FIRMS: thermal hotspots every 6 hours
+    scheduler.add_job(
+        collect_firms,
+        CronTrigger(hour="*/6", minute=15),
+        id="firms_6h",
+        replace_existing=True,
+    )
+
     # Signals: evaluate every 5 minutes
     scheduler.add_job(
         evaluate_signals,
@@ -119,7 +128,7 @@ def start_scheduler():
     logger.info(
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
         "PortWatch (weekly Tue), NOAA (every 30min), "
-        "GDELT (every 15min), JODI (monthly 15th), Signals (every 5min)"
+        "GDELT (every 15min), JODI (monthly 15th), FIRMS (every 6h), Signals (every 5min)"
     )
 
 

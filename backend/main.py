@@ -17,8 +17,10 @@ from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_sentiment
 from backend.collectors.jodi import collect_jodi
+from backend.collectors.firms import collect_firms
 from backend.routes import health, prices, vessels, alerts, ports, weather, sentiment
 from backend.routes import jodi as jodi_routes
+from backend.routes import thermal as thermal_routes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +41,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(collect_gdelt_volume())
     asyncio.create_task(collect_gdelt_sentiment())
     asyncio.create_task(collect_jodi())
+    asyncio.create_task(collect_firms())
     yield
     stop_aishub()
     stop_aisstream()
@@ -72,3 +75,4 @@ app.include_router(ports.router)
 app.include_router(weather.router)
 app.include_router(sentiment.router)
 app.include_router(jodi_routes.router)
+app.include_router(thermal_routes.router)

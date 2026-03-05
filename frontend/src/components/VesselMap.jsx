@@ -52,6 +52,8 @@ export default function VesselMap({ zones }) {
   const [vessels, setVessels] = useState([])
   const [globalVessels, setGlobalVessels] = useState([])
   const [mode, setMode] = useState('geofence') // 'geofence' | 'global'
+  const [showThermal, setShowThermal] = useState(false)
+  const [thermalData, setThermalData] = useState([])
   const [portwatch, setPortwatch] = useState(null)
   const [marine, setMarine] = useState({})
   const [hurricanes, setHurricanes] = useState([])
@@ -93,6 +95,11 @@ export default function VesselMap({ zones }) {
         const withCoords = data.filter((a) => a.latitude && a.longitude)
         setHurricanes(withCoords)
       })
+      .catch(() => {})
+
+    fetch(`${API}/thermal/hotspots`)
+      .then((r) => r.ok ? r.json() : [])
+      .then(setThermalData)
       .catch(() => {})
   }, [])
 
@@ -163,6 +170,29 @@ export default function VesselMap({ zones }) {
         getFillColor: [vessels.length, globalVessels.length],
       },
     }),
+    // Thermal hotspots layer (orange/yellow, size by brightness)
+    ...(showThermal && thermalData.length > 0
+      ? [
+          new ScatterplotLayer({
+            id: 'thermal',
+            data: thermalData,
+            getPosition: (d) => [d.lon, d.lat],
+            getRadius: (d) => Math.max(3, Math.min(10, (d.brightness - 300) / 20)),
+            radiusUnits: 'pixels',
+            radiusMinPixels: 3,
+            radiusMaxPixels: 12,
+            getFillColor: (d) => {
+              const t = Math.min(1, Math.max(0, (d.brightness - 300) / 100))
+              return [255, Math.floor(200 - t * 120), Math.floor(50 - t * 50), 180]
+            },
+            pickable: true,
+            updateTriggers: {
+              getRadius: [thermalData.length],
+              getFillColor: [thermalData.length],
+            },
+          }),
+        ]
+      : []),
     new ScatterplotLayer({
       id: 'hurricanes',
       data: hurricanes,
@@ -203,6 +233,18 @@ export default function VesselMap({ zones }) {
           <div>SOG: ${object.sog.toFixed(1)} kn</div>
         </div>`,
         style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '8px' },
+      }
+    }
+    if (layer.id === 'thermal') {
+      return {
+        html: `<div style="font-family:monospace;font-size:11px;color:#ffa000">
+          <div style="font-weight:bold">THERMAL HOTSPOT</div>
+          <div style="color:#c8c8d0">Brightness: ${object.brightness.toFixed(1)} K</div>
+          <div style="color:#c8c8d0">Confidence: ${object.confidence}</div>
+          <div style="color:#c8c8d0">Area: ${object.area_name}</div>
+          <div style="color:#c8c8d0">${object.acq_date} ${object.acq_time}</div>
+        </div>`,
+        style: { background: '#0a0a0f', border: '1px solid #ffa000', borderRadius: '4px', padding: '8px' },
       }
     }
     if (layer.id === 'geofences') {
@@ -253,6 +295,17 @@ export default function VesselMap({ zones }) {
               ALL VESSELS
             </button>
           </div>
+          {/* Thermal toggle */}
+          <button
+            onClick={() => setShowThermal((v) => !v)}
+            className={`px-2 py-0.5 border rounded transition-colors ${
+              showThermal
+                ? 'bg-orange-400/15 text-orange-400 border-orange-500/30'
+                : 'text-neutral-600 border-border hover:text-neutral-400'
+            }`}
+          >
+            THERMAL
+          </button>
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-cyan-glow" />
             <span className="text-neutral-400">
@@ -272,6 +325,12 @@ export default function VesselMap({ zones }) {
                 <span className="text-neutral-500">non-tanker</span>
               </span>
             </>
+          )}
+          {showThermal && thermalData.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-orange-400" />
+              <span className="text-orange-400">{thermalData.length} hotspots</span>
+            </span>
           )}
           {hurricanes.length > 0 && (
             <span className="flex items-center gap-1.5">
