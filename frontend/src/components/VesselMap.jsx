@@ -51,6 +51,7 @@ function zoneToPoly(bounds) {
 export default function VesselMap({ zones }) {
   const [vessels, setVessels] = useState([])
   const [vesselCount, setVesselCount] = useState(0)
+  const [portwatch, setPortwatch] = useState(null)
 
   const fetchVessels = useCallback(async () => {
     try {
@@ -63,6 +64,13 @@ export default function VesselMap({ zones }) {
     } catch {
       // silent fail, will retry
     }
+  }, [])
+
+  useEffect(() => {
+    fetch(`${API}/ports/summary`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setPortwatch(d) })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -160,6 +168,7 @@ export default function VesselMap({ zones }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {zones.map((z) => {
             const count = vessels.filter((v) => v.zone === z.name).length
+            const cp = portwatch?.chokepoints?.find((c) => c.zone === z.name)
             return (
               <div
                 key={z.name}
@@ -176,10 +185,29 @@ export default function VesselMap({ zones }) {
                 <div className="font-mono text-[10px] text-neutral-600 mt-0.5 leading-tight">
                   {z.display_name}
                 </div>
+                {cp && (
+                  <div className="mt-1.5 pt-1.5 border-t border-border">
+                    <div className="font-mono text-[10px] text-neutral-500">
+                      {cp.vessel_count} transits
+                      <span className="text-neutral-600"> / </span>
+                      {cp.vessel_count_tanker} tanker
+                    </div>
+                    {cp.capacity_tanker > 0 && (
+                      <div className="font-mono text-[10px] text-neutral-600">
+                        {(cp.capacity_tanker / 1000).toFixed(0)}k DWT
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
+        {portwatch && (
+          <div className="font-mono text-[9px] text-neutral-700 mt-2">
+            Source: IMF PortWatch{portwatch.date ? ` (${portwatch.date})` : ''}
+          </div>
+        )}
       </div>
     </div>
   )

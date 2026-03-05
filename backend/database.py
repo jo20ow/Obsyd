@@ -17,7 +17,7 @@ class Base(DeclarativeBase):
 
 def init_db():
     """Create all tables."""
-    from backend.models import EIAPrice, FREDSeries, VesselPosition, GeofenceEvent, Alert  # noqa: F811
+    from backend.models import EIAPrice, FREDSeries, VesselPosition, GeofenceEvent, Alert, PortActivity  # noqa: F811
     Base.metadata.create_all(bind=engine)
 
 

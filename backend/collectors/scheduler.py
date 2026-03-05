@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from backend.collectors.eia import collect_eia
 from backend.collectors.fred import collect_fred
+from backend.collectors.portwatch import collect_portwatch
 from backend.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -58,8 +59,16 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # PortWatch: weekly Tuesday 12:00 UTC
+    scheduler.add_job(
+        collect_portwatch,
+        CronTrigger(day_of_week="tue", hour=12, minute=0),
+        id="portwatch_weekly",
+        replace_existing=True,
+    )
+
     scheduler.start()
-    logger.info("Scheduler started: EIA (weekly Wed), FRED (daily)")
+    logger.info("Scheduler started: EIA (weekly Wed), FRED (daily), PortWatch (weekly Tue)")
 
 
 def stop_scheduler():
