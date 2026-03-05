@@ -23,6 +23,22 @@ class VesselPosition(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class GlobalVesselPosition(Base):
+    """All AIS vessel positions from AISHub (global, not zone-filtered)."""
+    __tablename__ = "global_vessel_positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mmsi: Mapped[str] = mapped_column(String, index=True)
+    ship_name: Mapped[str] = mapped_column(String, default="")
+    ship_type: Mapped[int] = mapped_column(Integer)
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    sog: Mapped[float] = mapped_column(Float)
+    cog: Mapped[float] = mapped_column(Float)
+    is_tanker: Mapped[bool] = mapped_column(Integer, default=False)  # SQLite: 0/1
+    zone: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+
+
 class GeofenceEvent(Base):
     """Aggregated geofence events (tanker counts, dwell times, anomalies)."""
     __tablename__ = "geofence_events"

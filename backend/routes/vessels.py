@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.database import get_db
-from backend.models.vessels import VesselPosition, GeofenceEvent
+from backend.models.vessels import VesselPosition, GeofenceEvent, GlobalVesselPosition
 from backend.geofences.zones import ZONES, NO_AIS_COVERAGE
 
 router = APIRouter(prefix="/api/vessels", tags=["vessels"])
@@ -44,6 +44,29 @@ async def get_vessel_positions(
             "cog": r.cog,
             "zone": r.zone,
             "timestamp": r.timestamp.isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/global")
+async def get_global_vessels(
+    limit: int = Query(5000, ge=1, le=10000),
+    db: Session = Depends(get_db),
+):
+    """Get all vessels from AISHub global snapshot (not just tankers/zones)."""
+    rows = db.query(GlobalVesselPosition).limit(limit).all()
+    return [
+        {
+            "mmsi": r.mmsi,
+            "ship_name": r.ship_name,
+            "ship_type": r.ship_type,
+            "lat": r.latitude,
+            "lon": r.longitude,
+            "sog": r.sog,
+            "cog": r.cog,
+            "is_tanker": bool(r.is_tanker),
+            "zone": r.zone,
         }
         for r in rows
     ]

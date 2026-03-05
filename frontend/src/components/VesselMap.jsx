@@ -50,23 +50,31 @@ function zoneToPoly(bounds) {
 
 export default function VesselMap({ zones }) {
   const [vessels, setVessels] = useState([])
-  const [vesselCount, setVesselCount] = useState(0)
+  const [globalVessels, setGlobalVessels] = useState([])
+  const [mode, setMode] = useState('geofence') // 'geofence' | 'global'
   const [portwatch, setPortwatch] = useState(null)
   const [marine, setMarine] = useState({})
   const [hurricanes, setHurricanes] = useState([])
 
   const fetchVessels = useCallback(async () => {
     try {
+      if (mode === 'global') {
+        const res = await fetch(`${API}/vessels/global?limit=5000`)
+        if (res.ok) {
+          const data = await res.json()
+          setGlobalVessels(data)
+        }
+      }
+      // Always fetch zone vessels for zone cards
       const res = await fetch(`${API}/vessels/positions?limit=2000`)
       if (res.ok) {
         const data = await res.json()
         setVessels(data)
-        setVesselCount(data.length)
       }
     } catch {
       // silent fail, will retry
     }
-  }, [])
+  }, [mode])
 
   useEffect(() => {
     fetch(`${API}/ports/summary`)
@@ -94,6 +102,8 @@ export default function VesselMap({ zones }) {
     return () => clearInterval(id)
   }, [fetchVessels])
 
+  const isGlobal = mode === 'global'
+
   const layers = [
     new PolygonLayer({
       id: 'geofences',
@@ -107,18 +117,50 @@ export default function VesselMap({ zones }) {
       stroked: true,
       pickable: true,
     }),
+    // Global vessels layer (grey, small dots)
+    ...(isGlobal
+      ? [
+          new ScatterplotLayer({
+            id: 'global-vessels',
+            data: globalVessels.filter((d) => !d.is_tanker || !d.zone),
+            getPosition: (d) => [d.lon, d.lat],
+            getRadius: 2,
+            radiusUnits: 'pixels',
+            radiusMinPixels: 1,
+            radiusMaxPixels: 4,
+            getFillColor: [120, 120, 140, 140],
+            pickable: true,
+            updateTriggers: { getPosition: [globalVessels.length] },
+          }),
+          new ScatterplotLayer({
+            id: 'global-tankers',
+            data: globalVessels.filter((d) => d.is_tanker && !d.zone),
+            getPosition: (d) => [d.lon, d.lat],
+            getRadius: 3,
+            radiusUnits: 'pixels',
+            radiusMinPixels: 2,
+            radiusMaxPixels: 5,
+            getFillColor: [0, 229, 255, 100],
+            pickable: true,
+            updateTriggers: { getPosition: [globalVessels.length] },
+          }),
+        ]
+      : []),
+    // Zone tankers layer (bright, larger dots) — always shown
     new ScatterplotLayer({
       id: 'vessels',
-      data: vessels,
+      data: isGlobal
+        ? globalVessels.filter((d) => d.is_tanker && d.zone)
+        : vessels,
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 4,
+      getRadius: isGlobal ? 5 : 4,
       radiusUnits: 'pixels',
       radiusMinPixels: 3,
       radiusMaxPixels: 8,
       getFillColor: (d) => d.sog < 0.5 ? [255, 80, 80, 220] : [0, 229, 255, 220],
       pickable: true,
       updateTriggers: {
-        getFillColor: [vessels.length],
+        getFillColor: [vessels.length, globalVessels.length],
       },
     }),
     new ScatterplotLayer({
@@ -141,14 +183,24 @@ export default function VesselMap({ zones }) {
 
   const getTooltip = ({ object, layer }) => {
     if (!object) return null
-    if (layer.id === 'vessels') {
+    if (layer.id === 'vessels' || layer.id === 'global-tankers') {
       return {
         html: `<div style="font-family:monospace;font-size:11px;color:#c8c8d0">
           <div style="color:#00e5ff;font-weight:bold">${object.ship_name || 'UNKNOWN'}</div>
           <div>MMSI: ${object.mmsi}</div>
           <div>SOG: ${object.sog.toFixed(1)} kn</div>
           <div>COG: ${object.cog.toFixed(1)}</div>
-          <div>Zone: ${object.zone}</div>
+          <div>Zone: ${object.zone || 'none'}</div>
+        </div>`,
+        style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '8px' },
+      }
+    }
+    if (layer.id === 'global-vessels') {
+      return {
+        html: `<div style="font-family:monospace;font-size:11px;color:#c8c8d0">
+          <div style="color:#787890;font-weight:bold">${object.ship_name || 'UNKNOWN'}</div>
+          <div>MMSI: ${object.mmsi} | Type: ${object.ship_type}</div>
+          <div>SOG: ${object.sog.toFixed(1)} kn</div>
         </div>`,
         style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '8px' },
       }
@@ -168,21 +220,59 @@ export default function VesselMap({ zones }) {
     return null
   }
 
+  const vesselCount = vessels.length
+  const globalCount = globalVessels.length
+
   return (
     <div className="border border-border bg-surface rounded">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
         <span className="font-mono text-xs text-neutral-500">
-          AIS VESSEL MAP // GEOFENCE MONITORING
+          AIS VESSEL MAP // {isGlobal ? 'GLOBAL VIEW' : 'GEOFENCE MONITORING'}
         </span>
         <div className="flex items-center gap-4 font-mono text-[10px]">
+          {/* Toggle */}
+          <div className="flex items-center border border-border rounded overflow-hidden">
+            <button
+              onClick={() => setMode('geofence')}
+              className={`px-2 py-0.5 transition-colors ${
+                !isGlobal
+                  ? 'bg-cyan-glow/15 text-cyan-glow'
+                  : 'text-neutral-600 hover:text-neutral-400'
+              }`}
+            >
+              GEOFENCE
+            </button>
+            <button
+              onClick={() => setMode('global')}
+              className={`px-2 py-0.5 transition-colors ${
+                isGlobal
+                  ? 'bg-cyan-glow/15 text-cyan-glow'
+                  : 'text-neutral-600 hover:text-neutral-400'
+              }`}
+            >
+              ALL VESSELS
+            </button>
+          </div>
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-cyan-glow" />
-            <span className="text-neutral-400">{vesselCount} tankers</span>
+            <span className="text-neutral-400">
+              {isGlobal ? `${globalCount} vessels` : `${vesselCount} tankers`}
+            </span>
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-red-400" />
-            <span className="text-neutral-400">SOG &lt; 0.5 kn</span>
-          </span>
+          {!isGlobal && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-red-400" />
+              <span className="text-neutral-400">SOG &lt; 0.5 kn</span>
+            </span>
+          )}
+          {isGlobal && (
+            <>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-neutral-500" />
+                <span className="text-neutral-500">non-tanker</span>
+              </span>
+            </>
+          )}
           {hurricanes.length > 0 && (
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-orange-400" />

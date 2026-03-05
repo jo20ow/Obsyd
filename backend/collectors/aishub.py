@@ -2,15 +2,12 @@
 AISHub HTTP Polling Collector.
 
 Polls AISHub API for worldwide vessel positions once per minute.
-Filters server-side for tankers (ship type 80-89) within our geofence zones.
+Stores ALL vessels in global_vessel_positions (replaced each cycle),
+and tankers within geofence zones in vessel_positions (appended).
 
 API docs: https://www.aishub.net/api
 Endpoint: https://data.aishub.net/ws.php
 Rate limit: 1 request per minute per user.
-
-Strategy: One global API call per minute (no bounding box), then filter
-each position against our 6 geofence zones. This maximises coverage —
-no wasted calls on zones that happen to be empty.
 """
 
 import asyncio
@@ -22,7 +19,7 @@ import httpx
 from backend.config import settings
 from backend.database import SessionLocal
 from backend.geofences.zones import find_zone, is_tanker, ZONES
-from backend.models.vessels import VesselPosition
+from backend.models.vessels import VesselPosition, GlobalVesselPosition
 
 logger = logging.getLogger(__name__)
 
@@ -33,63 +30,55 @@ REQUEST_TIMEOUT = 30  # global call returns more data, allow extra time
 _poll_task: asyncio.Task | None = None
 
 
-def _parse_global(data: list[dict]) -> list[VesselPosition]:
-    """Parse AISHub global response, keep only tankers inside a geofence zone."""
-    positions = []
-    for row in data:
-        ship_type = int(row.get("TYPE", 0) or 0)
-        if not is_tanker(ship_type):
-            continue
+def _parse_row(row: dict) -> dict | None:
+    """Parse a single AISHub vessel row into a dict. Returns None on bad data."""
+    try:
+        lat = float(row["LATITUDE"])
+        lon = float(row["LONGITUDE"])
+    except (KeyError, ValueError, TypeError):
+        return None
 
+    mmsi = str(row.get("MMSI", ""))
+    if not mmsi:
+        return None
+
+    ship_type = int(row.get("TYPE", 0) or 0)
+    sog = float(row.get("SOG", 0) or 0) / 10.0
+    cog = float(row.get("COG", 0) or 0) / 10.0
+    heading = float(row.get("HEADING", 0) or 0)
+    if heading == 511:
+        heading = cog
+
+    ship_name = str(row.get("NAME", "")).strip()
+
+    time_val = row.get("TIME")
+    if time_val:
         try:
-            lat = float(row["LATITUDE"])
-            lon = float(row["LONGITUDE"])
-        except (KeyError, ValueError, TypeError):
-            continue
-
-        zone = find_zone(lat, lon)
-        if zone is None:
-            continue
-
-        mmsi = str(row.get("MMSI", ""))
-        if not mmsi:
-            continue
-
-        sog = float(row.get("SOG", 0) or 0) / 10.0  # AISHub SOG is in 1/10 knot
-        cog = float(row.get("COG", 0) or 0) / 10.0  # AISHub COG is in 1/10 degree
-        heading = float(row.get("HEADING", 0) or 0)
-        if heading == 511:
-            heading = cog
-
-        ship_name = str(row.get("NAME", "")).strip()
-
-        time_val = row.get("TIME")
-        if time_val:
-            try:
-                ts = datetime.fromtimestamp(int(time_val), tz=timezone.utc)
-            except (ValueError, TypeError, OSError):
-                ts = datetime.now(timezone.utc)
-        else:
+            ts = datetime.fromtimestamp(int(time_val), tz=timezone.utc)
+        except (ValueError, TypeError, OSError):
             ts = datetime.now(timezone.utc)
+    else:
+        ts = datetime.now(timezone.utc)
 
-        positions.append(VesselPosition(
-            mmsi=mmsi,
-            ship_name=ship_name,
-            ship_type=ship_type,
-            latitude=lat,
-            longitude=lon,
-            sog=sog,
-            cog=cog,
-            heading=heading,
-            zone=zone["name"],
-            timestamp=ts,
-        ))
+    zone = find_zone(lat, lon)
 
-    return positions
+    return {
+        "mmsi": mmsi,
+        "ship_name": ship_name,
+        "ship_type": ship_type,
+        "lat": lat,
+        "lon": lon,
+        "sog": sog,
+        "cog": cog,
+        "heading": heading,
+        "is_tanker": is_tanker(ship_type),
+        "zone": zone,
+        "ts": ts,
+    }
 
 
 async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
-    """Fetch global positions, filter for tankers in zones. Returns per-zone counts."""
+    """Fetch global positions, store all + zone tankers. Returns per-zone tanker counts."""
     params = {
         "username": settings.aishub_api_key or settings.aishub_username,
         "format": "1",
@@ -132,19 +121,62 @@ async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
 
     logger.debug(f"AISHub: received {len(vessels_data)} global positions")
 
-    positions = _parse_global(vessels_data)
-    if not positions:
-        return {}
-
-    # Count per zone for logging
+    # Parse all rows
+    global_positions = []
+    zone_positions = []
     zone_counts: dict[str, int] = {}
-    for p in positions:
-        zone_counts[p.zone] = zone_counts.get(p.zone, 0) + 1
+
+    for row in vessels_data:
+        parsed = _parse_row(row)
+        if parsed is None:
+            continue
+
+        # Global table: all vessels (snapshot, replaced each cycle)
+        global_positions.append(GlobalVesselPosition(
+            mmsi=parsed["mmsi"],
+            ship_name=parsed["ship_name"],
+            ship_type=parsed["ship_type"],
+            latitude=parsed["lat"],
+            longitude=parsed["lon"],
+            sog=parsed["sog"],
+            cog=parsed["cog"],
+            is_tanker=parsed["is_tanker"],
+            zone=parsed["zone"]["name"] if parsed["zone"] else None,
+        ))
+
+        # Zone table: only tankers inside a geofence (appended for history)
+        if parsed["is_tanker"] and parsed["zone"]:
+            zone_name = parsed["zone"]["name"]
+            zone_counts[zone_name] = zone_counts.get(zone_name, 0) + 1
+            zone_positions.append(VesselPosition(
+                mmsi=parsed["mmsi"],
+                ship_name=parsed["ship_name"],
+                ship_type=parsed["ship_type"],
+                latitude=parsed["lat"],
+                longitude=parsed["lon"],
+                sog=parsed["sog"],
+                cog=parsed["cog"],
+                heading=parsed["heading"],
+                zone=zone_name,
+                timestamp=parsed["ts"],
+            ))
 
     db = SessionLocal()
     try:
-        db.add_all(positions)
+        # Replace global snapshot (delete old, insert new)
+        db.query(GlobalVesselPosition).delete()
+        if global_positions:
+            db.add_all(global_positions)
+
+        # Append zone tankers
+        if zone_positions:
+            db.add_all(zone_positions)
+
         db.commit()
+        logger.info(
+            f"AISHub: {len(global_positions)} global, "
+            f"{len(zone_positions)} zone tankers stored"
+        )
         return zone_counts
     except Exception as e:
         db.rollback()
@@ -166,10 +198,9 @@ async def _poll_loop():
                     continue
 
                 zone_counts = await _fetch_global(client)
-                total = sum(zone_counts.values()) if zone_counts else 0
                 if zone_counts:
                     breakdown = ", ".join(f"{z}={c}" for z, c in sorted(zone_counts.items()))
-                    logger.info(f"AISHub: {total} tankers stored ({breakdown})")
+                    logger.info(f"AISHub: zone tankers: {breakdown}")
 
                 # Log zones with no coverage (terrestrial AIS limitation)
                 all_zone_names = {z["name"] for z in ZONES}
