@@ -6,6 +6,7 @@ import MacroPanel from './components/MacroPanel'
 import SentimentPanel from './components/SentimentPanel'
 import VesselMap from './components/VesselMap'
 import AlertsPanel from './components/AlertsPanel'
+import FundamentalsPanel from './components/FundamentalsPanel'
 
 const API = '/api'
 
@@ -86,8 +87,9 @@ function App() {
     <div className="min-h-screen p-4 lg:p-6">
       <Header aisActive={aisActive} gdeltActive={gdeltActive} />
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-4">
           <PriceChart data={eiaData} />
+          <FundamentalsPanel />
         </div>
         <div className="space-y-4">
           <StatCards data={eiaData} live={liveData} />

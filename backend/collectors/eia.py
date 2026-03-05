@@ -44,6 +44,31 @@ EIA_SERIES = {
         "unit": "thousand barrels",
         "description": "Cushing OK Crude Oil Stocks (Weekly, WPSR)",
     },
+    # --- Fundamentals ---
+    "PET.WPULEUS3.W": {
+        "route": "petroleum/pnp/wiup/data/",
+        "facets": {"series": ["WPULEUS3"]},
+        "unit": "percent",
+        "description": "US Refinery Utilization Rate (Weekly)",
+    },
+    "PET.WCRIMUS2.W": {
+        "route": "petroleum/move/wkly/data/",
+        "facets": {"series": ["WCRIMUS2"]},
+        "unit": "thousand barrels per day",
+        "description": "US Crude Oil Imports (Weekly)",
+    },
+    "PET.WCREXUS2.W": {
+        "route": "petroleum/move/wkly/data/",
+        "facets": {"series": ["WCREXUS2"]},
+        "unit": "thousand barrels per day",
+        "description": "US Crude Oil Exports (Weekly)",
+    },
+    "PET.WCSSTUS1.W.SPR": {
+        "route": "petroleum/stoc/wstk/data/",
+        "facets": {"duoarea": ["NUS"], "product": ["EPC0"], "process": ["SAS"]},
+        "unit": "thousand barrels",
+        "description": "US Strategic Petroleum Reserve - SPR (Weekly)",
+    },
 }
 
 

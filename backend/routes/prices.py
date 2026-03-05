@@ -48,6 +48,36 @@ async def trigger_eia_collection(db: Session = Depends(get_db)):
     return {"status": "ok", "message": "EIA collection complete"}
 
 
+FUNDAMENTALS_SERIES = [
+    "PET.WPULEUS3.W",   # Refinery Utilization
+    "PET.WCRIMUS2.W",   # Crude Imports
+    "PET.WCREXUS2.W",   # Crude Exports
+    "PET.WCSSTUS1.W.SPR",  # SPR
+]
+
+
+@router.get("/eia/fundamentals")
+async def get_eia_fundamentals(
+    limit: int = Query(52, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Get EIA fundamentals: refinery utilization, imports, exports, SPR."""
+    result = {}
+    for sid in FUNDAMENTALS_SERIES:
+        rows = (
+            db.query(EIAPrice)
+            .filter(EIAPrice.series_id == sid)
+            .order_by(EIAPrice.period.desc())
+            .limit(limit)
+            .all()
+        )
+        result[sid] = [
+            {"period": r.period, "value": r.value, "unit": r.unit, "description": r.description}
+            for r in rows
+        ]
+    return result
+
+
 @router.get("/live")
 async def get_live_prices():
     """Get daily commodity prices from Alpha Vantage (BYOK, cached 15min)."""

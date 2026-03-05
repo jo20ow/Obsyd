@@ -4,3 +4,4 @@ from backend.models.alerts import Alert
 from backend.models.ports import PortActivity
 from backend.models.weather import WeatherAlert
 from backend.models.sentiment import GDELTVolume, SentimentScore
+from backend.models.jodi import JODIProduction
