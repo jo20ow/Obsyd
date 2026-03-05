@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import Header from './components/Header'
 import PriceChart from './components/PriceChart'
 import StatCards from './components/StatCards'
-import MapPlaceholder from './components/MapPlaceholder'
+import VesselMap from './components/VesselMap'
 
 const API = '/api'
 
@@ -77,7 +77,7 @@ function App() {
         </div>
       </div>
       <div className="mt-4">
-        <MapPlaceholder zones={zones} />
+        <VesselMap zones={zones} />
       </div>
     </div>
   )

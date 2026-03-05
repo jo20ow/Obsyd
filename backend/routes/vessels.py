@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from backend.database import get_db
 from backend.models.vessels import VesselPosition, GeofenceEvent
@@ -11,13 +12,26 @@ router = APIRouter(prefix="/api/vessels", tags=["vessels"])
 @router.get("/positions")
 async def get_vessel_positions(
     zone: str = Query(None, description="Filter by geofence zone name"),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(500, ge=1, le=2000),
     db: Session = Depends(get_db),
 ):
-    """Get recent vessel positions within geofences."""
-    query = db.query(VesselPosition).order_by(VesselPosition.timestamp.desc())
+    """Get the latest position per vessel (MMSI) within geofences."""
+    # Subquery: latest timestamp per MMSI
+    latest = (
+        db.query(VesselPosition.mmsi, func.max(VesselPosition.id).label("max_id"))
+        .group_by(VesselPosition.mmsi)
+        .subquery()
+    )
+
+    query = (
+        db.query(VesselPosition)
+        .join(latest, VesselPosition.id == latest.c.max_id)
+        .order_by(VesselPosition.timestamp.desc())
+    )
+
     if zone:
         query = query.filter(VesselPosition.zone == zone)
+
     rows = query.limit(limit).all()
     return [
         {

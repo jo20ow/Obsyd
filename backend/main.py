@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import init_db
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
+from backend.collectors.aisstream import start_aisstream, stop_aisstream
+from backend.collectors.aishub import start_aishub, stop_aishub
 from backend.routes import health, prices, vessels, alerts
 
 logging.basicConfig(
@@ -23,7 +25,11 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     init_db()
     start_scheduler()
+    start_aisstream()
+    start_aishub()
     yield
+    stop_aishub()
+    stop_aisstream()
     stop_scheduler()
 
 

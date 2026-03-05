@@ -10,10 +10,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.2.10",
+    "@deck.gl/layers": "^9.2.10",
+    "@deck.gl/react": "^9.2.10",
     "@tailwindcss/vite": "^4.2.1",
+    "deck.gl": "^9.2.10",
     "lightweight-charts": "^5.1.0",
+    "maplibre-gl": "^5.19.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-map-gl": "^8.1.0",
     "tailwindcss": "^4.2.1"
   },
   "devDependencies": {
