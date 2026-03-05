@@ -7,6 +7,7 @@ import SentimentPanel from './components/SentimentPanel'
 import VesselMap from './components/VesselMap'
 import AlertsPanel from './components/AlertsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
+import JODIPanel from './components/JODIPanel'
 
 const API = '/api'
 
@@ -90,6 +91,7 @@ function App() {
         <div className="lg:col-span-2 space-y-4">
           <PriceChart data={eiaData} />
           <FundamentalsPanel />
+          <JODIPanel />
         </div>
         <div className="space-y-4">
           <StatCards data={eiaData} live={liveData} />

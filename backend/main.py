@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.database import init_db
+from backend.database import init_db, SessionLocal
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.collectors.aisstream import start_aisstream, stop_aisstream
 from backend.collectors.aishub import start_aishub, stop_aishub
@@ -29,6 +29,13 @@ logging.basicConfig(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # TODO: Remove this one-time cleanup after first restart
+    from backend.models.alerts import Alert
+    _db = SessionLocal()
+    deleted = _db.query(Alert).delete()
+    _db.commit()
+    _db.close()
+    logging.getLogger(__name__).info(f"Startup cleanup: deleted {deleted} old alerts")
     start_scheduler()
     start_aisstream()
     start_aishub()
