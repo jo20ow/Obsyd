@@ -1,16 +1,16 @@
 """
 AISHub HTTP Polling Collector.
 
-Polls AISHub API for vessel positions within our geofence bounding boxes.
-Acts as fallback when aisstream.io WebSocket is unavailable.
+Polls AISHub API for worldwide vessel positions once per minute.
+Filters server-side for tankers (ship type 80-89) within our geofence zones.
 
 API docs: https://www.aishub.net/api
 Endpoint: https://data.aishub.net/ws.php
 Rate limit: 1 request per minute per user.
 
-Strategy: One zone per minute, rotating through all 6 zones.
-Full cycle every 6 minutes. Pause polling when aisstream
-WebSocket is active (aisstream takes priority).
+Strategy: One global API call per minute (no bounding box), then filter
+each position against our 6 geofence zones. This maximises coverage —
+no wasted calls on zones that happen to be empty.
 """
 
 import asyncio
@@ -21,34 +21,38 @@ import httpx
 
 from backend.config import settings
 from backend.database import SessionLocal
-from backend.geofences.zones import ZONES, is_tanker
+from backend.geofences.zones import find_zone, is_tanker
 from backend.models.vessels import VesselPosition
 
 logger = logging.getLogger(__name__)
 
 AISHUB_URL = "https://data.aishub.net/ws.php"
 POLL_INTERVAL = 60  # seconds between requests (1 req/min rate limit)
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 30  # global call returns more data, allow extra time
 
 _poll_task: asyncio.Task | None = None
 
 
-def _parse_vessels(data: list[dict], zone: dict) -> list[VesselPosition]:
-    """Parse AISHub response rows into VesselPosition objects, filtering for tankers."""
+def _parse_global(data: list[dict]) -> list[VesselPosition]:
+    """Parse AISHub global response, keep only tankers inside a geofence zone."""
     positions = []
     for row in data:
         ship_type = int(row.get("TYPE", 0) or 0)
         if not is_tanker(ship_type):
             continue
 
-        mmsi = str(row.get("MMSI", ""))
-        if not mmsi:
-            continue
-
         try:
             lat = float(row["LATITUDE"])
             lon = float(row["LONGITUDE"])
         except (KeyError, ValueError, TypeError):
+            continue
+
+        zone = find_zone(lat, lon)
+        if zone is None:
+            continue
+
+        mmsi = str(row.get("MMSI", ""))
+        if not mmsi:
             continue
 
         sog = float(row.get("SOG", 0) or 0) / 10.0  # AISHub SOG is in 1/10 knot
@@ -59,7 +63,6 @@ def _parse_vessels(data: list[dict], zone: dict) -> list[VesselPosition]:
 
         ship_name = str(row.get("NAME", "")).strip()
 
-        # AISHub TIME is epoch seconds
         time_val = row.get("TIME")
         if time_val:
             try:
@@ -85,77 +88,74 @@ def _parse_vessels(data: list[dict], zone: dict) -> list[VesselPosition]:
     return positions
 
 
-async def _fetch_zone(client: httpx.AsyncClient, zone: dict) -> int:
-    """Fetch vessels for a single geofence zone. Returns count of tankers stored."""
-    (lat_min, lon_min), (lat_max, lon_max) = zone["bounds"]
-
+async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
+    """Fetch global positions, filter for tankers in zones. Returns per-zone counts."""
     params = {
         "username": settings.aishub_api_key or settings.aishub_username,
         "format": "1",
         "output": "json",
         "compress": "0",
-        "latmin": str(lat_min),
-        "latmax": str(lat_max),
-        "lonmin": str(lon_min),
-        "lonmax": str(lon_max),
     }
 
     try:
         resp = await client.get(AISHUB_URL, params=params, timeout=REQUEST_TIMEOUT)
     except httpx.HTTPError as e:
-        logger.warning(f"AISHub: request failed for {zone['name']}: {e}")
-        return 0
+        logger.warning(f"AISHub: global request failed: {e}")
+        return {}
 
     if resp.status_code != 200:
-        logger.warning(f"AISHub: HTTP {resp.status_code} for {zone['name']}")
-        return 0
+        logger.warning(f"AISHub: HTTP {resp.status_code}")
+        return {}
 
     try:
         body = resp.json()
     except Exception:
-        logger.warning(f"AISHub: invalid JSON for {zone['name']}")
-        return 0
+        logger.warning("AISHub: invalid JSON response")
+        return {}
 
-    # AISHub returns a list: first element is metadata, second is vessel array
-    # Format: [{"ERROR": false, ...}, [vessel1, vessel2, ...]]
+    # AISHub returns [metadata, [vessel1, vessel2, ...]]
     if not isinstance(body, list) or len(body) < 2:
-        # Check for error response
         if isinstance(body, list) and len(body) == 1:
             meta = body[0]
             if meta.get("ERROR"):
-                logger.warning(f"AISHub: API error for {zone['name']}: {meta.get('ERROR_MESSAGE', 'unknown')}")
-        return 0
+                logger.warning(f"AISHub: API error: {meta.get('ERROR_MESSAGE', 'unknown')}")
+        return {}
 
     meta = body[0]
     if meta.get("ERROR"):
-        logger.warning(f"AISHub: API error for {zone['name']}: {meta.get('ERROR_MESSAGE', 'unknown')}")
-        return 0
+        logger.warning(f"AISHub: API error: {meta.get('ERROR_MESSAGE', 'unknown')}")
+        return {}
 
     vessels_data = body[1]
     if not isinstance(vessels_data, list):
-        return 0
+        return {}
 
-    positions = _parse_vessels(vessels_data, zone)
+    logger.debug(f"AISHub: received {len(vessels_data)} global positions")
+
+    positions = _parse_global(vessels_data)
     if not positions:
-        return 0
+        return {}
+
+    # Count per zone for logging
+    zone_counts: dict[str, int] = {}
+    for p in positions:
+        zone_counts[p.zone] = zone_counts.get(p.zone, 0) + 1
 
     db = SessionLocal()
     try:
         db.add_all(positions)
         db.commit()
-        return len(positions)
+        return zone_counts
     except Exception as e:
         db.rollback()
-        logger.error(f"AISHub: DB write failed for {zone['name']}: {e}")
-        return 0
+        logger.error(f"AISHub: DB write failed: {e}")
+        return {}
     finally:
         db.close()
 
 
 async def _poll_loop():
-    """Main polling loop. One zone per minute, rotating through all 6."""
-    zone_idx = 0
-
+    """Main polling loop. One global call per minute."""
     async with httpx.AsyncClient() as client:
         while True:
             try:
@@ -165,12 +165,11 @@ async def _poll_loop():
                     await asyncio.sleep(POLL_INTERVAL)
                     continue
 
-                zone = ZONES[zone_idx]
-                count = await _fetch_zone(client, zone)
-                if count > 0:
-                    logger.info(f"AISHub: {zone['name']} — {count} tankers stored")
-
-                zone_idx = (zone_idx + 1) % len(ZONES)
+                zone_counts = await _fetch_global(client)
+                if zone_counts:
+                    total = sum(zone_counts.values())
+                    breakdown = ", ".join(f"{z}={c}" for z, c in sorted(zone_counts.items()))
+                    logger.info(f"AISHub: {total} tankers stored ({breakdown})")
 
             except asyncio.CancelledError:
                 logger.info("AISHub: poll task cancelled")
@@ -190,7 +189,7 @@ def start_aishub():
 
     loop = asyncio.get_event_loop()
     _poll_task = loop.create_task(_poll_loop())
-    logger.info("AISHub: background polling task started")
+    logger.info("AISHub: background polling task started (global mode)")
 
 
 def stop_aishub():
