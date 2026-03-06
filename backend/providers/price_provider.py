@@ -68,17 +68,15 @@ def set_providers(primary: str, fallback: str | None = None):
 
 async def get_live_prices() -> dict:
     """
-    Hybrid price strategy — always merges real commodity prices with metals.
+    Hybrid price strategy — real commodity prices from multiple sources.
 
-    Energy (WTI $/bbl, Brent, NG): Alpha Vantage → FRED fallback (real prices)
-    Metals (GOLD spot, SILVER ETF, COPPER ETF): Twelve Data (when key set)
-
-    The primary/fallback setting controls energy source priority.
-    Twelve Data is always used for metals enrichment regardless of setting.
+    Alpha Vantage: WTI ($/bbl), Brent, NG, Copper ($/mt) — real prices
+    FRED: WTI, Brent daily fallback
+    Twelve Data: Gold spot (XAU/USD) — real $/oz price
     """
-    # Step 1: Get real energy prices from AV or FRED
-    energy_prices = {}
-    energy_source = None
+    # Step 1: Get commodity prices from AV (includes energy + copper) or FRED
+    commodity_prices = {}
+    commodity_source = None
 
     for provider_name in ("alphavantage", "fred"):
         provider = PROVIDERS.get(provider_name)
@@ -88,32 +86,28 @@ async def get_live_prices() -> dict:
             result = await provider.get_live_prices()
             p = result.get("prices", {})
             if p:
-                energy_prices = {k: v for k, v in p.items() if k in ("WTI", "BRENT", "NG")}
-                energy_source = result.get("source")
-                if energy_prices:
+                commodity_prices = dict(p)
+                commodity_source = result.get("source")
+                if commodity_prices:
                     break
         except Exception as e:
-            logger.warning(f"Energy from {provider_name} failed: {e}")
+            logger.warning(f"Commodities from {provider_name} failed: {e}")
 
-    # Step 2: Get metals from Twelve Data
-    metals_prices = {}
+    # Step 2: Get Gold spot from Twelve Data (XAU/USD)
     if settings.twelvedata_api_key:
         try:
             td_result = await twelvedata_provider.get_live_prices()
             td_prices = td_result.get("prices", {})
-            for key in ("GOLD", "SILVER_ETF", "COPPER_ETF"):
-                if key in td_prices:
-                    metals_prices[key] = td_prices[key]
+            if "GOLD" in td_prices:
+                commodity_prices["GOLD"] = td_prices["GOLD"]
         except Exception as e:
-            logger.warning(f"Twelve Data metals failed: {e}")
+            logger.warning(f"Twelve Data gold failed: {e}")
 
-    # Step 3: Merge
-    prices = {**energy_prices, **metals_prices}
-    if not prices:
+    # Step 3: Return merged result
+    if not commodity_prices:
         return {"available": False, "source": None, "prices": {}}
 
-    source = energy_source or ("twelvedata" if metals_prices else None)
-    return {"available": True, "source": source, "prices": prices}
+    return {"available": True, "source": commodity_source or "twelvedata", "prices": commodity_prices}
 
 
 async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 96) -> dict:

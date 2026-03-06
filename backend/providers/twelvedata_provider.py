@@ -25,24 +25,19 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.twelvedata.com"
 
-# Internal label -> Twelve Data symbol
-# Note: ETF prices ≠ commodity spot prices. They track direction/momentum.
+# Symbols available on Twelve Data Free Tier
+# Only XAU/USD provides a real commodity spot price.
+# ETFs (USO, BNO, UNG) are used for intraday charts only.
 SYMBOLS = {
     "GOLD": "XAU/USD",     # Gold spot (real $/oz price)
-    "WTI_ETF": "USO",      # WTI Oil ETF (price-action proxy)
-    "BRENT_ETF": "BNO",    # Brent Oil ETF (price-action proxy)
-    "NG_ETF": "UNG",       # Natural Gas ETF (price-action proxy)
-    "SILVER_ETF": "SLV",   # Silver ETF (price-action proxy)
-    "COPPER_ETF": "COPX",  # Copper miners ETF (price-action proxy)
 }
 
-# For intraday chart requests — maps user-facing symbol to TD symbol
+# For intraday chart requests — ETF proxies for price-action charts
 INTRADAY_SYMBOLS = {
     "WTI": "USO",
     "BRENT": "BNO",
     "NG": "UNG",
     "GOLD": "XAU/USD",
-    "SILVER": "SLV",
     "COPPER": "COPX",
 }
 
@@ -50,11 +45,6 @@ _REVERSE = {v: k for k, v in SYMBOLS.items()}
 
 DISPLAY_NAMES = {
     "GOLD": "Gold Spot (XAU/USD)",
-    "WTI_ETF": "WTI Oil ETF (USO)",
-    "BRENT_ETF": "Brent Oil ETF (BNO)",
-    "NG_ETF": "Nat Gas ETF (UNG)",
-    "SILVER_ETF": "Silver ETF (SLV)",
-    "COPPER_ETF": "Copper ETF (COPX)",
 }
 
 # In-memory cache

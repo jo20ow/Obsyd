@@ -91,7 +91,7 @@ async def get_commodities():
     prices = result.get("prices", {})
 
     energy = {k: v for k, v in prices.items() if k in ("WTI", "BRENT", "NG")}
-    metals = {k: v for k, v in prices.items() if k in ("GOLD", "SILVER_ETF", "COPPER_ETF")}
+    metals = {k: v for k, v in prices.items() if k in ("GOLD", "COPPER")}
     agriculture = {}
 
     return {

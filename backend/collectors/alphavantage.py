@@ -21,6 +21,7 @@ COMMODITIES = {
     "WTI": {"function": "WTI", "description": "WTI Crude Oil (Daily)"},
     "BRENT": {"function": "BRENT", "description": "Brent Crude Oil (Daily)"},
     "NG": {"function": "NATURAL_GAS", "description": "Henry Hub Natural Gas (Daily)"},
+    "COPPER": {"function": "COPPER", "description": "Copper (Daily, $/mt)"},
 }
 
 CACHE_TTL = 900  # 15 minutes in seconds
