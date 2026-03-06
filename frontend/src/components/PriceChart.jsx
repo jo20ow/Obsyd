@@ -52,6 +52,7 @@ export default function PriceChart({ data }) {
   const [timeframe, setTimeframe] = useState(TIMEFRAMES[3]) // 3M default
   const [symbol, setSymbol] = useState(SYMBOLS[0]) // WTI default
   const [intradayData, setIntradayData] = useState(null)
+  const [intradayProxy, setIntradayProxy] = useState(null) // e.g. "USO ETF"
   const [loading, setLoading] = useState(false)
 
   // Fetch intraday data when timeframe/symbol change
@@ -65,6 +66,7 @@ export default function PriceChart({ data }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         setIntradayData(d?.data?.length ? d.data : null)
+        setIntradayProxy(d?.is_proxy ? d.proxy_symbol : null)
         setLoading(false)
       })
       .catch((e) => {
@@ -248,6 +250,11 @@ export default function PriceChart({ data }) {
           )}
         </div>
       </div>
+      {isIntraday && intradayProxy && (
+        <div className="px-4 py-1.5 font-mono text-[10px] text-orange-400/80 bg-orange-400/5 border-b border-orange-400/10">
+          Intraday via {intradayProxy} — price action only, not spot price
+        </div>
+      )}
       <div ref={containerRef} className="h-[350px] w-full" />
       {isIntraday && !intradayData && !loading && (
         <div className="px-4 py-2 font-mono text-[10px] text-neutral-600">

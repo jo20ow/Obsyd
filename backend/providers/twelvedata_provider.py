@@ -208,4 +208,15 @@ async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 9
 
     ohlcv.reverse()
 
-    return {"source": "twelvedata", "symbol": symbol, "interval": interval, "data": ohlcv}
+    # Flag ETF proxies so the frontend can label them correctly
+    is_proxy = td_sym != symbol.upper()  # e.g. USO != WTI
+    proxy_label = f"{td_sym} ETF" if is_proxy else None
+
+    return {
+        "source": "twelvedata",
+        "symbol": symbol,
+        "interval": interval,
+        "data": ohlcv,
+        "is_proxy": is_proxy,
+        "proxy_symbol": proxy_label,
+    }

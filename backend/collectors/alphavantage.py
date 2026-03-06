@@ -1,8 +1,9 @@
 """
 Alpha Vantage Commodity Collector (BYOK).
 
-Fetches daily commodity prices (WTI, Brent, Natural Gas).
-Free tier: 25 calls/day. Responses cached for 15 minutes.
+Fetches daily commodity prices (WTI, Brent, Natural Gas, Copper).
+Free tier: 25 calls/day. Responses cached for 4 hours to stay within budget.
+Budget: 4 commodities x 6 refreshes/day = 24 calls (under 25 limit).
 """
 
 import asyncio
@@ -24,7 +25,7 @@ COMMODITIES = {
     "COPPER": {"function": "COPPER", "description": "Copper (Daily, $/mt)"},
 }
 
-CACHE_TTL = 900  # 15 minutes in seconds
+CACHE_TTL = 14400  # 4 hours in seconds (25 calls/day budget: 4 commodities x 6 = 24)
 
 _cache: dict[str, dict] = {}
 _cache_ts: float = 0.0
@@ -113,6 +114,6 @@ async def fetch_live_commodities() -> dict:
     if results:
         _cache = results
         _cache_ts = now
-        logger.info(f"Alpha Vantage: cached {len(results)} commodities for 15min")
+        logger.info(f"Alpha Vantage: cached {len(results)} commodities for 4h")
 
     return results

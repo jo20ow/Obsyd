@@ -4,6 +4,10 @@ APScheduler setup for periodic data collection.
 Schedule:
   - EIA: Weekly (Wednesday, after EIA publishes WPSR)
   - FRED: Daily
+  - Live prices: Every 4 hours (AV 25 calls/day budget)
+  - GDELT: Every 2 hours (avoid 429 rate limiting)
+  - FIRMS: DISABLED (0 data since deployment)
+  - NOAA: DISABLED (0 data since deployment)
 """
 
 import logging
@@ -14,10 +18,8 @@ from apscheduler.triggers.cron import CronTrigger
 from backend.collectors.eia import collect_eia
 from backend.collectors.fred import collect_fred
 from backend.collectors.portwatch import collect_portwatch
-from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_secondary, collect_gdelt_sentiment
 from backend.collectors.jodi import collect_jodi
-from backend.collectors.firms import collect_firms
 from backend.collectors.geofence_aggregator import aggregate_geofence_events
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.signals.evaluator import evaluate_signals
@@ -86,19 +88,16 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # NOAA: weather alerts every 30 minutes
-    scheduler.add_job(
-        collect_noaa_alerts,
-        CronTrigger(minute="*/30"),
-        id="noaa_30min",
-        replace_existing=True,
-    )
+    # NOAA: DISABLED — 0 alerts stored since deployment
+    # Re-enable during hurricane season (Jun-Nov) after debugging collector
+    # scheduler.add_job(collect_noaa_alerts, CronTrigger(minute="*/30"),
+    #     id="noaa_30min", replace_existing=True)
 
-    # GDELT: primary keywords every 15 min, secondary hourly, sentiment daily
+    # GDELT: primary keywords every 2 hours (was 15min, caused 429s)
     scheduler.add_job(
         collect_gdelt_volume,
-        CronTrigger(minute="*/15"),
-        id="gdelt_primary_15min",
+        CronTrigger(minute=0, hour="*/2"),
+        id="gdelt_primary_2h",
         replace_existing=True,
     )
     scheduler.add_job(
@@ -122,13 +121,10 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # NASA FIRMS: thermal hotspots every 6 hours
-    scheduler.add_job(
-        collect_firms,
-        CronTrigger(hour="*/6", minute=15),
-        id="firms_6h",
-        replace_existing=True,
-    )
+    # NASA FIRMS: DISABLED — 0 hotspots stored since deployment
+    # Re-enable after debugging FIRMS API response
+    # scheduler.add_job(collect_firms, CronTrigger(hour="*/6", minute=15),
+    #     id="firms_6h", replace_existing=True)
 
     # PortWatch chokepoint backfill: daily at 06:00 UTC
     scheduler.add_job(
@@ -154,10 +150,10 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Live prices: refresh every 15 minutes via provider
+    # Live prices: refresh every 4 hours (AV free tier: 25 calls/day, 4 commodities each)
     scheduler.add_job(
         refresh_live_prices,
-        CronTrigger(minute="*/15"),
+        CronTrigger(hour="2,6,10,14,18,22", minute=0),
         id="live_price_refresh",
         replace_existing=True,
     )
@@ -173,8 +169,9 @@ def start_scheduler():
     scheduler.start()
     logger.info(
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
-        "PortWatch (weekly Tue), NOAA (every 30min), "
-        "GDELT (every 15min), JODI (monthly 15th), FIRMS (every 6h), Signals (every 5min)"
+        "PortWatch (weekly Tue), GDELT (every 2h), JODI (monthly 15th), "
+        "Live prices (every 4h), Signals (every 5min) | "
+        "DISABLED: FIRMS, NOAA"
     )
 
 
