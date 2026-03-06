@@ -68,34 +68,59 @@ def set_providers(primary: str, fallback: str | None = None):
 
 async def get_live_prices() -> dict:
     """
-    Fetch live prices from the primary provider.
-    Falls back to fallback on failure.
-    Returns: {"available": bool, "source": str, "prices": {...}}
+    Fetch live prices using a hybrid approach:
+    - Alpha Vantage provides real commodity prices (WTI $/bbl, Brent, NG)
+    - Twelve Data provides Gold spot (XAU/USD) and ETF proxies for metals
+    - FRED provides daily fallback for WTI/Brent
+
+    Energy prices (WTI, BRENT, NG) always come from AV or FRED (real prices).
+    Metals (GOLD, SILVER, COPPER) come from Twelve Data when available.
     """
     primary, fallback = get_active_providers()
 
-    # Try primary
+    # Try primary provider first
     provider = PROVIDERS.get(primary)
+    primary_result = None
     if provider:
         try:
-            result = await provider.get_live_prices()
-            if result.get("prices"):
-                return {"available": True, **result}
+            primary_result = await provider.get_live_prices()
         except Exception as e:
             logger.warning(f"Primary provider {primary} failed: {e}")
 
-    # Try fallback
-    if fallback:
+    # Try fallback if primary didn't deliver
+    fallback_result = None
+    if fallback and (not primary_result or not primary_result.get("prices")):
         provider = PROVIDERS.get(fallback)
         if provider:
             try:
-                result = await provider.get_live_prices()
-                if result.get("prices"):
-                    return {"available": True, **result}
+                fallback_result = await provider.get_live_prices()
             except Exception as e:
                 logger.warning(f"Fallback provider {fallback} failed: {e}")
 
-    return {"available": False, "source": None, "prices": {}}
+    # Merge: use the best result, enrich with Twelve Data metals if available
+    best = primary_result if primary_result and primary_result.get("prices") else fallback_result
+    if not best or not best.get("prices"):
+        return {"available": False, "source": None, "prices": {}}
+
+    prices = dict(best.get("prices", {}))
+    source = best.get("source", "unknown")
+
+    # If primary source is NOT twelvedata, try to enrich with TD metals
+    if source != "twelvedata" and settings.twelvedata_api_key:
+        try:
+            td_result = await twelvedata_provider.get_live_prices()
+            td_prices = td_result.get("prices", {})
+            # Add Gold (real spot price from XAU/USD)
+            if "GOLD" in td_prices:
+                prices["GOLD"] = td_prices["GOLD"]
+            # Add ETF proxies for metals panel
+            for key in ("SILVER_ETF", "COPPER_ETF"):
+                if key in td_prices:
+                    prices[key] = td_prices[key]
+        except Exception as e:
+            logger.warning(f"Twelve Data enrichment failed: {e}")
+
+    return {"available": True, "source": source, "prices": prices}
 
 
 async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 96) -> dict:

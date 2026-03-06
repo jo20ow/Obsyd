@@ -33,8 +33,8 @@ const ENERGY_CARDS = [
 
 const COMMODITY_CARDS = [
   { key: 'GOLD', label: 'GOLD', unit: '$/oz', valueClass: 'text-yellow-400' },
-  { key: 'SILVER', label: 'SILVER', unit: '$/oz', valueClass: 'text-neutral-300' },
-  { key: 'COPPER', label: 'COPPER', unit: '$/lb', valueClass: 'text-orange-400' },
+  { key: 'SILVER_ETF', label: 'SILVER (SLV)', unit: 'ETF $', valueClass: 'text-neutral-300' },
+  { key: 'COPPER_ETF', label: 'COPPER (COPX)', unit: 'ETF $', valueClass: 'text-orange-400' },
 ]
 
 function getLatestTwo(data, seriesId) {

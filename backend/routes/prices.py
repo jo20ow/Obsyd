@@ -91,8 +91,8 @@ async def get_commodities():
     prices = result.get("prices", {})
 
     energy = {k: v for k, v in prices.items() if k in ("WTI", "BRENT", "NG")}
-    metals = {k: v for k, v in prices.items() if k in ("GOLD", "SILVER", "COPPER")}
-    agriculture = {k: v for k, v in prices.items() if k in ("CORN", "SOYBEANS", "WHEAT")}
+    metals = {k: v for k, v in prices.items() if k in ("GOLD", "SILVER_ETF", "COPPER_ETF")}
+    agriculture = {}
 
     return {
         "source": result.get("source"),
@@ -104,7 +104,7 @@ async def get_commodities():
 
 @router.get("/intraday")
 async def get_intraday(
-    symbol: str = Query("WTI", description="Symbol: WTI, BRENT, NG, GOLD, SILVER, COPPER, CORN, SOYBEANS, WHEAT"),
+    symbol: str = Query("WTI", description="Symbol: WTI, BRENT, NG, GOLD, SILVER, COPPER"),
     interval: str = Query("15min", description="Interval: 1min, 5min, 15min, 30min, 1h, 2h, 4h"),
     outputsize: int = Query(96, ge=1, le=5000, description="Number of data points"),
 ):

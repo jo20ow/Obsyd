@@ -1,17 +1,16 @@
 """
-Twelve Data Provider — commodity prices via ETF proxies and forex pairs.
+Twelve Data Provider — commodity prices via best available symbols.
 
-Free tier: 800 credits/day, 8 credits/minute.
-Each symbol in a batch = 1 credit. Max 8 symbols per request.
+Free Tier limitations:
+  - 800 credits/day, 8 credits/minute
+  - NO commodity futures (CL, BZ, NG, HG)
+  - NO precious metals forex except XAU/USD
+  - ETFs and US stocks available
 
-Symbols (Free Tier compatible):
-  USO  (WTI proxy ETF)
-  BNO  (Brent proxy ETF)
-  UNG  (Natural Gas proxy ETF)
-  XAU/USD (Gold spot, forex)
-  GLD  (Gold ETF)
-  SLV  (Silver ETF)
-  COPX (Copper miners ETF)
+Strategy:
+  - XAU/USD for gold (real spot price, free tier)
+  - Oil/gas ETFs as price-action proxies (not real $/bbl prices)
+  - Intraday charts work for all symbols
 """
 
 import logging
@@ -26,8 +25,19 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.twelvedata.com"
 
-# Internal label -> Twelve Data symbol (ETFs + forex, all Free Tier)
+# Internal label -> Twelve Data symbol
+# Note: ETF prices ≠ commodity spot prices. They track direction/momentum.
 SYMBOLS = {
+    "GOLD": "XAU/USD",     # Gold spot (real $/oz price)
+    "WTI_ETF": "USO",      # WTI Oil ETF (price-action proxy)
+    "BRENT_ETF": "BNO",    # Brent Oil ETF (price-action proxy)
+    "NG_ETF": "UNG",       # Natural Gas ETF (price-action proxy)
+    "SILVER_ETF": "SLV",   # Silver ETF (price-action proxy)
+    "COPPER_ETF": "COPX",  # Copper miners ETF (price-action proxy)
+}
+
+# For intraday chart requests — maps user-facing symbol to TD symbol
+INTRADAY_SYMBOLS = {
     "WTI": "USO",
     "BRENT": "BNO",
     "NG": "UNG",
@@ -36,16 +46,15 @@ SYMBOLS = {
     "COPPER": "COPX",
 }
 
-# Reverse mapping
 _REVERSE = {v: k for k, v in SYMBOLS.items()}
 
 DISPLAY_NAMES = {
-    "WTI": "WTI Crude (USO)",
-    "BRENT": "Brent Crude (BNO)",
-    "NG": "Natural Gas (UNG)",
-    "GOLD": "Gold Spot",
-    "SILVER": "Silver (SLV)",
-    "COPPER": "Copper (COPX)",
+    "GOLD": "Gold Spot (XAU/USD)",
+    "WTI_ETF": "WTI Oil ETF (USO)",
+    "BRENT_ETF": "Brent Oil ETF (BNO)",
+    "NG_ETF": "Nat Gas ETF (UNG)",
+    "SILVER_ETF": "Silver ETF (SLV)",
+    "COPPER_ETF": "Copper ETF (COPX)",
 }
 
 # In-memory cache
@@ -78,8 +87,10 @@ def get_credits_used() -> dict:
 
 async def get_live_prices() -> dict:
     """
-    Fetch all commodity prices in one batch (6 symbols = 6 credits).
-    Under the 8/min limit. Results cached for 15 minutes.
+    Fetch prices via Twelve Data.
+    Only GOLD (XAU/USD) is a real spot price.
+    ETF prices are included for metals/energy panel display.
+    Results cached for 15 minutes.
     """
     global _price_cache, _price_cache_ts
 
@@ -108,7 +119,6 @@ async def get_live_prices() -> dict:
         logger.error(f"Twelve Data batch quote failed: {e}")
         return {"source": None, "prices": {}}
 
-    # Handle rate limit or API error
     if isinstance(data, dict) and data.get("status") == "error":
         logger.warning(f"Twelve Data API: {data.get('message', '')}")
         return {"source": None, "prices": {}}
@@ -116,7 +126,7 @@ async def get_live_prices() -> dict:
     prices = {}
     for td_sym, our_label in _REVERSE.items():
         quote = data.get(td_sym)
-        if not quote or isinstance(quote, dict) and quote.get("status") == "error":
+        if not quote or (isinstance(quote, dict) and quote.get("status") == "error"):
             continue
 
         try:
@@ -142,23 +152,23 @@ async def get_live_prices() -> dict:
     if prices:
         _price_cache = prices
         _price_cache_ts = now
-        logger.info(f"Twelve Data: cached {len(prices)} commodities ({len(SYMBOLS)} credits used)")
+        logger.info(f"Twelve Data: cached {len(prices)} symbols ({len(SYMBOLS)} credits)")
 
     return {"source": "twelvedata", "prices": prices}
 
 
 async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 96) -> dict:
     """
-    Fetch intraday OHLCV time series for a single symbol.
-    1 credit per call.
+    Fetch intraday OHLCV time series. 1 credit per call.
+    Uses ETF proxies for intraday price-action charts.
     """
     if not settings.twelvedata_api_key:
         return {"source": None, "symbol": symbol, "interval": interval, "data": []}
 
-    td_sym = SYMBOLS.get(symbol.upper())
+    td_sym = INTRADAY_SYMBOLS.get(symbol.upper())
     if not td_sym:
         return {"source": "twelvedata", "symbol": symbol, "interval": interval, "data": [],
-                "error": f"Unknown symbol: {symbol}. Available: {', '.join(SYMBOLS.keys())}"}
+                "error": f"Unknown symbol: {symbol}. Available: {', '.join(INTRADAY_SYMBOLS.keys())}"}
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -197,7 +207,6 @@ async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 9
         except (ValueError, KeyError):
             continue
 
-    # Twelve Data returns newest first — reverse for chronological order
     ohlcv.reverse()
 
     return {"source": "twelvedata", "symbol": symbol, "interval": interval, "data": ohlcv}
