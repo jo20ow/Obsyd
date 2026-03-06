@@ -68,58 +68,51 @@ def set_providers(primary: str, fallback: str | None = None):
 
 async def get_live_prices() -> dict:
     """
-    Fetch live prices using a hybrid approach:
-    - Alpha Vantage provides real commodity prices (WTI $/bbl, Brent, NG)
-    - Twelve Data provides Gold spot (XAU/USD) and ETF proxies for metals
-    - FRED provides daily fallback for WTI/Brent
+    Hybrid price strategy — always merges real commodity prices with metals.
 
-    Energy prices (WTI, BRENT, NG) always come from AV or FRED (real prices).
-    Metals (GOLD, SILVER, COPPER) come from Twelve Data when available.
+    Energy (WTI $/bbl, Brent, NG): Alpha Vantage → FRED fallback (real prices)
+    Metals (GOLD spot, SILVER ETF, COPPER ETF): Twelve Data (when key set)
+
+    The primary/fallback setting controls energy source priority.
+    Twelve Data is always used for metals enrichment regardless of setting.
     """
-    primary, fallback = get_active_providers()
+    # Step 1: Get real energy prices from AV or FRED
+    energy_prices = {}
+    energy_source = None
 
-    # Try primary provider first
-    provider = PROVIDERS.get(primary)
-    primary_result = None
-    if provider:
+    for provider_name in ("alphavantage", "fred"):
+        provider = PROVIDERS.get(provider_name)
+        if not provider:
+            continue
         try:
-            primary_result = await provider.get_live_prices()
+            result = await provider.get_live_prices()
+            p = result.get("prices", {})
+            if p:
+                energy_prices = {k: v for k, v in p.items() if k in ("WTI", "BRENT", "NG")}
+                energy_source = result.get("source")
+                if energy_prices:
+                    break
         except Exception as e:
-            logger.warning(f"Primary provider {primary} failed: {e}")
+            logger.warning(f"Energy from {provider_name} failed: {e}")
 
-    # Try fallback if primary didn't deliver
-    fallback_result = None
-    if fallback and (not primary_result or not primary_result.get("prices")):
-        provider = PROVIDERS.get(fallback)
-        if provider:
-            try:
-                fallback_result = await provider.get_live_prices()
-            except Exception as e:
-                logger.warning(f"Fallback provider {fallback} failed: {e}")
-
-    # Merge: use the best result, enrich with Twelve Data metals if available
-    best = primary_result if primary_result and primary_result.get("prices") else fallback_result
-    if not best or not best.get("prices"):
-        return {"available": False, "source": None, "prices": {}}
-
-    prices = dict(best.get("prices", {}))
-    source = best.get("source", "unknown")
-
-    # If primary source is NOT twelvedata, try to enrich with TD metals
-    if source != "twelvedata" and settings.twelvedata_api_key:
+    # Step 2: Get metals from Twelve Data
+    metals_prices = {}
+    if settings.twelvedata_api_key:
         try:
             td_result = await twelvedata_provider.get_live_prices()
             td_prices = td_result.get("prices", {})
-            # Add Gold (real spot price from XAU/USD)
-            if "GOLD" in td_prices:
-                prices["GOLD"] = td_prices["GOLD"]
-            # Add ETF proxies for metals panel
-            for key in ("SILVER_ETF", "COPPER_ETF"):
+            for key in ("GOLD", "SILVER_ETF", "COPPER_ETF"):
                 if key in td_prices:
-                    prices[key] = td_prices[key]
+                    metals_prices[key] = td_prices[key]
         except Exception as e:
-            logger.warning(f"Twelve Data enrichment failed: {e}")
+            logger.warning(f"Twelve Data metals failed: {e}")
 
+    # Step 3: Merge
+    prices = {**energy_prices, **metals_prices}
+    if not prices:
+        return {"available": False, "source": None, "prices": {}}
+
+    source = energy_source or ("twelvedata" if metals_prices else None)
     return {"available": True, "source": source, "prices": prices}
 
 
