@@ -1,6 +1,8 @@
 # OBSYD
 
-Open-source energy market intelligence dashboard. Real-time AIS vessel tracking, commodity prices, refinery thermal monitoring, port congestion, and geopolitical sentiment — all in one interface.
+Open-source energy market intelligence dashboard. Real-time AIS vessel tracking, commodity prices, refinery thermal monitoring, chokepoint flow analysis, and geopolitical sentiment — all in one interface.
+
+**Live:** [http://72.61.190.129](http://72.61.190.129)
 
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
@@ -8,61 +10,73 @@ Open-source energy market intelligence dashboard. Real-time AIS vessel tracking,
 
 ## Features
 
-### 10 Data Sources
+### 9 Data Sources
 
 | Source | Data | Update Frequency |
 |--------|------|------------------|
 | **EIA** | Crude prices (WTI/Brent), inventories, refinery utilization, imports/exports, SPR stocks | Weekly (Wed) |
-| **FRED** | DXY, Fed Funds Rate, breakeven inflation, T-bill spread | Daily |
+| **FRED** | DXY, Fed Funds Rate, 10Y/2Y yields, yield curve spread | Daily |
 | **AISHub** | Global AIS vessel positions, tanker tracking across 6 chokepoint zones | Every minute |
-| **AISStream** | Real-time AIS WebSocket feed (secondary source) | Real-time |
-| **IMF PortWatch** | Port-level trade disruption indices | Weekly (Tue) |
+| **AISStream** | Real-time satellite AIS WebSocket feed | Real-time |
+| **IMF PortWatch** | Chokepoint transit counts, trade disruption events | Daily backfill |
 | **NOAA** | Weather alerts for Gulf Coast energy infrastructure | Every 30 min |
-| **GDELT** | News volume for energy keywords + sentiment scoring | Every 15 min |
-| **JODI** | World oil production, refinery throughput, and stocks (top 10 producers) | Monthly |
+| **GDELT** | News volume + tone for 7 energy keywords, rule-based sentiment risk score | Every 15 min |
+| **JODI** | World oil production by country (top producers) | Monthly |
 | **NASA FIRMS** | Satellite thermal hotspots near major refineries (VIIRS) | Every 6 hours |
-| **Finnhub / Alpha Vantage** | Real-time commodity futures (BYOK) | On demand |
 
 ### Map Modes
 
 - **Geofence** — Tanker positions in 6 energy chokepoints (Hormuz, Suez, Malacca, Panama, Cape, Houston)
 - **All Vessels** — Full global AIS snapshot with tanker highlighting
-- **Thermal** — NASA FIRMS satellite hotspots near refineries (brightness-scaled, orange-to-red gradient)
+- **Thermal** — NASA FIRMS satellite hotspots near refineries (brightness-scaled)
 
 ### Signal Alerts
 
-Automated anomaly detection with 5 alert types:
+Automated anomaly detection with 6 alert types:
 
-- `STOR` — Floating storage detection (vessels stationary in loading zones)
-- `FLOW` — Chokepoint flow anomalies (unusual tanker counts)
+- `STOR` — Floating storage detection (vessels stationary in loading zones, 7-day baseline)
+- `FLOW` — Chokepoint flow anomalies (2-sigma or 30% deviation from baseline)
 - `CUSH` — Cushing inventory drawdown signals
 - `THERM` — Refinery thermal anomalies (missing heat signatures at known refineries)
+- `CHOKE` — IMF PortWatch chokepoint traffic anomalies
 - `WX` — NOAA weather alerts affecting energy infrastructure
+
+### Correlation Engine
+
+Chokepoint-to-Brent price correlation analysis:
+- Pearson r (level + delta) with lag optimization (0-14 days)
+- Price impact estimates from historical disruption events (>30% traffic drops)
+- Active event tracking with real-time Brent price comparison
 
 ### Dashboard Panels
 
 - **Price Chart** — WTI/Brent with EIA inventory overlay
 - **Fundamentals** — Refinery utilization gauge, SPR level, crude trade balance
-- **JODI** — Top-5 producer output (horizontal bars, Mbd)
-- **Macro** — DXY, rates, inflation expectations
-- **Sentiment** — GDELT news volume + tone analysis
-- **Alerts** — Unified signal feed (weather + anomaly alerts)
+- **JODI** — Top-5 producer output (KSA, RUS, USA, IRQ, CAN)
+- **Macro** — DXY, 10Y/2Y yields, Fed Funds rate
+- **Sentiment** — GDELT news volume + tone, risk score (1-10)
+- **Chokepoint Monitor** — 5 chokepoints with transit history + Brent overlay
+- **Correlation** — Chokepoint flow vs Brent price analysis
+- **Vessel Map** — Interactive deck.gl map with geofence zones
+- **Alerts** — Unified signal feed (weather, flow, thermal, chokepoint alerts)
 
 ## Architecture
 
 ```
 backend/          FastAPI + SQLAlchemy + SQLite
-  collectors/     10 data collectors with APScheduler
-  signals/        Alert evaluation engine (runs every 5 min)
+  collectors/     9 data collectors with APScheduler
+  signals/        Alert evaluation (every 5 min), correlation engine, sentiment scorer
   geofences/      6 chokepoint bounding boxes
-  routes/         REST API endpoints
+  routes/         23 REST API endpoints
   models/         SQLAlchemy 2.0 models
 
-frontend/         React 18 + Vite + TailwindCSS
-  components/     deck.gl map, chart panels, alert feed
+frontend/         React 18 + Vite + Tailwind CSS 4
+  components/     12 components: deck.gl map, Recharts, alert feed, skeleton loading
+
+deploy/           systemd + nginx configs, VPS setup script
 ```
 
-## Setup
+## Quick Start
 
 ### Prerequisites
 
@@ -72,22 +86,16 @@ frontend/         React 18 + Vite + TailwindCSS
 ### Backend
 
 ```bash
-# Clone
-git clone https://github.com/jo20ow/Obsyd.git
-cd Obsyd
+git clone https://github.com/jo20ow/obsyd.git
+cd obsyd
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# Configure API keys
 cp .env.example .env
-# Edit .env with your keys (see API Keys section below)
+# Edit .env with your API keys (see below)
 
-# Start backend (port 8000)
 uvicorn backend.main:app --reload
 ```
 
@@ -99,64 +107,84 @@ npm install
 npm run dev
 ```
 
-The frontend runs on `http://localhost:5173` and proxies API calls to the backend.
+The frontend runs on `http://localhost:5173` and proxies API calls to the backend at port 8000.
 
-### API Keys
+### Production Deployment
 
-All keys are optional — the dashboard works with partial data. Add keys to `.env` as needed:
+```bash
+# On your VPS (Ubuntu 24.04):
+sudo bash deploy/setup-vps.sh
+
+# As obsyd user:
+cd ~/obsyd
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# Upload .env, build frontend dist/, copy databases
+sudo systemctl start obsyd
+```
+
+See `deploy/` for systemd service and nginx config files.
+
+## API Keys
+
+All keys are optional — the dashboard works with partial data. Add keys to `.env`:
 
 | Key | Source | Cost | Required For |
 |-----|--------|------|--------------|
 | `EIA_API_KEY` | [eia.gov](https://www.eia.gov/opendata/register.php) | Free | Prices, inventories, fundamentals |
-| `FRED_API_KEY` | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) | Free | Macro indicators |
-| `AISHUB_API_KEY` | [aishub.net](https://www.aishub.net/) | Free tier | Vessel tracking |
-| `AISSTREAM_API_KEY` | [aisstream.io](https://aisstream.io/) | Free tier | Real-time AIS WebSocket |
+| `FRED_API_KEY` | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) | Free | Macro indicators, oil prices |
+| `AISHUB_API_KEY` | [aishub.net](https://www.aishub.net/) | Free tier | Global vessel tracking |
+| `AISSTREAM_API_KEY` | [aisstream.io](https://aisstream.io/) | Free tier | Real-time satellite AIS |
 | `FIRMS_API_KEY` | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/area/) | Free | Thermal hotspot monitoring |
-| `FINNHUB_API_KEY` | [finnhub.io](https://finnhub.io/) | Free tier | Real-time futures |
-| `ALPHA_VANTAGE_API_KEY` | [alphavantage.co](https://www.alphavantage.co/support/#api-key) | Free tier | Commodity prices |
-| `OPENAI_API_KEY` | [openai.com](https://platform.openai.com/) | Paid | Sentiment analysis |
-| `ANTHROPIC_API_KEY` | [anthropic.com](https://console.anthropic.com/) | Paid | Sentiment analysis |
-
-### Geofence Zones
-
-| Zone | Coverage | AIS Coverage |
-|------|----------|--------------|
-| Hormuz | Strait of Hormuz — 20% of global oil transit | Yes |
-| Suez | Suez Canal + Bab-el-Mandeb — Red Sea to Mediterranean | No (satellite only) |
-| Malacca | Strait of Malacca — Asian oil import route | Yes |
-| Panama | Panama Canal — Atlantic/Pacific transit | No (satellite only) |
-| Cape | Cape of Good Hope — Suez alternative route | No (satellite only) |
-| Houston | Gulf of Mexico — Gulf Coast refineries, LOOP terminal | Yes |
-
-### Monitored Refineries (FIRMS)
-
-| Refinery | Location | Capacity |
-|----------|----------|----------|
-| Baytown (ExxonMobil) | Texas, USA | 584 kbd |
-| Port Arthur (Motiva) | Texas, USA | 636 kbd |
-| Galveston Bay (Marathon) | Texas, USA | 593 kbd |
-| Ras Tanura (Saudi Aramco) | Saudi Arabia | 550 kbd |
-| Jurong Island | Singapore | 592 kbd |
+| `ALPHA_VANTAGE_API_KEY` | [alphavantage.co](https://www.alphavantage.co/support/#api-key) | Free tier | Live commodity prices |
 
 ## API Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/health` | Health check |
-| `GET /api/prices/eia` | EIA price series |
+| `GET /health` | Health check |
+| `GET /api/health/collectors` | Data source status (EIA, FRED, AIS, GDELT) |
+| `GET /api/prices/eia` | EIA weekly price series |
 | `GET /api/prices/eia/fundamentals` | Refinery util, imports, exports, SPR |
-| `GET /api/vessels/zones` | Tanker counts per geofence zone |
-| `GET /api/vessels/positions` | Tanker positions by zone |
+| `GET /api/prices/fred` | FRED macro indicators |
+| `GET /api/prices/live` | Live oil prices (WTI + Brent) |
+| `GET /api/prices/oil` | Historical oil price series |
+| `GET /api/vessels/zones` | Geofence zone definitions |
+| `GET /api/vessels/positions` | Latest tanker positions per zone |
 | `GET /api/vessels/global` | Full global vessel snapshot |
+| `GET /api/vessels/geofence-events` | Daily aggregated zone activity |
 | `GET /api/alerts` | Signal alerts feed |
-| `GET /api/ports/disruptions` | PortWatch disruption indices |
+| `GET /api/alerts/portwatch` | PortWatch chokepoint anomaly alerts |
+| `GET /api/ports/summary` | Port activity summary |
 | `GET /api/weather/alerts` | NOAA weather alerts |
-| `GET /api/sentiment/gdelt` | GDELT news volume |
-| `GET /api/sentiment/tone` | GDELT sentiment scores |
-| `GET /api/jodi/summary` | JODI production summary (per country) |
-| `GET /api/jodi/production` | JODI production time series |
-| `GET /api/thermal/hotspots` | FIRMS thermal hotspot detections |
-| `GET /api/thermal/refineries` | Refinery thermal status |
+| `GET /api/weather/marine` | Marine conditions per zone |
+| `GET /api/sentiment/volume` | GDELT news volume by keyword |
+| `GET /api/sentiment/risk` | Sentiment risk score (1-10) |
+| `GET /api/sentiment/headlines` | Latest energy headlines |
+| `GET /api/jodi/summary` | JODI production by country |
+| `GET /api/thermal/hotspots` | FIRMS thermal detections |
+| `GET /api/portwatch/summary` | Chokepoint transit summary |
+| `GET /api/signals/correlation` | Chokepoint-Brent correlation analysis |
+
+## Geofence Zones
+
+| Zone | Coverage | AIS |
+|------|----------|-----|
+| Hormuz | Strait of Hormuz — 20% of global oil transit | Terrestrial + Satellite |
+| Suez | Suez Canal + Bab-el-Mandeb — Red Sea to Med | PortWatch only |
+| Malacca | Strait of Malacca — Asian oil import route | Terrestrial + Satellite |
+| Panama | Panama Canal — Atlantic/Pacific transit | PortWatch only |
+| Cape | Cape of Good Hope — Suez alternative | Terrestrial |
+| Houston | Gulf of Mexico — Refineries, LOOP terminal | Terrestrial + Satellite |
+
+## Known Limitations
+
+- **Suez/Panama AIS**: No terrestrial AIS coverage; PortWatch provides transit counts
+- **SQLite**: Single-writer, sufficient for MVP (~50 concurrent users)
+- **GDELT**: Rate-limited to avoid 429 errors; headlines sometimes empty
+- **FIRMS**: Satellite coverage gaps mean "no hotspot" does not equal "no activity"
+- **Sentiment**: Rule-based (GDELT tone), not LLM-based (LLM integration optional via BYOK)
 
 ## License
 
