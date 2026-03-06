@@ -417,19 +417,25 @@ def store_oil_prices(rows: list[dict], db_path: Path | None = None):
 
 
 def query_oil_prices(days: int = 365, db_path: Path | None = None) -> dict:
-    """Return WTI + Brent as separate sorted lists."""
-    conn = _init_db(db_path)
+    """Return WTI + Brent as separate sorted lists from obsyd.db/fred_series."""
+    from backend.database import SessionLocal
+    from backend.models.prices import FREDSeries
+
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
-    result = {}
-    for series_id, name in FRED_OIL_SERIES.items():
-        cur = conn.execute("""
-            SELECT date, value FROM oil_prices
-            WHERE series_id = ? AND date >= ?
-            ORDER BY date ASC
-        """, (series_id, cutoff))
-        result[series_id] = [{"date": r[0], "value": r[1]} for r in cur.fetchall()]
-    conn.close()
-    return result
+    db = SessionLocal()
+    try:
+        result = {}
+        for series_id in FRED_OIL_SERIES:
+            rows = (
+                db.query(FREDSeries.date, FREDSeries.value)
+                .filter(FREDSeries.series_id == series_id, FREDSeries.date >= cutoff)
+                .order_by(FREDSeries.date.asc())
+                .all()
+            )
+            result[series_id] = [{"date": r.date, "value": r.value} for r in rows]
+        return result
+    finally:
+        db.close()
 
 
 # ---------- CLI ----------

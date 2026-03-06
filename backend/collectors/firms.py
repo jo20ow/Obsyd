@@ -134,8 +134,22 @@ async def collect_firms():
 
 
 def _check_refinery_anomalies(db, hotspots: list[dict]):
-    """Check if known refineries are missing their expected thermal signature."""
+    """Check if known refineries are missing their expected thermal signature.
+
+    Only alerts when the area has hotspots but none near the specific refinery.
+    If an entire area has zero hotspots (cloud cover, orbital gaps), we suppress
+    alerts since we can't distinguish "refinery off" from "no satellite data".
+    """
+    # Count hotspots per area
+    area_counts: dict[str, int] = {}
+    for h in hotspots:
+        area_counts[h["area"]] = area_counts.get(h["area"], 0) + 1
+
     for ref in REFINERIES:
+        # Skip if the entire area has no hotspots (no data, not no activity)
+        if area_counts.get(ref["area"], 0) == 0:
+            continue
+
         # Find hotspots within PROXIMITY_KM of this refinery
         nearby = [
             h for h in hotspots
@@ -144,7 +158,7 @@ def _check_refinery_anomalies(db, hotspots: list[dict]):
         ]
 
         if len(nearby) == 0:
-            # No hotspot near this refinery — possible shutdown/anomaly
+            # Area has hotspots but none near this refinery — possible shutdown
             _create_refinery_alert(db, ref)
 
 

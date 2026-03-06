@@ -18,7 +18,10 @@ from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_secondary, collect_gdelt_sentiment
 from backend.collectors.jodi import collect_jodi
 from backend.collectors.firms import collect_firms
+from backend.collectors.geofence_aggregator import aggregate_geofence_events
+from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.signals.evaluator import evaluate_signals
+from backend.signals.sentiment_scorer import compute_sentiment_score
 from backend.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,16 @@ async def _run_fred():
         logger.error(f"FRED collection failed: {e}")
     finally:
         db.close()
+
+
+async def _run_portwatch_daily():
+    try:
+        rows = fetch_chokepoint_data(days=7)
+        if rows:
+            store_chokepoint_data(rows)
+            logger.info(f"PortWatch daily: stored {len(rows)} chokepoint records")
+    except Exception as e:
+        logger.error(f"PortWatch daily backfill failed: {e}")
 
 
 def start_scheduler():
@@ -113,6 +126,30 @@ def start_scheduler():
         collect_firms,
         CronTrigger(hour="*/6", minute=15),
         id="firms_6h",
+        replace_existing=True,
+    )
+
+    # PortWatch chokepoint backfill: daily at 06:00 UTC
+    scheduler.add_job(
+        _run_portwatch_daily,
+        CronTrigger(hour=6, minute=0),
+        id="portwatch_daily_backfill",
+        replace_existing=True,
+    )
+
+    # Geofence aggregation: hourly
+    scheduler.add_job(
+        aggregate_geofence_events,
+        CronTrigger(minute=5),
+        id="geofence_hourly",
+        replace_existing=True,
+    )
+
+    # Sentiment risk score: every 6 hours
+    scheduler.add_job(
+        compute_sentiment_score,
+        CronTrigger(hour="*/6", minute=10),
+        id="sentiment_6h",
         replace_existing=True,
     )
 

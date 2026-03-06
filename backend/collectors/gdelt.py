@@ -97,7 +97,7 @@ async def _fetch_tone(client: httpx.AsyncClient, keyword: str) -> list[dict]:
 
 async def _fetch_headlines(client: httpx.AsyncClient, max_records: int = 30) -> list[dict]:
     """Fetch top English headlines for energy keywords."""
-    query = " OR ".join(f'"{k}"' for k in KEYWORDS[:4]) + " sourcelang:english"
+    query = "(" + " OR ".join(f'"{k}"' for k in KEYWORDS[:4]) + ") sourcelang:english"
     try:
         resp = await client.get(GDELT_URL, params={
             "query": query,
