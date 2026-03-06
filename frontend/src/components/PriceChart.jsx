@@ -6,42 +6,30 @@ const API = '/api'
 const TIMEFRAMES = [
   { label: '1D', interval: '15min', outputsize: 96, type: 'intraday' },
   { label: '1W', interval: '1h', outputsize: 168, type: 'intraday' },
-  { label: '1M', interval: '4h', outputsize: 180, type: 'intraday' },
-  { label: '3M', type: 'weekly' },
-  { label: '1Y', type: 'weekly' },
+  { label: '1M', interval: '1day', outputsize: 30, type: 'intraday' },
+  { label: '3M', type: 'fred' },
+  { label: '1Y', type: 'fred' },
+  { label: 'ALL', type: 'fred' },
 ]
 
 const SYMBOLS = [
-  { key: 'WTI', label: 'WTI', color: '#00e5ff' },
-  { key: 'BRENT', label: 'Brent', color: '#00ff9d' },
+  { key: 'WTI', label: 'WTI', color: '#00e5ff', fred: 'DCOILWTICO' },
+  { key: 'BRENT', label: 'Brent', color: '#00ff9d', fred: 'DCOILBRENTEU' },
   { key: 'NG', label: 'Nat Gas', color: '#a78bfa' },
   { key: 'GOLD', label: 'Gold', color: '#fbbf24' },
+  { key: 'SILVER', label: 'Silver', color: '#94a3b8' },
+  { key: 'COPPER', label: 'Copper', color: '#f97316' },
 ]
 
-function toChartData(rows, seriesId) {
-  return rows
-    .filter((r) => r.series_id === seriesId && r.value != null)
-    .map((r) => ({ time: r.period, value: r.value }))
-    .sort((a, b) => (a.time < b.time ? -1 : 1))
-}
-
-function filterWeeklyByRange(data, label) {
+function filterByRange(data, label) {
   if (!data.length) return data
   const now = new Date()
   let cutoff
-  if (label === '3M') {
-    cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate())
-  } else {
-    cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-  }
+  if (label === '3M') cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate())
+  else if (label === '1Y') cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+  else return data // ALL
   const cutoffStr = cutoff.toISOString().slice(0, 10)
   return data.filter((d) => d.time >= cutoffStr)
-}
-
-const EIA_MAP = {
-  WTI: 'PET.RWTC.W',
-  BRENT: 'PET.RBRTE.W',
-  NG: 'NG.RNGWHHD.W',
 }
 
 export default function PriceChart({ data }) {
@@ -52,10 +40,11 @@ export default function PriceChart({ data }) {
   const [timeframe, setTimeframe] = useState(TIMEFRAMES[3]) // 3M default
   const [symbol, setSymbol] = useState(SYMBOLS[0]) // WTI default
   const [intradayData, setIntradayData] = useState(null)
-  const [intradayProxy, setIntradayProxy] = useState(null) // e.g. "USO ETF"
+  const [intradayProxy, setIntradayProxy] = useState(null)
+  const [fredData, setFredData] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  // Fetch intraday data when timeframe/symbol change
+  // Fetch intraday data (yfinance) for 1D/1W/1M
   useEffect(() => {
     if (timeframe.type !== 'intraday') {
       setIntradayData(null)
@@ -69,12 +58,38 @@ export default function PriceChart({ data }) {
         setIntradayProxy(d?.is_proxy ? d.proxy_symbol : null)
         setLoading(false)
       })
-      .catch((e) => {
-        console.error('Intraday fetch:', e)
+      .catch(() => {
         setIntradayData(null)
         setLoading(false)
       })
   }, [timeframe, symbol])
+
+  // Fetch FRED daily data for 3M/1Y/ALL (WTI + Brent)
+  useEffect(() => {
+    if (timeframe.type !== 'fred') {
+      setFredData(null)
+      return
+    }
+    setLoading(true)
+    fetch(`${API}/prices/fred?limit=2000`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        const byId = {}
+        for (const r of rows) {
+          if (!byId[r.series_id]) byId[r.series_id] = []
+          byId[r.series_id].push({ time: r.date, value: r.value })
+        }
+        for (const id of Object.keys(byId)) {
+          byId[id].sort((a, b) => (a.time < b.time ? -1 : 1))
+        }
+        setFredData(byId)
+        setLoading(false)
+      })
+      .catch(() => {
+        setFredData(null)
+        setLoading(false)
+      })
+  }, [timeframe])
 
   // Render chart
   useEffect(() => {
@@ -82,11 +97,10 @@ export default function PriceChart({ data }) {
 
     // Determine what data to show
     const isIntraday = timeframe.type === 'intraday' && intradayData?.length > 0
-    const isWeekly = timeframe.type === 'weekly'
+    const isFred = timeframe.type === 'fred' && fredData
 
-    // For weekly without EIA data, or intraday loading/empty: skip render
-    if (!isIntraday && !isWeekly) return
-    if (isWeekly && data.length === 0) return
+    // Skip render if no data ready
+    if (!isIntraday && !isFred) return
 
     // Clean up previous chart
     if (chartRef.current) {
@@ -144,10 +158,36 @@ export default function PriceChart({ data }) {
       }))
       series.setData(candles)
       seriesRef.current = series
-    } else {
-      // Line chart for weekly EIA data
-      if (symbol.key === 'GOLD') {
-        // Gold has no EIA data, show WTI+Brent
+    } else if (isFred) {
+      // FRED daily line chart for 3M/1Y/ALL
+      const fredId = symbol.fred
+      if (fredId && fredData[fredId]) {
+        const series = chart.addSeries(LineSeries, {
+          color: symbol.color, lineWidth: 2, title: symbol.label,
+          priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+        })
+        const chartData = filterByRange(fredData[fredId], timeframe.label)
+        if (chartData.length) series.setData(chartData)
+        seriesRef.current = series
+
+        // Also show the companion oil line
+        if (symbol.key === 'WTI' && fredData['DCOILBRENTEU']) {
+          const brentSeries = chart.addSeries(LineSeries, {
+            color: '#00ff9d', lineWidth: 1, title: 'Brent',
+            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+          })
+          const brentData = filterByRange(fredData['DCOILBRENTEU'], timeframe.label)
+          if (brentData.length) brentSeries.setData(brentData)
+        } else if (symbol.key === 'BRENT' && fredData['DCOILWTICO']) {
+          const wtiSeries = chart.addSeries(LineSeries, {
+            color: '#00e5ff', lineWidth: 1, title: 'WTI',
+            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+          })
+          const wtiData = filterByRange(fredData['DCOILWTICO'], timeframe.label)
+          if (wtiData.length) wtiSeries.setData(wtiData)
+        }
+      } else {
+        // No FRED data for this symbol (NG, Gold, etc.) — show WTI+Brent
         const wtiSeries = chart.addSeries(LineSeries, {
           color: '#00e5ff', lineWidth: 2, title: 'WTI',
           priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
@@ -156,37 +196,13 @@ export default function PriceChart({ data }) {
           color: '#00ff9d', lineWidth: 2, title: 'Brent',
           priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
         })
-        const wtiData = filterWeeklyByRange(toChartData(data, 'PET.RWTC.W'), timeframe.label)
-        const brentData = filterWeeklyByRange(toChartData(data, 'PET.RBRTE.W'), timeframe.label)
-        if (wtiData.length) wtiSeries.setData(wtiData)
-        if (brentData.length) brentSeries.setData(brentData)
-      } else {
-        const eiaId = EIA_MAP[symbol.key]
-        if (eiaId) {
-          const series = chart.addSeries(LineSeries, {
-            color: symbol.color, lineWidth: 2, title: symbol.label,
-            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-          })
-          const chartData = filterWeeklyByRange(toChartData(data, eiaId), timeframe.label)
-          if (chartData.length) series.setData(chartData)
-          seriesRef.current = series
-        }
-
-        // Also show the other oil line for WTI/Brent
-        if (symbol.key === 'WTI') {
-          const brentSeries = chart.addSeries(LineSeries, {
-            color: '#00ff9d', lineWidth: 1, title: 'Brent',
-            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-          })
-          const brentData = filterWeeklyByRange(toChartData(data, 'PET.RBRTE.W'), timeframe.label)
-          if (brentData.length) brentSeries.setData(brentData)
-        } else if (symbol.key === 'BRENT') {
-          const wtiSeries = chart.addSeries(LineSeries, {
-            color: '#00e5ff', lineWidth: 1, title: 'WTI',
-            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-          })
-          const wtiData = filterWeeklyByRange(toChartData(data, 'PET.RWTC.W'), timeframe.label)
+        if (fredData['DCOILWTICO']) {
+          const wtiData = filterByRange(fredData['DCOILWTICO'], timeframe.label)
           if (wtiData.length) wtiSeries.setData(wtiData)
+        }
+        if (fredData['DCOILBRENTEU']) {
+          const brentData = filterByRange(fredData['DCOILBRENTEU'], timeframe.label)
+          if (brentData.length) brentSeries.setData(brentData)
         }
       }
     }
@@ -206,7 +222,7 @@ export default function PriceChart({ data }) {
       chartRef.current = null
       seriesRef.current = null
     }
-  }, [data, timeframe, symbol, intradayData])
+  }, [data, timeframe, symbol, intradayData, fredData])
 
   const isIntraday = timeframe.type === 'intraday'
 
@@ -258,7 +274,7 @@ export default function PriceChart({ data }) {
       <div ref={containerRef} className="h-[350px] w-full" />
       {isIntraday && !intradayData && !loading && (
         <div className="px-4 py-2 font-mono text-[10px] text-neutral-600">
-          Intraday data requires Twelve Data API key. Showing weekly EIA data for 3M/1Y.
+          No intraday data available. Try 3M/1Y/ALL for daily FRED prices.
         </div>
       )}
     </div>
