@@ -1,12 +1,21 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from backend.config import settings
 
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False},  # SQLite-specific
+    connect_args={"check_same_thread": False, "timeout": 30},  # SQLite-specific
+    pool_pre_ping=True,
 )
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
