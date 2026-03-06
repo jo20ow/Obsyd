@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.alerts import Alert
+from backend.signals.portwatch_alerts import check_chokepoint_anomalies
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -36,3 +37,14 @@ async def get_alerts(
         }
         for r in rows
     ]
+
+
+@router.get("/portwatch")
+async def get_portwatch_alerts():
+    """Get current PortWatch chokepoint anomaly alerts (computed live from SQLite)."""
+    alerts = check_chokepoint_anomalies()
+    return {
+        "source": "IMF PortWatch",
+        "threshold_pct": 30,
+        "alerts": alerts,
+    }

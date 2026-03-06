@@ -17,6 +17,7 @@ const RULE_ICONS = {
   flow_anomaly: 'FLOW',
   cushing_drawdown: 'CUSH',
   refinery_thermal: 'THERM',
+  chokepoint_anomaly: 'CHOKE',
   weather: 'WX',
 }
 
@@ -33,6 +34,8 @@ export default function AlertsPanel() {
   const [alerts, setAlerts] = useState([])
   const [weatherAlerts, setWeatherAlerts] = useState([])
 
+  const [chokeAlerts, setChokeAlerts] = useState([])
+
   useEffect(() => {
     fetch(`${API}/alerts?limit=20`)
       .then((r) => (r.ok ? r.json() : []))
@@ -43,10 +46,27 @@ export default function AlertsPanel() {
       .then((r) => (r.ok ? r.json() : []))
       .then(setWeatherAlerts)
       .catch(() => {})
+
+    fetch(`${API}/alerts/portwatch`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.alerts) setChokeAlerts(data.alerts)
+      })
+      .catch(() => {})
   }, [])
 
-  // Merge signal alerts and weather alerts into one list
+  // Merge signal alerts, weather alerts, and chokepoint alerts
   const combined = [
+    ...chokeAlerts.map((c) => ({
+      id: `choke-${c.portid}`,
+      rule: 'chokepoint_anomaly',
+      severity: c.alert_level,
+      title: `${c.chokepoint}: ${c.anomaly_pct > 0 ? '+' : ''}${c.anomaly_pct}% ${c.direction}`,
+      detail: `${c.n_total} vessels (${c.baseline_type === 'yoy' ? 'YoY' : '30d'}: ${c.baseline_avg})${c.disruption_name ? ` // ${c.disruption_name}` : ''}`,
+      zone: c.chokepoint.toLowerCase().split(' ').pop(),
+      created_at: `${c.date}T00:00:00Z`,
+      isChoke: true,
+    })),
     ...weatherAlerts.map((w) => ({
       id: `wx-${w.id}`,
       rule: 'weather',
@@ -89,7 +109,7 @@ export default function AlertsPanel() {
                 className={`px-4 py-3 border-b border-border last:border-b-0 ${sev.border}`}
               >
                 <div className="flex items-start gap-2.5">
-                  <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${(isWx || a.rule === 'refinery_thermal') ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
+                  <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${a.isChoke ? 'text-cyan-glow border-cyan-glow/30' : (isWx || a.rule === 'refinery_thermal') ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
                     {icon}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -98,7 +118,7 @@ export default function AlertsPanel() {
                         {a.title}
                       </span>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`w-1.5 h-1.5 rounded-full ${isWx ? 'bg-orange-400' : sev.dot}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full ${a.isChoke ? 'bg-cyan-glow' : isWx ? 'bg-orange-400' : sev.dot}`} />
                         <span className="font-mono text-[10px] text-neutral-600">
                           {timeAgo(a.created_at)}
                         </span>

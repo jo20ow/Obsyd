@@ -8,6 +8,11 @@ from backend.collectors.eia import collect_eia, EIA_SERIES
 from backend.collectors.fred import collect_fred, FRED_SERIES
 from backend.collectors.alphavantage import fetch_live_commodities
 from backend.collectors.finnhub import fetch_forex_prices
+from backend.collectors.portwatch_store import (
+    fetch_oil_prices,
+    store_oil_prices,
+    query_oil_prices,
+)
 
 router = APIRouter(prefix="/api/prices", tags=["prices"])
 
@@ -80,9 +85,34 @@ async def get_eia_fundamentals(
 
 @router.get("/live")
 async def get_live_prices():
-    """Get daily commodity prices from Alpha Vantage (BYOK, cached 15min)."""
+    """Get latest commodity prices. Alpha Vantage (15min cache) with FRED daily fallback."""
     prices = await fetch_live_commodities()
-    return {"available": bool(settings.alpha_vantage_api_key), "prices": prices}
+    source = "alphavantage" if prices else None
+
+    if not prices:
+        # Fallback: FRED daily prices from portwatch SQLite
+        oil = query_oil_prices(days=10)
+        fred_prices = {}
+        for series_id, label in [("DCOILWTICO", "WTI"), ("DCOILBRENTEU", "BRENT")]:
+            data = oil.get(series_id, [])
+            if len(data) >= 2:
+                latest = data[-1]
+                prev = data[-2]
+                change = latest["value"] - prev["value"]
+                change_pct = (change / prev["value"]) * 100 if prev["value"] else 0
+                fred_prices[label] = {
+                    "symbol": series_id,
+                    "date": latest["date"],
+                    "current": latest["value"],
+                    "previous_close": prev["value"],
+                    "change": round(change, 4),
+                    "change_pct": round(change_pct, 4),
+                }
+        if fred_prices:
+            prices = fred_prices
+            source = "fred"
+
+    return {"available": bool(prices), "source": source, "prices": prices}
 
 
 @router.get("/forex")
@@ -125,3 +155,28 @@ async def trigger_fred_collection(db: Session = Depends(get_db)):
     """Manually trigger FRED data collection."""
     await collect_fred(db)
     return {"status": "ok", "message": "FRED collection complete"}
+
+
+@router.get("/oil")
+async def get_oil_prices(
+    days: int = Query(365, ge=1, le=1825),
+):
+    """Get WTI + Brent daily prices (from FRED, cached in local SQLite)."""
+    # Check if we have cached data
+    cached = query_oil_prices(days=days)
+    has_data = any(len(v) > 0 for v in cached.values())
+
+    if not has_data:
+        # Fetch from FRED and cache
+        rows = fetch_oil_prices(days=days)
+        if rows:
+            store_oil_prices(rows)
+            cached = query_oil_prices(days=days)
+
+    return {
+        "source": "FRED (Federal Reserve Economic Data)",
+        "series": {
+            "DCOILWTICO": {"name": "WTI Crude Oil", "data": cached.get("DCOILWTICO", [])},
+            "DCOILBRENTEU": {"name": "Brent Crude Oil", "data": cached.get("DCOILBRENTEU", [])},
+        },
+    }

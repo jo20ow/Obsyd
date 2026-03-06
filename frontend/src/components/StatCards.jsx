@@ -42,7 +42,7 @@ function formatValue(value, seriesId) {
   return value.toFixed(2)
 }
 
-export default function StatCards({ data, live }) {
+export default function StatCards({ data, live, liveSource }) {
   return (
     <div className="grid grid-cols-1 gap-3">
       {SERIES_CONFIG.map((cfg) => {
@@ -67,6 +67,10 @@ export default function StatCards({ data, live }) {
 
         const [latest] = getLatestTwo(data, cfg.id)
 
+        // Badge: LIVE (AV, 15min cache) → DAILY (FRED) → WEEKLY (EIA)
+        const isAV = isLive && liveSource === 'alphavantage'
+        const isFRED = isLive && liveSource === 'fred'
+
         return (
           <div
             key={cfg.id}
@@ -75,10 +79,15 @@ export default function StatCards({ data, live }) {
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-xs text-neutral-500">{cfg.label}</span>
-                {isLive ? (
+                {isAV ? (
                   <span className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-glow shadow-[0_0_4px_var(--color-green-glow)] animate-pulse" />
-                    <span className="font-mono text-[10px] text-green-glow">DAILY</span>
+                    <span className="font-mono text-[10px] text-green-glow">LIVE</span>
+                  </span>
+                ) : isFRED ? (
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-glow/60" />
+                    <span className="font-mono text-[10px] text-cyan-glow/80">DAILY</span>
                   </span>
                 ) : (
                   <span className="font-mono text-[10px] text-neutral-600">WEEKLY</span>

@@ -8,12 +8,15 @@ import VesselMap from './components/VesselMap'
 import AlertsPanel from './components/AlertsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
+import ChokePointMonitor from './components/ChokePointMonitor'
+import CorrelationPanel from './components/CorrelationPanel'
 
 const API = '/api'
 
 function App() {
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)
+  const [liveSource, setLiveSource] = useState(null)
   const [zones, setZones] = useState([])
   const [aisActive, setAisActive] = useState(false)
   const [gdeltActive, setGdeltActive] = useState(false)
@@ -39,7 +42,10 @@ function App() {
 
         if (liveRes.ok) {
           const live = await liveRes.json()
-          if (live.available) setLiveData(live.prices)
+          if (live.available) {
+            setLiveData(live.prices)
+            setLiveSource(live.source || null)
+          }
         }
 
         if (aisRes.ok) {
@@ -58,6 +64,20 @@ function App() {
       }
     }
     fetchData()
+
+    // Re-poll live prices every 15 minutes
+    const interval = setInterval(() => {
+      fetch(`${API}/prices/live`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((live) => {
+          if (live?.available) {
+            setLiveData(live.prices)
+            setLiveSource(live.source || null)
+          }
+        })
+        .catch(() => {})
+    }, 15 * 60 * 1000)
+    return () => clearInterval(interval)
   }, [])
 
   if (loading) {
@@ -94,10 +114,16 @@ function App() {
           <JODIPanel />
         </div>
         <div className="space-y-4">
-          <StatCards data={eiaData} live={liveData} />
+          <StatCards data={eiaData} live={liveData} liveSource={liveSource} />
           <MacroPanel />
           <SentimentPanel />
         </div>
+      </div>
+      <div className="mt-4">
+        <ChokePointMonitor />
+      </div>
+      <div className="mt-4">
+        <CorrelationPanel />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2">

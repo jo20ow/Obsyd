@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 import httpx
 
 from backend.database import SessionLocal
-from backend.models.ports import PortActivity
+from backend.models.ports import PortActivity, Disruption
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,10 @@ PORTS_URL = (
 CHOKEPOINTS_URL = (
     "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services"
     "/Daily_Chokepoints_Data/FeatureServer/0/query"
+)
+DISRUPTIONS_URL = (
+    "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services"
+    "/portwatch_disruptions_database/FeatureServer/0/query"
 )
 
 # IMF PortWatch port IDs for our 5 key ports
@@ -94,6 +98,30 @@ async def _fetch_chokepoint_data(client: httpx.AsyncClient, days: int = 7) -> li
         return []
 
 
+async def _fetch_disruptions(client: httpx.AsyncClient, days: int = 90) -> list[dict]:
+    """Fetch recent disruption events."""
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_year = cutoff.year
+    params = {
+        "where": f"year >= {cutoff_year} OR todate IS NULL",
+        "outFields": "eventid,eventname,eventtype,alertlevel,fromdate,todate,"
+                     "affectedports,country,htmldescription",
+        "orderByFields": "fromdate DESC",
+        "resultRecordCount": "500",
+        "f": "json",
+    }
+
+    try:
+        resp = await client.get(DISRUPTIONS_URL, params=params, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("features", [])
+    except Exception as e:
+        logger.error(f"PortWatch: disruptions fetch failed: {e}")
+        return []
+
+
 def _parse_date(date_val) -> str | None:
     """Parse date from ArcGIS response. Ports use 'YYYY-MM-DD', chokepoints use epoch ms."""
     if date_val is None:
@@ -110,12 +138,14 @@ def _parse_date(date_val) -> str | None:
 
 
 async def collect_portwatch():
-    """Collect port activity and chokepoint data from IMF PortWatch."""
+    """Collect port activity, chokepoint data, and disruptions from IMF PortWatch."""
     async with httpx.AsyncClient() as client:
         port_features = await _fetch_port_data(client)
         chokepoint_features = await _fetch_chokepoint_data(client)
+        disruption_features = await _fetch_disruptions(client)
 
     records = []
+    disruption_records = []
 
     for f in port_features:
         a = f.get("attributes", {})
@@ -151,24 +181,54 @@ async def collect_portwatch():
             capacity_tanker=a.get("capacity_tanker") or 0.0,
         ))
 
-    if not records:
+    alert_map = {"RED": 3, "ORANGE": 2, "GREEN": 1}
+    for f in disruption_features:
+        a = f.get("attributes", {})
+        start = _parse_date(a.get("fromdate"))
+        if not start:
+            continue
+        disruption_records.append(Disruption(
+            event_id=str(a.get("eventid", "")),
+            event_name=a.get("eventname", ""),
+            event_type=a.get("eventtype", ""),
+            alertlevel=alert_map.get(a.get("alertlevel", ""), 0),
+            start_date=start,
+            end_date=_parse_date(a.get("todate")),
+            affected_port_id=a.get("affectedports") or "",
+            affected_port_name="",
+            country=a.get("country") or "",
+            description=a.get("htmldescription") or "",
+        ))
+
+    if not records and not disruption_records:
         logger.warning("PortWatch: no records to store")
         return
 
     db = SessionLocal()
     try:
-        # Upsert: delete existing rows for the same dates, then insert fresh
-        dates = {r.date for r in records}
-        port_ids = {r.port_id for r in records}
-        db.query(PortActivity).filter(
-            PortActivity.date.in_(dates),
-            PortActivity.port_id.in_(port_ids),
-        ).delete(synchronize_session=False)
-        db.add_all(records)
+        # Upsert activity: delete existing rows for the same dates, then insert fresh
+        if records:
+            dates = {r.date for r in records}
+            pid_set = {r.port_id for r in records}
+            db.query(PortActivity).filter(
+                PortActivity.date.in_(dates),
+                PortActivity.port_id.in_(pid_set),
+            ).delete(synchronize_session=False)
+            db.add_all(records)
+
+        # Upsert disruptions: delete by event_id, then insert fresh
+        if disruption_records:
+            event_ids = {r.event_id for r in disruption_records}
+            db.query(Disruption).filter(
+                Disruption.event_id.in_(event_ids),
+            ).delete(synchronize_session=False)
+            db.add_all(disruption_records)
+
         db.commit()
         logger.info(
-            f"PortWatch: stored {len(records)} records "
-            f"({len(port_features)} port, {len(chokepoint_features)} chokepoint)"
+            f"PortWatch: stored {len(records)} activity records "
+            f"({len(port_features)} port, {len(chokepoint_features)} chokepoint), "
+            f"{len(disruption_records)} disruptions"
         )
     except Exception as e:
         db.rollback()
