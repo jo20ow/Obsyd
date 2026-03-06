@@ -1,4 +1,5 @@
 import json
+import time
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -11,6 +12,11 @@ from backend.collectors.gdelt import KEYWORDS, _fetch_headlines
 import httpx
 
 router = APIRouter(prefix="/api/sentiment", tags=["sentiment"])
+
+# Headlines cache (30 minutes)
+_headlines_cache: list = []
+_headlines_cache_ts: float = 0.0
+HEADLINES_CACHE_TTL = 1800
 
 
 @router.get("/volume")
@@ -44,24 +50,33 @@ async def get_volume(
 
 @router.get("/headlines")
 async def get_headlines():
-    """Get top current energy headlines from GDELT."""
+    """Get top current energy headlines from GDELT (cached 30min)."""
+    global _headlines_cache, _headlines_cache_ts
+
+    now = time.monotonic()
+    if _headlines_cache and (now - _headlines_cache_ts) < HEADLINES_CACHE_TTL:
+        return {"source": "GDELT DOC 2.0", "articles": _headlines_cache, "cached": True}
+
     async with httpx.AsyncClient() as client:
         articles = await _fetch_headlines(client, max_records=15)
 
-    return {
-        "source": "GDELT DOC 2.0",
-        "articles": [
-            {
-                "title": a.get("title", ""),
-                "url": a.get("url", ""),
-                "domain": a.get("domain", ""),
-                "date": a.get("seendate", ""),
-                "language": a.get("language", ""),
-                "country": a.get("sourcecountry", ""),
-            }
-            for a in articles
-        ],
-    }
+    formatted = [
+        {
+            "title": a.get("title", ""),
+            "url": a.get("url", ""),
+            "domain": a.get("domain", ""),
+            "date": a.get("seendate", ""),
+            "language": a.get("language", ""),
+            "country": a.get("sourcecountry", ""),
+        }
+        for a in articles
+    ]
+
+    if formatted:
+        _headlines_cache = formatted
+        _headlines_cache_ts = now
+
+    return {"source": "GDELT DOC 2.0", "articles": formatted, "cached": False}
 
 
 @router.get("/risk")

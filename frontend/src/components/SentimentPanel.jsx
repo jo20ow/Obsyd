@@ -42,6 +42,7 @@ function VolumeBar({ value, max }) {
 export default function SentimentPanel() {
   const [volumeData, setVolumeData] = useState(undefined)
   const [riskData, setRiskData] = useState(undefined)
+  const [headlines, setHeadlines] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -54,6 +55,11 @@ export default function SentimentPanel() {
       .then((r) => (r.ok ? r.json() : null))
       .then(setRiskData)
       .catch((e) => { console.error('SentimentPanel risk fetch:', e); setError(e.message) })
+
+    fetch(`${API}/sentiment/headlines`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setHeadlines(d?.articles || []))
+      .catch((e) => console.error('Headlines fetch:', e))
   }, [])
 
   if (error) return (
@@ -67,16 +73,16 @@ export default function SentimentPanel() {
   const hasAI = riskData?.score != null
   const keywords = volumeData?.keywords || {}
   const hasVolume = Object.keys(keywords).length > 0
+  const hasHeadlines = headlines && headlines.length > 0
 
-  if (!hasVolume && !hasAI) return null
+  if (!hasVolume && !hasAI && !hasHeadlines) return null
 
   // Compute latest volume per keyword
   const kwStats = Object.entries(keywords).map(([kw, points]) => {
     const sorted = [...points].sort((a, b) => (a.timestamp > b.timestamp ? 1 : -1))
     const latest = sorted[sorted.length - 1] || {}
-    const avgVol = sorted.reduce((s, p) => s + p.volume, 0) / (sorted.length || 1)
     const avgTone = sorted.reduce((s, p) => s + p.avg_tone, 0) / (sorted.length || 1)
-    return { kw, volume: latest.volume || 0, avgVol, tone: avgTone }
+    return { kw, volume: latest.volume || 0, tone: avgTone }
   })
 
   const maxVol = Math.max(...kwStats.map((k) => k.volume), 0.01)
@@ -147,6 +153,33 @@ export default function SentimentPanel() {
               <ToneBar tone={tone} />
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Headlines */}
+      {hasHeadlines && (
+        <div className={hasVolume ? 'mt-3 pt-3 border-t border-border' : ''}>
+          <div className="font-mono text-[10px] text-neutral-600 tracking-wider mb-2">
+            HEADLINES
+          </div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {headlines.slice(0, 10).map((h, i) => (
+              <a
+                key={i}
+                href={h.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block group"
+              >
+                <div className="font-mono text-[11px] text-neutral-400 group-hover:text-cyan-glow transition-colors leading-tight">
+                  {h.title}
+                </div>
+                <div className="font-mono text-[9px] text-neutral-600 mt-0.5">
+                  {h.domain} · {h.date?.slice(0, 10) || ''}
+                </div>
+              </a>
+            ))}
+          </div>
         </div>
       )}
     </div>
