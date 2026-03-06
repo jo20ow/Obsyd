@@ -331,6 +331,27 @@ def query_chokepoint_averages(days: int = 30, db_path: Path | None = None) -> li
     return rows
 
 
+def query_chokepoint_history(portid: str, days: int = 365, db_path: Path | None = None) -> list[dict]:
+    """Get daily time series for a single chokepoint from local DB."""
+    conn = _init_db(db_path)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    cur = conn.execute("""
+        SELECT portid, portname, date, n_total, n_tanker, capacity, capacity_tanker
+        FROM chokepoint_daily
+        WHERE portid = ? AND date >= ?
+        ORDER BY date ASC
+    """, (portid, cutoff))
+    rows = []
+    for r in cur.fetchall():
+        rows.append({
+            "portid": r[0], "portname": r[1], "date": r[2],
+            "n_total": r[3], "n_tanker": r[4],
+            "capacity": r[5], "capacity_tanker": r[6],
+        })
+    conn.close()
+    return rows
+
+
 def query_active_disruptions(db_path: Path | None = None) -> list[dict]:
     """Get disruptions that are currently active (no end_date or end_date in the future)."""
     conn = _init_db(db_path)

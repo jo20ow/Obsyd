@@ -13,6 +13,7 @@ from backend.collectors.portwatch_store import (
     store_chokepoint_data,
     store_disruptions,
     query_chokepoint_averages,
+    query_chokepoint_history,
     query_active_disruptions,
     CHOKEPOINTS,
 )
@@ -77,18 +78,14 @@ async def get_chokepoints():
 @router.get("/chokepoints/{name}/history")
 async def get_chokepoint_history(
     name: str = Path(description="Chokepoint name (e.g. 'hormuz', 'suez', 'malacca', 'panama', 'cape')"),
-    days: int = Query(365, ge=1, le=730),
+    days: int = Query(365, ge=1, le=2700),
 ):
-    """Time series for a single chokepoint."""
+    """Time series for a single chokepoint from local DB cache."""
     portid = _resolve_chokepoint(name)
     if not portid:
         return {"error": f"Unknown chokepoint: {name}", "valid": list(CP_ALIASES.keys())}
 
-    data = fetch_chokepoint_data(days=days)
-    store_chokepoint_data(data)
-
-    history = [r for r in data if r["portid"] == portid]
-    history.sort(key=lambda x: x["date"])
+    history = query_chokepoint_history(portid, days=days)
 
     return {
         "source": "IMF PortWatch",

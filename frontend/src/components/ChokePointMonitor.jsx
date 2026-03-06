@@ -144,7 +144,15 @@ function ChokePointCard({ cp, selected, onClick }) {
   )
 }
 
-function HistoryChart({ name, history, oilPrices }) {
+const HISTORY_TIMEFRAMES = [
+  { label: '30D', days: 30 },
+  { label: '90D', days: 90 },
+  { label: '180D', days: 180 },
+  { label: '1Y', days: 365 },
+  { label: 'ALL', days: 2600 },
+]
+
+function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }) {
   if (!history || history.length === 0) {
     return (
       <div className="border border-border bg-surface rounded px-4 py-3 h-64 flex items-center justify-center">
@@ -174,13 +182,28 @@ function HistoryChart({ name, history, oilPrices }) {
 
   return (
     <div className="border border-border bg-surface rounded px-4 py-3">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="font-mono text-[10px] text-neutral-600 tracking-wider">
-          {name?.toUpperCase()} // 365D TRANSIT HISTORY
+          {name?.toUpperCase()} // TRANSIT HISTORY
           {hasBrent && <span className="text-orange-400/60 ml-2">+ BRENT</span>}
         </div>
-        <div className="font-mono text-[9px] text-neutral-600">
-          {history.length} days
+        <div className="flex items-center gap-1">
+          {HISTORY_TIMEFRAMES.map((tf) => (
+            <button
+              key={tf.label}
+              onClick={() => onTimeframeChange(tf)}
+              className={`font-mono text-[10px] px-2 py-0.5 rounded transition-colors ${
+                timeframe.label === tf.label
+                  ? 'bg-cyan-glow/20 text-cyan-glow'
+                  : 'text-neutral-600 hover:text-neutral-400'
+              }`}
+            >
+              {tf.label}
+            </button>
+          ))}
+          <span className="font-mono text-[9px] text-neutral-700 ml-1">
+            {history.length}d
+          </span>
         </div>
       </div>
 
@@ -253,11 +276,14 @@ function HistoryChart({ name, history, oilPrices }) {
   )
 }
 
+const DEFAULT_TF = HISTORY_TIMEFRAMES[2] // 180D
+
 export default function ChokePointMonitor() {
   const [summary, setSummary] = useState(null)
   const [selected, setSelected] = useState('hormuz')
   const [history, setHistory] = useState(null)
   const [historyName, setHistoryName] = useState('')
+  const [historyTf, setHistoryTf] = useState(DEFAULT_TF)
   const [oilPrices, setOilPrices] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -274,10 +300,10 @@ export default function ChokePointMonitor() {
       .catch((e) => { console.error('ChokePointMonitor fetch:', e); setLoading(false) })
   }, [])
 
-  const fetchHistory = useCallback((name) => {
+  const fetchHistory = useCallback((name, days) => {
     setSelected(name)
     setHistoryName(name)
-    fetch(`${API}/portwatch/chokepoints/${name}/history?days=365`)
+    fetch(`${API}/portwatch/chokepoints/${name}/history?days=${days}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data) setHistory(data.history)
@@ -286,8 +312,8 @@ export default function ChokePointMonitor() {
   }, [])
 
   useEffect(() => {
-    fetchHistory('hormuz')
-  }, [fetchHistory])
+    fetchHistory('hormuz', historyTf.days)
+  }, [fetchHistory, historyTf])
 
   if (loading) {
     return (
@@ -327,13 +353,22 @@ export default function ChokePointMonitor() {
                 key={cp.portid}
                 cp={cp}
                 selected={selected}
-                onClick={() => fetchHistory(slug)}
+                onClick={() => fetchHistory(slug, historyTf.days)}
               />
             )
           })}
         </div>
 
-        <HistoryChart name={historyName} history={history} oilPrices={oilPrices} />
+        <HistoryChart
+          name={historyName}
+          history={history}
+          oilPrices={oilPrices}
+          timeframe={historyTf}
+          onTimeframeChange={(tf) => {
+            setHistoryTf(tf)
+            if (selected) fetchHistory(selected, tf.days)
+          }}
+        />
 
         <div className="mt-2 font-mono text-[8px] text-neutral-700">
           Source: IMF PortWatch (portwatch.imf.org) // Anomaly = current vs 30d avg
