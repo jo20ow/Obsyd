@@ -1,0 +1,17 @@
+[Unit]
+Description=OBSYD Backend (uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=obsyd
+Group=obsyd
+WorkingDirectory=/home/obsyd/obsyd
+EnvironmentFile=/home/obsyd/obsyd/.env
+Environment="PATH=/home/obsyd/obsyd/.venv/bin"
+ExecStart=/home/obsyd/obsyd/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
