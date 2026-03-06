@@ -114,8 +114,17 @@ async def get_live_prices() -> dict:
         return {"source": None, "prices": {}}
 
     prices = {}
-    for td_sym, our_label in _REVERSE.items():
-        quote = data.get(td_sym)
+
+    # Single symbol: response IS the quote object directly
+    # Multiple symbols: response is {"SYM1": {...}, "SYM2": {...}}
+    if len(SYMBOLS) == 1:
+        td_sym = list(SYMBOLS.values())[0]
+        our_label = _REVERSE.get(td_sym)
+        items = [(td_sym, our_label, data)] if our_label else []
+    else:
+        items = [(td_sym, our_label, data.get(td_sym)) for td_sym, our_label in _REVERSE.items()]
+
+    for td_sym, our_label, quote in items:
         if not quote or (isinstance(quote, dict) and quote.get("status") == "error"):
             continue
 
