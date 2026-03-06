@@ -14,13 +14,14 @@ import logging
 from pathlib import Path
 
 from backend.config import settings
-from backend.providers import alphavantage_provider, fred_provider, twelvedata_provider
+from backend.providers import alphavantage_provider, fred_provider, twelvedata_provider, yfinance_provider
 
 logger = logging.getLogger(__name__)
 
 SETTINGS_PATH = Path(__file__).parent.parent.parent / "data" / "settings.json"
 
 PROVIDERS = {
+    "yfinance": yfinance_provider,
     "twelvedata": twelvedata_provider,
     "alphavantage": alphavantage_provider,
     "fred": fred_provider,
@@ -68,15 +69,22 @@ def set_providers(primary: str, fallback: str | None = None):
 
 async def get_live_prices() -> dict:
     """
-    Hybrid price strategy — real commodity prices from multiple sources.
+    Hybrid price strategy — real commodity futures prices.
 
-    Alpha Vantage: WTI ($/bbl), Brent, NG, Copper ($/mt) — real prices
-    FRED: WTI, Brent daily fallback
-    Twelve Data: Gold spot (XAU/USD) — real $/oz price
+    Primary: yfinance (CL=F, BZ=F, NG=F, GC=F, SI=F, HG=F) — no key needed
+    Fallback: Alpha Vantage / FRED for energy, Twelve Data for gold
     """
-    # Step 1: Get commodity prices from AV (includes energy + copper) or FRED
+    # Step 1: Try yfinance (all 6 commodities, real futures prices)
+    try:
+        yf_result = await yfinance_provider.get_live_prices()
+        yf_prices = yf_result.get("prices", {})
+        if len(yf_prices) >= 3:
+            return {"available": True, "source": "yfinance", "prices": yf_prices}
+    except Exception as e:
+        logger.warning(f"yfinance failed: {e}")
+
+    # Step 2: Fallback — AV/FRED for energy, TD for gold
     commodity_prices = {}
-    commodity_source = None
 
     for provider_name in ("alphavantage", "fred"):
         provider = PROVIDERS.get(provider_name)
@@ -87,13 +95,10 @@ async def get_live_prices() -> dict:
             p = result.get("prices", {})
             if p:
                 commodity_prices = dict(p)
-                commodity_source = result.get("source")
-                if commodity_prices:
-                    break
+                break
         except Exception as e:
             logger.warning(f"Commodities from {provider_name} failed: {e}")
 
-    # Step 2: Get Gold spot from Twelve Data (XAU/USD)
     if settings.twelvedata_api_key:
         try:
             td_result = await twelvedata_provider.get_live_prices()
@@ -103,36 +108,38 @@ async def get_live_prices() -> dict:
         except Exception as e:
             logger.warning(f"Twelve Data gold failed: {e}")
 
-    # Step 3: Return merged result
     if not commodity_prices:
         return {"available": False, "source": None, "prices": {}}
 
-    return {"available": True, "source": commodity_source or "twelvedata", "prices": commodity_prices}
+    return {"available": True, "source": "alphavantage+fallback", "prices": commodity_prices}
 
 
 async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 96) -> dict:
     """
-    Fetch intraday data from the primary provider.
-    Only Twelve Data supports this; others return empty data.
+    Fetch intraday data. Tries yfinance first (real futures),
+    then falls back to Twelve Data (ETF proxies).
     """
+    # yfinance: real futures intraday
+    try:
+        result = await yfinance_provider.get_intraday(symbol, interval, outputsize)
+        if result.get("data"):
+            return result
+    except Exception as e:
+        logger.warning(f"Intraday from yfinance failed: {e}")
+
+    # Fallback: configured providers (twelvedata ETF proxies, etc.)
     primary, fallback = get_active_providers()
-
-    provider = PROVIDERS.get(primary)
-    if provider:
-        try:
-            result = await provider.get_intraday(symbol, interval, outputsize)
-            if result.get("data"):
-                return result
-        except Exception as e:
-            logger.warning(f"Intraday from {primary} failed: {e}")
-
-    if fallback:
-        provider = PROVIDERS.get(fallback)
+    for provider_name in (primary, fallback):
+        if not provider_name or provider_name == "yfinance":
+            continue
+        provider = PROVIDERS.get(provider_name)
         if provider:
             try:
-                return await provider.get_intraday(symbol, interval, outputsize)
+                result = await provider.get_intraday(symbol, interval, outputsize)
+                if result.get("data"):
+                    return result
             except Exception as e:
-                logger.warning(f"Intraday fallback {fallback} failed: {e}")
+                logger.warning(f"Intraday from {provider_name} failed: {e}")
 
     return {"source": None, "symbol": symbol, "interval": interval, "data": []}
 
@@ -145,6 +152,7 @@ def get_settings() -> dict:
         "price_provider": primary,
         "price_fallback": fallback,
         "available_providers": list(PROVIDERS.keys()),
+        "yfinance_available": True,
         "twelvedata_credits": credits,
         "twelvedata_key_set": bool(settings.twelvedata_api_key),
         "alphavantage_key_set": bool(settings.alpha_vantage_api_key),
