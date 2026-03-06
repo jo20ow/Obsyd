@@ -10,6 +10,7 @@ import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
 import ChokePointMonitor from './components/ChokePointMonitor'
 import CorrelationPanel from './components/CorrelationPanel'
+import BriefingPanel from './components/BriefingPanel'
 
 const API = '/api'
 
@@ -114,6 +115,9 @@ function App() {
   return (
     <div className="min-h-screen p-4 lg:p-6">
       <Header aisActive={aisActive} gdeltActive={gdeltActive} />
+      <div className="mt-4">
+        <BriefingPanel />
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2 space-y-4">
           <PriceChart data={eiaData} />

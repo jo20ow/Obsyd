@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Query
 
 from backend.signals.correlation import compute_correlations
+from backend.signals.historical_lookup import find_anomalies
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 
@@ -18,3 +19,12 @@ async def get_correlation(
         "period_days": days,
         "correlations": correlations,
     }
+
+
+@router.get("/historical")
+async def get_historical_anomalies(
+    chokepoint: str = Query("hormuz", description="Chokepoint name"),
+    threshold: float = Query(40.0, ge=10, le=90, description="Drop threshold %"),
+):
+    """Find historical chokepoint anomalies with Brent price correlation."""
+    return find_anomalies(chokepoint, threshold_pct=threshold)

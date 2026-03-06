@@ -6,3 +6,4 @@ from backend.models.weather import WeatherAlert
 from backend.models.sentiment import GDELTVolume, SentimentScore
 from backend.models.jodi import JODIProduction
 from backend.models.thermal import ThermalHotspot
+from backend.models.fleet import DailyFleetSummary

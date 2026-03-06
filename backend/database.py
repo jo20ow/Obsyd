@@ -26,7 +26,7 @@ class Base(DeclarativeBase):
 
 def init_db():
     """Create all tables."""
-    from backend.models import EIAPrice, FREDSeries, VesselPosition, GeofenceEvent, GlobalVesselPosition, Alert, PortActivity, Disruption, WeatherAlert, GDELTVolume, SentimentScore, JODIProduction, ThermalHotspot  # noqa: F811
+    from backend.models import EIAPrice, FREDSeries, VesselPosition, GeofenceEvent, GlobalVesselPosition, Alert, PortActivity, Disruption, WeatherAlert, GDELTVolume, SentimentScore, JODIProduction, ThermalHotspot, DailyFleetSummary  # noqa: F811
     Base.metadata.create_all(bind=engine)
 
 

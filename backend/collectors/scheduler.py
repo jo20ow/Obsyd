@@ -4,9 +4,11 @@ APScheduler setup for periodic data collection.
 Schedule:
   - EIA: Weekly (Wednesday, after EIA publishes WPSR)
   - FRED: Daily
-  - Live prices: Every 4 hours (AV 25 calls/day budget)
+  - Live prices: Every 4 hours
   - GDELT: Every 2 hours (avoid 429 rate limiting)
   - FIRMS: Every 6 hours
+  - Fleet summary: Daily 23:55 UTC
+  - Retention: Daily 04:00 UTC (thin old vessel_positions)
   - NOAA: DISABLED (0 data since deployment)
 """
 
@@ -22,6 +24,8 @@ from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_
 from backend.collectors.jodi import collect_jodi
 from backend.collectors.firms import collect_firms
 from backend.collectors.geofence_aggregator import aggregate_geofence_events
+from backend.collectors.fleet_summary import create_daily_fleet_summary
+from backend.collectors.retention import run_retention
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.signals.evaluator import evaluate_signals
 from backend.signals.sentiment_scorer import compute_sentiment_score
@@ -166,11 +170,28 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Daily fleet summary: 23:55 UTC (before day rollover)
+    scheduler.add_job(
+        create_daily_fleet_summary,
+        CronTrigger(hour=23, minute=55),
+        id="fleet_summary_daily",
+        replace_existing=True,
+    )
+
+    # Smart retention: daily 04:00 UTC (thin old vessel_positions)
+    scheduler.add_job(
+        run_retention,
+        CronTrigger(hour=4, minute=0),
+        id="retention_daily",
+        replace_existing=True,
+    )
+
     scheduler.start()
     logger.info(
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
         "PortWatch (weekly Tue), GDELT (every 2h), JODI (monthly 15th), "
-        "Live prices (every 4h), Signals (every 5min) | "
+        "Live prices (every 4h), Signals (every 5min), "
+        "Fleet summary (daily 23:55), Retention (daily 04:00) | "
         "FIRMS (every 6h) | DISABLED: NOAA"
     )
 

@@ -337,7 +337,7 @@ export default function ChokePointMonitor() {
   })
 
   return (
-    <div>
+    <div id="chokepoint-monitor">
       <DisruptionBanner disruptions={disruptions} />
 
       <div className="border border-border bg-surface rounded px-4 py-3">

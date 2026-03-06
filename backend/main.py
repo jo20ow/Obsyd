@@ -25,6 +25,7 @@ from backend.routes import thermal as thermal_routes
 from backend.routes import portwatch as portwatch_routes
 from backend.routes import signals as signals_routes
 from backend.routes import settings as settings_routes
+from backend.routes import briefing as briefing_routes
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +64,22 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(backfill_geofence_events())
     logger.info("Startup: Geofence backfill started (background)")
 
-    # FIRMS and NOAA disabled — 0 data returned since deployment
-    # Re-enable when investigated and confirmed working
-    logger.info("Startup: FIRMS and NOAA collectors DISABLED (0 data since deployment)")
+    # FRED backfill (one-time: extends WTI/Brent back to 2019)
+    await asyncio.sleep(2)
+    from backend.collectors.fred_backfill import backfill_fred
+    from backend.collectors.fleet_summary import create_daily_fleet_summary
+    db_session = __import__('backend.database', fromlist=['SessionLocal']).SessionLocal()
+    try:
+        await backfill_fred(db_session)
+        logger.info("Startup: FRED backfill complete")
+    except Exception as e:
+        logger.warning(f"Startup: FRED backfill failed: {e}")
+    finally:
+        db_session.close()
+
+    # Initial fleet summary for today
+    asyncio.create_task(create_daily_fleet_summary())
+    logger.info("Startup: Fleet summary scheduled")
 
     logger.info("Startup complete")
     yield
@@ -105,3 +119,4 @@ app.include_router(thermal_routes.router)
 app.include_router(portwatch_routes.router)
 app.include_router(signals_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(briefing_routes.router)
