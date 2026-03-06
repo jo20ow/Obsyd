@@ -5,8 +5,9 @@ from backend.database import get_db
 from backend.models.prices import EIAPrice, FREDSeries
 from backend.collectors.eia import collect_eia, EIA_SERIES
 from backend.collectors.fred import collect_fred, FRED_SERIES
-from backend.collectors.alphavantage import fetch_live_commodities
 from backend.collectors.portwatch_store import query_oil_prices
+from backend.providers import price_provider
+from backend.providers.twelvedata_provider import SYMBOLS as TD_SYMBOLS
 
 router = APIRouter(prefix="/api/prices", tags=["prices"])
 
@@ -79,34 +80,36 @@ async def get_eia_fundamentals(
 
 @router.get("/live")
 async def get_live_prices():
-    """Get latest commodity prices. Alpha Vantage (15min cache) with FRED daily fallback."""
-    prices = await fetch_live_commodities()
-    source = "alphavantage" if prices else None
+    """Get latest commodity prices via the configured price provider."""
+    return await price_provider.get_live_prices()
 
-    if not prices:
-        # Fallback: FRED daily prices from portwatch SQLite
-        oil = query_oil_prices(days=10)
-        fred_prices = {}
-        for series_id, label in [("DCOILWTICO", "WTI"), ("DCOILBRENTEU", "BRENT")]:
-            data = oil.get(series_id, [])
-            if len(data) >= 2:
-                latest = data[-1]
-                prev = data[-2]
-                change = latest["value"] - prev["value"]
-                change_pct = (change / prev["value"]) * 100 if prev["value"] else 0
-                fred_prices[label] = {
-                    "symbol": series_id,
-                    "date": latest["date"],
-                    "current": latest["value"],
-                    "previous_close": prev["value"],
-                    "change": round(change, 4),
-                    "change_pct": round(change_pct, 4),
-                }
-        if fred_prices:
-            prices = fred_prices
-            source = "fred"
 
-    return {"available": bool(prices), "source": source, "prices": prices}
+@router.get("/commodities")
+async def get_commodities():
+    """Get all commodity prices grouped by category."""
+    result = await price_provider.get_live_prices()
+    prices = result.get("prices", {})
+
+    energy = {k: v for k, v in prices.items() if k in ("WTI", "BRENT", "NG")}
+    metals = {k: v for k, v in prices.items() if k in ("GOLD", "SILVER", "COPPER")}
+    agriculture = {k: v for k, v in prices.items() if k in ("CORN", "SOYBEANS", "WHEAT")}
+
+    return {
+        "source": result.get("source"),
+        "energy": energy,
+        "metals": metals,
+        "agriculture": agriculture,
+    }
+
+
+@router.get("/intraday")
+async def get_intraday(
+    symbol: str = Query("WTI", description="Symbol: WTI, BRENT, NG, GOLD, SILVER, COPPER, CORN, SOYBEANS, WHEAT"),
+    interval: str = Query("15min", description="Interval: 1min, 5min, 15min, 30min, 1h, 2h, 4h"),
+    outputsize: int = Query(96, ge=1, le=5000, description="Number of data points"),
+):
+    """Get intraday OHLCV time series for a commodity."""
+    return await price_provider.get_intraday(symbol, interval, outputsize)
 
 
 @router.get("/fred")

@@ -22,6 +22,7 @@ from backend.collectors.geofence_aggregator import aggregate_geofence_events
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.signals.evaluator import evaluate_signals
 from backend.signals.sentiment_scorer import compute_sentiment_score
+from backend.providers.price_provider import get_live_prices as refresh_live_prices
 from backend.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,14 @@ def start_scheduler():
         compute_sentiment_score,
         CronTrigger(hour="*/6", minute=10),
         id="sentiment_6h",
+        replace_existing=True,
+    )
+
+    # Live prices: refresh every 15 minutes via provider
+    scheduler.add_job(
+        refresh_live_prices,
+        CronTrigger(minute="*/15"),
+        id="live_price_refresh",
         replace_existing=True,
     )
 

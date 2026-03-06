@@ -25,6 +25,7 @@ from backend.routes import jodi as jodi_routes
 from backend.routes import thermal as thermal_routes
 from backend.routes import portwatch as portwatch_routes
 from backend.routes import signals as signals_routes
+from backend.routes import settings as settings_routes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -84,3 +85,4 @@ app.include_router(jodi_routes.router)
 app.include_router(thermal_routes.router)
 app.include_router(portwatch_routes.router)
 app.include_router(signals_routes.router)
+app.include_router(settings_routes.router)
