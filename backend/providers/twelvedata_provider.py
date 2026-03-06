@@ -209,7 +209,9 @@ async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 9
     ohlcv.reverse()
 
     # Flag ETF proxies so the frontend can label them correctly
-    is_proxy = td_sym != symbol.upper()  # e.g. USO != WTI
+    # Real symbols: XAU/USD for GOLD is a real spot price, not a proxy
+    real_symbols = {"XAU/USD"}
+    is_proxy = td_sym != symbol.upper() and td_sym not in real_symbols
     proxy_label = f"{td_sym} ETF" if is_proxy else None
 
     return {
