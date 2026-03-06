@@ -19,6 +19,8 @@ from backend.signals.rules import (
     check_cushing_drawdown,
 )
 
+STALE_DAYS = 7  # ignore geofence events older than this
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,10 +72,12 @@ async def evaluate_signals():
                 )
 
         # 2. Flow anomaly: check geofence event history per zone
+        stale_cutoff = (datetime.now(timezone.utc) - timedelta(days=STALE_DAYS)).strftime("%Y-%m-%d")
         for zone in ZONES:
             latest_event = (
                 db.query(GeofenceEvent)
-                .filter(GeofenceEvent.zone == zone["name"])
+                .filter(GeofenceEvent.zone == zone["name"],
+                        GeofenceEvent.date >= stale_cutoff)
                 .order_by(GeofenceEvent.date.desc())
                 .first()
             )

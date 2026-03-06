@@ -101,9 +101,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",       # Vite dev server
+        "http://localhost:4173",       # Vite preview
+        "http://72.61.190.129",        # VPS direct
+        "http://72.61.190.129:8000",   # VPS API
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 

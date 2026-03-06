@@ -12,7 +12,7 @@ Monthly updates, no API key required.
 import csv
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -95,7 +95,7 @@ async def collect_jodi():
     """Fetch JODI CSV files for current + previous year, store in database."""
     db = SessionLocal()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         years = [now.year, now.year - 1]
 
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -125,7 +125,7 @@ async def collect_jodi():
                         existing.production = values["production"]
                         existing.consumption = values["consumption"]
                         existing.stocks = values["stocks"]
-                        existing.fetched_at = datetime.utcnow()
+                        existing.fetched_at = datetime.now(timezone.utc)
                     else:
                         db.add(JODIProduction(
                             country=country,

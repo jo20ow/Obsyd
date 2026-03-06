@@ -68,6 +68,11 @@ function shipRadius(t, isZone) {
   return isZone ? 3 : 2
 }
 
+function escHtml(s) {
+  if (!s) return ''
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 function timeAgo(ts) {
   if (!ts) return ''
   const diff = Date.now() - new Date(ts).getTime()
@@ -302,11 +307,11 @@ export default function VesselMap({ zones, weatherAlerts = [] }) {
         ? `${object.heading.toFixed(0)}°` : '—'
       return {
         html: `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#c8c8d0;line-height:1.5">
-          <div style="color:#00e5ff;font-weight:bold;margin-bottom:2px">${object.ship_name || 'UNKNOWN'}</div>
-          <div><span style="color:#666">MMSI</span> ${object.mmsi}</div>
+          <div style="color:#00e5ff;font-weight:bold;margin-bottom:2px">${escHtml(object.ship_name) || 'UNKNOWN'}</div>
+          <div><span style="color:#666">MMSI</span> ${escHtml(object.mmsi)}</div>
           <div><span style="color:#666">TYPE</span> ${shipTypeLabel(object.ship_type)} <span style="color:#555">(${object.ship_type})</span></div>
           <div><span style="color:#666">SOG</span> ${object.sog.toFixed(1)} kn &nbsp;<span style="color:#666">HDG</span> ${hdg}</div>
-          ${object.zone ? `<div><span style="color:#666">ZONE</span> <span style="color:#00e5ff">${object.zone.toUpperCase()}</span></div>` : ''}
+          ${object.zone ? `<div><span style="color:#666">ZONE</span> <span style="color:#00e5ff">${escHtml(object.zone).toUpperCase()}</span></div>` : ''}
           ${object.timestamp ? `<div style="color:#555;font-size:10px;margin-top:2px">${timeAgo(object.timestamp)}</div>` : ''}
         </div>`,
         style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '8px' },
@@ -318,7 +323,7 @@ export default function VesselMap({ zones, weatherAlerts = [] }) {
           <div style="font-weight:bold">THERMAL HOTSPOT</div>
           <div style="color:#c8c8d0">Brightness: ${object.brightness.toFixed(1)} K</div>
           <div style="color:#c8c8d0">Confidence: ${object.confidence}</div>
-          <div style="color:#c8c8d0">Area: ${object.area_name}</div>
+          <div style="color:#c8c8d0">Area: ${escHtml(object.area_name)}</div>
           <div style="color:#c8c8d0">${object.acq_date} ${object.acq_time}</div>
         </div>`,
         style: { background: '#0a0a0f', border: '1px solid #ffa000', borderRadius: '4px', padding: '8px' },
@@ -328,7 +333,7 @@ export default function VesselMap({ zones, weatherAlerts = [] }) {
       const count = vessels.filter((v) => v.zone === object.name).length
       return {
         html: `<div style="font-family:monospace;font-size:11px;color:#00e5ff">
-          <div style="font-weight:bold">${object.display_name}</div>
+          <div style="font-weight:bold">${escHtml(object.display_name)}</div>
           ${count ? `<div style="color:#c8c8d0">${count} tankers tracked</div>` : ''}
           ${object.no_ais_coverage ? '<div style="color:#ffa000;font-size:10px">No AIS coverage</div>' : ''}
         </div>`,
@@ -337,7 +342,7 @@ export default function VesselMap({ zones, weatherAlerts = [] }) {
     }
     if (layer.id === 'hurricanes') {
       return {
-        html: `<div style="font-family:monospace;font-size:11px;color:#ffa000;font-weight:bold">${object.event}<br/><span style="color:#c8c8d0;font-weight:normal">${object.area?.substring(0, 80) || ''}</span></div>`,
+        html: `<div style="font-family:monospace;font-size:11px;color:#ffa000;font-weight:bold">${escHtml(object.event)}<br/><span style="color:#c8c8d0;font-weight:normal">${escHtml(object.area?.substring(0, 80))}</span></div>`,
         style: { background: '#0a0a0f', border: '1px solid #ffa000', borderRadius: '4px', padding: '8px' },
       }
     }

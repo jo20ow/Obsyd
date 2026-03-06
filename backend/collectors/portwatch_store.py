@@ -266,42 +266,48 @@ def backfill_chokepoints(since: str = "2019-01-01", batch_size: int = 1000) -> l
 
 def store_chokepoint_data(rows: list[dict], db_path: Path | None = None):
     conn = _init_db(db_path)
-    for r in rows:
-        conn.execute(
-            "INSERT OR REPLACE INTO chokepoint_daily VALUES (?,?,?,?,?,?,?)",
-            (r["portid"], r["portname"], r["date"],
-             r["n_total"], r["n_tanker"], r["capacity"], r["capacity_tanker"]),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        for r in rows:
+            conn.execute(
+                "INSERT OR REPLACE INTO chokepoint_daily VALUES (?,?,?,?,?,?,?)",
+                (r["portid"], r["portname"], r["date"],
+                 r["n_total"], r["n_tanker"], r["capacity"], r["capacity_tanker"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def store_port_data(rows: list[dict], db_path: Path | None = None):
     conn = _init_db(db_path)
-    for r in rows:
-        conn.execute(
-            "INSERT OR REPLACE INTO port_daily VALUES (?,?,?,?,?,?,?,?,?)",
-            (r["portid"], r["portname"], r["date"],
-             r["portcalls"], r["portcalls_tanker"],
-             r["import_total"], r["export_total"],
-             r["import_tanker"], r["export_tanker"]),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        for r in rows:
+            conn.execute(
+                "INSERT OR REPLACE INTO port_daily VALUES (?,?,?,?,?,?,?,?,?)",
+                (r["portid"], r["portname"], r["date"],
+                 r["portcalls"], r["portcalls_tanker"],
+                 r["import_total"], r["export_total"],
+                 r["import_tanker"], r["export_tanker"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def store_disruptions(rows: list[dict], db_path: Path | None = None):
     conn = _init_db(db_path)
-    for r in rows:
-        conn.execute(
-            "INSERT OR REPLACE INTO disruptions VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (r["event_id"], r["event_name"], r["event_type"], r["alertlevel"],
-             r["start_date"], r["end_date"],
-             r["affected_portid"], r["affected_portname"],
-             r["country"], r["description"]),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        for r in rows:
+            conn.execute(
+                "INSERT OR REPLACE INTO disruptions VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (r["event_id"], r["event_name"], r["event_type"], r["alertlevel"],
+                 r["start_date"], r["end_date"],
+                 r["affected_portid"], r["affected_portname"],
+                 r["country"], r["description"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------- Query functions ----------
@@ -421,20 +427,23 @@ def fetch_oil_prices(days: int = 365, fred_api_key: str | None = None) -> list[d
                     "date": obs["date"],
                     "value": float(val),
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"FRED oil price fetch failed for {series_id}: {e}")
     return rows
 
 
 def store_oil_prices(rows: list[dict], db_path: Path | None = None):
     conn = _init_db(db_path)
-    for r in rows:
-        conn.execute(
-            "INSERT OR REPLACE INTO oil_prices VALUES (?,?,?)",
-            (r["series_id"], r["date"], r["value"]),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        for r in rows:
+            conn.execute(
+                "INSERT OR REPLACE INTO oil_prices VALUES (?,?,?)",
+                (r["series_id"], r["date"], r["value"]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def query_oil_prices(days: int = 365, db_path: Path | None = None) -> dict:

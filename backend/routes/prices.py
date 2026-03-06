@@ -1,7 +1,10 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from backend.database import get_db
 from backend.models.prices import EIAPrice, FREDSeries
@@ -166,8 +169,8 @@ async def get_chart_data(
             if not series or series[-1]["time"] < today:
                 series.append({"time": today, "value": round(p["current"], 2)})
                 result[fred_id] = series
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Chart live price append failed: {e}")
 
     return result
 
@@ -206,8 +209,8 @@ async def get_oil_prices(
             if not series or series[-1]["date"] < today:
                 series.append({"date": today, "value": round(p["current"], 2)})
                 cached[fred_id] = series
-    except Exception:
-        pass  # FRED data alone is still fine
+    except Exception as e:
+        logger.warning(f"Oil live price append failed: {e}")
 
     return {
         "source": "FRED (Federal Reserve Economic Data)",

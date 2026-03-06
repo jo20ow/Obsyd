@@ -137,7 +137,7 @@ export default function ReroutingIndex() {
       {/* Historical rerouting events */}
       {events && events.length > 0 && (
         <div className="px-4 py-2 border-t border-border/50">
-          <div className="font-mono text-[9px] text-neutral-600 mb-1">REROUTING EVENTS (Cape &gt;35% sustained)</div>
+          <div className="font-mono text-[9px] text-neutral-600 mb-1">REROUTING EVENTS (Cape {'>'}35% sustained)</div>
           {events.slice(-3).map((ev) => (
             <div key={ev.start_date} className="flex items-center gap-2 py-0.5">
               <span className="font-mono text-[9px] text-neutral-500">{ev.start_date}</span>
@@ -152,7 +152,7 @@ export default function ReroutingIndex() {
       )}
 
       <div className="px-4 py-1.5 border-t border-border/50 font-mono text-[8px] text-neutral-700">
-        Cape share of combined Suez+Cape tanker traffic // Normal ~20%, disruption &gt;35%
+        Cape share of combined Suez+Cape tanker traffic // Normal ~20%, disruption {'>'}35%
       </div>
     </div>
   )

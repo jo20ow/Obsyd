@@ -5,7 +5,7 @@ Run once, then the daily collector keeps data current.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy.orm import Session
@@ -74,7 +74,7 @@ async def backfill_fred(db: Session):
                 date=date,
                 value=value,
                 description=description,
-                fetched_at=datetime.utcnow(),
+                fetched_at=datetime.now(timezone.utc),
             ))
             inserted += 1
 

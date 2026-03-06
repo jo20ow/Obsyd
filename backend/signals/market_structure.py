@@ -8,6 +8,7 @@ Compares front-month vs next-month futures prices:
 Uses yfinance for real futures prices. No API key needed.
 """
 
+import asyncio
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -63,7 +64,15 @@ def _get_contracts() -> dict:
 # Cache
 _cache: dict | None = None
 _cache_ts: float = 0.0
+_cache_lock: asyncio.Lock | None = None
 CACHE_TTL = 600  # 10 minutes
+
+
+def _get_lock() -> asyncio.Lock:
+    global _cache_lock
+    if _cache_lock is None:
+        _cache_lock = asyncio.Lock()
+    return _cache_lock
 
 
 def _fetch_structure() -> dict:
@@ -122,32 +131,37 @@ async def get_market_structure() -> dict:
     if _cache and (now - _cache_ts) < CACHE_TTL:
         return _cache
 
-    import asyncio
-    loop = asyncio.get_event_loop()
-    try:
-        curves = await loop.run_in_executor(_executor, _fetch_structure)
-    except Exception as e:
-        logger.error(f"market_structure fetch failed: {e}")
-        return {"source": "yfinance", "curves": {}, "summary": "unavailable"}
+    async with _get_lock():
+        # Double-check after acquiring lock
+        now = time.monotonic()
+        if _cache and (now - _cache_ts) < CACHE_TTL:
+            return _cache
 
-    # Determine overall market summary
-    structures = [v["structure"] for v in curves.values()]
-    if all(s == "backwardation" for s in structures):
-        summary = "backwardation"
-    elif all(s == "contango" for s in structures):
-        summary = "contango"
-    elif structures:
-        summary = "mixed"
-    else:
-        summary = "unavailable"
+        loop = asyncio.get_event_loop()
+        try:
+            curves = await loop.run_in_executor(_executor, _fetch_structure)
+        except Exception as e:
+            logger.error(f"market_structure fetch failed: {e}")
+            return {"source": "yfinance", "curves": {}, "summary": "unavailable"}
 
-    result = {
-        "source": "yfinance",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "curves": curves,
-        "summary": summary,
-    }
+        # Determine overall market summary
+        structures = [v["structure"] for v in curves.values()]
+        if all(s == "backwardation" for s in structures):
+            summary = "backwardation"
+        elif all(s == "contango" for s in structures):
+            summary = "contango"
+        elif structures:
+            summary = "mixed"
+        else:
+            summary = "unavailable"
 
-    _cache = result
-    _cache_ts = now
-    return result
+        result = {
+            "source": "yfinance",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "curves": curves,
+            "summary": summary,
+        }
+
+        _cache = result
+        _cache_ts = now
+        return result

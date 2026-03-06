@@ -7,7 +7,7 @@ Public Domain - API key required (free).
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy.orm import Session
@@ -113,7 +113,7 @@ async def collect_fred(db: Session):
 
             if existing:
                 existing.value = value
-                existing.fetched_at = datetime.utcnow()
+                existing.fetched_at = datetime.now(timezone.utc)
             else:
                 db.add(
                     FREDSeries(

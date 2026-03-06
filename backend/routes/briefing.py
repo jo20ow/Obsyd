@@ -5,6 +5,7 @@ GET /api/briefing/today
 Cached for 1 hour. Collects from all data sources.
 """
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/api/briefing", tags=["briefing"])
 # Cache
 _briefing_cache: dict | None = None
 _briefing_cache_ts: float = 0.0
+_briefing_lock = asyncio.Lock()
 CACHE_TTL = 3600  # 1 hour
 
 # Key chokepoints for the briefing (ordered by crude relevance)
@@ -275,7 +277,13 @@ async def get_briefing():
     if _briefing_cache and (now - _briefing_cache_ts) < CACHE_TTL:
         return _briefing_cache
 
-    briefing = await _build_briefing()
-    _briefing_cache = briefing
-    _briefing_cache_ts = now
-    return briefing
+    async with _briefing_lock:
+        # Double-check after acquiring lock
+        now = time.monotonic()
+        if _briefing_cache and (now - _briefing_cache_ts) < CACHE_TTL:
+            return _briefing_cache
+
+        briefing = await _build_briefing()
+        _briefing_cache = briefing
+        _briefing_cache_ts = now
+        return briefing

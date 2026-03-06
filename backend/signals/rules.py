@@ -132,7 +132,7 @@ def check_flow_anomaly(db: Session, zone: str, current_count: int):
 
     if n_days >= 7:
         # Standard deviation method
-        variance = sum((c - mean) ** 2 for c in counts) / len(counts)
+        variance = sum((c - mean) ** 2 for c in counts) / (len(counts) - 1)
         std_dev = variance**0.5
         if std_dev == 0:
             return

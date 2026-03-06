@@ -17,7 +17,7 @@ Subscription must be sent within 3 seconds of connecting.
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import websockets
 
@@ -109,9 +109,9 @@ def _handle_position_report(msg: dict):
         if time_str:
             ts = datetime.fromisoformat(time_str.replace(" +0000 UTC", "+00:00"))
         else:
-            ts = datetime.utcnow()
+            ts = datetime.now(timezone.utc)
     except (ValueError, TypeError):
-        ts = datetime.utcnow()
+        ts = datetime.now(timezone.utc)
 
     # Apply hygiene filters (plausibility + dedup)
     if not filter_and_count(str(mmsi), lat, lon, sog, 80, ts):

@@ -119,10 +119,10 @@ export default function FundamentalsPanel() {
             <div className="flex items-end gap-2">
               <span
                 className={`font-mono text-lg font-bold ${
-                  util.value < 85
-                    ? 'text-yellow-400'
-                    : util.value < 80
+                  util.value < 80
                     ? 'text-red-400'
+                    : util.value < 85
+                    ? 'text-yellow-400'
                     : 'text-cyan-glow'
                 }`}
               >

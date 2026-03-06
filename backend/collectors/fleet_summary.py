@@ -16,15 +16,18 @@ from backend.models.fleet import DailyFleetSummary
 logger = logging.getLogger(__name__)
 
 
-def _classify_region(lon: float) -> str:
-    """Rough ocean region from longitude."""
-    # Mediterranean: lon 0-40, lat 30-45 (approximated by lon only)
-    if -10 <= lon <= 40:
+def _classify_region(lon: float, lat: float = 0.0) -> str:
+    """Rough ocean region from longitude + latitude."""
+    # Mediterranean: lon -10 to 40, lat 30-47
+    if -10 <= lon <= 40 and 30 <= lat <= 47:
         return "mediterranean"
-    # Atlantic: lon -80 to 0
-    if -80 <= lon < -10:
+    # Atlantic: lon -80 to 0 (or European Atlantic: lon -10 to 0, lat > 47)
+    if -80 <= lon <= 0:
         return "atlantic"
-    # Indian Ocean: lon 40 to 100
+    # Indian Ocean: lon 20-100 (below lat 30 to exclude Med/Central Asia)
+    if 20 < lon <= 100 and lat < 30:
+        return "indian_ocean"
+    # Middle East / Persian Gulf area that's not Med
     if 40 < lon <= 100:
         return "indian_ocean"
     # Pacific: everything else
@@ -53,7 +56,7 @@ async def create_daily_fleet_summary():
 
         regions = {"atlantic": 0, "pacific": 0, "indian_ocean": 0, "mediterranean": 0}
         for p in positions:
-            region = _classify_region(p.longitude)
+            region = _classify_region(p.longitude, p.latitude)
             regions[region] += 1
 
         existing = db.query(DailyFleetSummary).filter(
