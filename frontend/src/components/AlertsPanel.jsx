@@ -30,29 +30,22 @@ function timeAgo(isoStr) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-export default function AlertsPanel() {
+export default function AlertsPanel({ weatherAlerts = [] }) {
   const [alerts, setAlerts] = useState([])
-  const [weatherAlerts, setWeatherAlerts] = useState([])
-
   const [chokeAlerts, setChokeAlerts] = useState([])
 
   useEffect(() => {
     fetch(`${API}/alerts?limit=20`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setAlerts)
-      .catch(() => {})
-
-    fetch(`${API}/weather/alerts`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setWeatherAlerts)
-      .catch(() => {})
+      .catch((e) => console.error('AlertsPanel alerts:', e))
 
     fetch(`${API}/alerts/portwatch`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.alerts) setChokeAlerts(data.alerts)
       })
-      .catch(() => {})
+      .catch((e) => console.error('AlertsPanel portwatch:', e))
   }, [])
 
   // Merge signal alerts, weather alerts, and chokepoint alerts

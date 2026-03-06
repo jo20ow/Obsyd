@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { SkeletonCard } from './Skeleton'
 
 const API = '/api'
 
@@ -10,15 +11,23 @@ const MACRO_SERIES = [
 ]
 
 export default function MacroPanel() {
-  const [data, setData] = useState([])
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/prices/fred?limit=200`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setData)
-      .catch(() => {})
+      .catch((e) => { console.error('MacroPanel fetch failed:', e); setError(e.message) })
   }, [])
 
+  if (error) return (
+    <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+      <div className="font-mono text-[10px] text-red-400">MACRO // FETCH ERROR</div>
+    </div>
+  )
+
+  if (data === null) return <SkeletonCard lines={4} />
   if (data.length === 0) return null
 
   return (

@@ -271,7 +271,7 @@ export default function ChokePointMonitor() {
         if (oilData?.series) setOilPrices(oilData.series)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch((e) => { console.error('ChokePointMonitor fetch:', e); setLoading(false) })
   }, [])
 
   const fetchHistory = useCallback((name) => {
@@ -282,7 +282,7 @@ export default function ChokePointMonitor() {
       .then((data) => {
         if (data) setHistory(data.history)
       })
-      .catch(() => {})
+      .catch((e) => console.error('ChokePointMonitor history:', e))
   }, [])
 
   useEffect(() => {

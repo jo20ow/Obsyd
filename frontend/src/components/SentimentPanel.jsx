@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { SkeletonCard } from './Skeleton'
 
 const API = '/api'
 
@@ -39,20 +40,29 @@ function VolumeBar({ value, max }) {
 }
 
 export default function SentimentPanel() {
-  const [volumeData, setVolumeData] = useState(null)
-  const [riskData, setRiskData] = useState(null)
+  const [volumeData, setVolumeData] = useState(undefined)
+  const [riskData, setRiskData] = useState(undefined)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/sentiment/volume`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setVolumeData)
-      .catch(() => {})
+      .catch((e) => { console.error('SentimentPanel volume fetch:', e); setError(e.message) })
 
     fetch(`${API}/sentiment/risk`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setRiskData)
-      .catch(() => {})
+      .catch((e) => { console.error('SentimentPanel risk fetch:', e); setError(e.message) })
   }, [])
+
+  if (error) return (
+    <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+      <div className="font-mono text-[10px] text-red-400">SENTIMENT // FETCH ERROR</div>
+    </div>
+  )
+
+  if (volumeData === undefined || riskData === undefined) return <SkeletonCard lines={5} />
 
   const hasAI = riskData?.score != null
   const keywords = volumeData?.keywords || {}

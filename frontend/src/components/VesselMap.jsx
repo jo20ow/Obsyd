@@ -48,7 +48,7 @@ function zoneToPoly(bounds) {
   ]
 }
 
-export default function VesselMap({ zones }) {
+export default function VesselMap({ zones, weatherAlerts = [] }) {
   const [vessels, setVessels] = useState([])
   const [globalVessels, setGlobalVessels] = useState([])
   const [mode, setMode] = useState('geofence') // 'geofence' | 'global'
@@ -56,7 +56,8 @@ export default function VesselMap({ zones }) {
   const [thermalData, setThermalData] = useState([])
   const [portwatch, setPortwatch] = useState(null)
   const [marine, setMarine] = useState({})
-  const [hurricanes, setHurricanes] = useState([])
+
+  const hurricanes = weatherAlerts.filter((a) => a.latitude && a.longitude)
 
   const fetchVessels = useCallback(async () => {
     try {
@@ -82,25 +83,17 @@ export default function VesselMap({ zones }) {
     fetch(`${API}/ports/summary`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d) setPortwatch(d) })
-      .catch(() => {})
+      .catch((e) => console.error('VesselMap ports/summary:', e))
 
     fetch(`${API}/weather/marine`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.zones) setMarine(d.zones) })
-      .catch(() => {})
-
-    fetch(`${API}/weather/alerts`)
-      .then((r) => r.ok ? r.json() : [])
-      .then((data) => {
-        const withCoords = data.filter((a) => a.latitude && a.longitude)
-        setHurricanes(withCoords)
-      })
-      .catch(() => {})
+      .catch((e) => console.error('VesselMap weather/marine:', e))
 
     fetch(`${API}/thermal/hotspots`)
       .then((r) => r.ok ? r.json() : [])
       .then(setThermalData)
-      .catch(() => {})
+      .catch((e) => console.error('VesselMap thermal:', e))
   }, [])
 
   useEffect(() => {

@@ -20,6 +20,7 @@ function App() {
   const [zones, setZones] = useState([])
   const [aisActive, setAisActive] = useState(false)
   const [gdeltActive, setGdeltActive] = useState(false)
+  const [weatherAlerts, setWeatherAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -57,6 +58,12 @@ function App() {
           const gdelt = await gdeltRes.json()
           setGdeltActive(gdelt.active)
         }
+
+        // Fetch weather alerts once (shared by VesselMap + AlertsPanel)
+        fetch(`${API}/weather/alerts`)
+          .then((r) => (r.ok ? r.json() : []))
+          .then(setWeatherAlerts)
+          .catch((e) => console.error('Weather alerts fetch:', e))
       } catch (e) {
         setError(e.message)
       } finally {
@@ -127,10 +134,10 @@ function App() {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2">
-          <VesselMap zones={zones} />
+          <VesselMap zones={zones} weatherAlerts={weatherAlerts} />
         </div>
         <div>
-          <AlertsPanel />
+          <AlertsPanel weatherAlerts={weatherAlerts} />
         </div>
       </div>
     </div>

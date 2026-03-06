@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { SkeletonCard } from './Skeleton'
 
 const API = '/api'
 
@@ -8,15 +9,23 @@ const FLAG = { SA: '🇸🇦', RU: '🇷🇺', US: '🇺🇸', IQ: '🇮🇶', C
 const SHORT = { SA: 'KSA', RU: 'RUS', US: 'USA', IQ: 'IRQ', CA: 'CAN' }
 
 export default function JODIPanel() {
-  const [data, setData] = useState(null)
+  const [data, setData] = useState(undefined)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/jodi/summary`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setData)
-      .catch(() => {})
+      .catch((e) => { console.error('JODIPanel fetch:', e); setError(e.message) })
   }, [])
 
+  if (error) return (
+    <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+      <div className="font-mono text-[10px] text-red-400">JODI // FETCH ERROR</div>
+    </div>
+  )
+
+  if (data === undefined) return <SkeletonCard lines={5} />
   if (!data || data.length === 0) return null
 
   const top5 = data

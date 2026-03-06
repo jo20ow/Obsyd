@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { SkeletonCard } from './Skeleton'
 
 const API = '/api'
 
@@ -64,15 +65,23 @@ function NetFlowBar({ imports, exports }) {
 }
 
 export default function FundamentalsPanel() {
-  const [data, setData] = useState(null)
+  const [data, setData] = useState(undefined)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/prices/eia/fundamentals`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setData)
-      .catch(() => {})
+      .catch((e) => { console.error('FundamentalsPanel fetch:', e); setError(e.message) })
   }, [])
 
+  if (error) return (
+    <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+      <div className="font-mono text-[10px] text-red-400">FUNDAMENTALS // FETCH ERROR</div>
+    </div>
+  )
+
+  if (data === undefined) return <SkeletonCard lines={4} />
   if (!data) return null
 
   const getLatest = (seriesId) => {

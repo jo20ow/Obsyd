@@ -1,4 +1,25 @@
+import { useState, useEffect } from 'react'
+
 export default function Header({ aisActive, gdeltActive }) {
+  const [health, setHealth] = useState(null)
+
+  useEffect(() => {
+    function poll() {
+      fetch('/api/health/collectors')
+        .then((r) => (r.ok ? r.json() : null))
+        .then(setHealth)
+        .catch((e) => console.error('Health poll:', e))
+    }
+    poll()
+    const id = setInterval(poll, 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const eiaOk = health?.eia ?? false
+  const fredOk = health?.fred ?? false
+  const aisOk = health?.ais ?? aisActive
+  const gdeltOk = health?.gdelt ?? gdeltActive
+
   return (
     <header className="flex items-center justify-between border-b border-border pb-3">
       <div className="flex items-center gap-3">
@@ -10,10 +31,10 @@ export default function Header({ aisActive, gdeltActive }) {
         </div>
       </div>
       <div className="flex items-center gap-4">
-        <StatusDot label="EIA" ok />
-        <StatusDot label="FRED" ok />
-        <StatusDot label="AIS" ok={aisActive} />
-        <StatusDot label="GDELT" ok={gdeltActive} />
+        <StatusDot label="EIA" ok={eiaOk} />
+        <StatusDot label="FRED" ok={fredOk} />
+        <StatusDot label="AIS" ok={aisOk} />
+        <StatusDot label="GDELT" ok={gdeltOk} />
       </div>
     </header>
   )

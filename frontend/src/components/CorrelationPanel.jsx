@@ -86,7 +86,7 @@ export default function CorrelationPanel() {
         if (d?.correlations) setData(d.correlations)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch((e) => { console.error('CorrelationPanel fetch:', e); setLoading(false) })
   }, [])
 
   if (loading) {
