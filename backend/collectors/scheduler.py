@@ -6,7 +6,7 @@ Schedule:
   - FRED: Daily
   - Live prices: Every 4 hours (AV 25 calls/day budget)
   - GDELT: Every 2 hours (avoid 429 rate limiting)
-  - FIRMS: DISABLED (0 data since deployment)
+  - FIRMS: Every 6 hours
   - NOAA: DISABLED (0 data since deployment)
 """
 
@@ -20,6 +20,7 @@ from backend.collectors.fred import collect_fred
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_secondary, collect_gdelt_sentiment
 from backend.collectors.jodi import collect_jodi
+from backend.collectors.firms import collect_firms
 from backend.collectors.geofence_aggregator import aggregate_geofence_events
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.signals.evaluator import evaluate_signals
@@ -121,10 +122,9 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # NASA FIRMS: DISABLED — 0 hotspots stored since deployment
-    # Re-enable after debugging FIRMS API response
-    # scheduler.add_job(collect_firms, CronTrigger(hour="*/6", minute=15),
-    #     id="firms_6h", replace_existing=True)
+    # NASA FIRMS: thermal hotspots every 6h
+    scheduler.add_job(collect_firms, CronTrigger(hour="*/6", minute=15),
+        id="firms_6h", replace_existing=True)
 
     # PortWatch chokepoint backfill: daily at 06:00 UTC
     scheduler.add_job(
@@ -171,7 +171,7 @@ def start_scheduler():
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
         "PortWatch (weekly Tue), GDELT (every 2h), JODI (monthly 15th), "
         "Live prices (every 4h), Signals (every 5min) | "
-        "DISABLED: FIRMS, NOAA"
+        "FIRMS (every 6h) | DISABLED: NOAA"
     )
 
 

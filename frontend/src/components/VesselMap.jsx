@@ -101,6 +101,7 @@ export default function VesselMap({ zones, weatherAlerts = [] }) {
   const [mode, setMode] = useState('geofence')
   const [showThermal, setShowThermal] = useState(false)
   const [thermalData, setThermalData] = useState([])
+  const [thermalAvailable, setThermalAvailable] = useState(false)
   const [portwatch, setPortwatch] = useState(null)
   const [marine, setMarine] = useState({})
   const [viewState, setViewState] = useState(INITIAL_VIEW)
@@ -139,7 +140,10 @@ export default function VesselMap({ zones, weatherAlerts = [] }) {
 
     fetch(`${API}/thermal/hotspots`)
       .then((r) => r.ok ? r.json() : [])
-      .then(setThermalData)
+      .then((data) => {
+        setThermalData(data)
+        if (data.length > 0) setThermalAvailable(true)
+      })
       .catch((e) => console.error('VesselMap thermal:', e))
   }, [])
 
@@ -371,11 +375,14 @@ export default function VesselMap({ zones, weatherAlerts = [] }) {
             </button>
           </div>
           <button
-            onClick={() => setShowThermal((v) => !v)}
+            onClick={() => thermalAvailable && setShowThermal((v) => !v)}
+            title={thermalAvailable ? 'Toggle thermal hotspots' : 'FIRMS API nicht verfügbar'}
             className={`px-2 py-0.5 border rounded transition-colors ${
-              showThermal
-                ? 'bg-orange-400/15 text-orange-400 border-orange-500/30'
-                : 'text-neutral-600 border-border hover:text-neutral-400'
+              !thermalAvailable
+                ? 'text-neutral-700 border-neutral-800 cursor-not-allowed opacity-50'
+                : showThermal
+                  ? 'bg-orange-400/15 text-orange-400 border-orange-500/30'
+                  : 'text-neutral-600 border-border hover:text-neutral-400'
             }`}
           >
             THERMAL
