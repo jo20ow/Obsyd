@@ -20,6 +20,7 @@ from backend.config import settings
 from backend.database import SessionLocal
 from backend.geofences.zones import find_zone, is_tanker, ZONES
 from backend.models.vessels import VesselPosition, GlobalVesselPosition
+from backend.collectors.ais_hygiene import filter_and_count, get_stats, reset_stats
 
 logger = logging.getLogger(__name__)
 
@@ -145,21 +146,26 @@ async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
         ))
 
         # Zone table: only tankers inside a geofence (appended for history)
+        # Apply hygiene filters before storing (plausibility + dedup)
         if parsed["is_tanker"] and parsed["zone"]:
             zone_name = parsed["zone"]["name"]
-            zone_counts[zone_name] = zone_counts.get(zone_name, 0) + 1
-            zone_positions.append(VesselPosition(
-                mmsi=parsed["mmsi"],
-                ship_name=parsed["ship_name"],
-                ship_type=parsed["ship_type"],
-                latitude=parsed["lat"],
-                longitude=parsed["lon"],
-                sog=parsed["sog"],
-                cog=parsed["cog"],
-                heading=parsed["heading"],
-                zone=zone_name,
-                timestamp=parsed["ts"],
-            ))
+            if filter_and_count(
+                parsed["mmsi"], parsed["lat"], parsed["lon"],
+                parsed["sog"], parsed["ship_type"], parsed["ts"],
+            ):
+                zone_counts[zone_name] = zone_counts.get(zone_name, 0) + 1
+                zone_positions.append(VesselPosition(
+                    mmsi=parsed["mmsi"],
+                    ship_name=parsed["ship_name"],
+                    ship_type=parsed["ship_type"],
+                    latitude=parsed["lat"],
+                    longitude=parsed["lon"],
+                    sog=parsed["sog"],
+                    cog=parsed["cog"],
+                    heading=parsed["heading"],
+                    zone=zone_name,
+                    timestamp=parsed["ts"],
+                ))
 
     db = SessionLocal()
     try:
@@ -173,9 +179,11 @@ async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
             db.add_all(zone_positions)
 
         db.commit()
+        stats = get_stats()
         logger.info(
             f"AISHub: {len(global_positions)} global, "
-            f"{len(zone_positions)} zone tankers stored"
+            f"{len(zone_positions)} zone tankers stored "
+            f"(hygiene: {stats['rejected']} rejected, {stats['deduped']} deduped)"
         )
         return zone_counts
     except Exception as e:

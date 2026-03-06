@@ -7,8 +7,8 @@ const TIMEFRAMES = [
   { label: '1D', interval: '15min', outputsize: 96, type: 'intraday' },
   { label: '1W', interval: '1h', outputsize: 168, type: 'intraday' },
   { label: '1M', interval: '1day', outputsize: 30, type: 'intraday' },
-  { label: '3M', type: 'fred' },
-  { label: '1Y', type: 'fred' },
+  { label: '3M', interval: '1day_6m', outputsize: 90, type: 'hybrid' },
+  { label: '1Y', interval: '1day_1y', outputsize: 365, type: 'hybrid' },
   { label: 'ALL', type: 'fred' },
 ]
 
@@ -45,9 +45,10 @@ export default function PriceChart({ data }) {
   const [fredData, setFredData] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  // Fetch intraday data (yfinance) for 1D/1W/1M
+  // Fetch intraday/OHLCV data (yfinance) for 1D/1W/1M and hybrid 3M/1Y candle mode
   useEffect(() => {
-    if (timeframe.type !== 'intraday') {
+    const needsIntraday = timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle')
+    if (!needsIntraday) {
       setIntradayData(null)
       return
     }
@@ -63,11 +64,12 @@ export default function PriceChart({ data }) {
         setIntradayData(null)
         setLoading(false)
       })
-  }, [timeframe, symbol])
+  }, [timeframe, symbol, chartStyle])
 
-  // Fetch FRED daily data for 3M/1Y/ALL via dedicated /chart endpoint
+  // Fetch FRED daily data for line mode (fred + hybrid) via dedicated /chart endpoint
   useEffect(() => {
-    if (timeframe.type !== 'fred') return
+    const needsFred = timeframe.type === 'fred' || (timeframe.type === 'hybrid' && chartStyle === 'line')
+    if (!needsFred) return
     if (fredData) return // only fetch once
     setLoading(true)
     fetch(`${API}/prices/chart`)
@@ -80,14 +82,14 @@ export default function PriceChart({ data }) {
         setFredData(null)
         setLoading(false)
       })
-  }, [timeframe])
+  }, [timeframe, chartStyle])
 
   // Render chart
   useEffect(() => {
     if (!containerRef.current) return
 
-    const isIntraday = timeframe.type === 'intraday' && intradayData?.length > 0
-    const isFred = timeframe.type === 'fred' && fredData
+    const isIntraday = (timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle')) && intradayData?.length > 0
+    const isFred = (timeframe.type === 'fred' || (timeframe.type === 'hybrid' && chartStyle === 'line')) && fredData
 
     if (!isIntraday && !isFred) return
 
@@ -118,7 +120,7 @@ export default function PriceChart({ data }) {
       },
       timeScale: {
         borderColor: '#1e1e2e',
-        timeVisible: isIntraday && timeframe.label !== '1M',
+        timeVisible: isIntraday && timeframe.label !== '1M' && timeframe.type !== 'hybrid',
       },
       handleScroll: true,
       handleScale: true,
@@ -219,7 +221,7 @@ export default function PriceChart({ data }) {
     }
   }, [data, timeframe, symbol, intradayData, fredData, chartStyle])
 
-  const isIntraday = timeframe.type === 'intraday'
+  const isIntraday = timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle')
 
   return (
     <div className="border border-border bg-surface rounded">

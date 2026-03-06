@@ -17,7 +17,7 @@ ZONES: list[dict] = [
         "name": "hormuz",
         "display_name": "Strait of Hormuz",
         "bounds": [[25.0, 55.5], [27.0, 57.5]],
-        "description": "Persian Gulf to Arabian Sea transit. ~20% of global oil supply.",
+        "description": "Persian Gulf to Arabian Sea transit. ~20% of global seaborne crude.",
     },
     {
         "name": "suez",

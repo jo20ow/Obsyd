@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     fred_base_url: str = "https://api.stlouisfed.org/fred"
 
     # Price provider
-    price_provider: str = "twelvedata"
-    price_fallback: str = "alphavantage"
+    price_provider: str = "yfinance"
+    price_fallback: str = "fred"
     twelvedata_api_key: Optional[str] = None
 
     # BYOK APIs

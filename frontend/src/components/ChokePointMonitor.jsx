@@ -12,7 +12,8 @@ import {
 
 const API = '/api'
 
-const CP_ORDER = ['hormuz', 'suez', 'malacca', 'panama', 'cape']
+// Sorted by crude oil relevance (Panama last — LNG/products only, no crude)
+const CP_ORDER = ['hormuz', 'malacca', 'suez', 'cape', 'panama']
 const CP_SHORT = {
   'Strait of Hormuz': 'hormuz',
   'Suez Canal': 'suez',
@@ -102,19 +103,27 @@ function DisruptionBanner({ disruptions }) {
 function ChokePointCard({ cp, selected, onClick }) {
   const anom = cp.anomaly_total_pct
   const isSelected = selected === (CP_SHORT[cp.name] || cp.portid)
+  const isPanama = (CP_SHORT[cp.name] || cp.portid) === 'panama'
 
   return (
     <button
       onClick={onClick}
       className={`w-full text-left border rounded px-3 py-2.5 transition-all cursor-pointer
-        ${anomalyBorder(anom)} ${anomalyBg(anom)}
+        ${isPanama ? 'border-border bg-surface-light opacity-60' : `${anomalyBorder(anom)} ${anomalyBg(anom)}`}
         ${isSelected ? 'ring-1 ring-cyan-glow/40' : 'hover:border-neutral-600'}
       `}
     >
       <div className="flex items-center justify-between mb-1">
-        <span className="font-mono text-[10px] text-neutral-400 tracking-wider">
-          {cp.name.toUpperCase()}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[10px] text-neutral-400 tracking-wider">
+            {cp.name.toUpperCase()}
+          </span>
+          {isPanama && (
+            <span className="font-mono text-[8px] text-neutral-600 border border-neutral-700 rounded px-1">
+              LNG/PRODUCTS
+            </span>
+          )}
+        </div>
         <span className="font-mono text-[9px] text-neutral-600">
           {formatDate(cp.date)}
         </span>
@@ -171,12 +180,23 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
     }
   }
 
-  const chartData = history.map((d) => ({
-    date: d.date,
-    n_total: d.n_total,
-    n_tanker: d.n_tanker,
-    brent: brentMap[d.date] ?? null,
-  }))
+  // Split into PortWatch vs AIS data series
+  // AIS geofence only tracks tankers, so AIS n_total is null — we only bridge n_tanker
+  const hasAis = history.some((d) => d.source === 'ais')
+  const lastPwIdx = history.reduce((acc, d, i) => (d.source !== 'ais' ? i : acc), -1)
+
+  const chartData = history.map((d, i) => {
+    const isAis = d.source === 'ais'
+    // Bridge point: last PortWatch point also appears in AIS series for continuity
+    const isBridge = !isAis && i === lastPwIdx && hasAis
+    return {
+      date: d.date,
+      n_total: !isAis ? d.n_total : null,
+      n_tanker: !isAis ? d.n_tanker : null,
+      n_tanker_ais: isAis || isBridge ? (isAis ? d.n_tanker : d.n_tanker) : null,
+      brent: brentMap[d.date] ?? null,
+    }
+  })
 
   const hasBrent = chartData.some((d) => d.brent !== null)
 
@@ -245,6 +265,7 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
             strokeWidth={1.5}
             dot={false}
             activeDot={{ r: 3 }}
+            connectNulls={false}
           />
           <Line
             yAxisId="left"
@@ -256,7 +277,22 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
             strokeDasharray="4 3"
             dot={false}
             activeDot={{ r: 3 }}
+            connectNulls={false}
           />
+          {hasAis && (
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="n_tanker_ais"
+              name="Tanker (AIS)"
+              stroke="#00ff9d"
+              strokeWidth={1.5}
+              strokeDasharray="6 3"
+              dot={{ r: 2, fill: '#00ff9d' }}
+              activeDot={{ r: 3 }}
+              connectNulls
+            />
+          )}
           {hasBrent && (
             <Line
               yAxisId="right"
@@ -272,6 +308,25 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
           )}
         </LineChart>
       </ResponsiveContainer>
+      {(() => {
+        const lastPw = history.filter((d) => d.source !== 'ais').at(-1)
+        const lastPwDate = lastPw?.date
+        if (!lastPwDate) return null
+        const ageMs = Date.now() - new Date(lastPwDate + 'T00:00:00Z').getTime()
+        const ageDays = ageMs / (1000 * 60 * 60 * 24)
+        if (ageDays <= 2) return null
+        const aisCount = history.filter((d) => d.source === 'ais').length
+        return (
+          <div className="font-mono text-[9px] text-neutral-600 mt-2">
+            PortWatch bis {formatDate(lastPwDate)} — IMF aktualisiert mit 3-5 Tagen Verzögerung
+            {aisCount > 0 && (
+              <span className="text-cyan-glow/50 ml-1">
+                // {aisCount}d AIS-Daten (gestrichelt)
+              </span>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

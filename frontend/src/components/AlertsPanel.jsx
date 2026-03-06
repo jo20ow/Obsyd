@@ -13,7 +13,8 @@ const SEVERITY_STYLES = {
 }
 
 const RULE_ICONS = {
-  floating_storage: 'STOR',
+  anchored_vessels: 'ANCHR',
+  floating_storage: 'ANCHR',
   flow_anomaly: 'FLOW',
   cushing_drawdown: 'CUSH',
   refinery_thermal: 'THERM',

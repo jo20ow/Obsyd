@@ -19,6 +19,7 @@ from backend.models.prices import FREDSeries
 from backend.models.sentiment import SentimentScore
 from backend.signals.historical_lookup import find_anomalies, CHOKEPOINT_NAMES
 from backend.providers import yfinance_provider
+from backend.signals.market_structure import get_market_structure
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,9 @@ _briefing_cache: dict | None = None
 _briefing_cache_ts: float = 0.0
 CACHE_TTL = 3600  # 1 hour
 
-# Key chokepoints for the briefing
-BRIEFING_CHOKEPOINTS = ["hormuz", "suez", "malacca", "panama", "cape", "bab_el_mandeb"]
+# Key chokepoints for the briefing (ordered by crude relevance)
+# Panama excluded: no crude transit (VLCCs/Suezmax can't pass), only LNG/products
+BRIEFING_CHOKEPOINTS = ["hormuz", "malacca", "suez", "cape", "bab_el_mandeb"]
 
 
 async def _build_briefing() -> dict:
@@ -42,6 +44,7 @@ async def _build_briefing() -> dict:
             "date": now.strftime("%Y-%m-%d"),
             "generated_at": now.isoformat(),
             "market_snapshot": await _market_snapshot(db),
+            "market_structure": await _market_structure(),
             "anomalies": _chokepoint_anomalies(),
             "fleet_status": _fleet_status(db),
             "alerts_summary": _alerts_summary(db),
@@ -93,6 +96,15 @@ async def _market_snapshot(db) -> dict:
         snapshot["sentiment_score"] = sentiment.risk_score
 
     return snapshot
+
+
+async def _market_structure() -> dict | None:
+    """Contango/backwardation state for briefing."""
+    try:
+        return await get_market_structure()
+    except Exception as e:
+        logger.warning(f"Briefing: market structure failed: {e}")
+        return None
 
 
 def _chokepoint_anomalies() -> list[dict]:
@@ -188,15 +200,20 @@ def _fleet_status(db) -> dict:
             for s in reversed(summaries)
         ]
 
-    # Floating storage alerts
+    # Anchored vessel alerts (deduplicated: 1 per zone, most recent)
     recent_alerts = db.query(Alert).filter(
-        Alert.rule == "floating_storage"
-    ).order_by(Alert.created_at.desc()).limit(5).all()
-    if recent_alerts:
-        status["floating_storage_alerts"] = [
-            {"zone": a.zone, "title": a.title, "time": a.created_at.isoformat()}
-            for a in recent_alerts
-        ]
+        Alert.rule.in_(["anchored_vessels", "floating_storage"])
+    ).order_by(Alert.created_at.desc()).limit(20).all()
+    seen_zones = set()
+    anchored_alerts = []
+    for a in recent_alerts:
+        if a.zone not in seen_zones:
+            seen_zones.add(a.zone)
+            anchored_alerts.append(
+                {"zone": a.zone, "title": a.title, "time": a.created_at.isoformat()}
+            )
+    if anchored_alerts:
+        status["anchored_alerts"] = anchored_alerts
 
     return status
 

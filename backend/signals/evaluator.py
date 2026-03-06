@@ -14,7 +14,7 @@ from backend.database import SessionLocal
 from backend.models.vessels import VesselPosition, GeofenceEvent
 from backend.geofences.zones import ZONES
 from backend.signals.rules import (
-    check_floating_storage,
+    check_anchored_vessels,
     check_flow_anomaly,
     check_cushing_drawdown,
 )
@@ -60,12 +60,13 @@ async def evaluate_signals():
     """Run all signal rules against current database state."""
     db = SessionLocal()
     try:
-        # 1. Floating storage: check each zone for slow-moving tankers
+        # 1. Anchored vessels: check each zone for slow-moving tankers
         for zone in ZONES:
             stats = _compute_zone_stats(db, zone["name"])
             if stats["slow_movers"] > 0:
-                check_floating_storage(
-                    db, zone["name"], stats["slow_movers"], stats["avg_slow_7d"]
+                check_anchored_vessels(
+                    db, zone["name"], stats["slow_movers"],
+                    stats["count"], stats["avg_slow_7d"],
                 )
 
         # 2. Flow anomaly: check geofence event history per zone

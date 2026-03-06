@@ -33,7 +33,7 @@ export default function BriefingPanel() {
 
   if (error || !briefing) return null
 
-  const { market_snapshot: market, anomalies, fleet_status: fleet, upcoming } = briefing
+  const { market_snapshot: market, market_structure: mktStruct, anomalies, fleet_status: fleet, upcoming } = briefing
   const hasAnomalies = anomalies && anomalies.length > 0
 
   return (
@@ -98,17 +98,17 @@ export default function BriefingPanel() {
         </div>
       )}
 
-      {/* Fleet + Floating Storage */}
-      {fleet && (fleet.tankers_global > 0 || fleet.floating_storage_alerts?.length > 0) && (
+      {/* Fleet + Anchored Vessels */}
+      {fleet && (fleet.tankers_global > 0 || fleet.anchored_alerts?.length > 0) && (
         <div className="text-neutral-400 text-xs mb-3 pl-4 space-y-0.5">
           {fleet.tankers_global > 0 && (
             <div>
               Global fleet: {fleet.total_vessels_global?.toLocaleString()} vessels, {fleet.tankers_global?.toLocaleString()} tankers
             </div>
           )}
-          {fleet.floating_storage_alerts?.map((a, i) => (
-            <div key={i} className="text-orange-400">
-              Floating storage: {a.title}
+          {fleet.anchored_alerts?.map((a, i) => (
+            <div key={i} className="text-neutral-500">
+              {a.title}
             </div>
           ))}
         </div>
@@ -131,6 +131,16 @@ export default function BriefingPanel() {
               </span>
             )
           })}
+          {mktStruct?.summary && mktStruct.summary !== 'unavailable' && (() => {
+            const s = mktStruct.summary
+            const cls = s === 'backwardation' ? 'text-red-400' : s === 'contango' ? 'text-emerald-400' : 'text-neutral-500'
+            return (
+              <span className={cls}>
+                {s.toUpperCase()}
+                {mktStruct.curves?.WTI && ` (${mktStruct.curves.WTI.spread_pct > 0 ? '+' : ''}${mktStruct.curves.WTI.spread_pct.toFixed(1)}%)`}
+              </span>
+            )
+          })()}
           {market.sentiment_score != null && (
             <span className="text-neutral-500">
               Sentiment: {market.sentiment_score}/10

@@ -53,11 +53,12 @@ function SourceBadge({ isLive, liveSource }) {
   if (!isLive) return <span className="font-mono text-[10px] text-neutral-600">WEEKLY</span>
 
   const badges = {
+    yfinance: { dot: 'bg-green-glow shadow-[0_0_4px_var(--color-green-glow)]', text: 'text-green-glow', label: 'LIVE' },
     twelvedata: { dot: 'bg-purple-400 shadow-[0_0_4px_#a855f7]', text: 'text-purple-400', label: 'LIVE' },
     alphavantage: { dot: 'bg-green-glow shadow-[0_0_4px_var(--color-green-glow)]', text: 'text-green-glow', label: 'LIVE' },
     fred: { dot: 'bg-cyan-glow/60', text: 'text-cyan-glow/80', label: 'DAILY' },
   }
-  const b = badges[liveSource] || badges.alphavantage
+  const b = badges[liveSource] || badges.yfinance
 
   return (
     <span className="flex items-center gap-1">

@@ -154,7 +154,7 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # Live prices: refresh every 4 hours (AV free tier: 25 calls/day, 4 commodities each)
+    # Live prices: refresh yfinance cache every 4 hours
     scheduler.add_job(
         refresh_live_prices,
         CronTrigger(hour="2,6,10,14,18,22", minute=0),

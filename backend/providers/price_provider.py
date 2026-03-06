@@ -5,8 +5,8 @@ Routes requests to the configured primary provider,
 falls back to the fallback provider on failure.
 
 Config (from settings / runtime settings.json):
-  PRICE_PROVIDER=twelvedata   (primary)
-  PRICE_FALLBACK=alphavantage (on failure)
+  PRICE_PROVIDER=yfinance  (primary — real futures, no API key)
+  PRICE_FALLBACK=fred      (historical daily from FRED)
 """
 
 import json
@@ -69,10 +69,10 @@ def set_providers(primary: str, fallback: str | None = None):
 
 async def get_live_prices() -> dict:
     """
-    Hybrid price strategy — real commodity futures prices.
+    Live commodity futures prices.
 
-    Primary: yfinance (CL=F, BZ=F, NG=F, GC=F, SI=F, HG=F) — no key needed
-    Fallback: Alpha Vantage / FRED for energy, Twelve Data for gold
+    Primary: yfinance (CL=F, BZ=F, NG=F, GC=F, SI=F, HG=F) — no API key needed
+    Fallback: FRED daily oil prices, then Alpha Vantage if configured
     """
     # Step 1: Try yfinance (all 6 commodities, real futures prices)
     try:
@@ -83,10 +83,10 @@ async def get_live_prices() -> dict:
     except Exception as e:
         logger.warning(f"yfinance failed: {e}")
 
-    # Step 2: Fallback — AV/FRED for energy, TD for gold
+    # Step 2: Fallback chain — FRED (daily), then AV, then TD
     commodity_prices = {}
 
-    for provider_name in ("alphavantage", "fred"):
+    for provider_name in ("fred", "alphavantage"):
         provider = PROVIDERS.get(provider_name)
         if not provider:
             continue
@@ -95,11 +95,14 @@ async def get_live_prices() -> dict:
             p = result.get("prices", {})
             if p:
                 commodity_prices = dict(p)
+                source = provider_name
                 break
         except Exception as e:
             logger.warning(f"Commodities from {provider_name} failed: {e}")
+    else:
+        source = None
 
-    if settings.twelvedata_api_key:
+    if settings.twelvedata_api_key and "GOLD" not in commodity_prices:
         try:
             td_result = await twelvedata_provider.get_live_prices()
             td_prices = td_result.get("prices", {})
@@ -111,7 +114,7 @@ async def get_live_prices() -> dict:
     if not commodity_prices:
         return {"available": False, "source": None, "prices": {}}
 
-    return {"available": True, "source": "alphavantage+fallback", "prices": commodity_prices}
+    return {"available": True, "source": source or "fallback", "prices": commodity_prices}
 
 
 async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 96) -> dict:

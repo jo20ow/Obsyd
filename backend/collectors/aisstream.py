@@ -25,6 +25,7 @@ from backend.config import settings
 from backend.database import SessionLocal
 from backend.geofences.zones import ZONES, find_zone, is_tanker
 from backend.models.vessels import VesselPosition
+from backend.collectors.ais_hygiene import filter_and_count
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,10 @@ def _handle_position_report(msg: dict):
             ts = datetime.utcnow()
     except (ValueError, TypeError):
         ts = datetime.utcnow()
+
+    # Apply hygiene filters (plausibility + dedup)
+    if not filter_and_count(str(mmsi), lat, lon, sog, 80, ts):
+        return
 
     db = SessionLocal()
     try:

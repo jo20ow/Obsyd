@@ -4,6 +4,8 @@ from fastapi import APIRouter, Query
 
 from backend.signals.correlation import compute_correlations
 from backend.signals.historical_lookup import find_anomalies
+from backend.signals.market_structure import get_market_structure
+from backend.signals.tonnage_proxy import compute_rerouting_index
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 
@@ -19,6 +21,20 @@ async def get_correlation(
         "period_days": days,
         "correlations": correlations,
     }
+
+
+@router.get("/market-structure")
+async def get_market_structure_endpoint():
+    """Current contango/backwardation state for WTI and Brent futures curves."""
+    return await get_market_structure()
+
+
+@router.get("/rerouting-index")
+async def get_rerouting_index(
+    days: int = Query(365, ge=30, le=2600),
+):
+    """Cape/Suez rerouting index — detects traffic diversion from Suez to Cape of Good Hope."""
+    return compute_rerouting_index(days=days)
 
 
 @router.get("/historical")

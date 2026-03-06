@@ -226,7 +226,7 @@ export default function CorrelationPanel() {
       })}
 
       <div className="px-4 py-1.5 font-mono text-[8px] text-neutral-700">
-        Level r: n_tanker vs Brent // Δr: day-over-day changes (trend-filtered) // Impact: avg Brent 7d after &gt;30% drop
+        Based on vessel transit counts, not barrel volumes // Level r: n_tanker vs Brent // Δr: day-over-day changes // Impact: avg Brent 7d after &gt;30% transit drop
       </div>
     </div>
   )

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -150,6 +152,23 @@ async def get_chart_data(
         if r.series_id not in result:
             result[r.series_id] = []
         result[r.series_id].append({"time": r.date, "value": r.value})
+
+    # Append today's live yfinance price so the line extends to current market price
+    try:
+        live = await price_provider.get_live_prices()
+        prices = live.get("prices", {})
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        for fred_id, obsyd_key in [("DCOILWTICO", "WTI"), ("DCOILBRENTEU", "BRENT")]:
+            p = prices.get(obsyd_key)
+            if not p or not p.get("current"):
+                continue
+            series = result.get(fred_id, [])
+            if not series or series[-1]["time"] < today:
+                series.append({"time": today, "value": round(p["current"], 2)})
+                result[fred_id] = series
+    except Exception:
+        pass
+
     return result
 
 
@@ -170,8 +189,25 @@ async def trigger_fred_collection(db: Session = Depends(get_db)):
 async def get_oil_prices(
     days: int = Query(365, ge=1, le=1825),
 ):
-    """Get WTI + Brent daily prices from FRED (via obsyd.db/fred_series)."""
+    """Get WTI + Brent daily prices from FRED, extended with live yfinance price."""
     cached = query_oil_prices(days=days)
+
+    # Append today's live price from yfinance so the chart reaches current market price
+    try:
+        live = await price_provider.get_live_prices()
+        prices = live.get("prices", {})
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        for fred_id, obsyd_key in [("DCOILWTICO", "WTI"), ("DCOILBRENTEU", "BRENT")]:
+            p = prices.get(obsyd_key)
+            if not p or not p.get("current"):
+                continue
+            series = cached.get(fred_id, [])
+            # Only append if last FRED date is before today
+            if not series or series[-1]["date"] < today:
+                series.append({"date": today, "value": round(p["current"], 2)})
+                cached[fred_id] = series
+    except Exception:
+        pass  # FRED data alone is still fine
 
     return {
         "source": "FRED (Federal Reserve Economic Data)",
