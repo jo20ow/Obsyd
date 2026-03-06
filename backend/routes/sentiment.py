@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.database import get_db
-from backend.config import settings
 from backend.models.sentiment import GDELTVolume, SentimentScore
 from backend.collectors.gdelt import KEYWORDS, _fetch_headlines
 
@@ -67,9 +66,7 @@ async def get_headlines():
 
 @router.get("/risk")
 async def get_risk_score(db: Session = Depends(get_db)):
-    """Get AI-generated risk score (requires BYOK LLM key)."""
-    has_llm = bool(settings.openai_api_key or settings.anthropic_api_key)
-
+    """Get sentiment risk score (rule-based from GDELT tone, or LLM-based if configured)."""
     latest = (
         db.query(SentimentScore)
         .order_by(SentimentScore.date.desc())
@@ -77,7 +74,7 @@ async def get_risk_score(db: Session = Depends(get_db)):
     )
 
     if not latest:
-        return {"available": has_llm, "score": None}
+        return {"available": False, "score": None}
 
     try:
         factors = json.loads(latest.risk_factors)
@@ -85,7 +82,7 @@ async def get_risk_score(db: Session = Depends(get_db)):
         factors = []
 
     return {
-        "available": has_llm,
+        "available": True,
         "score": {
             "date": latest.date,
             "risk_score": latest.risk_score,

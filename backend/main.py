@@ -16,6 +16,8 @@ from backend.collectors.aishub import start_aishub, stop_aishub
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_sentiment
+from backend.collectors.geofence_aggregator import backfill_geofence_events
+from backend.signals.sentiment_scorer import compute_sentiment_score
 from backend.collectors.jodi import collect_jodi
 from backend.collectors.firms import collect_firms
 from backend.routes import health, prices, vessels, alerts, ports, weather, sentiment
@@ -44,6 +46,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(collect_gdelt_sentiment())
     asyncio.create_task(collect_jodi())
     asyncio.create_task(collect_firms())
+    asyncio.create_task(backfill_geofence_events())
+    asyncio.create_task(compute_sentiment_score())
     yield
     stop_aishub()
     stop_aisstream()

@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     fred_base_url: str = "https://api.stlouisfed.org/fred"
 
     # BYOK APIs
-    finnhub_api_key: Optional[str] = None
     alpha_vantage_api_key: Optional[str] = None
 
     # AIS
@@ -30,7 +29,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

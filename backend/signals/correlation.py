@@ -14,6 +14,8 @@ from backend.collectors.portwatch_store import (
     CHOKEPOINTS,
     query_chokepoint_averages,
 )
+from backend.database import SessionLocal
+from backend.models.prices import FREDSeries
 
 KEY_CHOKEPOINTS = {
     "chokepoint6": "Strait of Hormuz",
@@ -196,13 +198,18 @@ def compute_correlations(days: int = 365, db_path=None) -> list[dict]:
     """
     conn = _init_db(db_path)
 
-    # Load Brent prices into a dict {date: value}
-    brent_rows = conn.execute("""
-        SELECT date, value FROM oil_prices
-        WHERE series_id = 'DCOILBRENTEU'
-        ORDER BY date ASC
-    """).fetchall()
-    brent_map = {r[0]: r[1] for r in brent_rows}
+    # Load Brent prices from obsyd.db/fred_series
+    db = SessionLocal()
+    try:
+        brent_rows = (
+            db.query(FREDSeries.date, FREDSeries.value)
+            .filter(FREDSeries.series_id == "DCOILBRENTEU")
+            .order_by(FREDSeries.date.asc())
+            .all()
+        )
+        brent_map = {r.date: r.value for r in brent_rows}
+    finally:
+        db.close()
 
     if not brent_map:
         conn.close()

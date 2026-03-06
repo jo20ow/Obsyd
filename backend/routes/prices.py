@@ -3,16 +3,10 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.prices import EIAPrice, FREDSeries
-from backend.config import settings
 from backend.collectors.eia import collect_eia, EIA_SERIES
 from backend.collectors.fred import collect_fred, FRED_SERIES
 from backend.collectors.alphavantage import fetch_live_commodities
-from backend.collectors.finnhub import fetch_forex_prices
-from backend.collectors.portwatch_store import (
-    fetch_oil_prices,
-    store_oil_prices,
-    query_oil_prices,
-)
+from backend.collectors.portwatch_store import query_oil_prices
 
 router = APIRouter(prefix="/api/prices", tags=["prices"])
 
@@ -115,13 +109,6 @@ async def get_live_prices():
     return {"available": bool(prices), "source": source, "prices": prices}
 
 
-@router.get("/forex")
-async def get_forex_prices():
-    """Get live forex rates from Finnhub (BYOK)."""
-    prices = await fetch_forex_prices()
-    return {"available": bool(settings.finnhub_api_key), "prices": prices}
-
-
 @router.get("/fred")
 async def get_fred_data(
     series_id: str = Query(None, description="Filter by FRED series ID"),
@@ -161,17 +148,8 @@ async def trigger_fred_collection(db: Session = Depends(get_db)):
 async def get_oil_prices(
     days: int = Query(365, ge=1, le=1825),
 ):
-    """Get WTI + Brent daily prices (from FRED, cached in local SQLite)."""
-    # Check if we have cached data
+    """Get WTI + Brent daily prices from FRED (via obsyd.db/fred_series)."""
     cached = query_oil_prices(days=days)
-    has_data = any(len(v) > 0 for v in cached.values())
-
-    if not has_data:
-        # Fetch from FRED and cache
-        rows = fetch_oil_prices(days=days)
-        if rows:
-            store_oil_prices(rows)
-            cached = query_oil_prices(days=days)
 
     return {
         "source": "FRED (Federal Reserve Economic Data)",
