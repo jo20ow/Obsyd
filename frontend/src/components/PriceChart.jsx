@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createChart, ColorType, LineSeries, CandlestickSeries, LineStyle } from 'lightweight-charts'
 
 const API = '/api'
@@ -27,7 +27,7 @@ function filterByRange(data, label) {
   let cutoff
   if (label === '3M') cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate())
   else if (label === '1Y') cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
-  else return data // ALL
+  else return data
   const cutoffStr = cutoff.toISOString().slice(0, 10)
   return data.filter((d) => d.time >= cutoffStr)
 }
@@ -37,8 +37,9 @@ export default function PriceChart({ data }) {
   const chartRef = useRef(null)
   const seriesRef = useRef(null)
 
-  const [timeframe, setTimeframe] = useState(TIMEFRAMES[3]) // 3M default
-  const [symbol, setSymbol] = useState(SYMBOLS[0]) // WTI default
+  const [timeframe, setTimeframe] = useState(TIMEFRAMES[3])
+  const [symbol, setSymbol] = useState(SYMBOLS[0])
+  const [chartStyle, setChartStyle] = useState('candle') // 'candle' | 'line'
   const [intradayData, setIntradayData] = useState(null)
   const [intradayProxy, setIntradayProxy] = useState(null)
   const [fredData, setFredData] = useState(null)
@@ -64,25 +65,15 @@ export default function PriceChart({ data }) {
       })
   }, [timeframe, symbol])
 
-  // Fetch FRED daily data for 3M/1Y/ALL (WTI + Brent)
+  // Fetch FRED daily data for 3M/1Y/ALL via dedicated /chart endpoint
   useEffect(() => {
-    if (timeframe.type !== 'fred') {
-      setFredData(null)
-      return
-    }
+    if (timeframe.type !== 'fred') return
+    if (fredData) return // only fetch once
     setLoading(true)
-    fetch(`${API}/prices/fred?limit=2000`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((rows) => {
-        const byId = {}
-        for (const r of rows) {
-          if (!byId[r.series_id]) byId[r.series_id] = []
-          byId[r.series_id].push({ time: r.date, value: r.value })
-        }
-        for (const id of Object.keys(byId)) {
-          byId[id].sort((a, b) => (a.time < b.time ? -1 : 1))
-        }
-        setFredData(byId)
+    fetch(`${API}/prices/chart`)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d) => {
+        setFredData(d)
         setLoading(false)
       })
       .catch(() => {
@@ -95,14 +86,11 @@ export default function PriceChart({ data }) {
   useEffect(() => {
     if (!containerRef.current) return
 
-    // Determine what data to show
     const isIntraday = timeframe.type === 'intraday' && intradayData?.length > 0
     const isFred = timeframe.type === 'fred' && fredData
 
-    // Skip render if no data ready
     if (!isIntraday && !isFred) return
 
-    // Clean up previous chart
     if (chartRef.current) {
       chartRef.current.remove()
       chartRef.current = null
@@ -130,25 +118,13 @@ export default function PriceChart({ data }) {
       },
       timeScale: {
         borderColor: '#1e1e2e',
-        timeVisible: isIntraday,
+        timeVisible: isIntraday && timeframe.label !== '1M',
       },
       handleScroll: true,
       handleScale: true,
     })
 
     if (isIntraday) {
-      // Candlestick chart for intraday
-      const series = chart.addSeries(CandlestickSeries, {
-        upColor: '#00ff9d',
-        downColor: '#ff5050',
-        borderUpColor: '#00ff9d',
-        borderDownColor: '#ff5050',
-        wickUpColor: '#00ff9d',
-        wickDownColor: '#ff5050',
-        title: symbol.label,
-        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-      })
-
       const candles = intradayData.map((d) => ({
         time: Math.floor(new Date(d.datetime).getTime() / 1000),
         open: d.open,
@@ -156,53 +132,72 @@ export default function PriceChart({ data }) {
         low: d.low,
         close: d.close,
       }))
-      series.setData(candles)
-      seriesRef.current = series
-    } else if (isFred) {
-      // FRED daily line chart for 3M/1Y/ALL
-      const fredId = symbol.fred
-      if (fredId && fredData[fredId]) {
+
+      if (chartStyle === 'candle') {
+        const series = chart.addSeries(CandlestickSeries, {
+          upColor: '#00ff9d',
+          downColor: '#ff5050',
+          borderUpColor: '#00ff9d',
+          borderDownColor: '#ff5050',
+          wickUpColor: '#00ff9d',
+          wickDownColor: '#ff5050',
+          title: symbol.label,
+          priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+        })
+        series.setData(candles)
+        seriesRef.current = series
+      } else {
+        const lineData = candles.map((c) => ({ time: c.time, value: c.close }))
         const series = chart.addSeries(LineSeries, {
           color: symbol.color, lineWidth: 2, title: symbol.label,
           priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
         })
-        const chartData = filterByRange(fredData[fredId], timeframe.label)
-        if (chartData.length) series.setData(chartData)
+        series.setData(lineData)
         seriesRef.current = series
+      }
+    } else if (isFred) {
+      const fredId = symbol.fred
+      if (fredId && fredData[fredId]) {
+        const chartData = filterByRange(fredData[fredId], timeframe.label)
 
-        // Also show the companion oil line
+        if (chartStyle === 'line' || isFred) {
+          const series = chart.addSeries(LineSeries, {
+            color: symbol.color, lineWidth: 2, title: symbol.label,
+            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+          })
+          if (chartData.length) series.setData(chartData)
+          seriesRef.current = series
+        }
+
+        // Companion line
         if (symbol.key === 'WTI' && fredData['DCOILBRENTEU']) {
-          const brentSeries = chart.addSeries(LineSeries, {
+          const s2 = chart.addSeries(LineSeries, {
             color: '#00ff9d', lineWidth: 1, title: 'Brent',
             priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
           })
-          const brentData = filterByRange(fredData['DCOILBRENTEU'], timeframe.label)
-          if (brentData.length) brentSeries.setData(brentData)
+          s2.setData(filterByRange(fredData['DCOILBRENTEU'], timeframe.label))
         } else if (symbol.key === 'BRENT' && fredData['DCOILWTICO']) {
-          const wtiSeries = chart.addSeries(LineSeries, {
+          const s2 = chart.addSeries(LineSeries, {
             color: '#00e5ff', lineWidth: 1, title: 'WTI',
             priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
           })
-          const wtiData = filterByRange(fredData['DCOILWTICO'], timeframe.label)
-          if (wtiData.length) wtiSeries.setData(wtiData)
+          s2.setData(filterByRange(fredData['DCOILWTICO'], timeframe.label))
         }
       } else {
-        // No FRED data for this symbol (NG, Gold, etc.) — show WTI+Brent
-        const wtiSeries = chart.addSeries(LineSeries, {
-          color: '#00e5ff', lineWidth: 2, title: 'WTI',
-          priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-        })
-        const brentSeries = chart.addSeries(LineSeries, {
-          color: '#00ff9d', lineWidth: 2, title: 'Brent',
-          priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-        })
+        // No FRED data for this symbol — show WTI+Brent
         if (fredData['DCOILWTICO']) {
-          const wtiData = filterByRange(fredData['DCOILWTICO'], timeframe.label)
-          if (wtiData.length) wtiSeries.setData(wtiData)
+          const s1 = chart.addSeries(LineSeries, {
+            color: '#00e5ff', lineWidth: 2, title: 'WTI',
+            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+          })
+          s1.setData(filterByRange(fredData['DCOILWTICO'], timeframe.label))
         }
         if (fredData['DCOILBRENTEU']) {
-          const brentData = filterByRange(fredData['DCOILBRENTEU'], timeframe.label)
-          if (brentData.length) brentSeries.setData(brentData)
+          const s2 = chart.addSeries(LineSeries, {
+            color: '#00ff9d', lineWidth: 2, title: 'Brent',
+            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+          })
+          s2.setData(filterByRange(fredData['DCOILBRENTEU'], timeframe.label))
         }
       }
     }
@@ -222,7 +217,7 @@ export default function PriceChart({ data }) {
       chartRef.current = null
       seriesRef.current = null
     }
-  }, [data, timeframe, symbol, intradayData, fredData])
+  }, [data, timeframe, symbol, intradayData, fredData, chartStyle])
 
   const isIntraday = timeframe.type === 'intraday'
 
@@ -246,24 +241,52 @@ export default function PriceChart({ data }) {
           ))}
         </div>
 
-        {/* Timeframe buttons */}
-        <div className="flex items-center gap-1">
-          {TIMEFRAMES.map((tf) => (
+        <div className="flex items-center gap-2">
+          {/* Chart style toggle */}
+          <div className="flex items-center border border-border rounded overflow-hidden">
             <button
-              key={tf.label}
-              onClick={() => setTimeframe(tf)}
-              className={`font-mono text-[10px] px-2 py-0.5 rounded transition-colors ${
-                timeframe.label === tf.label
-                  ? 'bg-cyan-glow/20 text-cyan-glow'
+              onClick={() => setChartStyle('candle')}
+              title="Candlestick"
+              className={`px-1.5 py-0.5 text-[10px] font-mono transition-colors ${
+                chartStyle === 'candle'
+                  ? 'bg-white/10 text-neutral-200'
                   : 'text-neutral-600 hover:text-neutral-400'
               }`}
             >
-              {tf.label}
+              &#x2583;&#x2581;&#x2583;
             </button>
-          ))}
-          {loading && (
-            <span className="font-mono text-[10px] text-neutral-600 animate-pulse ml-1">...</span>
-          )}
+            <button
+              onClick={() => setChartStyle('line')}
+              title="Line"
+              className={`px-1.5 py-0.5 text-[10px] font-mono transition-colors ${
+                chartStyle === 'line'
+                  ? 'bg-white/10 text-neutral-200'
+                  : 'text-neutral-600 hover:text-neutral-400'
+              }`}
+            >
+              &#x2571;&#x2572;&#x2571;
+            </button>
+          </div>
+
+          {/* Timeframe buttons */}
+          <div className="flex items-center gap-1">
+            {TIMEFRAMES.map((tf) => (
+              <button
+                key={tf.label}
+                onClick={() => setTimeframe(tf)}
+                className={`font-mono text-[10px] px-2 py-0.5 rounded transition-colors ${
+                  timeframe.label === tf.label
+                    ? 'bg-cyan-glow/20 text-cyan-glow'
+                    : 'text-neutral-600 hover:text-neutral-400'
+                }`}
+              >
+                {tf.label}
+              </button>
+            ))}
+            {loading && (
+              <span className="font-mono text-[10px] text-neutral-600 animate-pulse ml-1">...</span>
+            )}
+          </div>
         </div>
       </div>
       {isIntraday && intradayProxy && (
@@ -274,7 +297,7 @@ export default function PriceChart({ data }) {
       <div ref={containerRef} className="h-[350px] w-full" />
       {isIntraday && !intradayData && !loading && (
         <div className="px-4 py-2 font-mono text-[10px] text-neutral-600">
-          No intraday data available. Try 3M/1Y/ALL for daily FRED prices.
+          No intraday data available. Try 3M/1Y/ALL for daily prices.
         </div>
       )}
     </div>

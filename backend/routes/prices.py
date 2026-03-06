@@ -115,7 +115,7 @@ async def get_intraday(
 @router.get("/fred")
 async def get_fred_data(
     series_id: str = Query(None, description="Filter by FRED series ID"),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1, le=5000),
     db: Session = Depends(get_db),
 ):
     """Get stored FRED macro data."""
@@ -132,6 +132,25 @@ async def get_fred_data(
         }
         for r in rows
     ]
+
+
+@router.get("/chart")
+async def get_chart_data(
+    db: Session = Depends(get_db),
+):
+    """Get WTI + Brent daily prices for charting (all available data since 2019)."""
+    rows = (
+        db.query(FREDSeries)
+        .filter(FREDSeries.series_id.in_(["DCOILWTICO", "DCOILBRENTEU"]))
+        .order_by(FREDSeries.date.asc())
+        .all()
+    )
+    result = {}
+    for r in rows:
+        if r.series_id not in result:
+            result[r.series_id] = []
+        result[r.series_id].append({"time": r.date, "value": r.value})
+    return result
 
 
 @router.get("/fred/series")
