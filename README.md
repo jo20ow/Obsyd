@@ -2,7 +2,7 @@
 
 Open-source energy market intelligence dashboard. Real-time AIS vessel tracking, commodity prices, refinery thermal monitoring, chokepoint flow analysis, and geopolitical sentiment — all in one interface.
 
-**Live:** [http://72.61.190.129](http://72.61.190.129)
+**Live:** https://obsyd.dev
 
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
