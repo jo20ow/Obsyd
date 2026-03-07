@@ -69,13 +69,12 @@ All API keys are optional — the dashboard works with partial data.
 | **NOAA** | Hurricane/weather alerts for Gulf Coast | 30 min |
 | **JODI** | World oil production by country | Monthly |
 | **NASA FIRMS** | Thermal hotspots near refineries (VIIRS) | 6 hours |
-| **MarineTraffic** | Ship metadata (class, DWT, flag) | On demand |
 | **Twelve Data** | Commodity price fallback | On demand |
 | **Alpha Vantage** | Commodity price fallback | On demand |
 
 ## Known Limitations
 
-- **Terrestrial AIS only** — satellite AIS coverage is limited; vessels outside coastal range may not appear
+- **No satellite AIS** — terrestrial receivers only; vessels outside coastal range (~50 km) are invisible
 - **Vessel counts, not barrels** — chokepoint data shows ship transits, not cargo volume or oil flow
 - **yfinance is unofficial** — live prices may lag or fail; FRED daily prices serve as fallback
 - **PortWatch delay** — IMF publishes transit data with a 3-5 day lag
@@ -88,6 +87,6 @@ All API keys are optional — the dashboard works with partial data.
 
 ---
 
-Built in ~48 hours with [Claude Code](https://claude.ai/claude-code).
+Built in ~24 hours with [Claude Code](https://claude.ai/claude-code).
 
 OBSYD is a market observation tool, not financial advice. AIS data is self-reported and unverified. Correlations shown are statistical observations, not causal predictions. Not regulated by BaFin or any financial authority.
