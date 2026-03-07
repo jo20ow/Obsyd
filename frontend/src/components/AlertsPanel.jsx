@@ -23,12 +23,16 @@ const RULE_ICONS = {
 }
 
 function timeAgo(isoStr) {
-  const diff = Date.now() - new Date(isoStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
+  if (!isoStr) return ''
+  try {
+    const diff = Date.now() - new Date(isoStr).getTime()
+    if (isNaN(diff)) return ''
+    const mins = Math.floor(diff / 60000)
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    return `${Math.floor(hrs / 24)}d ago`
+  } catch { return '' }
 }
 
 export default function AlertsPanel({ weatherAlerts = [] }) {
@@ -55,9 +59,9 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
       id: `choke-${c.portid}`,
       rule: 'chokepoint_anomaly',
       severity: c.alert_level,
-      title: `${c.chokepoint}: ${c.anomaly_pct > 0 ? '+' : ''}${c.anomaly_pct}% ${c.direction}`,
-      detail: `${c.n_total} vessels (${c.baseline_type === 'yoy' ? 'YoY' : '30d'}: ${c.baseline_avg})${c.disruption_name ? ` // ${c.disruption_name}` : ''}`,
-      zone: c.chokepoint.toLowerCase().split(' ').pop(),
+      title: `${c.chokepoint || '?'}: ${c.anomaly_pct > 0 ? '+' : ''}${c.anomaly_pct ?? 0}% ${c.direction || ''}`,
+      detail: `${c.n_total ?? '?'} vessels (${c.baseline_type === 'yoy' ? 'YoY' : '30d'}: ${c.baseline_avg ?? '?'})${c.disruption_name ? ` // ${c.disruption_name}` : ''}`,
+      zone: (c.chokepoint || '').toLowerCase().split(' ').pop() || '',
       created_at: `${c.date}T00:00:00Z`,
       isChoke: true,
     })),

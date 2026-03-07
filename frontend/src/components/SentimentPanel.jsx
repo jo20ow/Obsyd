@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { SkeletonCard } from './Skeleton'
+import Panel from './Panel'
 
 const API = '/api'
 
@@ -88,17 +89,8 @@ export default function SentimentPanel() {
   const maxVol = Math.max(...kwStats.map((k) => k.volume), 0.01)
 
   return (
-    <div className="border border-border bg-surface rounded px-4 py-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-mono text-[10px] text-neutral-600 tracking-wider">
-          {hasAI ? 'AI SENTIMENT' : 'NEWS VOLUME'} // GDELT
-        </div>
-        {hasAI && (
-          <span className="font-mono text-[9px] text-purple-400 border border-purple-400/30 rounded px-1.5 py-0.5">
-            AI
-          </span>
-        )}
-      </div>
+    <Panel id="sentiment" title={`${hasAI ? 'AI SENTIMENT' : 'NEWS VOLUME'} // GDELT`} info="News sentiment from GDELT tone analysis. Risk score 1-10 (1=very negative, 10=very positive)." collapsible headerRight={hasAI && <span className="font-mono text-[9px] text-purple-400 border border-purple-400/30 rounded px-1.5 py-0.5">AI</span>}>
+      <div className="px-4 py-3">
 
       {hasAI && riskData.score && (
         <div className="mb-3 pb-3 border-b border-border">
@@ -182,6 +174,7 @@ export default function SentimentPanel() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </Panel>
   )
 }

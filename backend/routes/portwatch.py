@@ -22,6 +22,7 @@ from backend.collectors.portwatch_store import (
 )
 from backend.database import SessionLocal
 from backend.models.vessels import GeofenceEvent, VesselPosition
+from backend.signals.vessel_weight import classify_vessel, compute_weighted_count
 from sqlalchemy import func, distinct
 
 router = APIRouter(prefix="/api/portwatch", tags=["portwatch"])
@@ -174,7 +175,10 @@ async def get_disruptions():
 
 @router.get("/summary")
 async def get_summary():
-    """Dashboard overview: current values + anomaly vs 30-day average."""
+    """Dashboard overview: current values + anomaly vs 30-day average.
+
+    Includes weighted tanker counts from AIS geofence data where available.
+    """
     data = _ensure_data(days=35)
 
     # Latest day per chokepoint
@@ -194,6 +198,14 @@ async def get_summary():
     store_disruptions(dis_data)
     active_disruptions = query_active_disruptions()
 
+    # Compute weighted AIS counts per zone (on-the-fly, no schema change)
+    weighted_by_zone = _compute_zone_weights()
+
+    # Map portid -> zone name for matching
+    portid_to_zone = {v: k for k, v in CP_ALIASES.items() if k in (
+        "hormuz", "suez", "malacca", "panama", "cape"
+    )}
+
     summary = []
     for pid, cur in latest.items():
         avg = avg_map.get(pid, {})
@@ -203,7 +215,7 @@ async def get_summary():
         anomaly_total = round((cur["n_total"] - avg_total) / avg_total * 100, 1) if avg_total else 0.0
         anomaly_tanker = round((cur["n_tanker"] - avg_tanker) / avg_tanker * 100, 1) if avg_tanker else 0.0
 
-        summary.append({
+        entry = {
             "portid": pid,
             "name": cur["portname"],
             "date": cur["date"],
@@ -214,7 +226,14 @@ async def get_summary():
             "avg_tanker_30d": avg_tanker,
             "anomaly_total_pct": anomaly_total,
             "anomaly_tanker_pct": anomaly_tanker,
-        })
+        }
+
+        # Attach weighted AIS data if available for this chokepoint
+        zone_name = portid_to_zone.get(pid)
+        if zone_name and zone_name in weighted_by_zone:
+            entry["ais_weighted"] = weighted_by_zone[zone_name]
+
+        summary.append(entry)
 
     summary.sort(key=lambda x: abs(x["anomaly_total_pct"]), reverse=True)
 
@@ -224,3 +243,50 @@ async def get_summary():
         "active_disruptions": len(active_disruptions),
         "disruptions": active_disruptions,
     }
+
+
+def _compute_zone_weights() -> dict[str, dict]:
+    """Compute weighted tanker counts from current vessel_positions per zone.
+
+    Returns {zone_name: {raw_count, weighted_count, by_class}} for zones
+    that have AIS data.
+    """
+    db = SessionLocal()
+    try:
+        # Latest position per MMSI (across all zones)
+        latest = (
+            db.query(
+                VesselPosition.mmsi,
+                func.max(VesselPosition.id).label("max_id"),
+            )
+            .group_by(VesselPosition.mmsi)
+            .subquery()
+        )
+
+        rows = (
+            db.query(VesselPosition)
+            .join(latest, VesselPosition.id == latest.c.max_id)
+            .all()
+        )
+
+        # Group by zone
+        by_zone: dict[str, list[dict]] = {}
+        for r in rows:
+            zone = r.zone
+            if not zone:
+                continue
+            by_zone.setdefault(zone, []).append({
+                "ship_name": r.ship_name,
+                "ship_type": r.ship_type,
+            })
+
+        # Compute weighted counts per zone
+        result = {}
+        for zone_name, vessels in by_zone.items():
+            result[zone_name] = compute_weighted_count(vessels)
+
+        return result
+    except Exception:
+        return {}
+    finally:
+        db.close()

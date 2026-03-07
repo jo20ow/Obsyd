@@ -134,36 +134,28 @@ async def collect_firms():
 
 
 def _check_refinery_anomalies(db, hotspots: list[dict]):
-    """Check if known refineries are missing their expected thermal signature.
+    """Check for abnormal thermal activity near known refineries.
 
-    Only alerts when the area has hotspots but none near the specific refinery.
-    If an entire area has zero hotspots (cloud cover, orbital gaps), we suppress
-    alerts since we can't distinguish "refinery off" from "no satellite data".
+    Alerts when hotspots are detected within PROXIMITY_KM of a refinery,
+    indicating potential flaring, fire, or unusual thermal events.
+    No hotspots = no alert (satellite gaps are not actionable).
     """
-    # Count hotspots per area
-    area_counts: dict[str, int] = {}
-    for h in hotspots:
-        area_counts[h["area"]] = area_counts.get(h["area"], 0) + 1
+    if not hotspots:
+        return
 
     for ref in REFINERIES:
-        # Skip if the entire area has no hotspots (no data, not no activity)
-        if area_counts.get(ref["area"], 0) == 0:
-            continue
-
-        # Find hotspots within PROXIMITY_KM of this refinery
         nearby = [
             h for h in hotspots
             if h["area"] == ref["area"]
             and _haversine_km(ref["lat"], ref["lon"], h["lat"], h["lon"]) <= PROXIMITY_KM
         ]
 
-        if len(nearby) == 0:
-            # Area has hotspots but none near this refinery — possible shutdown
-            _create_refinery_alert(db, ref)
+        if len(nearby) > 0:
+            _create_refinery_alert(db, ref, len(nearby), max(h["brightness"] for h in nearby))
 
 
-def _create_refinery_alert(db, ref: dict):
-    """Create alert for missing refinery thermal signature (with dedup)."""
+def _create_refinery_alert(db, ref: dict, count: int, peak_brightness: float):
+    """Create alert for abnormal thermal activity near a refinery (with dedup)."""
     from datetime import timedelta
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=DEDUP_HOURS)
@@ -187,12 +179,12 @@ def _create_refinery_alert(db, ref: dict):
         rule="refinery_thermal",
         zone=ref["area"],
         severity="warning",
-        title=f"Refinery flaring anomaly: {ref['name']}",
+        title=f"Thermal anomaly near {ref['name']}",
         detail=(
-            f"No thermal hotspot detected within {PROXIMITY_KM}km of "
+            f"{count} hotspot(s) detected within {PROXIMITY_KM}km of "
             f"{ref['name']} ({ref['lat']:.3f}, {ref['lon']:.3f}). "
-            f"Possible shutdown or reduced operations."
+            f"Peak brightness: {peak_brightness:.1f}K. Possible flaring or fire."
         ),
     ))
     db.commit()
-    logger.info(f"Alert: refinery_thermal — {ref['name']}")
+    logger.info(f"Alert: refinery_thermal — {ref['name']} ({count} hotspots, {peak_brightness:.1f}K)")

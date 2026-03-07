@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.database import get_db
-from backend.models.sentiment import GDELTVolume, SentimentScore
+from backend.models.sentiment import GDELTVolume, SentimentScore, NewsHeadline
 from backend.collectors.gdelt import KEYWORDS, _fetch_headlines
 
 import httpx
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/sentiment", tags=["sentiment"])
 # Headlines cache (30 minutes)
 _headlines_cache: list = []
 _headlines_cache_ts: float = 0.0
+_headlines_cache_source: str = "GDELT DOC 2.0"
 HEADLINES_CACHE_TTL = 1800
 
 
@@ -49,34 +50,59 @@ async def get_volume(
 
 
 @router.get("/headlines")
-async def get_headlines():
-    """Get top current energy headlines from GDELT (cached 30min)."""
-    global _headlines_cache, _headlines_cache_ts
+async def get_headlines(db: Session = Depends(get_db)):
+    """Get top energy headlines — Finnhub first, GDELT fallback (cached 30min)."""
+    global _headlines_cache, _headlines_cache_ts, _headlines_cache_source
 
     now = time.monotonic()
     if _headlines_cache and (now - _headlines_cache_ts) < HEADLINES_CACHE_TTL:
-        return {"source": "GDELT DOC 2.0", "articles": _headlines_cache, "cached": True}
+        return {"source": _headlines_cache_source, "articles": _headlines_cache, "cached": True}
 
-    async with httpx.AsyncClient() as client:
-        articles = await _fetch_headlines(client, max_records=15)
+    # Try Finnhub headlines from DB first
+    finnhub_rows = (
+        db.query(NewsHeadline)
+        .order_by(NewsHeadline.published_at.desc())
+        .limit(15)
+        .all()
+    )
 
-    formatted = [
-        {
-            "title": a.get("title", ""),
-            "url": a.get("url", ""),
-            "domain": a.get("domain", ""),
-            "date": a.get("seendate", ""),
-            "language": a.get("language", ""),
-            "country": a.get("sourcecountry", ""),
-        }
-        for a in articles
-    ]
+    if finnhub_rows:
+        formatted = [
+            {
+                "title": row.headline,
+                "url": row.url,
+                "domain": row.source,
+                "date": row.published_at.isoformat() if row.published_at else "",
+                "summary": row.summary,
+                "category": row.category,
+            }
+            for row in finnhub_rows
+        ]
+        source = "Finnhub"
+    else:
+        # Fallback to GDELT live fetch
+        async with httpx.AsyncClient() as client:
+            articles = await _fetch_headlines(client, max_records=15)
+
+        formatted = [
+            {
+                "title": a.get("title", ""),
+                "url": a.get("url", ""),
+                "domain": a.get("domain", ""),
+                "date": a.get("seendate", ""),
+                "language": a.get("language", ""),
+                "country": a.get("sourcecountry", ""),
+            }
+            for a in articles
+        ]
+        source = "GDELT DOC 2.0"
 
     if formatted:
         _headlines_cache = formatted
         _headlines_cache_ts = now
+        _headlines_cache_source = source
 
-    return {"source": "GDELT DOC 2.0", "articles": formatted, "cached": False}
+    return {"source": source, "articles": formatted, "cached": False}
 
 
 @router.get("/risk")

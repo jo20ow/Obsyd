@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Header from './components/Header'
+import CompactView from './components/CompactView'
 import PriceChart from './components/PriceChart'
 import StatCards from './components/StatCards'
 import MacroPanel from './components/MacroPanel'
@@ -13,10 +14,13 @@ import CorrelationPanel from './components/CorrelationPanel'
 import BriefingPanel from './components/BriefingPanel'
 import MarketStructure from './components/MarketStructure'
 import ReroutingIndex from './components/ReroutingIndex'
+import EventTimeline from './components/EventTimeline'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const API = '/api'
 
 function App() {
+  const [compactMode, setCompactMode] = useState(true)
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)
   const [liveSource, setLiveSource] = useState(null)
@@ -114,40 +118,75 @@ function App() {
     )
   }
 
+  if (compactMode) {
+    return <CompactView onSwitchToFull={() => setCompactMode(false)} />
+  }
+
   return (
     <div className="min-h-screen p-4 lg:p-6">
-      <Header aisActive={aisActive} gdeltActive={gdeltActive} />
-      <div className="mt-4">
-        <BriefingPanel />
+      <Header aisActive={aisActive} gdeltActive={gdeltActive} compactMode={compactMode} onToggleCompact={() => setCompactMode(true)} />
+      <ErrorBoundary name="briefing">
+        <div className="mt-4">
+          <BriefingPanel />
+        </div>
+      </ErrorBoundary>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        <div className="lg:col-span-2">
+          <ErrorBoundary name="vessel-map">
+            <VesselMap zones={zones} weatherAlerts={weatherAlerts} />
+          </ErrorBoundary>
+        </div>
+        <div className="space-y-4">
+          <ErrorBoundary name="stat-cards">
+            <StatCards data={eiaData} live={liveData} liveSource={liveSource} />
+          </ErrorBoundary>
+          <ErrorBoundary name="alerts">
+            <AlertsPanel weatherAlerts={weatherAlerts} />
+          </ErrorBoundary>
+        </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2 space-y-4">
-          <PriceChart data={eiaData} />
-          <FundamentalsPanel />
-          <JODIPanel />
+          <ErrorBoundary name="price-chart">
+            <PriceChart data={eiaData} />
+          </ErrorBoundary>
+          <ErrorBoundary name="fundamentals">
+            <FundamentalsPanel />
+          </ErrorBoundary>
+          <ErrorBoundary name="jodi">
+            <JODIPanel />
+          </ErrorBoundary>
         </div>
         <div className="space-y-4">
-          <StatCards data={eiaData} live={liveData} liveSource={liveSource} />
-          <MarketStructure />
-          <MacroPanel />
-          <SentimentPanel />
+          <ErrorBoundary name="market-structure">
+            <MarketStructure />
+          </ErrorBoundary>
+          <ErrorBoundary name="macro">
+            <MacroPanel />
+          </ErrorBoundary>
+          <ErrorBoundary name="sentiment">
+            <SentimentPanel />
+          </ErrorBoundary>
         </div>
       </div>
-      <div className="mt-4">
-        <ChokePointMonitor />
-      </div>
+      <ErrorBoundary name="chokepoint-monitor">
+        <div className="mt-4">
+          <ChokePointMonitor />
+        </div>
+      </ErrorBoundary>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <CorrelationPanel />
-        <ReroutingIndex />
+        <ErrorBoundary name="correlation">
+          <CorrelationPanel />
+        </ErrorBoundary>
+        <ErrorBoundary name="rerouting">
+          <ReroutingIndex />
+        </ErrorBoundary>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-        <div className="lg:col-span-2">
-          <VesselMap zones={zones} weatherAlerts={weatherAlerts} />
+      <ErrorBoundary name="event-timeline">
+        <div className="mt-4">
+          <EventTimeline />
         </div>
-        <div>
-          <AlertsPanel weatherAlerts={weatherAlerts} />
-        </div>
-      </div>
+      </ErrorBoundary>
     </div>
   )
 }

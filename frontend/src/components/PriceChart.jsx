@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createChart, ColorType, LineSeries, CandlestickSeries, LineStyle } from 'lightweight-charts'
+import { InfoPopover } from './Panel'
 
 const API = '/api'
 
@@ -244,6 +245,7 @@ export default function PriceChart({ data }) {
         </div>
 
         <div className="flex items-center gap-2">
+          <InfoPopover text="Historical spot prices (FRED) + live futures (Yahoo Finance). Timeframes: 1D/1W/1M/3M/1Y." />
           {/* Chart style toggle */}
           <div className="flex items-center border border-border rounded overflow-hidden">
             <button

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Panel from './Panel'
 
 const API = '/api'
 
@@ -29,8 +30,9 @@ function formatDateShort(dateStr) {
 }
 
 function generateInsight(cp) {
+  if (!cp) return ''
   const { chokepoint, current_anomaly_pct, delta_correlation, best_delta_lag_days, avg_price_impact_pct, n_impact_events } = cp
-  const name = chokepoint.split(' ').pop()
+  const name = (chokepoint || '').split(' ').pop() || '?'
 
   if (n_impact_events === 0) {
     return `${name}: insufficient disruption events (>30% drops) for impact analysis`
@@ -54,7 +56,7 @@ function generateInsight(cp) {
 
 function CurrentEventBanner({ event, chokepoint }) {
   if (!event) return null
-  const name = chokepoint.split(' ').pop()
+  const name = (chokepoint || '').split(' ').pop() || '?'
   const brentDir = event.brent_change_pct >= 0
   return (
     <div className="px-4 py-1.5 border-b border-red-500/20 bg-red-500/5 flex items-center gap-2">
@@ -89,36 +91,30 @@ export default function CorrelationPanel() {
       .catch((e) => { console.error('CorrelationPanel fetch:', e); setLoading(false) })
   }, [])
 
+  const panelProps = { id: 'correlation', title: 'CHOKEPOINT → BRENT CORRELATION // 365D', info: 'Statistical relationship between chokepoint transits and Brent price. Based on vessel counts, not barrels.', collapsible: true, headerRight: <span className="font-mono text-[9px] text-neutral-700">PEARSON r + LAG</span> }
+
   if (loading) {
     return (
-      <div className="border border-border bg-surface rounded px-4 py-6">
-        <div className="font-mono text-[10px] text-neutral-600 animate-pulse text-center">
-          CORRELATION ENGINE // COMPUTING ...
+      <Panel {...panelProps}>
+        <div className="px-4 py-6 font-mono text-[10px] text-neutral-600 animate-pulse text-center">
+          COMPUTING ...
         </div>
-      </div>
+      </Panel>
     )
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="border border-border bg-surface rounded px-4 py-6">
-        <div className="font-mono text-[10px] text-neutral-600 text-center">
-          CORRELATION // NO DATA — run backfill + oil price fetch first
+      <Panel {...panelProps}>
+        <div className="px-4 py-6 font-mono text-[10px] text-neutral-600 text-center">
+          NO DATA — run backfill + oil price fetch first
         </div>
-      </div>
+      </Panel>
     )
   }
 
   return (
-    <div className="border border-border bg-surface rounded">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-        <div className="font-mono text-[10px] text-neutral-600 tracking-wider">
-          CHOKEPOINT → BRENT CORRELATION // 365D ANALYSIS
-        </div>
-        <div className="font-mono text-[9px] text-neutral-700">
-          PEARSON r + LAG
-        </div>
-      </div>
+    <Panel {...panelProps}>
 
       {/* Current event banners */}
       {data.filter((cp) => cp.current_event).map((cp) => (
@@ -145,7 +141,7 @@ export default function CorrelationPanel() {
               {/* Name */}
               <div className="col-span-2">
                 <span className="font-mono text-[10px] text-neutral-400">
-                  {cp.chokepoint.toUpperCase()}
+                  {(cp.chokepoint || '').toUpperCase()}
                 </span>
                 <div className="font-mono text-[8px] text-neutral-700">
                   {cp.data_points}d
@@ -159,7 +155,7 @@ export default function CorrelationPanel() {
                   cp.current_anomaly_pct < -10 ? 'text-red-400' :
                   'text-neutral-500'
                 }`}>
-                  {cp.current_anomaly_pct > 0 ? '+' : ''}{cp.current_anomaly_pct.toFixed(0)}%
+                  {(cp.current_anomaly_pct ?? 0) > 0 ? '+' : ''}{(cp.current_anomaly_pct ?? 0).toFixed(0)}%
                 </span>
               </div>
 
@@ -228,6 +224,6 @@ export default function CorrelationPanel() {
       <div className="px-4 py-1.5 font-mono text-[8px] text-neutral-700">
         Based on vessel transit counts, not barrel volumes // Level r: n_tanker vs Brent // Δr: day-over-day changes // Impact: avg Brent 7d after {'>'}30% transit drop
       </div>
-    </div>
+    </Panel>
   )
 }

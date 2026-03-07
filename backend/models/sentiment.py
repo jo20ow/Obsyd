@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import String, Float, DateTime, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -28,3 +28,17 @@ class SentimentScore(Base):
     risk_factors: Mapped[str] = mapped_column(Text, default="")  # JSON array of strings
     source: Mapped[str] = mapped_column(String, default="")  # "openai" or "anthropic"
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class NewsHeadline(Base):
+    """News headline from Finnhub or other providers."""
+    __tablename__ = "news_headlines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(50), default="finnhub")
+    headline: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    url: Mapped[str] = mapped_column(Text, default="")
+    published_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    category: Mapped[str] = mapped_column(String(50), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

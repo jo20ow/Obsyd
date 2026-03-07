@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # LLM (BYOK)
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    finnhub_api_key: Optional[str] = None
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

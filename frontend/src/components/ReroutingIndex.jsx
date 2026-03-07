@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Panel from './Panel'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -31,9 +32,9 @@ function CustomTooltip({ active, payload, label }) {
   return (
     <div className="border border-border bg-surface px-3 py-2 font-mono text-[10px]">
       <div className="text-neutral-500 mb-1">{label}</div>
-      <div className="text-cyan-glow">Cape share: {(d.ratio * 100).toFixed(1)}%</div>
-      <div className="text-neutral-400">Suez: {d.suez_tanker} tankers</div>
-      <div className="text-neutral-400">Cape: {d.cape_tanker} tankers</div>
+      <div className="text-cyan-glow">Cape share: {((d.ratio ?? 0) * 100).toFixed(1)}%</div>
+      <div className="text-neutral-400">Suez: {d.suez_tanker ?? '?'} tankers</div>
+      <div className="text-neutral-400">Cape: {d.cape_tanker ?? '?'} tankers</div>
     </div>
   )
 }
@@ -58,15 +59,7 @@ export default function ReroutingIndex() {
     .map((d) => ({ ...d, ratio_pct: +(d.ratio * 100).toFixed(1) }))
 
   return (
-    <div className="border border-border bg-surface rounded">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-        <div className="font-mono text-[10px] text-neutral-600 tracking-wider">
-          CAPE / SUEZ REROUTING INDEX
-        </div>
-        <div className={`font-mono text-[10px] font-bold ${style.text}`}>
-          {style.label}
-        </div>
-      </div>
+    <Panel id="rerouting" title="CAPE / SUEZ REROUTING INDEX" info="Share of tanker traffic routed via Cape of Good Hope instead of Suez Canal. Higher = more diversions = fleet capacity tied up." collapsible headerRight={<span className={`font-mono text-[10px] font-bold ${style.text}`}>{style.label}</span>}>
 
       {/* Current status */}
       <div className={`px-4 py-3 border-b border-border/50 ${style.bg}`}>
@@ -154,6 +147,6 @@ export default function ReroutingIndex() {
       <div className="px-4 py-1.5 border-t border-border/50 font-mono text-[8px] text-neutral-700">
         Cape share of combined Suez+Cape tanker traffic // Normal ~20%, disruption {'>'}35%
       </div>
-    </div>
+    </Panel>
   )
 }

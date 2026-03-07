@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { InfoPopover } from './Panel'
 
 const API = '/api'
 
@@ -46,6 +47,7 @@ export default function BriefingPanel() {
             OBSYD BRIEFING
           </span>
           <span className="text-neutral-600 text-xs">// {briefing.date}</span>
+          <InfoPopover text="Daily summary of key market anomalies. Based on PortWatch transits and FRED price data." />
         </div>
         {upcoming?.eia_report && (
           <span className="text-neutral-600 text-xs">
@@ -124,9 +126,9 @@ export default function BriefingPanel() {
             return (
               <span key={key} className="text-neutral-300">
                 {key.toUpperCase()}{' '}
-                <span className="text-neutral-100">${m.price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>{' '}
+                <span className="text-neutral-100">${m.price != null ? m.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>{' '}
                 <span className={up ? 'text-emerald-400' : 'text-red-400'}>
-                  ({up ? '+' : ''}{m.change_pct?.toFixed(1)}%)
+                  ({up ? '+' : ''}{m.change_pct != null ? m.change_pct.toFixed(1) : '?'}%)
                 </span>
               </span>
             )
@@ -137,7 +139,7 @@ export default function BriefingPanel() {
             return (
               <span className={cls}>
                 {s.toUpperCase()}
-                {mktStruct.curves?.WTI && ` (${mktStruct.curves.WTI.spread_pct > 0 ? '+' : ''}${mktStruct.curves.WTI.spread_pct.toFixed(1)}%)`}
+                {mktStruct.curves?.WTI?.spread_pct != null && ` (${mktStruct.curves.WTI.spread_pct > 0 ? '+' : ''}${mktStruct.curves.WTI.spread_pct.toFixed(1)}%)`}
               </span>
             )
           })()}

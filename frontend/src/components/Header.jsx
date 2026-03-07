@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import SettingsPanel from './SettingsPanel'
 
-export default function Header({ aisActive, gdeltActive }) {
+export default function Header({ aisActive, gdeltActive, compactMode, onToggleCompact }) {
   const [health, setHealth] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -38,6 +38,14 @@ export default function Header({ aisActive, gdeltActive }) {
           <StatusDot label="FRED" ok={fredOk} />
           <StatusDot label="AIS" ok={aisOk} />
           <StatusDot label="GDELT" ok={gdeltOk} />
+          {!compactMode && onToggleCompact && (
+            <button
+              onClick={onToggleCompact}
+              className="font-mono text-[10px] text-neutral-600 hover:text-cyan-glow tracking-wider transition-colors border border-border hover:border-cyan-glow/30 px-2 py-1"
+            >
+              COMPACT
+            </button>
+          )}
           <button
             onClick={() => setSettingsOpen(true)}
             className="text-neutral-600 hover:text-neutral-300 transition-colors ml-1"

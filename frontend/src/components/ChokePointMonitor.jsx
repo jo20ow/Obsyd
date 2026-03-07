@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { InfoPopover } from './Panel'
 import {
   ResponsiveContainer,
   LineChart,
@@ -180,23 +181,15 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
     }
   }
 
-  // Split into PortWatch vs AIS data series
-  // AIS geofence only tracks tankers, so AIS n_total is null — we only bridge n_tanker
-  const hasAis = history.some((d) => d.source === 'ais')
-  const lastPwIdx = history.reduce((acc, d, i) => (d.source !== 'ais' ? i : acc), -1)
+  // Only PortWatch transit data — AIS geofence data shown separately
+  const pwHistory = history.filter((d) => d.source !== 'ais')
 
-  const chartData = history.map((d, i) => {
-    const isAis = d.source === 'ais'
-    // Bridge point: last PortWatch point also appears in AIS series for continuity
-    const isBridge = !isAis && i === lastPwIdx && hasAis
-    return {
-      date: d.date,
-      n_total: !isAis ? d.n_total : null,
-      n_tanker: !isAis ? d.n_tanker : null,
-      n_tanker_ais: isAis || isBridge ? (isAis ? d.n_tanker : d.n_tanker) : null,
-      brent: brentMap[d.date] ?? null,
-    }
-  })
+  const chartData = pwHistory.map((d) => ({
+    date: d.date,
+    n_total: d.n_total,
+    n_tanker: d.n_tanker,
+    brent: brentMap[d.date] ?? null,
+  }))
 
   const hasBrent = chartData.some((d) => d.brent !== null)
 
@@ -222,7 +215,7 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
             </button>
           ))}
           <span className="font-mono text-[9px] text-neutral-700 ml-1">
-            {history.length}d
+            {pwHistory.length}d
           </span>
         </div>
       </div>
@@ -279,20 +272,6 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
             activeDot={{ r: 3 }}
             connectNulls={false}
           />
-          {hasAis && (
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="n_tanker_ais"
-              name="Tanker (AIS)"
-              stroke="#00ff9d"
-              strokeWidth={1.5}
-              strokeDasharray="6 3"
-              dot={{ r: 2, fill: '#00ff9d' }}
-              activeDot={{ r: 3 }}
-              connectNulls
-            />
-          )}
           {hasBrent && (
             <Line
               yAxisId="right"
@@ -309,21 +288,14 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
         </LineChart>
       </ResponsiveContainer>
       {(() => {
-        const lastPw = history.filter((d) => d.source !== 'ais').at(-1)
-        const lastPwDate = lastPw?.date
+        const lastPwDate = pwHistory.at(-1)?.date
         if (!lastPwDate) return null
         const ageMs = Date.now() - new Date(lastPwDate + 'T00:00:00Z').getTime()
         const ageDays = ageMs / (1000 * 60 * 60 * 24)
         if (ageDays <= 2) return null
-        const aisCount = history.filter((d) => d.source === 'ais').length
         return (
           <div className="font-mono text-[9px] text-neutral-600 mt-2">
             PortWatch bis {formatDate(lastPwDate)} — IMF aktualisiert mit 3-5 Tagen Verzögerung
-            {aisCount > 0 && (
-              <span className="text-cyan-glow/50 ml-1">
-                // {aisCount}d AIS-Daten (gestrichelt)
-              </span>
-            )}
           </div>
         )
       })()}
@@ -396,8 +368,9 @@ export default function ChokePointMonitor() {
       <DisruptionBanner disruptions={disruptions} />
 
       <div className="border border-border bg-surface rounded px-4 py-3">
-        <div className="font-mono text-[10px] text-neutral-600 mb-3 tracking-wider">
-          CHOKEPOINT MONITOR // IMF PORTWATCH
+        <div className="flex items-center gap-2 mb-3">
+          <span className="font-mono text-[10px] text-neutral-600 tracking-wider">CHOKEPOINT MONITOR // IMF PORTWATCH</span>
+          <InfoPopover text="Vessel traffic at 5 global chokepoints. Source: IMF PortWatch, 3-5 day publication delay. Anomaly = deviation from 30-day average." />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-4">

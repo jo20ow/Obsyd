@@ -16,6 +16,7 @@ from backend.collectors.aisstream import start_aisstream, stop_aisstream
 from backend.collectors.aishub import start_aishub, stop_aishub
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_sentiment
+from backend.collectors.finnhub_news import collect_finnhub_news
 from backend.collectors.geofence_aggregator import backfill_geofence_events
 from backend.signals.sentiment_scorer import compute_sentiment_score
 from backend.collectors.jodi import collect_jodi
@@ -58,7 +59,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(collect_gdelt_volume())
     asyncio.create_task(collect_gdelt_sentiment())
     asyncio.create_task(compute_sentiment_score())
-    logger.info("Startup: GDELT + Sentiment started (background)")
+    asyncio.create_task(collect_finnhub_news())
+    logger.info("Startup: GDELT + Finnhub + Sentiment started (background)")
 
     await asyncio.sleep(3)
     asyncio.create_task(backfill_geofence_events())

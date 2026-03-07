@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { SkeletonCard } from './Skeleton'
+import Panel from './Panel'
 
 const API = '/api'
 
@@ -103,11 +104,8 @@ export default function FundamentalsPanel() {
   if (!hasData) return null
 
   return (
-    <div className="border border-border bg-surface rounded px-4 py-3">
-      <div className="font-mono text-[10px] text-neutral-600 mb-2 tracking-wider">
-        US OIL FUNDAMENTALS // EIA
-      </div>
-
+    <Panel id="fundamentals" title="US OIL FUNDAMENTALS // EIA" info="Weekly US data: refinery utilization, SPR, crude imports/exports. Source: EIA." collapsible>
+      <div className="px-4 py-3">
       <div className="grid grid-cols-2 gap-3">
         {/* Refinery Utilization */}
         {util && (
@@ -188,7 +186,8 @@ export default function FundamentalsPanel() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </Panel>
   )
 }
 

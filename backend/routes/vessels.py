@@ -5,6 +5,7 @@ from sqlalchemy import func
 from backend.database import get_db
 from backend.models.vessels import VesselPosition, GeofenceEvent, GlobalVesselPosition
 from backend.geofences.zones import ZONES, NO_AIS_COVERAGE
+from backend.signals.vessel_weight import classify_vessel, compute_weighted_count
 
 router = APIRouter(prefix="/api/vessels", tags=["vessels"])
 
@@ -108,3 +109,60 @@ async def list_zones():
         }
         for z in ZONES
     ]
+
+
+@router.get("/weighted")
+async def get_weighted_vessels(
+    zone: str = Query(..., description="Geofence zone name (e.g. 'hormuz', 'suez')"),
+    db: Session = Depends(get_db),
+):
+    """Weighted tanker count for a zone using ship-class heuristics.
+
+    Computes on-the-fly from current vessel_positions — no schema changes.
+    Weight factors: VLCC=3x, Suezmax=2x, Aframax=1x, Product/Tanker=0.5x.
+    """
+    # Latest position per MMSI in the given zone
+    latest = (
+        db.query(VesselPosition.mmsi, func.max(VesselPosition.id).label("max_id"))
+        .filter(VesselPosition.zone == zone)
+        .group_by(VesselPosition.mmsi)
+        .subquery()
+    )
+
+    rows = (
+        db.query(VesselPosition)
+        .join(latest, VesselPosition.id == latest.c.max_id)
+        .order_by(VesselPosition.timestamp.desc())
+        .all()
+    )
+
+    # Build vessel list with classification
+    vessels = []
+    for r in rows:
+        cls_name, weight = classify_vessel(r.ship_name, r.ship_type)
+        vessels.append({
+            "mmsi": r.mmsi,
+            "ship_name": r.ship_name,
+            "ship_type": r.ship_type,
+            "class": cls_name,
+            "weight": weight,
+            "lat": r.latitude,
+            "lon": r.longitude,
+            "sog": r.sog,
+            "zone": r.zone,
+            "timestamp": r.timestamp.isoformat(),
+        })
+
+    # Compute weighted totals from raw vessel data
+    summary = compute_weighted_count([
+        {"ship_name": v["ship_name"], "ship_type": v["ship_type"]}
+        for v in vessels
+    ])
+
+    return {
+        "zone": zone,
+        "raw_count": summary["raw_count"],
+        "weighted_count": summary["weighted_count"],
+        "by_class": summary["by_class"],
+        "vessels": vessels,
+    }

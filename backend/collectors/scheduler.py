@@ -6,6 +6,7 @@ Schedule:
   - FRED: Daily
   - Live prices: Every 4 hours
   - GDELT: Every 2 hours (avoid 429 rate limiting)
+  - Finnhub: Every 2 hours at :45 (energy news headlines)
   - FIRMS: Every 6 hours
   - Fleet summary: Daily 23:55 UTC
   - Retention: Daily 04:00 UTC (thin old vessel_positions)
@@ -24,6 +25,7 @@ from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_
 from backend.collectors.jodi import collect_jodi
 from backend.collectors.firms import collect_firms
 from backend.collectors.geofence_aggregator import aggregate_geofence_events
+from backend.collectors.finnhub_news import collect_finnhub_news
 from backend.collectors.fleet_summary import create_daily_fleet_summary
 from backend.collectors.retention import run_retention
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
@@ -138,6 +140,14 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Finnhub news: every 2 hours at :45
+    scheduler.add_job(
+        collect_finnhub_news,
+        CronTrigger(minute=45, hour="*/2"),
+        id="finnhub_news_2h",
+        replace_existing=True,
+    )
+
     # Geofence aggregation: hourly
     scheduler.add_job(
         aggregate_geofence_events,
@@ -189,8 +199,8 @@ def start_scheduler():
     scheduler.start()
     logger.info(
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
-        "PortWatch (weekly Tue), GDELT (every 2h), JODI (monthly 15th), "
-        "Live prices (every 4h), Signals (every 5min), "
+        "PortWatch (weekly Tue), GDELT (every 2h), Finnhub (every 2h), "
+        "JODI (monthly 15th), Live prices (every 4h), Signals (every 5min), "
         "Fleet summary (daily 23:55), Retention (daily 04:00) | "
         "FIRMS (every 6h) | DISABLED: NOAA"
     )
