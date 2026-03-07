@@ -106,8 +106,6 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",       # Vite dev server
         "http://localhost:4173",       # Vite preview
-        "http://72.61.190.129",        # VPS direct
-        "http://72.61.190.129:8000",   # VPS API
         "https://obsyd.dev",           # Production
         "https://www.obsyd.dev",       # Production www
     ],
