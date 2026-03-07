@@ -151,25 +151,11 @@ function ChokePointCard({ cp, selected, onClick }) {
         </div>
       </div>
 
-      {/* AIS ship class breakdown */}
-      {cp.ais_weighted && (
-        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-          {Object.entries(cp.ais_weighted.by_class)
-            .sort(([,a], [,b]) => b - a)
-            .slice(0, 4)
-            .map(([cls, count]) => (
-              <span key={cls} className={`font-mono text-[8px] px-1 py-0.5 rounded ${
-                cls === 'VLCC' ? 'bg-red-500/15 text-red-400' :
-                cls === 'Suezmax' ? 'bg-orange-500/15 text-orange-400' :
-                cls === 'Aframax' ? 'bg-yellow-500/15 text-yellow-400' :
-                'bg-neutral-800 text-neutral-500'
-              }`}>
-                {count} {cls}
-              </span>
-            ))}
-          <span className="font-mono text-[8px] text-neutral-600">
-            wt: {cp.ais_weighted.weighted_count}
-          </span>
+      {/* AIS weighted count (compact) */}
+      {cp.ais_weighted && cp.ais_weighted.by_class.VLCC > 0 && (
+        <div className="font-mono text-[9px] text-neutral-600 mt-1">
+          AIS: {cp.ais_weighted.by_class.VLCC} VLCC
+          {cp.ais_weighted.by_class.Suezmax > 0 && ` · ${cp.ais_weighted.by_class.Suezmax} Szmx`}
         </div>
       )}
     </button>
@@ -203,15 +189,38 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
     }
   }
 
-  // Only PortWatch transit data — AIS geofence data shown separately
-  const pwHistory = history.filter((d) => d.source !== 'ais')
+  // PortWatch data — trim incomplete tail (days where n_total drops >60% vs prior day)
+  const pwRaw = history.filter((d) => d.source !== 'ais')
+  let cutIdx = pwRaw.length
+  for (let i = pwRaw.length - 1; i >= 1; i--) {
+    if (pwRaw[i].n_total != null && pwRaw[i - 1].n_total != null &&
+        pwRaw[i].n_total < pwRaw[i - 1].n_total * 0.4) {
+      cutIdx = i
+    } else {
+      break
+    }
+  }
+  const pwHistory = pwRaw.slice(0, cutIdx)
 
-  const chartData = pwHistory.map((d) => ({
-    date: d.date,
-    n_total: d.n_total,
-    n_tanker: d.n_tanker,
-    brent: brentMap[d.date] ?? null,
-  }))
+  // AIS extension for recent days (tanker count only)
+  const aisHistory = history.filter((d) => d.source === 'ais')
+
+  const chartData = [
+    ...pwHistory.map((d) => ({
+      date: d.date,
+      n_total: d.n_total,
+      n_tanker: d.n_tanker,
+      ais_tanker: null,
+      brent: brentMap[d.date] ?? null,
+    })),
+    ...aisHistory.map((d) => ({
+      date: d.date,
+      n_total: null,
+      n_tanker: null,
+      ais_tanker: d.n_tanker,
+      brent: brentMap[d.date] ?? null,
+    })),
+  ]
 
   const hasBrent = chartData.some((d) => d.brent !== null)
 
@@ -290,6 +299,18 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
             stroke="#00ff9d"
             strokeWidth={1}
             strokeDasharray="4 3"
+            dot={false}
+            activeDot={{ r: 3 }}
+            connectNulls={false}
+          />
+          <Line
+            yAxisId="left"
+            type="monotone"
+            dataKey="ais_tanker"
+            name="AIS Tanker"
+            stroke="#00ff9d"
+            strokeWidth={1}
+            strokeDasharray="2 2"
             dot={false}
             activeDot={{ r: 3 }}
             connectNulls={false}

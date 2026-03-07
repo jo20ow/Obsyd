@@ -3,12 +3,6 @@ import { InfoPopover } from './Panel'
 
 const API = '/api'
 
-const SEVERITY_STYLES = {
-  critical: 'border-red-500/40 bg-red-500/5',
-  warning: 'border-orange-500/40 bg-orange-500/5',
-  info: 'border-neutral-600 bg-neutral-800/30',
-}
-
 const SEVERITY_DOT = {
   critical: 'bg-red-400',
   warning: 'bg-orange-400',
@@ -56,46 +50,29 @@ export default function BriefingPanel() {
         )}
       </div>
 
-      {/* Anomalies */}
+      {/* Anomalies — compact, click scrolls to ChokePointMonitor for details */}
       {hasAnomalies ? (
-        <div className="space-y-2 mb-3">
+        <div className="mb-3 space-y-1">
           {anomalies.map((a, i) => (
-            <div
+            <button
               key={i}
-              className={`border rounded px-3 py-2 ${SEVERITY_STYLES[a.severity]}`}
+              onClick={() => document.getElementById('chokepoint-monitor')?.scrollIntoView({ behavior: 'smooth' })}
+              className="flex items-center gap-2 w-full text-left hover:bg-white/3 rounded px-1 py-0.5 transition-colors"
             >
-              <div className="flex items-start gap-2">
-                <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${SEVERITY_DOT[a.severity]}`} />
-                <div className="min-w-0">
-                  <button
-                    onClick={() => {
-                      const el = document.getElementById('chokepoint-monitor')
-                      el?.scrollIntoView({ behavior: 'smooth' })
-                    }}
-                    className={`font-bold text-left hover:underline ${SEVERITY_TEXT[a.severity]}`}
-                  >
-                    {a.severity.toUpperCase()}: {a.title}
-                  </button>
-                  <div className="text-neutral-400 text-xs mt-0.5">
-                    {a.current_value} ships vs. {a.average_30d} avg (30d)
-                  </div>
-                  {a.historical_count > 0 && (
-                    <div className="text-neutral-500 text-xs mt-0.5">
-                      {a.historical_count} similar events since 2019
-                      {a.avg_brent_impact_7d != null && (
-                        <span className={a.avg_brent_impact_7d > 0 ? 'text-red-400' : 'text-emerald-400'}>
-                          {' '}— Brent avg {a.avg_brent_impact_7d > 0 ? '+' : ''}{a.avg_brent_impact_7d}% (7d after)
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SEVERITY_DOT[a.severity]}`} />
+              <span className={`text-xs font-bold ${SEVERITY_TEXT[a.severity]}`}>
+                {a.title}
+              </span>
+              {a.historical_count > 0 && a.avg_brent_impact_7d != null && (
+                <span className={`text-xs ${a.avg_brent_impact_7d > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  Brent {a.avg_brent_impact_7d > 0 ? '+' : ''}{a.avg_brent_impact_7d}% (n={a.historical_count})
+                </span>
+              )}
+            </button>
           ))}
         </div>
       ) : (
-        <div className="text-emerald-400/80 text-xs mb-3 pl-4">
+        <div className="text-emerald-400/80 text-xs mb-3 pl-1">
           All chokepoints within normal range
         </div>
       )}

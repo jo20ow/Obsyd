@@ -20,6 +20,14 @@ import ErrorBoundary from './components/ErrorBoundary'
 
 const API = '/api'
 
+function Disclaimer() {
+  return (
+    <footer className="mt-8 mb-4 px-4 text-center font-mono text-[9px] text-neutral-700 leading-relaxed max-w-2xl mx-auto">
+      OBSYD is an open-source market observation tool. It does not provide investment advice, trading signals, or recommendations. All data is provided as-is for informational purposes only. Past correlations do not indicate future results. Not regulated by BaFin or any financial authority.
+    </footer>
+  )
+}
+
 function App() {
   const [compactMode, setCompactMode] = useState(true)
   const [eiaData, setEiaData] = useState([])
@@ -191,6 +199,7 @@ function App() {
           <EventTimeline />
         </ErrorBoundary>
       </div>
+      <Disclaimer />
     </div>
   )
 }
