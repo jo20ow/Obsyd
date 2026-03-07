@@ -15,6 +15,7 @@ import BriefingPanel from './components/BriefingPanel'
 import MarketStructure from './components/MarketStructure'
 import ReroutingIndex from './components/ReroutingIndex'
 import EventTimeline from './components/EventTimeline'
+import STSPanel from './components/STSPanel'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const API = '/api'
@@ -175,18 +176,21 @@ function App() {
         </div>
       </ErrorBoundary>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <ErrorBoundary name="correlation">
-          <CorrelationPanel />
+        <ErrorBoundary name="sts-detection">
+          <STSPanel />
         </ErrorBoundary>
         <ErrorBoundary name="rerouting">
           <ReroutingIndex />
         </ErrorBoundary>
       </div>
-      <ErrorBoundary name="event-timeline">
-        <div className="mt-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <ErrorBoundary name="correlation">
+          <CorrelationPanel />
+        </ErrorBoundary>
+        <ErrorBoundary name="event-timeline-col">
           <EventTimeline />
-        </div>
-      </ErrorBoundary>
+        </ErrorBoundary>
+      </div>
     </div>
   )
 }

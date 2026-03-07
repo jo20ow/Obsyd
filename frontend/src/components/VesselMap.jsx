@@ -227,8 +227,8 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
       id: 'geofences',
       data: zones,
       getPolygon: (z) => zoneToPoly(z.bounds),
-      getFillColor: (z) => z.no_ais_coverage ? [120, 120, 140, 8] : [0, 229, 255, 18],
-      getLineColor: (z) => z.no_ais_coverage ? [120, 120, 140, 40] : [0, 229, 255, 80],
+      getFillColor: (z) => z.is_sts ? [255, 160, 0, 12] : z.no_ais_coverage ? [120, 120, 140, 8] : [0, 229, 255, 18],
+      getLineColor: (z) => z.is_sts ? [255, 160, 0, 60] : z.no_ais_coverage ? [120, 120, 140, 40] : [0, 229, 255, 80],
       getLineWidth: 1,
       lineWidthUnits: 'pixels',
       filled: true,
@@ -240,7 +240,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
       data: zones,
       getPosition: (z) => zoneCenter(z.bounds),
       getText: (z) => (z.name || '').toUpperCase(),
-      getColor: (z) => z.no_ais_coverage ? [120, 120, 140, 80] : [0, 229, 255, 120],
+      getColor: (z) => z.is_sts ? [255, 160, 0, 100] : z.no_ais_coverage ? [120, 120, 140, 80] : [0, 229, 255, 120],
       getSize: 11,
       fontFamily: 'JetBrains Mono, monospace',
       fontWeight: 700,
@@ -489,7 +489,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           )}
           <div className="border-t border-border pt-1.5 mt-1.5 space-y-1">
             <div className="text-neutral-500 tracking-wider">ZONES</div>
-            {zones.map((z) => (
+            {zones.filter((z) => !z.is_sts).map((z) => (
               <button
                 key={z.name}
                 onClick={() => flyToZone(z)}
@@ -504,6 +504,21 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                 )}
               </button>
             ))}
+            {zones.some((z) => z.is_sts) && (
+              <>
+                <div className="text-orange-400/60 tracking-wider mt-1">STS HOTSPOTS</div>
+                {zones.filter((z) => z.is_sts).map((z) => (
+                  <button
+                    key={z.name}
+                    onClick={() => flyToZone(z)}
+                    className="flex items-center gap-2 w-full text-left hover:text-orange-400 transition-colors group"
+                  >
+                    <span className="w-2 h-2 rounded-sm shrink-0 bg-orange-400/30" />
+                    <span className="text-neutral-500 group-hover:text-orange-400 text-[9px]">{z.display_name}</span>
+                  </button>
+                ))}
+              </>
+            )}
             <button
               onClick={() => setViewState({ ...INITIAL_VIEW, transitionDuration: 800 })}
               className="text-neutral-600 hover:text-neutral-400 transition-colors mt-0.5"
@@ -520,7 +535,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           ACTIVE GEOFENCE ZONES
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          {zones.map((z) => {
+          {zones.filter((z) => !z.is_sts).map((z) => {
             const count = zoneVesselCounts[z.name] || 0
             const cp = portwatch?.chokepoints?.find((c) => c.zone === z.name)
             return (

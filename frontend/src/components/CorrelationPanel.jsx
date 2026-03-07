@@ -121,8 +121,9 @@ export default function CorrelationPanel() {
         <CurrentEventBanner key={`ev-${cp.portid}`} event={cp.current_event} chokepoint={cp.chokepoint} />
       ))}
 
+      <div className="overflow-x-auto">
       {/* Table header */}
-      <div className="grid grid-cols-12 gap-1 px-4 py-1.5 border-b border-border/50 font-mono text-[9px] text-neutral-600">
+      <div className="grid grid-cols-12 gap-1 px-4 py-1.5 border-b border-border/50 font-mono text-[9px] text-neutral-600 min-w-[600px]">
         <div className="col-span-2">CHOKEPOINT</div>
         <div className="col-span-1 text-right">ANOM</div>
         <div className="col-span-3 text-center">LEVEL r / DELTA Δr</div>
@@ -137,7 +138,7 @@ export default function CorrelationPanel() {
         const impact = impactArrow(cp.avg_price_impact_pct)
         return (
           <div key={cp.portid}>
-            <div className="grid grid-cols-12 gap-1 px-4 py-2 border-b border-border/30 items-center">
+            <div className="grid grid-cols-12 gap-1 px-4 py-2 border-b border-border/30 items-center min-w-[600px]">
               {/* Name */}
               <div className="col-span-2">
                 <span className="font-mono text-[10px] text-neutral-400">
@@ -220,6 +221,7 @@ export default function CorrelationPanel() {
           </div>
         )
       })}
+      </div>
 
       <div className="px-4 py-1.5 font-mono text-[8px] text-neutral-700">
         Based on vessel transit counts, not barrel volumes // Level r: n_tanker vs Brent // Δr: day-over-day changes // Impact: avg Brent 7d after {'>'}30% transit drop

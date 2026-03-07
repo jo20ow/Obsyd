@@ -150,6 +150,28 @@ function ChokePointCard({ cp, selected, onClick }) {
           </div>
         </div>
       </div>
+
+      {/* AIS ship class breakdown */}
+      {cp.ais_weighted && (
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          {Object.entries(cp.ais_weighted.by_class)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 4)
+            .map(([cls, count]) => (
+              <span key={cls} className={`font-mono text-[8px] px-1 py-0.5 rounded ${
+                cls === 'VLCC' ? 'bg-red-500/15 text-red-400' :
+                cls === 'Suezmax' ? 'bg-orange-500/15 text-orange-400' :
+                cls === 'Aframax' ? 'bg-yellow-500/15 text-yellow-400' :
+                'bg-neutral-800 text-neutral-500'
+              }`}>
+                {count} {cls}
+              </span>
+            ))}
+          <span className="font-mono text-[8px] text-neutral-600">
+            wt: {cp.ais_weighted.weighted_count}
+          </span>
+        </div>
+      )}
     </button>
   )
 }
@@ -295,7 +317,7 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
         if (ageDays <= 2) return null
         return (
           <div className="font-mono text-[9px] text-neutral-600 mt-2">
-            PortWatch bis {formatDate(lastPwDate)} — IMF aktualisiert mit 3-5 Tagen Verzögerung
+            PortWatch until {formatDate(lastPwDate)} — IMF updates with 3-5 day delay
           </div>
         )
       })()}

@@ -23,7 +23,7 @@ export function InfoPopover({ text }) {
         i
       </button>
       {open && (
-        <div className="absolute top-5 left-0 z-50 w-64 border border-border bg-[#0a0a12] rounded px-3 py-2.5 font-mono text-[10px] text-neutral-400 leading-relaxed shadow-xl shadow-black/50">
+        <div className="absolute top-5 left-0 z-50 w-64 max-w-[calc(100vw-2rem)] border border-border bg-[#0a0a12] rounded px-3 py-2.5 font-mono text-[10px] text-neutral-400 leading-relaxed shadow-xl shadow-black/50">
           {text}
         </div>
       )}
@@ -67,7 +67,7 @@ export default function Panel({ id, title, info, collapsible = false, headerRigh
             <button
               onClick={() => setCollapsed(!collapsed)}
               className="font-mono text-neutral-600 hover:text-neutral-400 text-[11px] transition-colors w-5 h-5 flex items-center justify-center rounded hover:bg-white/5"
-              title={collapsed ? 'Erweitern' : 'Minimieren'}
+              title={collapsed ? 'Expand' : 'Collapse'}
             >
               {collapsed ? '▸' : '▾'}
             </button>

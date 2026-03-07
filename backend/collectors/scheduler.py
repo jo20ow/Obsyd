@@ -10,7 +10,7 @@ Schedule:
   - FIRMS: Every 6 hours
   - Fleet summary: Daily 23:55 UTC
   - Retention: Daily 04:00 UTC (thin old vessel_positions)
-  - NOAA: DISABLED (0 data since deployment)
+  - NOAA: Every 30 min (hurricane/tropical alerts)
 """
 
 import logging
@@ -28,6 +28,7 @@ from backend.collectors.geofence_aggregator import aggregate_geofence_events
 from backend.collectors.finnhub_news import collect_finnhub_news
 from backend.collectors.fleet_summary import create_daily_fleet_summary
 from backend.collectors.retention import run_retention
+from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.signals.evaluator import evaluate_signals
 from backend.signals.sentiment_scorer import compute_sentiment_score
@@ -95,10 +96,13 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # NOAA: DISABLED — 0 alerts stored since deployment
-    # Re-enable during hurricane season (Jun-Nov) after debugging collector
-    # scheduler.add_job(collect_noaa_alerts, CronTrigger(minute="*/30"),
-    #     id="noaa_30min", replace_existing=True)
+    # NOAA: hurricane/tropical alerts every 30 min
+    scheduler.add_job(
+        collect_noaa_alerts,
+        CronTrigger(minute="*/30"),
+        id="noaa_30min",
+        replace_existing=True,
+    )
 
     # GDELT: primary keywords every 2 hours (was 15min, caused 429s)
     scheduler.add_job(
@@ -202,7 +206,7 @@ def start_scheduler():
         "PortWatch (weekly Tue), GDELT (every 2h), Finnhub (every 2h), "
         "JODI (monthly 15th), Live prices (every 4h), Signals (every 5min), "
         "Fleet summary (daily 23:55), Retention (daily 04:00) | "
-        "FIRMS (every 6h) | DISABLED: NOAA"
+        "FIRMS (every 6h) | NOAA (every 30min)"
     )
 
 

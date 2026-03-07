@@ -4,8 +4,9 @@ from sqlalchemy import func
 
 from backend.database import get_db
 from backend.models.vessels import VesselPosition, GeofenceEvent, GlobalVesselPosition
-from backend.geofences.zones import ZONES, NO_AIS_COVERAGE
+from backend.geofences.zones import ZONES, NO_AIS_COVERAGE, STS_HOTSPOTS
 from backend.signals.vessel_weight import classify_vessel, compute_weighted_count
+from backend.signals.sts_detection import get_sts_summary
 
 router = APIRouter(prefix="/api/vessels", tags=["vessels"])
 
@@ -98,17 +99,30 @@ async def get_geofence_events(
 
 @router.get("/zones")
 async def list_zones():
-    """List all configured geofence zones."""
-    return [
+    """List all configured geofence zones, including STS hotspots."""
+    main = [
         {
             "name": z["name"],
             "display_name": z["display_name"],
             "bounds": z["bounds"],
             "description": z["description"],
             "no_ais_coverage": z["name"] in NO_AIS_COVERAGE,
+            "is_sts": False,
         }
         for z in ZONES
     ]
+    sts = [
+        {
+            "name": z["name"],
+            "display_name": z["display_name"],
+            "bounds": z["bounds"],
+            "description": z["description"],
+            "no_ais_coverage": False,
+            "is_sts": True,
+        }
+        for z in STS_HOTSPOTS
+    ]
+    return main + sts
 
 
 @router.get("/weighted")
@@ -166,3 +180,16 @@ async def get_weighted_vessels(
         "by_class": summary["by_class"],
         "vessels": vessels,
     }
+
+
+@router.get("/sts")
+async def get_sts_intelligence(db: Session = Depends(get_db)):
+    """STS transfer detection + dark activity tracking.
+
+    Returns:
+    - sts_candidates: tankers anchored in known STS hotspots (SOG < 1 kn)
+    - dark_vessels: tankers with no AIS signal for >48h
+    - proximity_pairs: two tankers within 500m of each other in STS zones
+    - hotspots: STS hotspot zone definitions
+    """
+    return get_sts_summary(db)

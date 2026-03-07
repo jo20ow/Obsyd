@@ -56,6 +56,50 @@ ZONES: list[dict] = [
 NO_AIS_COVERAGE = {"suez", "panama", "cape"}
 
 
+# STS transfer hotspot zones — smaller geofences where ship-to-ship transfers
+# commonly occur. Vessels anchored (SOG < 1 kn) in these zones are flagged.
+STS_HOTSPOTS: list[dict] = [
+    {
+        "name": "sts_laconian",
+        "display_name": "Laconian Gulf (Greece)",
+        "bounds": [[36.3, 22.3], [36.9, 23.1]],
+        "description": "Major STS hub for Russian crude oil transfers.",
+    },
+    {
+        "name": "sts_oman",
+        "display_name": "Gulf of Oman (Fujairah)",
+        "bounds": [[25.0, 56.0], [25.5, 56.6]],
+        "description": "Fujairah anchorage — STS transfers and bunkering hub.",
+    },
+    {
+        "name": "sts_malaysia",
+        "display_name": "East of Port Limits (Malaysia)",
+        "bounds": [[1.15, 104.25], [1.45, 104.65]],
+        "description": "Singapore Strait EOPL — STS for sanctioned/blended crude.",
+    },
+    {
+        "name": "sts_lome",
+        "display_name": "Lomé Anchorage (Togo)",
+        "bounds": [[5.8, 1.0], [6.3, 1.6]],
+        "description": "West Africa STS hub for Nigerian crude.",
+    },
+    {
+        "name": "sts_kalamata",
+        "display_name": "Kalamata (Greece)",
+        "bounds": [[36.6, 21.6], [37.1, 22.3]],
+        "description": "Secondary Greek STS zone near Laconian Gulf.",
+    },
+]
+
+
+def point_in_sts_zone(lat: float, lon: float) -> dict | None:
+    """Return the STS hotspot zone for a given position, or None."""
+    for zone in STS_HOTSPOTS:
+        if point_in_zone(lat, lon, zone):
+            return zone
+    return None
+
+
 def point_in_zone(lat: float, lon: float, zone: dict) -> bool:
     """Check if a lat/lon point is inside a zone's bounding box."""
     (lat_min, lon_min), (lat_max, lon_max) = zone["bounds"]
