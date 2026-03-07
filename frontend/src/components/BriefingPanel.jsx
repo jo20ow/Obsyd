@@ -43,11 +43,6 @@ export default function BriefingPanel() {
           <span className="text-neutral-600 text-xs">// {briefing.date}</span>
           <InfoPopover text="Daily summary of key market anomalies. Based on PortWatch transits and FRED price data." />
         </div>
-        {upcoming?.eia_report && (
-          <span className="text-neutral-600 text-xs">
-            Next EIA: {upcoming.eia_report}
-          </span>
-        )}
       </div>
 
       {/* Anomalies — compact, click scrolls to ChokePointMonitor for details */}
@@ -77,19 +72,10 @@ export default function BriefingPanel() {
         </div>
       )}
 
-      {/* Fleet + Anchored Vessels */}
-      {fleet && (fleet.tankers_global > 0 || fleet.anchored_alerts?.length > 0) && (
-        <div className="text-neutral-400 text-xs mb-3 pl-4 space-y-0.5">
-          {fleet.tankers_global > 0 && (
-            <div>
-              Global fleet: {fleet.total_vessels_global?.toLocaleString()} vessels, {fleet.tankers_global?.toLocaleString()} tankers
-            </div>
-          )}
-          {fleet.anchored_alerts?.map((a, i) => (
-            <div key={i} className="text-neutral-500">
-              {a.title}
-            </div>
-          ))}
+      {/* Fleet status */}
+      {fleet && fleet.tankers_global > 0 && (
+        <div className="text-neutral-400 text-xs mb-3 pl-4">
+          Global fleet: {fleet.total_vessels_global?.toLocaleString()} vessels, {fleet.tankers_global?.toLocaleString()} tankers
         </div>
       )}
 
@@ -123,6 +109,11 @@ export default function BriefingPanel() {
           {market.sentiment_score != null && (
             <span className="text-neutral-500">
               Sentiment: {market.sentiment_score}/10
+            </span>
+          )}
+          {upcoming?.eia_report && (
+            <span className="text-neutral-600">
+              Next EIA: {upcoming.eia_report}
             </span>
           )}
         </div>

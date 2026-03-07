@@ -205,7 +205,7 @@ export default function CompactView({ onSwitchToFull }) {
         </div>
       </div>
       <div className="mt-4 text-center font-mono text-[9px] text-neutral-700 leading-relaxed max-w-xl mx-auto">
-        OBSYD is an open-source market observation tool. It does not provide investment advice, trading signals, or recommendations. All data is provided as-is for informational purposes only. Past correlations do not indicate future results. Not regulated by BaFin or any financial authority.
+        OBSYD is an open-source market observation tool. It does not provide investment advice, trading signals, or recommendations. All data is provided as-is for informational purposes only. AIS data is self-reported and unverified. Correlations shown are statistical observations, not causal predictions. Past correlations do not indicate future results. Not regulated by BaFin or any financial authority.
       </div>
     </div>
   )

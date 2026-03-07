@@ -127,7 +127,7 @@ function normalizeVessel(v) {
 export default function VesselMap({ zones = [], weatherAlerts = [] }) {
   const [vessels, setVessels] = useState([])
   const [globalVessels, setGlobalVessels] = useState([])
-  const [mode, setMode] = useState('geofence')
+  const [mode, setMode] = useState('global')
   const [showThermal, setShowThermal] = useState(false)
   const [thermalData, setThermalData] = useState([])
   const [thermalAvailable, setThermalAvailable] = useState(false)
@@ -366,7 +366,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           html: `<div style="font-family:monospace;font-size:11px;color:#00e5ff">
             <div style="font-weight:bold">${escHtml(object.display_name)}</div>
             ${count ? `<div style="color:#c8c8d0">${count} tankers tracked</div>` : ''}
-            ${object.no_ais_coverage ? '<div style="color:#888;font-size:10px">PortWatch only</div>' : ''}
+            ${object.no_ais_coverage ? '<div style="color:#888;font-size:10px">Transit data via IMF PortWatch</div>' : ''}
           </div>`,
           style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '8px' },
         }
@@ -414,16 +414,6 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
         <div className="flex items-center gap-3 font-mono text-[10px]">
           <div className="flex items-center border border-border rounded overflow-hidden">
             <button
-              onClick={() => setMode('geofence')}
-              className={`px-2 py-0.5 transition-colors ${
-                !isGlobal
-                  ? 'bg-cyan-glow/15 text-cyan-glow'
-                  : 'text-neutral-600 hover:text-neutral-400'
-              }`}
-            >
-              GEOFENCE
-            </button>
-            <button
               onClick={() => setMode('global')}
               className={`px-2 py-0.5 transition-colors ${
                 isGlobal
@@ -433,20 +423,17 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
             >
               GLOBAL
             </button>
+            <button
+              onClick={() => setMode('geofence')}
+              className={`px-2 py-0.5 transition-colors ${
+                !isGlobal
+                  ? 'bg-cyan-glow/15 text-cyan-glow'
+                  : 'text-neutral-600 hover:text-neutral-400'
+              }`}
+            >
+              GEOFENCE
+            </button>
           </div>
-          <button
-            onClick={() => thermalAvailable && setShowThermal((v) => !v)}
-            title={thermalAvailable ? 'Toggle thermal hotspots' : 'FIRMS API nicht verfügbar'}
-            className={`px-2 py-0.5 border rounded transition-colors ${
-              !thermalAvailable
-                ? 'text-neutral-700 border-neutral-800 cursor-not-allowed opacity-50'
-                : showThermal
-                  ? 'bg-orange-400/15 text-orange-400 border-orange-500/30'
-                  : 'text-neutral-600 border-border hover:text-neutral-400'
-            }`}
-          >
-            THERMAL
-          </button>
           <span className="text-neutral-600">30s poll</span>
         </div>
       </div>
@@ -498,7 +485,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                 <span className={`w-2 h-2 rounded-sm shrink-0 ${z.no_ais_coverage ? 'bg-neutral-600/40' : 'bg-cyan-glow/40'}`} />
                 <span className="text-neutral-400 group-hover:text-cyan-glow">{(z.name || '').toUpperCase()}</span>
                 {z.no_ais_coverage ? (
-                  <span className="text-neutral-600 ml-auto text-[9px]">PW ONLY</span>
+                  <span className="text-neutral-700 ml-auto text-[9px]">TRANSIT DATA</span>
                 ) : (
                   <span className="text-neutral-600 ml-auto">{zoneVesselCounts[z.name] || '—'}</span>
                 )}
@@ -549,7 +536,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                     {(z.name || '').toUpperCase()}
                   </span>
                   {z.no_ais_coverage ? (
-                    <span className="font-mono text-[9px] text-neutral-600">PW ONLY</span>
+                    <span className="font-mono text-[9px] text-neutral-700">TRANSIT DATA</span>
                   ) : count > 0 ? (
                     <span className="font-mono text-[10px] text-green-glow">{count}</span>
                   ) : null}
@@ -562,8 +549,9 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                     {cp && (
                       <div className="font-mono text-[10px] text-neutral-500">
                         {cp.vessel_count ?? '?'} transits
-                        <span className="text-neutral-600"> / </span>
-                        {cp.vessel_count_tanker ?? '?'} tanker
+                        {cp.avg_30d != null && (
+                          <span className="text-neutral-600"> / avg {cp.avg_30d}</span>
+                        )}
                       </div>
                     )}
                     {marine[z.name] && (

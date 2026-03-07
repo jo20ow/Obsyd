@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 
 const API = '/api'
 
@@ -20,6 +20,15 @@ const RULE_ICONS = {
   refinery_thermal: 'THERM',
   chokepoint_anomaly: 'CHOKE',
   weather: 'WX',
+}
+
+const RULE_GROUP_LABELS = {
+  flow_anomaly: 'chokepoints with anomalous transit',
+  chokepoint_anomaly: 'chokepoint traffic anomalies',
+  anchored_vessels: 'anchored vessel alerts',
+  floating_storage: 'floating storage alerts',
+  weather: 'weather alerts',
+  refinery_thermal: 'thermal alerts',
 }
 
 function timeAgo(isoStr) {
@@ -80,6 +89,78 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
 
   const totalCount = combined.length
 
+  // Group alerts by rule — collapse >2 of the same type into one expandable row
+  const displayItems = useMemo(() => {
+    const groups = {}
+    for (const a of combined) {
+      if (!groups[a.rule]) groups[a.rule] = []
+      groups[a.rule].push(a)
+    }
+    const items = []
+    for (const [rule, ruleAlerts] of Object.entries(groups)) {
+      if (ruleAlerts.length > 2) {
+        const zones = ruleAlerts.map((a) => (a.zone || '').toUpperCase()).filter(Boolean)
+        const label = RULE_GROUP_LABELS[rule] || rule
+        const summary = zones.length > 0
+          ? `${ruleAlerts.length} ${label}: ${zones.join(', ')}`
+          : `${ruleAlerts.length} ${label}`
+        items.push({ type: 'group', rule, id: `group-${rule}`, severity: ruleAlerts[0].severity, summary, alerts: ruleAlerts })
+      } else {
+        items.push(...ruleAlerts.map((a) => ({ type: 'single', ...a })))
+      }
+    }
+    return items
+  }, [combined])
+
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
+
+  const toggleGroup = (rule) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      next.has(rule) ? next.delete(rule) : next.add(rule)
+      return next
+    })
+  }
+
+  function renderAlert(a) {
+    const sev = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.info
+    const icon = RULE_ICONS[a.rule] || 'SIG'
+    const isWx = a.isWeather
+    return (
+      <div
+        key={a.id}
+        className={`px-4 py-3 border-b border-border last:border-b-0 ${sev.border}`}
+      >
+        <div className="flex items-start gap-2.5">
+          <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${a.isChoke ? 'text-cyan-glow border-cyan-glow/30' : (isWx || a.rule === 'refinery_thermal') ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
+            {icon}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-neutral-300 truncate">
+                {a.title}
+              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className={`w-1.5 h-1.5 rounded-full ${a.isChoke ? 'bg-cyan-glow' : isWx ? 'bg-orange-400' : sev.dot}`} />
+                <span className="font-mono text-[10px] text-neutral-600">
+                  {timeAgo(a.created_at)}
+                </span>
+              </div>
+            </div>
+            <div className="font-mono text-[10px] text-neutral-500 mt-0.5 leading-relaxed">
+              {a.detail}
+            </div>
+            {a.zone && (
+              <span className="inline-block font-mono text-[9px] text-cyan-glow mt-1 px-1 border border-cyan-glow/20 rounded">
+                {a.zone.toUpperCase()}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="border border-border bg-surface rounded">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
@@ -92,48 +173,43 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
       </div>
 
       <div className="max-h-[400px] overflow-y-auto">
-        {combined.length === 0 ? (
+        {displayItems.length === 0 ? (
           <div className="px-4 py-6 text-center font-mono text-xs text-neutral-600">
             No alerts generated yet
           </div>
         ) : (
-          combined.map((a) => {
-            const sev = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.info
-            const icon = RULE_ICONS[a.rule] || 'SIG'
-            const isWx = a.isWeather
-            return (
-              <div
-                key={a.id}
-                className={`px-4 py-3 border-b border-border last:border-b-0 ${sev.border}`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${a.isChoke ? 'text-cyan-glow border-cyan-glow/30' : (isWx || a.rule === 'refinery_thermal') ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
-                    {icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs text-neutral-300 truncate">
-                        {a.title}
-                      </span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`w-1.5 h-1.5 rounded-full ${a.isChoke ? 'bg-cyan-glow' : isWx ? 'bg-orange-400' : sev.dot}`} />
-                        <span className="font-mono text-[10px] text-neutral-600">
-                          {timeAgo(a.created_at)}
-                        </span>
+          displayItems.map((item) => {
+            if (item.type === 'group') {
+              const sev = SEVERITY_STYLES[item.severity] || SEVERITY_STYLES.info
+              const icon = RULE_ICONS[item.rule] || 'SIG'
+              const isExpanded = expandedGroups.has(item.rule)
+              return (
+                <div key={item.id}>
+                  <button
+                    onClick={() => toggleGroup(item.rule)}
+                    className={`w-full text-left px-4 py-3 border-b border-border ${sev.border} hover:bg-white/[0.02] transition-colors`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${sev.text} ${sev.border}`}>
+                        {icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs text-neutral-300">
+                            {item.summary}
+                          </span>
+                          <span className="font-mono text-[10px] text-neutral-600 shrink-0">
+                            {isExpanded ? '▾' : '▸'} {item.alerts.length}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    <div className="font-mono text-[10px] text-neutral-500 mt-0.5 leading-relaxed">
-                      {a.detail}
-                    </div>
-                    {a.zone && (
-                      <span className="inline-block font-mono text-[9px] text-cyan-glow mt-1 px-1 border border-cyan-glow/20 rounded">
-                        {a.zone.toUpperCase()}
-                      </span>
-                    )}
-                  </div>
+                  </button>
+                  {isExpanded && item.alerts.map(renderAlert)}
                 </div>
-              </div>
-            )
+              )
+            }
+            return renderAlert(item)
           })
         )}
       </div>

@@ -26,6 +26,20 @@ from backend.signals.vessel_weight import classify_vessel
 STS_SOG_THRESHOLD = 1.0       # knots — below this = anchored/drifting
 DARK_HOURS_THRESHOLD = 48     # hours — no signal for this long = "dark"
 PROXIMITY_KM = 0.5            # km — vessels closer than this may be doing STS
+PORT_EXCLUSION_KM = 10.0      # km — pairs closer than this to a port are filtered out
+
+# Known port locations near STS hotspots (lat, lon, name)
+KNOWN_PORTS = [
+    (25.12, 56.33, "Fujairah"),
+    (1.26, 103.85, "Singapore"),
+    (1.29, 104.10, "Changi"),
+    (6.13, 1.28, "Lomé"),
+    (36.72, 22.46, "Gytheio"),        # Laconian Gulf
+    (37.02, 22.11, "Kalamata"),
+    (36.80, 22.57, "Neapoli"),
+    (25.38, 55.37, "Port Rashid"),    # Dubai
+    (25.28, 55.28, "Jebel Ali"),
+]
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -172,7 +186,7 @@ def detect_proximity_pairs(db: Session) -> list[dict]:
                 })
                 break
 
-    # Find pairs within PROXIMITY_KM
+    # Find pairs within PROXIMITY_KM, excluding pairs near known ports
     pairs = []
     seen = set()
     for i, v1 in enumerate(sts_vessels):
@@ -185,6 +199,16 @@ def detect_proximity_pairs(db: Session) -> list[dict]:
 
             dist = _haversine_km(v1["lat"], v1["lon"], v2["lat"], v2["lon"])
             if dist <= PROXIMITY_KM:
+                # Filter out pairs near known port coastlines
+                mid_lat = (v1["lat"] + v2["lat"]) / 2
+                mid_lon = (v1["lon"] + v2["lon"]) / 2
+                near_port = any(
+                    _haversine_km(mid_lat, mid_lon, plat, plon) < PORT_EXCLUSION_KM
+                    for plat, plon, _ in KNOWN_PORTS
+                )
+                if near_port:
+                    continue
+
                 seen.add(pair_key)
                 pairs.append({
                     "vessel_1": {

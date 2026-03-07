@@ -8,9 +8,14 @@ function formatHours(h) {
   return `${(h / 24).toFixed(1)}d`
 }
 
+const PREVIEW = 5
+
 export default function STSPanel() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [showAllSts, setShowAllSts] = useState(false)
+  const [showAllPairs, setShowAllPairs] = useState(false)
+  const [showAllDark, setShowAllDark] = useState(false)
 
   useEffect(() => {
     fetch(`${API}/vessels/sts`)
@@ -63,7 +68,7 @@ export default function STSPanel() {
               STS CANDIDATES — ANCHORED IN HOTSPOT
             </div>
             <div className="space-y-1">
-              {data.sts_candidates.map((v) => (
+              {(showAllSts ? data.sts_candidates : data.sts_candidates.slice(0, PREVIEW)).map((v) => (
                 <div key={v.mmsi} className="flex items-center gap-2 py-1 border-b border-border/20">
                   <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
                   <span className="font-mono text-[10px] text-neutral-300 font-bold min-w-[100px]">
@@ -84,6 +89,11 @@ export default function STSPanel() {
                   </span>
                 </div>
               ))}
+              {data.sts_candidates.length > PREVIEW && (
+                <button onClick={() => setShowAllSts((v) => !v)} className="font-mono text-[9px] text-neutral-500 hover:text-neutral-300 pt-1 transition-colors">
+                  {showAllSts ? 'Collapse' : `Show all ${data.sts_candidates.length} candidates`}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -95,7 +105,7 @@ export default function STSPanel() {
               PROXIMITY PAIRS — {'<'}500M IN STS ZONE
             </div>
             <div className="space-y-1.5">
-              {data.proximity_pairs.map((p, i) => (
+              {(showAllPairs ? data.proximity_pairs : data.proximity_pairs.slice(0, PREVIEW)).map((p, i) => (
                 <div key={i} className="border border-red-500/20 bg-red-500/5 rounded px-3 py-2">
                   <div className="flex items-center gap-2 font-mono text-[10px]">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
@@ -109,6 +119,11 @@ export default function STSPanel() {
                   </div>
                 </div>
               ))}
+              {data.proximity_pairs.length > PREVIEW && (
+                <button onClick={() => setShowAllPairs((v) => !v)} className="font-mono text-[9px] text-neutral-500 hover:text-neutral-300 pt-0.5 transition-colors">
+                  {showAllPairs ? 'Collapse' : `Show all ${data.proximity_pairs.length} pairs`}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -120,7 +135,7 @@ export default function STSPanel() {
               DARK VESSELS — AIS GAP {'>'}48H
             </div>
             <div className="space-y-0.5">
-              {data.dark_vessels.slice(0, 10).map((v) => (
+              {(showAllDark ? data.dark_vessels : data.dark_vessels.slice(0, PREVIEW)).map((v) => (
                 <div key={v.mmsi} className="flex items-center gap-2 py-1 border-b border-border/20">
                   <span className="w-1.5 h-1.5 rounded-full bg-yellow-400/60 shrink-0" />
                   <span className="font-mono text-[10px] text-neutral-400 min-w-[100px]">
@@ -142,10 +157,10 @@ export default function STSPanel() {
                   </span>
                 </div>
               ))}
-              {data.dark_vessel_count > 10 && (
-                <div className="font-mono text-[9px] text-neutral-600 pt-1">
-                  + {data.dark_vessel_count - 10} more
-                </div>
+              {data.dark_vessels.length > PREVIEW && (
+                <button onClick={() => setShowAllDark((v) => !v)} className="font-mono text-[9px] text-neutral-500 hover:text-neutral-300 pt-1 transition-colors">
+                  {showAllDark ? 'Collapse' : `Show all ${data.dark_vessels.length} dark vessels`}
+                </button>
               )}
             </div>
           </div>

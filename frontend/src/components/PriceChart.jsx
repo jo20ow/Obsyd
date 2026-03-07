@@ -33,7 +33,7 @@ function filterByRange(data, label) {
   return data.filter((d) => d.time >= cutoffStr)
 }
 
-export default function PriceChart({ data }) {
+export default function PriceChart({ data, live }) {
   const containerRef = useRef(null)
   const chartRef = useRef(null)
   const seriesRef = useRef(null)
@@ -159,9 +159,19 @@ export default function PriceChart({ data }) {
         seriesRef.current = series
       }
     } else if (isFred) {
+      // Append live Yahoo price to FRED data so chart ends at current price
+      const appendLive = (arr, liveKey) => {
+        if (!live?.[liveKey]?.current) return arr
+        const today = new Date().toISOString().slice(0, 10)
+        if (arr.length && arr.at(-1).time >= today) return arr
+        return [...arr, { time: today, value: live[liveKey].current }]
+      }
+
+      const FRED_TO_LIVE = { DCOILWTICO: 'WTI', DCOILBRENTEU: 'BRENT' }
+
       const fredId = symbol.fred
       if (fredId && fredData[fredId]) {
-        const chartData = filterByRange(fredData[fredId], timeframe.label)
+        const chartData = appendLive(filterByRange(fredData[fredId], timeframe.label), FRED_TO_LIVE[fredId])
 
         if (chartStyle === 'line' || isFred) {
           const series = chart.addSeries(LineSeries, {
@@ -178,13 +188,13 @@ export default function PriceChart({ data }) {
             color: '#00ff9d', lineWidth: 1, title: 'Brent',
             priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
           })
-          s2.setData(filterByRange(fredData['DCOILBRENTEU'], timeframe.label))
+          s2.setData(appendLive(filterByRange(fredData['DCOILBRENTEU'], timeframe.label), 'BRENT'))
         } else if (symbol.key === 'BRENT' && fredData['DCOILWTICO']) {
           const s2 = chart.addSeries(LineSeries, {
             color: '#00e5ff', lineWidth: 1, title: 'WTI',
             priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
           })
-          s2.setData(filterByRange(fredData['DCOILWTICO'], timeframe.label))
+          s2.setData(appendLive(filterByRange(fredData['DCOILWTICO'], timeframe.label), 'WTI'))
         }
       } else {
         // No FRED data for this symbol — show WTI+Brent
@@ -193,14 +203,14 @@ export default function PriceChart({ data }) {
             color: '#00e5ff', lineWidth: 2, title: 'WTI',
             priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
           })
-          s1.setData(filterByRange(fredData['DCOILWTICO'], timeframe.label))
+          s1.setData(appendLive(filterByRange(fredData['DCOILWTICO'], timeframe.label), 'WTI'))
         }
         if (fredData['DCOILBRENTEU']) {
           const s2 = chart.addSeries(LineSeries, {
             color: '#00ff9d', lineWidth: 2, title: 'Brent',
             priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
           })
-          s2.setData(filterByRange(fredData['DCOILBRENTEU'], timeframe.label))
+          s2.setData(appendLive(filterByRange(fredData['DCOILBRENTEU'], timeframe.label), 'BRENT'))
         }
       }
     }
@@ -220,7 +230,7 @@ export default function PriceChart({ data }) {
       chartRef.current = null
       seriesRef.current = null
     }
-  }, [data, timeframe, symbol, intradayData, fredData, chartStyle])
+  }, [data, timeframe, symbol, intradayData, fredData, chartStyle, live])
 
   const isIntraday = timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle')
 

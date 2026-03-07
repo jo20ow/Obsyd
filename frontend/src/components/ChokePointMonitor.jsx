@@ -25,19 +25,19 @@ const CP_SHORT = {
 
 function anomalyColor(pct) {
   if (pct > 20) return 'text-green-glow'
-  if (pct < -20) return 'text-red-400'
+  if (pct < -20) return 'text-amber-400'
   return 'text-neutral-400'
 }
 
 function anomalyBorder(pct) {
   if (pct > 20) return 'border-green-glow/30'
-  if (pct < -20) return 'border-red-500/30'
+  if (pct < -20) return 'border-amber-500/30'
   return 'border-border'
 }
 
 function anomalyBg(pct) {
   if (pct > 20) return 'bg-green-glow/5'
-  if (pct < -20) return 'bg-red-500/5'
+  if (pct < -20) return 'bg-amber-500/5'
   return 'bg-surface-light'
 }
 
@@ -202,25 +202,12 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
   }
   const pwHistory = pwRaw.slice(0, cutIdx)
 
-  // AIS extension for recent days (tanker count only)
-  const aisHistory = history.filter((d) => d.source === 'ais')
-
-  const chartData = [
-    ...pwHistory.map((d) => ({
-      date: d.date,
-      n_total: d.n_total,
-      n_tanker: d.n_tanker,
-      ais_tanker: null,
-      brent: brentMap[d.date] ?? null,
-    })),
-    ...aisHistory.map((d) => ({
-      date: d.date,
-      n_total: null,
-      n_tanker: null,
-      ais_tanker: d.n_tanker,
-      brent: brentMap[d.date] ?? null,
-    })),
-  ]
+  const chartData = pwHistory.map((d) => ({
+    date: d.date,
+    n_total: d.n_total,
+    n_tanker: d.n_tanker,
+    brent: brentMap[d.date] ?? null,
+  }))
 
   const hasBrent = chartData.some((d) => d.brent !== null)
 
@@ -299,18 +286,6 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
             stroke="#00ff9d"
             strokeWidth={1}
             strokeDasharray="4 3"
-            dot={false}
-            activeDot={{ r: 3 }}
-            connectNulls={false}
-          />
-          <Line
-            yAxisId="left"
-            type="monotone"
-            dataKey="ais_tanker"
-            name="AIS Tanker"
-            stroke="#00ff9d"
-            strokeWidth={1}
-            strokeDasharray="2 2"
             dot={false}
             activeDot={{ r: 3 }}
             connectNulls={false}

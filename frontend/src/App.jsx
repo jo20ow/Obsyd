@@ -23,13 +23,13 @@ const API = '/api'
 function Disclaimer() {
   return (
     <footer className="mt-8 mb-4 px-4 text-center font-mono text-[9px] text-neutral-700 leading-relaxed max-w-2xl mx-auto">
-      OBSYD is an open-source market observation tool. It does not provide investment advice, trading signals, or recommendations. All data is provided as-is for informational purposes only. Past correlations do not indicate future results. Not regulated by BaFin or any financial authority.
+      OBSYD is an open-source market observation tool. It does not provide investment advice, trading signals, or recommendations. All data is provided as-is for informational purposes only. AIS data is self-reported and unverified. Correlations shown are statistical observations, not causal predictions. Past correlations do not indicate future results. Not regulated by BaFin or any financial authority.
     </footer>
   )
 }
 
 function App() {
-  const [compactMode, setCompactMode] = useState(true)
+  const [compactMode, setCompactMode] = useState(false)
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)
   const [liveSource, setLiveSource] = useState(null)
@@ -157,7 +157,7 @@ function App() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <div className="lg:col-span-2 space-y-4">
           <ErrorBoundary name="price-chart">
-            <PriceChart data={eiaData} />
+            <PriceChart data={eiaData} live={liveData} />
           </ErrorBoundary>
           <ErrorBoundary name="fundamentals">
             <FundamentalsPanel />

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -62,6 +64,18 @@ async def get_port_summary(
 
     rows = db.query(PortActivity).filter(PortActivity.date == latest_date).all()
 
+    # Compute 30d averages for chokepoints
+    thirty_days_ago = (datetime.strptime(latest_date, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
+    avg_rows = db.query(
+        PortActivity.port_id,
+        func.avg(PortActivity.vessel_count).label("avg_30d"),
+    ).filter(
+        PortActivity.kind == "chokepoint",
+        PortActivity.date >= thirty_days_ago,
+        PortActivity.date <= latest_date,
+    ).group_by(PortActivity.port_id).all()
+    avg_map = {r.port_id: round(r.avg_30d) if r.avg_30d else None for r in avg_rows}
+
     ports = []
     chokepoints = []
     for r in rows:
@@ -81,6 +95,7 @@ async def get_port_summary(
         else:
             entry["capacity"] = r.capacity
             entry["capacity_tanker"] = r.capacity_tanker
+            entry["avg_30d"] = avg_map.get(r.port_id)
             # Map chokepoint to our geofence zone name
             cp = CHOKEPOINTS.get(r.port_id, {})
             entry["zone"] = cp.get("zone", "")
