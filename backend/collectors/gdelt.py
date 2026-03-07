@@ -58,12 +58,16 @@ Rate the CURRENT risk to global oil supply and prices based on these headlines. 
 async def _fetch_volume(client: httpx.AsyncClient, keyword: str) -> list[dict]:
     """Fetch 24h volume timeline for a keyword."""
     try:
-        resp = await client.get(GDELT_URL, params={
-            "query": keyword,
-            "mode": "TimelineVol",
-            "TIMESPAN": "1d",
-            "format": "json",
-        }, timeout=REQUEST_TIMEOUT)
+        resp = await client.get(
+            GDELT_URL,
+            params={
+                "query": keyword,
+                "mode": "TimelineVol",
+                "TIMESPAN": "1d",
+                "format": "json",
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
         resp.raise_for_status()
         data = resp.json()
         timeline = data.get("timeline", [])
@@ -78,12 +82,16 @@ async def _fetch_volume(client: httpx.AsyncClient, keyword: str) -> list[dict]:
 async def _fetch_tone(client: httpx.AsyncClient, keyword: str) -> list[dict]:
     """Fetch 24h tone timeline for a keyword."""
     try:
-        resp = await client.get(GDELT_URL, params={
-            "query": keyword,
-            "mode": "TimelineTone",
-            "TIMESPAN": "1d",
-            "format": "json",
-        }, timeout=REQUEST_TIMEOUT)
+        resp = await client.get(
+            GDELT_URL,
+            params={
+                "query": keyword,
+                "mode": "TimelineTone",
+                "TIMESPAN": "1d",
+                "format": "json",
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
         resp.raise_for_status()
         data = resp.json()
         timeline = data.get("timeline", [])
@@ -99,14 +107,18 @@ async def _fetch_headlines(client: httpx.AsyncClient, max_records: int = 30) -> 
     """Fetch top English headlines for energy keywords."""
     query = "(" + " OR ".join(f'"{k}"' for k in KEYWORDS[:4]) + ") sourcelang:english"
     try:
-        resp = await client.get(GDELT_URL, params={
-            "query": query,
-            "mode": "artlist",
-            "maxrecords": str(max_records),
-            "format": "json",
-            "sort": "hybridrel",
-            "timespan": "1d",
-        }, timeout=REQUEST_TIMEOUT)
+        resp = await client.get(
+            GDELT_URL,
+            params={
+                "query": query,
+                "mode": "artlist",
+                "maxrecords": str(max_records),
+                "format": "json",
+                "sort": "hybridrel",
+                "timespan": "1d",
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
         resp.raise_for_status()
         data = resp.json()
         return data.get("articles", [])
@@ -122,7 +134,7 @@ async def _score_with_openai(headlines_text: str) -> dict | None:
             resp = await client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Authorization": f"Bearer {settings.openai_api_key.get_secret_value()}",
                     "Content-Type": "application/json",
                 },
                 json={
@@ -150,7 +162,7 @@ async def _score_with_anthropic(headlines_text: str) -> dict | None:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
-                    "x-api-key": settings.anthropic_api_key,
+                    "x-api-key": settings.anthropic_api_key.get_secret_value(),
                     "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
@@ -190,12 +202,14 @@ async def _collect_keywords(keywords: list[str]):
                 ts = point.get("date", "")
                 vol = point.get("value", 0.0)
                 tone = tone_map.get(ts, 0.0)
-                records.append(GDELTVolume(
-                    keyword=keyword,
-                    timestamp=ts,
-                    volume=vol,
-                    avg_tone=tone,
-                ))
+                records.append(
+                    GDELTVolume(
+                        keyword=keyword,
+                        timestamp=ts,
+                        volume=vol,
+                        avg_tone=tone,
+                    )
+                )
 
     if not records:
         return 0
@@ -260,9 +274,7 @@ async def collect_gdelt_sentiment():
     if not articles:
         return
 
-    headlines_text = "\n".join(
-        f"- {a.get('title', '')}" for a in articles if a.get("title")
-    )
+    headlines_text = "\n".join(f"- {a.get('title', '')}" for a in articles if a.get("title"))
 
     result = None
     source = ""
@@ -283,12 +295,14 @@ async def collect_gdelt_sentiment():
 
     db = SessionLocal()
     try:
-        db.add(SentimentScore(
-            date=today,
-            risk_score=risk_score,
-            risk_factors=json.dumps(risk_factors),
-            source=source,
-        ))
+        db.add(
+            SentimentScore(
+                date=today,
+                risk_score=risk_score,
+                risk_factors=json.dumps(risk_factors),
+                source=source,
+            )
+        )
         db.commit()
         logger.info(f"GDELT Sentiment: risk_score={risk_score} via {source}")
     except Exception as e:

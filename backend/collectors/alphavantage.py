@@ -40,7 +40,7 @@ async def _fetch_commodity(function: str) -> list[dict]:
                 params={
                     "function": function,
                     "interval": "daily",
-                    "apikey": settings.alpha_vantage_api_key,
+                    "apikey": settings.alpha_vantage_api_key.get_secret_value(),
                 },
             )
             resp.raise_for_status()

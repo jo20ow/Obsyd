@@ -25,9 +25,22 @@ MAX_HEADLINES = 100
 
 # Keywords to filter energy-relevant headlines (case-insensitive)
 ENERGY_KEYWORDS = [
-    "oil", "crude", "opec", "lng", "refinery", "pipeline", "tanker",
-    "brent", "wti", "natural gas", "petroleum", "energy",
-    "iran", "saudi", "hormuz", "suez",
+    "oil",
+    "crude",
+    "opec",
+    "lng",
+    "refinery",
+    "pipeline",
+    "tanker",
+    "brent",
+    "wti",
+    "natural gas",
+    "petroleum",
+    "energy",
+    "iran",
+    "saudi",
+    "hormuz",
+    "suez",
 ]
 
 
@@ -46,10 +59,13 @@ async def collect_finnhub_news():
     db = SessionLocal()
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-            resp = await client.get(FINNHUB_NEWS_URL, params={
-                "category": "general",
-                "token": settings.finnhub_api_key,
-            })
+            resp = await client.get(
+                FINNHUB_NEWS_URL,
+                params={
+                    "category": "general",
+                    "token": settings.finnhub_api_key.get_secret_value(),
+                },
+            )
             resp.raise_for_status()
             articles = resp.json()
 
@@ -66,23 +82,23 @@ async def collect_finnhub_news():
                 continue
 
             # Deduplicate by headline
-            existing = db.query(NewsHeadline).filter(
-                NewsHeadline.headline == headline
-            ).first()
+            existing = db.query(NewsHeadline).filter(NewsHeadline.headline == headline).first()
             if existing:
                 continue
 
             unix_ts = article.get("datetime", 0)
             published = datetime.fromtimestamp(unix_ts, tz=timezone.utc)
 
-            db.add(NewsHeadline(
-                source="finnhub",
-                headline=headline,
-                summary=summary,
-                url=article.get("url", ""),
-                published_at=published,
-                category=article.get("category", ""),
-            ))
+            db.add(
+                NewsHeadline(
+                    source="finnhub",
+                    headline=headline,
+                    summary=summary,
+                    url=article.get("url", ""),
+                    published_at=published,
+                    category=article.get("category", ""),
+                )
+            )
             stored += 1
 
         db.commit()
@@ -91,12 +107,7 @@ async def collect_finnhub_news():
         total = db.query(NewsHeadline).count()
         if total > MAX_HEADLINES:
             excess = total - MAX_HEADLINES
-            oldest = (
-                db.query(NewsHeadline)
-                .order_by(NewsHeadline.published_at.asc())
-                .limit(excess)
-                .all()
-            )
+            oldest = db.query(NewsHeadline).order_by(NewsHeadline.published_at.asc()).limit(excess).all()
             for row in oldest:
                 db.delete(row)
             db.commit()

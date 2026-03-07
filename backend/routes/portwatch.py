@@ -9,21 +9,21 @@ where IMF data is not yet available (3-5 day publication delay).
 """
 
 from fastapi import APIRouter, Path, Query
+from sqlalchemy import distinct, func
 
 from backend.collectors.portwatch_store import (
+    CHOKEPOINTS,
     fetch_chokepoint_data,
     fetch_disruptions,
-    store_chokepoint_data,
-    store_disruptions,
+    query_active_disruptions,
     query_chokepoint_averages,
     query_chokepoint_history,
-    query_active_disruptions,
-    CHOKEPOINTS,
+    store_chokepoint_data,
+    store_disruptions,
 )
 from backend.database import SessionLocal
-from backend.models.vessels import GeofenceEvent, VesselPosition
-from backend.signals.vessel_weight import classify_vessel, compute_weighted_count
-from sqlalchemy import func, distinct
+from backend.models.vessels import VesselPosition
+from backend.signals.vessel_weight import compute_weighted_count
 
 router = APIRouter(prefix="/api/portwatch", tags=["portwatch"])
 
@@ -84,7 +84,9 @@ async def get_chokepoints():
 
 @router.get("/chokepoints/{name}/history")
 async def get_chokepoint_history(
-    name: str = Path(description="Chokepoint name (e.g. 'hormuz', 'suez', 'malacca', 'panama', 'cape')"),
+    name: str = Path(
+        description="Chokepoint name (e.g. 'hormuz', 'suez', 'malacca', 'panama', 'cape')", pattern=r"^[a-z_]+$"
+    ),
     days: int = Query(365, ge=1, le=2700),
 ):
     """Time series for a single chokepoint from local DB cache,
@@ -143,16 +145,18 @@ def _query_ais_daily(zone_name: str, after_date: str) -> list[dict]:
 
         result = []
         for r in rows:
-            result.append({
-                "portid": None,
-                "portname": zone_name,
-                "date": r.day,
-                "n_total": None,
-                "n_tanker": r.tanker_count,
-                "capacity": 0,
-                "capacity_tanker": 0,
-                "source": "ais",
-            })
+            result.append(
+                {
+                    "portid": None,
+                    "portname": zone_name,
+                    "date": r.day,
+                    "n_total": None,
+                    "n_tanker": r.tanker_count,
+                    "capacity": 0,
+                    "capacity_tanker": 0,
+                    "source": "ais",
+                }
+            )
         return result
     finally:
         db.close()
@@ -202,9 +206,7 @@ async def get_summary():
     weighted_by_zone = _compute_zone_weights()
 
     # Map portid -> zone name for matching
-    portid_to_zone = {v: k for k, v in CP_ALIASES.items() if k in (
-        "hormuz", "suez", "malacca", "panama", "cape"
-    )}
+    portid_to_zone = {v: k for k, v in CP_ALIASES.items() if k in ("hormuz", "suez", "malacca", "panama", "cape")}
 
     summary = []
     for pid, cur in latest.items():
@@ -263,11 +265,7 @@ def _compute_zone_weights() -> dict[str, dict]:
             .subquery()
         )
 
-        rows = (
-            db.query(VesselPosition)
-            .join(latest, VesselPosition.id == latest.c.max_id)
-            .all()
-        )
+        rows = db.query(VesselPosition).join(latest, VesselPosition.id == latest.c.max_id).all()
 
         # Group by zone
         by_zone: dict[str, list[dict]] = {}
@@ -275,10 +273,12 @@ def _compute_zone_weights() -> dict[str, dict]:
             zone = r.zone
             if not zone:
                 continue
-            by_zone.setdefault(zone, []).append({
-                "ship_name": r.ship_name,
-                "ship_type": r.ship_type,
-            })
+            by_zone.setdefault(zone, []).append(
+                {
+                    "ship_name": r.ship_name,
+                    "ship_type": r.ship_type,
+                }
+            )
 
         # Compute weighted counts per zone
         result = {}

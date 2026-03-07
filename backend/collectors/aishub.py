@@ -16,11 +16,11 @@ from datetime import datetime, timezone
 
 import httpx
 
+from backend.collectors.ais_hygiene import filter_and_count, get_stats
 from backend.config import settings
 from backend.database import SessionLocal
-from backend.geofences.zones import find_zone, is_tanker, ZONES
-from backend.models.vessels import VesselPosition, GlobalVesselPosition
-from backend.collectors.ais_hygiene import filter_and_count, get_stats, reset_stats
+from backend.geofences.zones import ZONES, find_zone, is_tanker
+from backend.models.vessels import GlobalVesselPosition, VesselPosition
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,8 @@ def _parse_row(row: dict) -> dict | None:
 async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
     """Fetch global positions, store all + zone tankers. Returns per-zone tanker counts."""
     params = {
-        "username": settings.aishub_api_key or settings.aishub_username,
+        "username": (settings.aishub_api_key.get_secret_value() if settings.aishub_api_key else None)
+        or settings.aishub_username,
         "format": "1",
         "output": "json",
         "compress": "0",
@@ -133,39 +134,47 @@ async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
             continue
 
         # Global table: all vessels (snapshot, replaced each cycle)
-        global_positions.append(GlobalVesselPosition(
-            mmsi=parsed["mmsi"],
-            ship_name=parsed["ship_name"],
-            ship_type=parsed["ship_type"],
-            latitude=parsed["lat"],
-            longitude=parsed["lon"],
-            sog=parsed["sog"],
-            cog=parsed["cog"],
-            is_tanker=parsed["is_tanker"],
-            zone=parsed["zone"]["name"] if parsed["zone"] else None,
-        ))
+        global_positions.append(
+            GlobalVesselPosition(
+                mmsi=parsed["mmsi"],
+                ship_name=parsed["ship_name"],
+                ship_type=parsed["ship_type"],
+                latitude=parsed["lat"],
+                longitude=parsed["lon"],
+                sog=parsed["sog"],
+                cog=parsed["cog"],
+                is_tanker=parsed["is_tanker"],
+                zone=parsed["zone"]["name"] if parsed["zone"] else None,
+            )
+        )
 
         # Zone table: only tankers inside a geofence (appended for history)
         # Apply hygiene filters before storing (plausibility + dedup)
         if parsed["is_tanker"] and parsed["zone"]:
             zone_name = parsed["zone"]["name"]
             if filter_and_count(
-                parsed["mmsi"], parsed["lat"], parsed["lon"],
-                parsed["sog"], parsed["ship_type"], parsed["ts"],
+                parsed["mmsi"],
+                parsed["lat"],
+                parsed["lon"],
+                parsed["sog"],
+                parsed["ship_type"],
+                parsed["ts"],
             ):
                 zone_counts[zone_name] = zone_counts.get(zone_name, 0) + 1
-                zone_positions.append(VesselPosition(
-                    mmsi=parsed["mmsi"],
-                    ship_name=parsed["ship_name"],
-                    ship_type=parsed["ship_type"],
-                    latitude=parsed["lat"],
-                    longitude=parsed["lon"],
-                    sog=parsed["sog"],
-                    cog=parsed["cog"],
-                    heading=parsed["heading"],
-                    zone=zone_name,
-                    timestamp=parsed["ts"],
-                ))
+                zone_positions.append(
+                    VesselPosition(
+                        mmsi=parsed["mmsi"],
+                        ship_name=parsed["ship_name"],
+                        ship_type=parsed["ship_type"],
+                        latitude=parsed["lat"],
+                        longitude=parsed["lon"],
+                        sog=parsed["sog"],
+                        cog=parsed["cog"],
+                        heading=parsed["heading"],
+                        zone=zone_name,
+                        timestamp=parsed["ts"],
+                    )
+                )
 
     db = SessionLocal()
     try:
@@ -200,6 +209,7 @@ async def _poll_loop():
         while True:
             try:
                 from backend.collectors.aisstream import aisstream_connected
+
                 if aisstream_connected:
                     logger.debug("AISHub: aisstream active, skipping poll")
                     await asyncio.sleep(POLL_INTERVAL)
@@ -215,7 +225,9 @@ async def _poll_loop():
                 covered = set(zone_counts.keys())
                 no_coverage = all_zone_names - covered
                 if no_coverage:
-                    logger.info(f"AISHub: no coverage for {', '.join(sorted(no_coverage))} (terrestrial AIS limitation)")
+                    logger.info(
+                        f"AISHub: no coverage for {', '.join(sorted(no_coverage))} (terrestrial AIS limitation)"
+                    )
 
             except asyncio.CancelledError:
                 logger.info("AISHub: poll task cancelled")

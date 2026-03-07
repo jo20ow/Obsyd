@@ -32,7 +32,7 @@ async def backfill_fred(db: Session):
     for series_id, description in BACKFILL_SERIES.items():
         params = {
             "series_id": series_id,
-            "api_key": settings.fred_api_key,
+            "api_key": settings.fred_api_key.get_secret_value(),
             "file_type": "json",
             "observation_start": BACKFILL_START,
             "sort_order": "asc",
@@ -52,11 +52,7 @@ async def backfill_fred(db: Session):
             continue
 
         # Get existing dates to avoid duplicates
-        existing_dates = set(
-            r.date for r in db.query(FREDSeries.date).filter(
-                FREDSeries.series_id == series_id
-            ).all()
-        )
+        existing_dates = set(r.date for r in db.query(FREDSeries.date).filter(FREDSeries.series_id == series_id).all())
 
         inserted = 0
         for obs in observations:
@@ -69,13 +65,15 @@ async def backfill_fred(db: Session):
             except (ValueError, TypeError):
                 continue
 
-            db.add(FREDSeries(
-                series_id=series_id,
-                date=date,
-                value=value,
-                description=description,
-                fetched_at=datetime.now(timezone.utc),
-            ))
+            db.add(
+                FREDSeries(
+                    series_id=series_id,
+                    date=date,
+                    value=value,
+                    description=description,
+                    fetched_at=datetime.now(timezone.utc),
+                )
+            )
             inserted += 1
 
         db.commit()

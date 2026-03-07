@@ -1,0 +1,11 @@
+[tool.bandit]
+exclude_dirs = [".venv", "frontend", "node_modules"]
+skips = ["B101"]  # assert used in tests
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]

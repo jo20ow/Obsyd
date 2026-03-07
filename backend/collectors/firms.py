@@ -17,8 +17,8 @@ import httpx
 
 from backend.config import settings
 from backend.database import SessionLocal
-from backend.models.thermal import ThermalHotspot
 from backend.models.alerts import Alert
+from backend.models.thermal import ThermalHotspot
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ async def collect_firms():
             for area in MONITOR_AREAS:
                 try:
                     # VIIRS_SNPP_NRT = near-real-time VIIRS data, last 24h
-                    url = f"{FIRMS_URL}/{settings.firms_api_key}/VIIRS_SNPP_NRT/{area['bbox']}/1"
+                    url = f"{FIRMS_URL}/{settings.firms_api_key.get_secret_value()}/VIIRS_SNPP_NRT/{area['bbox']}/1"
                     resp = await client.get(url)
                     resp.raise_for_status()
 
@@ -145,9 +145,9 @@ def _check_refinery_anomalies(db, hotspots: list[dict]):
 
     for ref in REFINERIES:
         nearby = [
-            h for h in hotspots
-            if h["area"] == ref["area"]
-            and _haversine_km(ref["lat"], ref["lon"], h["lat"], h["lon"]) <= PROXIMITY_KM
+            h
+            for h in hotspots
+            if h["area"] == ref["area"] and _haversine_km(ref["lat"], ref["lon"], h["lat"], h["lon"]) <= PROXIMITY_KM
         ]
 
         if len(nearby) > 0:
@@ -175,16 +175,18 @@ def _create_refinery_alert(db, ref: dict, count: int, peak_brightness: float):
         db.commit()
         return
 
-    db.add(Alert(
-        rule="refinery_thermal",
-        zone=ref["area"],
-        severity="warning",
-        title=f"Thermal anomaly near {ref['name']}",
-        detail=(
-            f"{count} hotspot(s) detected within {PROXIMITY_KM}km of "
-            f"{ref['name']} ({ref['lat']:.3f}, {ref['lon']:.3f}). "
-            f"Peak brightness: {peak_brightness:.1f}K. Possible flaring or fire."
-        ),
-    ))
+    db.add(
+        Alert(
+            rule="refinery_thermal",
+            zone=ref["area"],
+            severity="warning",
+            title=f"Thermal anomaly near {ref['name']}",
+            detail=(
+                f"{count} hotspot(s) detected within {PROXIMITY_KM}km of "
+                f"{ref['name']} ({ref['lat']:.3f}, {ref['lon']:.3f}). "
+                f"Peak brightness: {peak_brightness:.1f}K. Possible flaring or fire."
+            ),
+        )
+    )
     db.commit()
     logger.info(f"Alert: refinery_thermal — {ref['name']} ({count} hotspots, {peak_brightness:.1f}K)")

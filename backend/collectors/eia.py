@@ -91,7 +91,7 @@ async def fetch_eia_series(series_key: str, limit: int = 52) -> list[dict]:
 
     # Build query params with EIA v2 bracket syntax
     params: list[tuple[str, str]] = [
-        ("api_key", settings.eia_api_key or ""),
+        ("api_key", settings.eia_api_key.get_secret_value() if settings.eia_api_key else ""),
         ("frequency", "weekly"),
         ("data[0]", "value"),
         ("length", str(limit)),
@@ -136,11 +136,7 @@ async def collect_eia(db: Session):
             except (ValueError, TypeError):
                 continue
 
-            existing = (
-                db.query(EIAPrice)
-                .filter(EIAPrice.series_id == series_key, EIAPrice.period == period)
-                .first()
-            )
+            existing = db.query(EIAPrice).filter(EIAPrice.series_id == series_key, EIAPrice.period == period).first()
 
             if existing:
                 existing.value = value

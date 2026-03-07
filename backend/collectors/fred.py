@@ -46,9 +46,7 @@ FRED_SERIES = {
 }
 
 
-async def fetch_fred_series(
-    series_id: str, limit: int = 365
-) -> list[dict]:
+async def fetch_fred_series(series_id: str, limit: int = 365) -> list[dict]:
     """
     Fetch a FRED series.
 
@@ -65,7 +63,7 @@ async def fetch_fred_series(
 
     params = {
         "series_id": series_id,
-        "api_key": settings.fred_api_key,
+        "api_key": settings.fred_api_key.get_secret_value(),
         "file_type": "json",
         "sort_order": "desc",
         "limit": limit,
@@ -105,11 +103,7 @@ async def collect_fred(db: Session):
             except (ValueError, TypeError):
                 continue
 
-            existing = (
-                db.query(FREDSeries)
-                .filter(FREDSeries.series_id == series_id, FREDSeries.date == date)
-                .first()
-            )
+            existing = db.query(FREDSeries).filter(FREDSeries.series_id == series_id, FREDSeries.date == date).first()
 
             if existing:
                 existing.value = value

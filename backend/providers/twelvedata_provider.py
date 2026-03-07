@@ -29,7 +29,7 @@ BASE_URL = "https://api.twelvedata.com"
 # Only XAU/USD provides a real commodity spot price.
 # ETFs (USO, BNO, UNG) are used for intraday charts only.
 SYMBOLS = {
-    "GOLD": "XAU/USD",     # Gold spot (real $/oz price)
+    "GOLD": "XAU/USD",  # Gold spot (real $/oz price)
 }
 
 # For intraday chart requests — ETF proxies for price-action charts
@@ -99,7 +99,7 @@ async def get_live_prices() -> dict:
                 f"{BASE_URL}/quote",
                 params={
                     "symbol": td_symbols,
-                    "apikey": settings.twelvedata_api_key,
+                    "apikey": settings.twelvedata_api_key.get_secret_value(),
                 },
             )
             resp.raise_for_status()
@@ -166,8 +166,13 @@ async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 9
 
     td_sym = INTRADAY_SYMBOLS.get(symbol.upper())
     if not td_sym:
-        return {"source": "twelvedata", "symbol": symbol, "interval": interval, "data": [],
-                "error": f"Unknown symbol: {symbol}. Available: {', '.join(INTRADAY_SYMBOLS.keys())}"}
+        return {
+            "source": "twelvedata",
+            "symbol": symbol,
+            "interval": interval,
+            "data": [],
+            "error": f"Unknown symbol: {symbol}. Available: {', '.join(INTRADAY_SYMBOLS.keys())}",
+        }
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -177,7 +182,7 @@ async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 9
                     "symbol": td_sym,
                     "interval": interval,
                     "outputsize": str(min(outputsize, 5000)),
-                    "apikey": settings.twelvedata_api_key,
+                    "apikey": settings.twelvedata_api_key.get_secret_value(),
                 },
             )
             resp.raise_for_status()
@@ -195,14 +200,16 @@ async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 9
     ohlcv = []
     for v in values:
         try:
-            ohlcv.append({
-                "datetime": v["datetime"],
-                "open": float(v["open"]),
-                "high": float(v["high"]),
-                "low": float(v["low"]),
-                "close": float(v["close"]),
-                "volume": int(v.get("volume", 0)),
-            })
+            ohlcv.append(
+                {
+                    "datetime": v["datetime"],
+                    "open": float(v["open"]),
+                    "high": float(v["high"]),
+                    "low": float(v["low"]),
+                    "close": float(v["close"]),
+                    "volume": int(v.get("volume", 0)),
+                }
+            )
         except (ValueError, KeyError):
             continue
 

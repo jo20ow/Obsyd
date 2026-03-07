@@ -21,11 +21,11 @@ from datetime import datetime, timezone
 
 import websockets
 
+from backend.collectors.ais_hygiene import filter_and_count
 from backend.config import settings
 from backend.database import SessionLocal
 from backend.geofences.zones import ZONES, find_zone, is_tanker
 from backend.models.vessels import VesselPosition
-from backend.collectors.ais_hygiene import filter_and_count
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def _build_subscription() -> dict:
     """Build the aisstream subscription message with our geofence bounding boxes."""
     bboxes = [zone["bounds"] for zone in ZONES]
     return {
-        "APIKey": settings.aisstream_api_key,
+        "APIKey": settings.aisstream_api_key.get_secret_value(),
         "BoundingBoxes": bboxes,
         "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
     }
@@ -119,18 +119,20 @@ def _handle_position_report(msg: dict):
 
     db = SessionLocal()
     try:
-        db.add(VesselPosition(
-            mmsi=str(mmsi),
-            ship_name=ship_name,
-            ship_type=80,  # already filtered as tanker
-            latitude=lat,
-            longitude=lon,
-            sog=sog,
-            cog=cog,
-            heading=heading,
-            zone=zone["name"],
-            timestamp=ts,
-        ))
+        db.add(
+            VesselPosition(
+                mmsi=str(mmsi),
+                ship_name=ship_name,
+                ship_type=80,  # already filtered as tanker
+                latitude=lat,
+                longitude=lon,
+                sog=sog,
+                cog=cog,
+                heading=heading,
+                zone=zone["name"],
+                timestamp=ts,
+            )
+        )
         db.commit()
     except Exception as e:
         db.rollback()
@@ -183,10 +185,7 @@ async def _ws_loop():
 
                     msg_count += 1
                     if msg_count % 1000 == 0:
-                        logger.info(
-                            f"AISStream: {msg_count} messages processed, "
-                            f"{len(_tanker_mmsis)} tankers tracked"
-                        )
+                        logger.info(f"AISStream: {msg_count} messages processed, {len(_tanker_mmsis)} tankers tracked")
 
         except asyncio.CancelledError:
             logger.info("AISStream: task cancelled")
