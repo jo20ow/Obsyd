@@ -97,41 +97,39 @@ export default function MarketReportPanel() {
         <ScoreBadge score={disruption_score} severity={severity} />
       </div>
 
-      {/* Catalyst section — always visible */}
-      {catalyst && (
-        <div className="font-mono text-[11px] text-neutral-200 leading-relaxed">
-          {catalyst}
-        </div>
-      )}
-
-      {/* Pro sections or teasers */}
+      {/* Pro: 5 flowing paragraphs, no section labels */}
       {isPro ? (
-        /* PRO: show all sections as flowing text */
-        <div className="mt-3 space-y-3">
-          {proSections.map((key) => {
+        <div className="space-y-3">
+          {['catalyst', 'historical', 'physical', 'market', 'outlook'].map((key) => {
             const text = sections?.[key]
             if (!text) return null
             return (
-              <div key={key} className="border-t border-border/30 pt-3">
-                <div className="font-mono text-[11px] text-neutral-200 leading-relaxed">
-                  {text}
-                </div>
+              <div key={key} className="font-mono text-[11px] text-neutral-200 leading-relaxed">
+                {text}
               </div>
             )
           })}
         </div>
       ) : (
-        /* FREE: show teaser headlines */
-        availableProSections.length > 0 && (
-          <div className="mt-3 space-y-1.5">
-            {availableProSections.map((key) => (
-              <TeaserLine key={key} sectionKey={key} headline={headlines?.[key] || ''} />
-            ))}
-            <div className="text-center font-mono text-[10px] text-cyan-glow/40 mt-2 cursor-pointer hover:text-cyan-glow transition-colors">
-              Unlock full market intelligence — OBSYD Pro
+        <>
+          {/* Catalyst — always visible for free users */}
+          {catalyst && (
+            <div className="font-mono text-[11px] text-neutral-200 leading-relaxed">
+              {catalyst}
             </div>
-          </div>
-        )
+          )}
+          {/* Teaser headlines */}
+          {availableProSections.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {availableProSections.map((key) => (
+                <TeaserLine key={key} sectionKey={key} headline={headlines?.[key] || ''} />
+              ))}
+              <div className="text-center font-mono text-[10px] text-cyan-glow/40 mt-2 cursor-pointer hover:text-cyan-glow transition-colors">
+                Unlock full market intelligence — OBSYD Pro
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Footer */}

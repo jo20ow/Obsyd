@@ -328,12 +328,20 @@ class MarketReportGenerator:
             same_cp.sort(key=lambda e: abs(e.get("max_drop_pct", 0)), reverse=True)
             closest = same_cp[0]
             closest_drop = abs(closest.get("max_drop_pct", 0))
-            closest_name = (
-                closest.get("disruption_context", ["prior event"])[0]
-                if closest.get("disruption_context")
-                else "prior event"
-            )
-            closest_name = re.sub(r"\s*\([^)]*\)\s*$", "", closest_name).strip()
+            if closest.get("disruption_context"):
+                closest_name = closest["disruption_context"][0]
+                closest_name = re.sub(r"\s*\([^)]*\)\s*$", "", closest_name).strip()
+            else:
+                cp_name = closest.get("chokepoint", "").replace("_", " ").title()
+                start = closest.get("start_date", "")
+                if start and cp_name:
+                    try:
+                        dt = datetime.strptime(start, "%Y-%m-%d")
+                        closest_name = f"the {cp_name} disruption of {dt.strftime('%b %Y')}"
+                    except ValueError:
+                        closest_name = f"a prior {cp_name} event"
+                else:
+                    closest_name = f"a prior {cp_name} event" if cp_name else "a prior event"
             b7 = closest.get("brent_change_7d_pct")
             b30 = closest.get("brent_change_30d_pct")
 
@@ -379,6 +387,14 @@ class MarketReportGenerator:
                         ]
                     )
                 )
+
+                # If mean impact is near zero, add contextual interpretation
+                if abs(avg_7d) < 1.5 and abs(avg_30d) < 1.5:
+                    parts.append(
+                        "Historically, severe transit disruptions have had limited sustained "
+                        "impact on Brent prices, suggesting the market tends to price in "
+                        "resolution quickly."
+                    )
 
         # Current Brent vs historical
         brent = data["market_prices"].get("brent")
@@ -474,15 +490,34 @@ class MarketReportGenerator:
                     )
                 )
             if up:
-                zones_str = ", ".join(z.replace("geofence_", "").title() for z in up)
-                parts.append(
-                    self._pick(
-                        [
-                            f"In contrast, {zones_str} vessel activity has increased over 7 days, potentially absorbing some redirected traffic.",
-                            f"7-day data shows rising activity in {zones_str}, suggesting partial traffic redistribution.",
-                        ]
+                # Separate disrupted chokepoints from normal zones
+                disrupted_map = {cp["zone_short"]: cp for cp in data.get("chokepoints", [])}
+                up_disrupted = [z for z in up if z.replace("geofence_", "") in disrupted_map]
+                up_normal = [z for z in up if z not in up_disrupted]
+
+                for z in up_disrupted:
+                    zone_key = z.replace("geofence_", "")
+                    zone_label = zone_key.title()
+                    cp = disrupted_map[zone_key]
+                    parts.append(
+                        self._pick(
+                            [
+                                f"7-day trend shows a marginal uptick in {zone_label} from near-zero levels, though transit remains {cp['drop_pct']:.0f}% below baseline.",
+                                f"While {zone_label} shows a slight recovery over 7 days, this is from a near-zero base — transit is still {cp['drop_pct']:.0f}% below normal.",
+                            ]
+                        )
                     )
-                )
+
+                if up_normal:
+                    zones_str = ", ".join(z.replace("geofence_", "").title() for z in up_normal)
+                    parts.append(
+                        self._pick(
+                            [
+                                f"In contrast, {zones_str} vessel activity has increased over 7 days, potentially absorbing some redirected traffic.",
+                                f"7-day data shows rising activity in {zones_str}, suggesting partial traffic redistribution.",
+                            ]
+                        )
+                    )
 
         # Append contradictions
         parts.extend(contradictions)
@@ -594,20 +629,30 @@ class MarketReportGenerator:
         eia = data.get("eia_prediction") or {}
         if eia.get("prediction") and eia["prediction"] != "NEUTRAL":
             change_pct = eia.get("change_pct")
+            anchored_pct = round((eia.get("anchored_ratio") or 0) * 100, 1)
+            houston_count = eia.get("tanker_count", 0)
+
             if change_pct is not None:
                 change_str = f"{change_pct:+.0f}%" if change_pct != 0 else "flat"
-            else:
-                change_str = "N/A"
-            anchored_pct = round((eia.get("anchored_ratio") or 0) * 100, 1)
-
-            key = ("houston_high", "eia_build") if eia["prediction"] == "BUILD" else ("houston_low", "eia_draw")
-            parts.append(
-                self._pick_chain(key).format(
-                    houston_count=eia.get("tanker_count", 0),
-                    houston_change=change_str,
-                    anchored_pct=anchored_pct,
+                key = ("houston_high", "eia_build") if eia["prediction"] == "BUILD" else ("houston_low", "eia_draw")
+                parts.append(
+                    self._pick_chain(key).format(
+                        houston_count=houston_count,
+                        houston_change=change_str,
+                        anchored_pct=anchored_pct,
+                    )
                 )
-            )
+            else:
+                pred_word = eia["prediction"].lower()
+                parts.append(
+                    self._pick(
+                        [
+                            f"AIS shows {houston_count} tankers in the Houston zone with {anchored_pct}% anchored, consistent with an EIA inventory {pred_word}.",
+                            f"Gulf Coast tanker count at {houston_count} with {anchored_pct}% anchored points to a probable EIA {pred_word}.",
+                            f"AIS data shows {houston_count} tankers near Houston, suggesting {'reduced import flows and ' if pred_word == 'draw' else ''}a probable EIA {pred_word}.",
+                        ]
+                    )
+                )
 
             hit_rate = eia.get("hit_rate")
             total = eia.get("total_predictions", 0)
