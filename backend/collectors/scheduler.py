@@ -19,6 +19,9 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from backend.analytics.disruption_score import compute_disruption_score
+from backend.analytics.eia_prediction import compute_eia_prediction
+from backend.analytics.tonne_miles import compute_tonne_miles
 from backend.collectors.crack_spreads import collect_crack_spreads
 from backend.collectors.eia import collect_eia
 from backend.collectors.equities import collect_equities
@@ -267,6 +270,30 @@ def start_scheduler():
         **JOB_DEFAULTS,
     )
 
+    # Tonne-Miles Index: every 6 hours at :50
+    scheduler.add_job(
+        compute_tonne_miles,
+        CronTrigger(hour="*/6", minute=50),
+        id="tonne_miles_6h",
+        **JOB_DEFAULTS,
+    )
+
+    # Disruption Score: every 2 hours at :55
+    scheduler.add_job(
+        compute_disruption_score,
+        CronTrigger(hour="*/2", minute=55),
+        id="disruption_score_2h",
+        **JOB_DEFAULTS,
+    )
+
+    # EIA Prediction: weekly Tuesday 12:00 UTC (before Wednesday EIA release)
+    scheduler.add_job(
+        compute_eia_prediction,
+        CronTrigger(day_of_week="tue", hour=12, minute=0),
+        id="eia_prediction_weekly",
+        **JOB_DEFAULTS,
+    )
+
     # Smart retention: daily 04:00 UTC (thin old vessel_positions)
     scheduler.add_job(
         run_retention,
@@ -284,7 +311,8 @@ def start_scheduler():
         "Floating storage (every 6h), Voyages (every 2h), "
         "Crack spreads (daily 22:00), Equities (daily 22:30), "
         "STS detection (every 4h), Daily email (07:00), "
-        "Retention (daily 04:00) | FIRMS (every 6h) | NOAA (every 30min)"
+        "Retention (daily 04:00) | FIRMS (every 6h) | NOAA (every 30min) | "
+        "Tonne-Miles (every 6h) | Disruption Score (every 2h) | EIA Prediction (weekly Tue)"
     )
 
 

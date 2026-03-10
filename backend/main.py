@@ -20,6 +20,7 @@ from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.database import init_db
 from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
+from backend.routes import analytics as analytics_routes
 from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
 from backend.routes import email as email_routes
@@ -112,6 +113,14 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(collect_sts_events())
     logger.info("Startup: STS detection started (background)")
 
+    # Analytics: initial computation
+    from backend.analytics.disruption_score import compute_disruption_score
+    from backend.analytics.tonne_miles import compute_tonne_miles
+
+    asyncio.create_task(compute_tonne_miles())
+    asyncio.create_task(compute_disruption_score())
+    logger.info("Startup: Analytics (tonne-miles, disruption score) started (background)")
+
     # Daily Briefing Email status
     if settings.resend_api_key:
         logger.info("Daily Briefing Email: enabled (RESEND_API_KEY configured)")
@@ -167,3 +176,4 @@ app.include_router(auth_routes.router)
 app.include_router(webhooks_routes.router)
 app.include_router(email_routes.router)
 app.include_router(voyages.router)
+app.include_router(analytics_routes.router)

@@ -24,6 +24,9 @@ import ProGate from './components/ProGate'
 import ErrorBoundary from './components/ErrorBoundary'
 import PriceTicker from './components/PriceTicker'
 import TransitChart from './components/TransitChart'
+import TonneMilesPanel from './components/TonneMilesPanel'
+import DisruptionScorePanel from './components/DisruptionScorePanel'
+import EIAPredictionPanel, { EIAPredictionMini } from './components/EIAPredictionPanel'
 import { useAuth } from './context/AuthContext'
 
 const API = '/api'
@@ -273,10 +276,15 @@ function App() {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <>
-            {/* Row 1: Chokepoint Monitor */}
-            <ErrorBoundary name="chokepoint-monitor">
-              <ChokePointMonitor />
-            </ErrorBoundary>
+            {/* Row 0: Supply Disruption Index */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-3">
+              <ErrorBoundary name="disruption-score">
+                <DisruptionScorePanel />
+              </ErrorBoundary>
+              <ErrorBoundary name="chokepoint-monitor">
+                <ChokePointMonitor />
+              </ErrorBoundary>
+            </div>
 
             {/* Row 2: Rerouting + Historical Anomalies */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
@@ -288,10 +296,13 @@ function App() {
               </ErrorBoundary>
             </div>
 
-            {/* Row 3: EIA Fundamentals */}
+            {/* Row 3: EIA Fundamentals + EIA Prediction */}
             <ErrorBoundary name="fundamentals">
               <div className="mt-3">
                 <FundamentalsPanel />
+                <ErrorBoundary name="eia-prediction-mini">
+                  <EIAPredictionMini />
+                </ErrorBoundary>
               </div>
             </ErrorBoundary>
           </>
@@ -371,7 +382,17 @@ function App() {
               </div>
             </div>
 
-            {/* Row 3: STS + Rerouting + Crack Spread */}
+            {/* Row 3: Tonne-Miles + EIA Prediction */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+              <ErrorBoundary name="tonne-miles">
+                <TonneMilesPanel />
+              </ErrorBoundary>
+              <ErrorBoundary name="eia-prediction">
+                <EIAPredictionPanel />
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 4: STS + Rerouting + Crack Spread */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
               <ErrorBoundary name="sts-detection">
                 <ProGate feature="STS Detection">
