@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 import httpx
 
 from backend.database import SessionLocal
-from backend.geofences.zones import ZONES
 from backend.models.weather import WeatherAlert
 
 logger = logging.getLogger(__name__)
@@ -81,18 +80,20 @@ async def fetch_noaa_alerts() -> list[dict]:
                         if len(coords) >= 2:
                             lon, lat = coords[0], coords[1]
 
-                    alerts.append({
-                        "alert_id": props.get("id", ""),
-                        "event": event,
-                        "severity": props.get("severity", ""),
-                        "headline": props.get("headline", ""),
-                        "description": (props.get("description", "") or "")[:2000],
-                        "area": (props.get("areaDesc", "") or "")[:500],
-                        "latitude": lat,
-                        "longitude": lon,
-                        "onset": props.get("onset", ""),
-                        "expires_at": props.get("expires", "") or props.get("ends", ""),
-                    })
+                    alerts.append(
+                        {
+                            "alert_id": props.get("id", ""),
+                            "event": event,
+                            "severity": props.get("severity", ""),
+                            "headline": props.get("headline", ""),
+                            "description": (props.get("description", "") or "")[:2000],
+                            "area": (props.get("areaDesc", "") or "")[:500],
+                            "latitude": lat,
+                            "longitude": lon,
+                            "onset": props.get("onset", ""),
+                            "expires_at": props.get("expires", "") or props.get("ends", ""),
+                        }
+                    )
 
             logger.info(f"NOAA: fetched {len(features)} alerts, {len(alerts)} tropical/hurricane")
             return alerts
@@ -117,12 +118,15 @@ async def fetch_marine_conditions() -> dict:
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         # Marine data (waves)
         try:
-            marine_resp = await client.get(OPEN_METEO_MARINE_URL, params={
-                "latitude": ",".join(lats),
-                "longitude": ",".join(lons),
-                "current": "wave_height,wave_direction,wave_period",
-                "timezone": "UTC",
-            })
+            marine_resp = await client.get(
+                OPEN_METEO_MARINE_URL,
+                params={
+                    "latitude": ",".join(lats),
+                    "longitude": ",".join(lons),
+                    "current": "wave_height,wave_direction,wave_period",
+                    "timezone": "UTC",
+                },
+            )
             marine_resp.raise_for_status()
             marine_data = marine_resp.json()
 
@@ -148,13 +152,16 @@ async def fetch_marine_conditions() -> dict:
 
         # Weather data (wind)
         try:
-            weather_resp = await client.get(OPEN_METEO_WEATHER_URL, params={
-                "latitude": ",".join(lats),
-                "longitude": ",".join(lons),
-                "current": "wind_speed_10m,wind_gusts_10m",
-                "wind_speed_unit": "kn",
-                "timezone": "UTC",
-            })
+            weather_resp = await client.get(
+                OPEN_METEO_WEATHER_URL,
+                params={
+                    "latitude": ",".join(lats),
+                    "longitude": ",".join(lons),
+                    "current": "wind_speed_10m,wind_gusts_10m",
+                    "wind_speed_unit": "kn",
+                    "timezone": "UTC",
+                },
+            )
             weather_resp.raise_for_status()
             weather_data = weather_resp.json()
 
@@ -190,9 +197,7 @@ async def collect_noaa_alerts():
         ).delete(synchronize_session=False)
 
         for a in alerts:
-            existing = db.query(WeatherAlert).filter(
-                WeatherAlert.alert_id == a["alert_id"]
-            ).first()
+            existing = db.query(WeatherAlert).filter(WeatherAlert.alert_id == a["alert_id"]).first()
 
             if existing:
                 existing.severity = a["severity"]

@@ -10,12 +10,11 @@ Triggers alerts when anomaly exceeds +/-30%. Cross-references active disruptions
 to escalate to critical.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from backend.collectors.portwatch_store import (
     _init_db,
     query_active_disruptions,
-    STORE_PATH,
 )
 
 ANOMALY_THRESHOLD = 30.0  # percent
@@ -28,11 +27,14 @@ def _get_yoy_baseline(conn, portid: str, latest_date: str) -> dict | None:
     yoy_end = (dt - timedelta(days=365)).strftime("%Y-%m-%d")
     yoy_start = (dt - timedelta(days=365 + 30)).strftime("%Y-%m-%d")
 
-    row = conn.execute("""
+    row = conn.execute(
+        """
         SELECT AVG(n_total), AVG(n_tanker), COUNT(*)
         FROM chokepoint_daily
         WHERE portid = ? AND date >= ? AND date <= ?
-    """, (portid, yoy_start, yoy_end)).fetchone()
+    """,
+        (portid, yoy_start, yoy_end),
+    ).fetchone()
 
     if not row or not row[2] or row[2] < 10:
         return None
@@ -44,11 +46,14 @@ def _get_30d_baseline(conn, portid: str, latest_date: str) -> dict | None:
     """Fallback: simple 30-day average."""
     cutoff = (datetime.strptime(latest_date, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
 
-    row = conn.execute("""
+    row = conn.execute(
+        """
         SELECT AVG(n_total), AVG(n_tanker), COUNT(*)
         FROM chokepoint_daily
         WHERE portid = ? AND date >= ? AND date < ?
-    """, (portid, cutoff, latest_date)).fetchone()
+    """,
+        (portid, cutoff, latest_date),
+    ).fetchone()
 
     if not row or not row[2]:
         return None
@@ -64,18 +69,19 @@ def check_chokepoint_anomalies(db_path=None) -> list[dict]:
     """
     conn = _init_db(db_path)
 
-    latest_date = conn.execute(
-        "SELECT MAX(date) FROM chokepoint_daily"
-    ).fetchone()[0]
+    latest_date = conn.execute("SELECT MAX(date) FROM chokepoint_daily").fetchone()[0]
     if not latest_date:
         conn.close()
         return []
 
-    latest_rows = conn.execute("""
+    latest_rows = conn.execute(
+        """
         SELECT portid, portname, n_total, n_tanker, capacity
         FROM chokepoint_daily
         WHERE date = ?
-    """, (latest_date,)).fetchall()
+    """,
+        (latest_date,),
+    ).fetchall()
 
     disruptions = query_active_disruptions(db_path)
 
@@ -106,8 +112,7 @@ def check_chokepoint_anomalies(db_path=None) -> list[dict]:
 
         anomaly_pct = (n_total - baseline["avg_total"]) / baseline["avg_total"] * 100
         anomaly_tanker_pct = (
-            (n_tanker - baseline["avg_tanker"]) / baseline["avg_tanker"] * 100
-            if baseline["avg_tanker"] else 0
+            (n_tanker - baseline["avg_tanker"]) / baseline["avg_tanker"] * 100 if baseline["avg_tanker"] else 0
         )
 
         if abs(anomaly_pct) < ANOMALY_THRESHOLD:
@@ -129,20 +134,22 @@ def check_chokepoint_anomalies(db_path=None) -> list[dict]:
 
         alert_level = "critical" if matched_disruption else "warning"
 
-        alerts.append({
-            "chokepoint": portname,
-            "portid": portid,
-            "date": latest_date,
-            "n_total": n_total,
-            "baseline_avg": round(baseline["avg_total"], 1),
-            "baseline_type": baseline_type,
-            "anomaly_pct": round(anomaly_pct, 1),
-            "n_tanker": n_tanker,
-            "anomaly_tanker_pct": round(anomaly_tanker_pct, 1),
-            "direction": direction,
-            "alert_level": alert_level,
-            "disruption_name": matched_disruption,
-        })
+        alerts.append(
+            {
+                "chokepoint": portname,
+                "portid": portid,
+                "date": latest_date,
+                "n_total": n_total,
+                "baseline_avg": round(baseline["avg_total"], 1),
+                "baseline_type": baseline_type,
+                "anomaly_pct": round(anomaly_pct, 1),
+                "n_tanker": n_tanker,
+                "anomaly_tanker_pct": round(anomaly_tanker_pct, 1),
+                "direction": direction,
+                "alert_level": alert_level,
+                "disruption_name": matched_disruption,
+            }
+        )
 
     conn.close()
 

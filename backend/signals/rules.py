@@ -9,11 +9,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from backend.models.alerts import Alert
-from backend.models.vessels import GeofenceEvent
 from backend.models.prices import EIAPrice
+from backend.models.vessels import GeofenceEvent
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +29,10 @@ CUSHING_DRAWDOWN_THRESHOLD = -3000  # thousand barrels (= -3M barrels)
 ZONE_ANCHOR_BASELINES = {
     "malacca": {"normal_pct": 85, "threshold_pct": 95},
     "houston": {"normal_pct": 60, "threshold_pct": 80},
-    "hormuz":  {"normal_pct": 40, "threshold_pct": 70},
-    "cape":    {"normal_pct": 20, "threshold_pct": 50},
-    "suez":    {"normal_pct": 30, "threshold_pct": 60},
-    "panama":  {"normal_pct": 50, "threshold_pct": 75},
+    "hormuz": {"normal_pct": 40, "threshold_pct": 70},
+    "cape": {"normal_pct": 20, "threshold_pct": 50},
+    "suez": {"normal_pct": 30, "threshold_pct": 60},
+    "panama": {"normal_pct": 50, "threshold_pct": 75},
 }
 
 DEDUP_HOURS = 6  # suppress duplicate alerts within this window
@@ -42,11 +41,7 @@ DEDUP_HOURS = 6  # suppress duplicate alerts within this window
 def _recent_alert_exists(db: Session, rule: str, zone: str) -> Alert | None:
     """Check if an identical alert (same rule + zone) exists within DEDUP_HOURS."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=DEDUP_HOURS)
-    return (
-        db.query(Alert)
-        .filter(Alert.rule == rule, Alert.zone == zone, Alert.created_at > cutoff)
-        .first()
-    )
+    return db.query(Alert).filter(Alert.rule == rule, Alert.zone == zone, Alert.created_at > cutoff).first()
 
 
 def _upsert_alert(db: Session, rule: str, zone: str, severity: str, title: str, detail: str):
@@ -152,7 +147,7 @@ def check_flow_anomaly(db: Session, zone: str, current_count: int):
         direction = "increase" if current_count > mean else "decrease"
         detail = (
             f"Current: {current_count} tankers, {n_days}-day avg: {mean:.1f}, "
-            f"deviation: {pct_deviation*100:.0f}% (threshold: {FLOW_ANOMALY_PCT_FALLBACK*100:.0f}%)"
+            f"deviation: {pct_deviation * 100:.0f}% (threshold: {FLOW_ANOMALY_PCT_FALLBACK * 100:.0f}%)"
         )
 
     _upsert_alert(
@@ -187,10 +182,7 @@ def check_cushing_drawdown(db: Session):
 
     if week_change < CUSHING_DRAWDOWN_THRESHOLD:
         houston = (
-            db.query(GeofenceEvent)
-            .filter(GeofenceEvent.zone == "houston")
-            .order_by(GeofenceEvent.date.desc())
-            .first()
+            db.query(GeofenceEvent).filter(GeofenceEvent.zone == "houston").order_by(GeofenceEvent.date.desc()).first()
         )
 
         houston_detail = ""

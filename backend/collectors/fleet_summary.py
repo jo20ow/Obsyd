@@ -7,11 +7,9 @@ Runs daily at 23:55 UTC via scheduler.
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import func
-
 from backend.database import SessionLocal
-from backend.models.vessels import GlobalVesselPosition
 from backend.models.fleet import DailyFleetSummary
+from backend.models.vessels import GlobalVesselPosition
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +57,7 @@ async def create_daily_fleet_summary():
             region = _classify_region(p.longitude, p.latitude)
             regions[region] += 1
 
-        existing = db.query(DailyFleetSummary).filter(
-            DailyFleetSummary.date == today
-        ).first()
+        existing = db.query(DailyFleetSummary).filter(DailyFleetSummary.date == today).first()
 
         if existing:
             existing.total_vessels = total
@@ -75,24 +71,25 @@ async def create_daily_fleet_summary():
             existing.indian_ocean_count = regions["indian_ocean"]
             existing.mediterranean_count = regions["mediterranean"]
         else:
-            db.add(DailyFleetSummary(
-                date=today,
-                total_vessels=total,
-                tanker_count=tankers,
-                cargo_count=cargo,
-                container_count=container,
-                avg_sog=avg_sog,
-                anchored_count=anchored,
-                atlantic_count=regions["atlantic"],
-                pacific_count=regions["pacific"],
-                indian_ocean_count=regions["indian_ocean"],
-                mediterranean_count=regions["mediterranean"],
-            ))
+            db.add(
+                DailyFleetSummary(
+                    date=today,
+                    total_vessels=total,
+                    tanker_count=tankers,
+                    cargo_count=cargo,
+                    container_count=container,
+                    avg_sog=avg_sog,
+                    anchored_count=anchored,
+                    atlantic_count=regions["atlantic"],
+                    pacific_count=regions["pacific"],
+                    indian_ocean_count=regions["indian_ocean"],
+                    mediterranean_count=regions["mediterranean"],
+                )
+            )
 
         db.commit()
         logger.info(
-            f"Fleet summary {today}: {total} vessels, {tankers} tankers, "
-            f"{anchored} anchored, avg SOG {avg_sog}"
+            f"Fleet summary {today}: {total} vessels, {tankers} tankers, {anchored} anchored, avg SOG {avg_sog}"
         )
     except Exception as e:
         db.rollback()

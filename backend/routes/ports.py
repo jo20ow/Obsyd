@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
+from backend.collectors.portwatch import CHOKEPOINTS
 from backend.database import get_db
 from backend.models.ports import PortActivity
-from backend.collectors.portwatch import PORTS, CHOKEPOINTS
 
 router = APIRouter(prefix="/api/ports", tags=["ports"])
 
@@ -66,14 +66,19 @@ async def get_port_summary(
 
     # Compute 30d averages for chokepoints
     thirty_days_ago = (datetime.strptime(latest_date, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
-    avg_rows = db.query(
-        PortActivity.port_id,
-        func.avg(PortActivity.vessel_count).label("avg_30d"),
-    ).filter(
-        PortActivity.kind == "chokepoint",
-        PortActivity.date >= thirty_days_ago,
-        PortActivity.date <= latest_date,
-    ).group_by(PortActivity.port_id).all()
+    avg_rows = (
+        db.query(
+            PortActivity.port_id,
+            func.avg(PortActivity.vessel_count).label("avg_30d"),
+        )
+        .filter(
+            PortActivity.kind == "chokepoint",
+            PortActivity.date >= thirty_days_ago,
+            PortActivity.date <= latest_date,
+        )
+        .group_by(PortActivity.port_id)
+        .all()
+    )
     avg_map = {r.port_id: round(r.avg_30d) if r.avg_30d else None for r in avg_rows}
 
     ports = []

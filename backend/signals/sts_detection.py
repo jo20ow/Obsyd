@@ -12,21 +12,20 @@ Uses vessel_positions table (geofenced AIS data).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from math import radians, cos, sin, sqrt, atan2
+from math import atan2, cos, radians, sin, sqrt
 
-from sqlalchemy import func, distinct
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.models.vessels import VesselPosition
 from backend.geofences.zones import STS_HOTSPOTS, point_in_zone
+from backend.models.vessels import VesselPosition
 from backend.signals.vessel_weight import classify_vessel
 
-
 # Thresholds
-STS_SOG_THRESHOLD = 1.0       # knots — below this = anchored/drifting
-DARK_HOURS_THRESHOLD = 48     # hours — no signal for this long = "dark"
-PROXIMITY_KM = 0.5            # km — vessels closer than this may be doing STS
-PORT_EXCLUSION_KM = 10.0      # km — pairs closer than this to a port are filtered out
+STS_SOG_THRESHOLD = 1.0  # knots — below this = anchored/drifting
+DARK_HOURS_THRESHOLD = 48  # hours — no signal for this long = "dark"
+PROXIMITY_KM = 0.5  # km — vessels closer than this may be doing STS
+PORT_EXCLUSION_KM = 10.0  # km — pairs closer than this to a port are filtered out
 
 # Known port locations near STS hotspots (lat, lon, name)
 KNOWN_PORTS = [
@@ -34,10 +33,10 @@ KNOWN_PORTS = [
     (1.26, 103.85, "Singapore"),
     (1.29, 104.10, "Changi"),
     (6.13, 1.28, "Lomé"),
-    (36.72, 22.46, "Gytheio"),        # Laconian Gulf
+    (36.72, 22.46, "Gytheio"),  # Laconian Gulf
     (37.02, 22.11, "Kalamata"),
     (36.80, 22.57, "Neapoli"),
-    (25.38, 55.37, "Port Rashid"),    # Dubai
+    (25.38, 55.37, "Port Rashid"),  # Dubai
     (25.28, 55.28, "Jebel Ali"),
 ]
 
@@ -76,22 +75,26 @@ def detect_sts_candidates(db: Session) -> list[dict]:
         for hotspot in STS_HOTSPOTS:
             if point_in_zone(r.latitude, r.longitude, hotspot):
                 cls_name, weight = classify_vessel(r.ship_name, r.ship_type)
-                candidates.append({
-                    "mmsi": r.mmsi,
-                    "ship_name": r.ship_name,
-                    "ship_type": r.ship_type,
-                    "class": cls_name,
-                    "lat": r.latitude,
-                    "lon": r.longitude,
-                    "sog": r.sog,
-                    "zone": r.zone,
-                    "sts_hotspot": hotspot["name"],
-                    "sts_display": hotspot["display_name"],
-                    "timestamp": r.timestamp.isoformat(),
-                    "age_hours": round(
-                        (datetime.now(timezone.utc) - r.timestamp.replace(tzinfo=timezone.utc)).total_seconds() / 3600, 1
-                    ),
-                })
+                candidates.append(
+                    {
+                        "mmsi": r.mmsi,
+                        "ship_name": r.ship_name,
+                        "ship_type": r.ship_type,
+                        "class": cls_name,
+                        "lat": r.latitude,
+                        "lon": r.longitude,
+                        "sog": r.sog,
+                        "zone": r.zone,
+                        "sts_hotspot": hotspot["name"],
+                        "sts_display": hotspot["display_name"],
+                        "timestamp": r.timestamp.isoformat(),
+                        "age_hours": round(
+                            (datetime.now(timezone.utc) - r.timestamp.replace(tzinfo=timezone.utc)).total_seconds()
+                            / 3600,
+                            1,
+                        ),
+                    }
+                )
                 break
 
     return candidates
@@ -131,18 +134,20 @@ def detect_dark_vessels(db: Session) -> list[dict]:
                 in_sts = hotspot["display_name"]
                 break
 
-        dark.append({
-            "mmsi": r.mmsi,
-            "ship_name": r.ship_name,
-            "class": cls_name,
-            "last_lat": r.latitude,
-            "last_lon": r.longitude,
-            "last_sog": r.sog,
-            "last_zone": r.zone,
-            "last_seen": r.timestamp.isoformat(),
-            "dark_hours": round(age_hours, 1),
-            "last_in_sts_hotspot": in_sts,
-        })
+        dark.append(
+            {
+                "mmsi": r.mmsi,
+                "ship_name": r.ship_name,
+                "class": cls_name,
+                "last_lat": r.latitude,
+                "last_lon": r.longitude,
+                "last_sog": r.sog,
+                "last_zone": r.zone,
+                "last_seen": r.timestamp.isoformat(),
+                "dark_hours": round(age_hours, 1),
+                "last_in_sts_hotspot": in_sts,
+            }
+        )
 
     # Sort by dark_hours descending (longest gap first)
     dark.sort(key=lambda x: x["dark_hours"], reverse=True)
@@ -174,23 +179,25 @@ def detect_proximity_pairs(db: Session) -> list[dict]:
         for hotspot in STS_HOTSPOTS:
             if point_in_zone(r.latitude, r.longitude, hotspot):
                 cls_name, _ = classify_vessel(r.ship_name, r.ship_type)
-                sts_vessels.append({
-                    "mmsi": r.mmsi,
-                    "ship_name": r.ship_name,
-                    "class": cls_name,
-                    "lat": r.latitude,
-                    "lon": r.longitude,
-                    "sog": r.sog,
-                    "hotspot": hotspot["name"],
-                    "timestamp": r.timestamp,
-                })
+                sts_vessels.append(
+                    {
+                        "mmsi": r.mmsi,
+                        "ship_name": r.ship_name,
+                        "class": cls_name,
+                        "lat": r.latitude,
+                        "lon": r.longitude,
+                        "sog": r.sog,
+                        "hotspot": hotspot["name"],
+                        "timestamp": r.timestamp,
+                    }
+                )
                 break
 
     # Find pairs within PROXIMITY_KM, excluding pairs near known ports
     pairs = []
     seen = set()
     for i, v1 in enumerate(sts_vessels):
-        for v2 in sts_vessels[i + 1:]:
+        for v2 in sts_vessels[i + 1 :]:
             if v1["hotspot"] != v2["hotspot"]:
                 continue
             pair_key = tuple(sorted([v1["mmsi"], v2["mmsi"]]))
@@ -203,33 +210,34 @@ def detect_proximity_pairs(db: Session) -> list[dict]:
                 mid_lat = (v1["lat"] + v2["lat"]) / 2
                 mid_lon = (v1["lon"] + v2["lon"]) / 2
                 near_port = any(
-                    _haversine_km(mid_lat, mid_lon, plat, plon) < PORT_EXCLUSION_KM
-                    for plat, plon, _ in KNOWN_PORTS
+                    _haversine_km(mid_lat, mid_lon, plat, plon) < PORT_EXCLUSION_KM for plat, plon, _ in KNOWN_PORTS
                 )
                 if near_port:
                     continue
 
                 seen.add(pair_key)
-                pairs.append({
-                    "vessel_1": {
-                        "mmsi": v1["mmsi"],
-                        "ship_name": v1["ship_name"],
-                        "class": v1["class"],
-                        "lat": v1["lat"],
-                        "lon": v1["lon"],
-                        "sog": v1["sog"],
-                    },
-                    "vessel_2": {
-                        "mmsi": v2["mmsi"],
-                        "ship_name": v2["ship_name"],
-                        "class": v2["class"],
-                        "lat": v2["lat"],
-                        "lon": v2["lon"],
-                        "sog": v2["sog"],
-                    },
-                    "distance_km": round(dist, 3),
-                    "hotspot": v1["hotspot"],
-                })
+                pairs.append(
+                    {
+                        "vessel_1": {
+                            "mmsi": v1["mmsi"],
+                            "ship_name": v1["ship_name"],
+                            "class": v1["class"],
+                            "lat": v1["lat"],
+                            "lon": v1["lon"],
+                            "sog": v1["sog"],
+                        },
+                        "vessel_2": {
+                            "mmsi": v2["mmsi"],
+                            "ship_name": v2["ship_name"],
+                            "class": v2["class"],
+                            "lat": v2["lat"],
+                            "lon": v2["lon"],
+                            "sog": v2["sog"],
+                        },
+                        "distance_km": round(dist, 3),
+                        "hotspot": v1["hotspot"],
+                    }
+                )
 
     return pairs
 
@@ -248,7 +256,6 @@ def get_sts_summary(db: Session) -> dict:
         "proximity_pairs": pairs,
         "proximity_pair_count": len(pairs),
         "hotspots": [
-            {"name": h["name"], "display_name": h["display_name"], "bounds": h["bounds"]}
-            for h in STS_HOTSPOTS
+            {"name": h["name"], "display_name": h["display_name"], "bounds": h["bounds"]} for h in STS_HOTSPOTS
         ],
     }

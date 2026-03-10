@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 
 from backend.collectors.portwatch_store import (
     _init_db,
-    CHOKEPOINTS,
     query_chokepoint_averages,
 )
 from backend.database import SessionLocal
@@ -46,8 +45,7 @@ def _pearson(xs: list[float], ys: list[float]) -> float:
 IMPACT_THRESHOLD = 30.0  # percent drop to count as disruption event
 
 
-def _compute_lagged_correlations(tanker_vals, common_dates, tanker_map,
-                                  brent_map, all_brent_dates, brent_date_idx):
+def _compute_lagged_correlations(tanker_vals, common_dates, tanker_map, brent_map, all_brent_dates, brent_date_idx):
     """Compute level and delta correlations at lag 0..MAX_LAG."""
     brent_vals = [brent_map[d] for d in common_dates]
 
@@ -97,8 +95,7 @@ def _compute_lagged_correlations(tanker_vals, common_dates, tanker_map,
             if prev_idx < 0:
                 continue
             dt_lag.append(delta_tanker[i])
-            db_lag.append(brent_map[all_brent_dates[future_idx]] -
-                          brent_map[all_brent_dates[prev_idx]])
+            db_lag.append(brent_map[all_brent_dates[future_idx]] - brent_map[all_brent_dates[prev_idx]])
         r = _pearson(dt_lag, db_lag)
         delta_lags[lag] = round(r, 3)
         if abs(r) > best_delta_r:
@@ -121,8 +118,7 @@ def _compute_lagged_correlations(tanker_vals, common_dates, tanker_map,
     }
 
 
-def _detect_current_event(rows, tanker_vals, common_dates, brent_map,
-                           avg_total):
+def _detect_current_event(rows, tanker_vals, common_dates, brent_map, avg_total):
     """Detect ongoing disruption event (>30% anomaly streak).
 
     Returns None or dict with event_start, brent_at_start, brent_current,
@@ -178,9 +174,7 @@ def _detect_current_event(rows, tanker_vals, common_dates, brent_map,
         "anomaly_pct": round(latest_anom, 1),
         "brent_at_start": round(brent_at_start, 2),
         "brent_current": round(brent_current, 2),
-        "brent_change_pct": round(
-            (brent_current - brent_at_start) / brent_at_start * 100, 1
-        ),
+        "brent_change_pct": round((brent_current - brent_at_start) / brent_at_start * 100, 1),
     }
 
 
@@ -227,11 +221,14 @@ def compute_correlations(days: int = 365, db_path=None) -> list[dict]:
     results = []
     for portid, portname in KEY_CHOKEPOINTS.items():
         # Get daily tanker data
-        rows = conn.execute("""
+        rows = conn.execute(
+            """
             SELECT date, n_tanker, n_total FROM chokepoint_daily
             WHERE portid = ? AND date >= ?
             ORDER BY date ASC
-        """, (portid, cutoff)).fetchall()
+        """,
+            (portid, cutoff),
+        ).fetchall()
 
         tanker_map = {r[0]: (r[1], r[2]) for r in rows}
 
@@ -244,8 +241,12 @@ def compute_correlations(days: int = 365, db_path=None) -> list[dict]:
 
         # Compute level + delta correlations with lags
         corr = _compute_lagged_correlations(
-            tanker_vals, common_dates, tanker_map,
-            brent_map, all_brent_dates, brent_date_idx,
+            tanker_vals,
+            common_dates,
+            tanker_map,
+            brent_map,
+            all_brent_dates,
+            brent_date_idx,
         )
 
         # Compute avg price impact: when tanker traffic drops >30% vs 30d rolling avg,
@@ -255,7 +256,7 @@ def compute_correlations(days: int = 365, db_path=None) -> list[dict]:
         window = 30
         if len(common_dates) > window + 7:
             for i in range(window, len(common_dates) - 7):
-                window_vals = tanker_vals[i - window:i]
+                window_vals = tanker_vals[i - window : i]
                 avg_30 = sum(window_vals) / len(window_vals)
                 if avg_30 == 0:
                     continue
@@ -285,27 +286,27 @@ def compute_correlations(days: int = 365, db_path=None) -> list[dict]:
                 current_anomaly = round((current_n - avg_total) / avg_total * 100, 1)
 
         # Detect current event if anomaly > 30%
-        current_event = _detect_current_event(
-            rows, tanker_vals, common_dates, brent_map, avg_total
-        )
+        current_event = _detect_current_event(rows, tanker_vals, common_dates, brent_map, avg_total)
 
-        results.append({
-            "chokepoint": portname,
-            "portid": portid,
-            "correlation": corr["level"]["corr_0"],
-            "delta_correlation": corr["delta"]["corr_0"],
-            "best_lag_days": corr["level"]["best_lag"],
-            "best_lag_correlation": corr["level"]["best_lag_r"],
-            "lag_correlations": corr["level"]["lags"],
-            "delta_lag_correlations": corr["delta"]["lags"],
-            "best_delta_lag_days": corr["delta"]["best_lag"],
-            "best_delta_lag_correlation": corr["delta"]["best_lag_r"],
-            "avg_price_impact_pct": avg_impact,
-            "n_impact_events": len(impacts),
-            "current_anomaly_pct": current_anomaly,
-            "current_event": current_event,
-            "data_points": len(common_dates),
-        })
+        results.append(
+            {
+                "chokepoint": portname,
+                "portid": portid,
+                "correlation": corr["level"]["corr_0"],
+                "delta_correlation": corr["delta"]["corr_0"],
+                "best_lag_days": corr["level"]["best_lag"],
+                "best_lag_correlation": corr["level"]["best_lag_r"],
+                "lag_correlations": corr["level"]["lags"],
+                "delta_lag_correlations": corr["delta"]["lags"],
+                "best_delta_lag_days": corr["delta"]["best_lag"],
+                "best_delta_lag_correlation": corr["delta"]["best_lag_r"],
+                "avg_price_impact_pct": avg_impact,
+                "n_impact_events": len(impacts),
+                "current_anomaly_pct": current_anomaly,
+                "current_event": current_event,
+                "data_points": len(common_dates),
+            }
+        )
 
     conn.close()
 
