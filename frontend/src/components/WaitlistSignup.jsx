@@ -45,19 +45,19 @@ export default function WaitlistSignup() {
           You're on the list.
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex gap-2">
+        <form onSubmit={handleSubmit} className="flex gap-0 max-w-[600px]">
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="email@example.com"
-            className="flex-1 bg-surface border border-border rounded px-2.5 py-1.5 font-mono text-[11px] text-neutral-200 placeholder:text-neutral-600 focus:border-cyan-glow/40 outline-none min-w-0"
+            className="flex-1 bg-surface border border-border border-r-0 rounded-l px-2.5 py-1.5 font-mono text-[11px] text-neutral-200 placeholder:text-neutral-600 focus:border-cyan-glow/40 outline-none min-w-0"
             disabled={submitting}
           />
           <button
             type="submit"
             disabled={submitting || !email.trim()}
-            className="shrink-0 text-[10px] tracking-wider text-cyan-glow border border-cyan-glow/30 hover:border-cyan-glow/60 px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="shrink-0 text-[10px] tracking-wider text-cyan-glow border border-cyan-glow/30 hover:border-cyan-glow/60 rounded-r px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {submitting ? '...' : 'JOIN WAITLIST'}
           </button>
