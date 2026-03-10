@@ -20,12 +20,18 @@ const TIMEFRAMES = [
   { label: '90D', days: 90 },
 ]
 
+const VIEW_MODES = [
+  { key: 'all', label: 'ALL VESSELS' },
+  { key: 'transit', label: 'IN TRANSIT' },
+]
+
 export default function ZoneActivityChart() {
   const containerRef = useRef(null)
   const chartRef = useRef(null)
   const [data, setData] = useState(null)
   const [portwatchData, setPortwatchData] = useState(null)
   const [timeframe, setTimeframe] = useState(TIMEFRAMES[2])
+  const [viewMode, setViewMode] = useState('all')
   const [hiddenZones, setHiddenZones] = useState(new Set())
   const [loading, setLoading] = useState(true)
 
@@ -89,7 +95,12 @@ export default function ZoneActivityChart() {
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
       })
       series.setData(
-        points.map((p) => ({ time: p.date, value: p.tanker_count }))
+        points.map((p) => {
+          const total = p.tanker_count || 0
+          const anchored = p.slow_movers || 0
+          const value = viewMode === 'transit' ? Math.max(0, total - anchored) : total
+          return { time: p.date, value }
+        })
       )
     }
 
@@ -107,14 +118,14 @@ export default function ZoneActivityChart() {
       chart.remove()
       chartRef.current = null
     }
-  }, [data, hiddenZones])
+  }, [data, hiddenZones, viewMode])
 
   return (
     <div className="border border-border bg-surface rounded">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-neutral-500">CHOKEPOINT ACTIVITY</span>
-          <InfoPopover text="Daily unique tanker count per geofence zone from AIS data. Shows traffic trends across chokepoints." />
+          <span className="font-mono text-xs text-neutral-500">ZONE VESSEL ACTIVITY</span>
+          <InfoPopover text="Daily unique AIS-reporting vessels per geofence zone. Includes anchored, in-port, and transiting vessels. Toggle 'In Transit' to exclude anchored vessels (SOG < 0.5 kn)." />
         </div>
         <div className="flex items-center gap-2">
           {/* Zone toggles */}
@@ -131,6 +142,22 @@ export default function ZoneActivityChart() {
                 style={{ borderBottom: hiddenZones.has(z) ? 'none' : `2px solid ${ZONE_COLORS[z] || '#666'}` }}
               >
                 {z.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {/* View mode */}
+          <div className="flex items-center gap-1 ml-2 border-l border-border pl-2">
+            {VIEW_MODES.map((vm) => (
+              <button
+                key={vm.key}
+                onClick={() => setViewMode(vm.key)}
+                className={`font-mono text-[10px] px-2 py-0.5 rounded transition-colors ${
+                  viewMode === vm.key
+                    ? 'bg-cyan-glow/20 text-cyan-glow'
+                    : 'text-neutral-600 hover:text-neutral-400'
+                }`}
+              >
+                {vm.label}
               </button>
             ))}
           </div>
@@ -159,6 +186,11 @@ export default function ZoneActivityChart() {
           No zone activity data yet. Data populates after daily aggregation runs.
         </div>
       )}
+      <div className="px-4 py-1.5 border-t border-border">
+        <span className="font-mono text-[9px] text-neutral-600 leading-relaxed">
+          Unique AIS-reporting vessels per day within zone boundaries. Includes anchored, in-port, and transiting vessels. Not equivalent to transit counts.
+        </span>
+      </div>
     </div>
   )
 }

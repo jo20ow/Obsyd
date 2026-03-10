@@ -411,7 +411,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
         return {
           html: `<div style="font-family:monospace;font-size:11px;color:#00e5ff">
             <div style="font-weight:bold">${escHtml(object.display_name)}</div>
-            ${count ? `<div style="color:#c8c8d0">${count} tankers tracked</div>` : ''}
+            ${count ? `<div style="color:#c8c8d0">${count} vessels observed</div>` : ''}
             ${object.no_ais_coverage ? '<div style="color:#888;font-size:10px">Transit data via IMF PortWatch</div>' : ''}
           </div>`,
           style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '8px' },
@@ -444,10 +444,14 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
 
   const zoneVesselCounts = useMemo(() => {
     const counts = {}
+    const anchored = {}
     for (const v of displayVessels) {
-      if (v.zone) counts[v.zone] = (counts[v.zone] || 0) + 1
+      if (v.zone) {
+        counts[v.zone] = (counts[v.zone] || 0) + 1
+        if (v.sog < 0.5) anchored[v.zone] = (anchored[v.zone] || 0) + 1
+      }
     }
-    return counts
+    return { total: counts, anchored }
   }, [displayVessels])
 
   return (
@@ -551,7 +555,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                     {z.no_ais_coverage ? (
                       <span className="text-neutral-700 ml-auto text-[9px]">TRANSIT DATA</span>
                     ) : (
-                      <span className="text-neutral-600 ml-auto">{zoneVesselCounts[z.name] || '—'}</span>
+                      <span className="text-neutral-600 ml-auto">{zoneVesselCounts.total[z.name] || '—'}</span>
                     )}
                   </button>
                 ))}
@@ -604,7 +608,9 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {filteredZones.filter((z) => !z.is_sts && !z.is_lng_terminal).map((z) => {
-            const count = zoneVesselCounts[z.name] || 0
+            const total = zoneVesselCounts.total[z.name] || 0
+            const anch = zoneVesselCounts.anchored[z.name] || 0
+            const transit = total - anch
             const cp = portwatch?.chokepoints?.find((c) => c.zone === z.name)
             return (
               <button
@@ -617,14 +623,21 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                     {(z.name || '').toUpperCase()}
                   </span>
                   {z.no_ais_coverage ? (
-                    <span className="font-mono text-[9px] text-neutral-700">TRANSIT DATA</span>
-                  ) : count > 0 ? (
-                    <span className="font-mono text-[10px] text-green-glow">{count}</span>
+                    <span className="font-mono text-[9px] text-neutral-700">PW ONLY</span>
+                  ) : total > 0 ? (
+                    <span className="font-mono text-[10px] text-green-glow">{total}</span>
                   ) : null}
                 </div>
-                <div className="font-mono text-[10px] text-neutral-600 mt-0.5 leading-tight">
-                  {z.display_name || ''}
-                </div>
+                {!z.no_ais_coverage && total > 0 ? (
+                  <div className="font-mono text-[9px] text-neutral-600 mt-0.5">
+                    {transit} in transit · {anch} anchored
+                    {total > 0 && <span className="text-neutral-700"> ({Math.round((transit / total) * 100)}%)</span>}
+                  </div>
+                ) : (
+                  <div className="font-mono text-[10px] text-neutral-600 mt-0.5 leading-tight">
+                    {z.display_name || ''}
+                  </div>
+                )}
                 {(cp || marine[z.name]) && (
                   <div className="mt-1.5 pt-1.5 border-t border-border">
                     {cp && (
