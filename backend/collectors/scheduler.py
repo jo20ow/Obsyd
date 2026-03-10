@@ -19,8 +19,11 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from backend.analytics.days_of_supply import compute_days_of_supply
 from backend.analytics.disruption_score import compute_disruption_score
 from backend.analytics.eia_prediction import compute_eia_prediction
+from backend.analytics.freight_proxy import compute_freight_proxy
+from backend.analytics.supply_demand import compute_supply_demand
 from backend.analytics.tonne_miles import compute_tonne_miles
 from backend.collectors.crack_spreads import collect_crack_spreads
 from backend.collectors.eia import collect_eia
@@ -291,6 +294,30 @@ def start_scheduler():
         compute_eia_prediction,
         CronTrigger(day_of_week="tue", hour=12, minute=0),
         id="eia_prediction_weekly",
+        **JOB_DEFAULTS,
+    )
+
+    # Freight Proxy: daily 23:00 UTC (after equities snapshot at 22:30)
+    scheduler.add_job(
+        compute_freight_proxy,
+        CronTrigger(hour=23, minute=0),
+        id="freight_proxy_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # Supply-Demand Balance: weekly Tuesday 14:00 UTC (after PortWatch, before EIA Wed)
+    scheduler.add_job(
+        compute_supply_demand,
+        CronTrigger(day_of_week="tue", hour=14, minute=0),
+        id="supply_demand_weekly",
+        **JOB_DEFAULTS,
+    )
+
+    # Days of Supply: weekly Wednesday 18:00 UTC (after EIA release ~15:30 UTC)
+    scheduler.add_job(
+        compute_days_of_supply,
+        CronTrigger(day_of_week="wed", hour=18, minute=0),
+        id="days_of_supply_weekly",
         **JOB_DEFAULTS,
     )
 

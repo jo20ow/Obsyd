@@ -7,8 +7,11 @@ from fastapi import APIRouter, Query
 from backend.analytics.market_report import get_market_report
 from backend.database import SessionLocal
 from backend.models.analytics import (
+    DaysOfSupplyHistory,
     DisruptionScoreHistory,
     EIAPredictionHistory,
+    FreightProxyHistory,
+    SupplyDemandBalance,
     TonneMilesHistory,
 )
 
@@ -201,6 +204,127 @@ async def get_eia_prediction():
                     "tanker_count": p.tanker_count,
                 }
                 for p in history
+            ],
+        }
+    finally:
+        db.close()
+
+
+@router.get("/freight-proxy")
+async def get_freight_proxy(days: int = Query(90, ge=7, le=365)):
+    """Implied Freight Index — tanker equity proxy for freight rates."""
+    db = SessionLocal()
+    try:
+        rows = db.query(FreightProxyHistory).order_by(FreightProxyHistory.date.desc()).limit(days).all()
+        if not rows:
+            return {"available": False, "reason": "no data yet"}
+
+        latest = rows[0]
+        history = [
+            {
+                "date": r.date,
+                "index": r.proxy_index,
+                "fro": r.fro_change,
+                "stng": r.stng_change,
+                "dht": r.dht_change,
+                "insw": r.insw_change,
+            }
+            for r in reversed(rows)
+        ]
+
+        return {
+            "available": True,
+            "current": {
+                "index": latest.proxy_index,
+                "date": latest.date,
+                "brent_corr_30d": latest.brent_corr_30d,
+                "rerouting_corr_30d": latest.rerouting_corr_30d,
+                "divergence": latest.divergence_flag,
+                "components": {
+                    "FRO": latest.fro_change,
+                    "STNG": latest.stng_change,
+                    "DHT": latest.dht_change,
+                    "INSW": latest.insw_change,
+                },
+            },
+            "history": history,
+            "data_points": len(history),
+        }
+    finally:
+        db.close()
+
+
+@router.get("/supply-demand")
+async def get_supply_demand():
+    """Global Supply-Demand Balance + AIS Divergence."""
+    db = SessionLocal()
+    try:
+        latest = db.query(SupplyDemandBalance).order_by(SupplyDemandBalance.date.desc()).first()
+        if not latest:
+            return {"available": False, "reason": "no data yet"}
+
+        history = db.query(SupplyDemandBalance).order_by(SupplyDemandBalance.date.desc()).limit(26).all()
+
+        return {
+            "available": True,
+            "current": {
+                "date": latest.date,
+                "world_production": latest.world_production,
+                "world_consumption": latest.world_consumption,
+                "implied_balance": latest.implied_balance,
+                "us_imports_eia": latest.us_imports_eia,
+                "houston_ais_tankers": latest.houston_ais_tankers,
+                "houston_deviation": latest.houston_deviation,
+                "divergence_type": latest.divergence_type,
+                "divergence_detail": latest.divergence_detail,
+            },
+            "history": [
+                {
+                    "date": r.date,
+                    "balance": r.implied_balance,
+                    "production": r.world_production,
+                    "consumption": r.world_consumption,
+                }
+                for r in reversed(history)
+            ],
+        }
+    finally:
+        db.close()
+
+
+@router.get("/days-of-supply")
+async def get_days_of_supply():
+    """US Days of Supply — dynamic inventory coverage metric."""
+    db = SessionLocal()
+    try:
+        latest = db.query(DaysOfSupplyHistory).order_by(DaysOfSupplyHistory.date.desc()).first()
+        if not latest:
+            return {"available": False, "reason": "no data yet"}
+
+        history = db.query(DaysOfSupplyHistory).order_by(DaysOfSupplyHistory.date.desc()).limit(52).all()
+
+        return {
+            "available": True,
+            "current": {
+                "date": latest.date,
+                "commercial_days": latest.commercial_days,
+                "total_days": latest.total_days,
+                "avg_5y_days": latest.avg_5y_days,
+                "deviation": latest.deviation,
+                "trend_4w": latest.trend_4w,
+                "assessment": latest.assessment,
+                "commercial_stocks": latest.commercial_stocks,
+                "spr_stocks": latest.spr_stocks,
+                "product_supplied": latest.product_supplied,
+            },
+            "history": [
+                {
+                    "date": r.date,
+                    "commercial_days": r.commercial_days,
+                    "total_days": r.total_days,
+                    "avg_5y_days": r.avg_5y_days,
+                }
+                for r in reversed(history)
             ],
         }
     finally:

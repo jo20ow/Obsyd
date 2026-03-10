@@ -68,12 +68,24 @@ function NetFlowBar({ imports, exports }) {
 export default function FundamentalsPanel() {
   const [data, setData] = useState(undefined)
   const [error, setError] = useState(null)
+  const [daysOfSupply, setDaysOfSupply] = useState(null)
+  const [supplyDemand, setSupplyDemand] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/prices/eia/fundamentals`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setData)
       .catch((e) => { console.error('FundamentalsPanel fetch:', e); setError(e.message) })
+
+    fetch(`${API}/analytics/days-of-supply`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setDaysOfSupply)
+      .catch(() => {})
+
+    fetch(`${API}/analytics/supply-demand`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setSupplyDemand)
+      .catch(() => {})
   }, [])
 
   if (error) return (
@@ -183,6 +195,98 @@ export default function FundamentalsPanel() {
               imports={imports?.value}
               exports={exports?.value}
             />
+          </div>
+        )}
+
+        {/* Days of Supply */}
+        {daysOfSupply?.available && (
+          <div className="col-span-2 border border-border bg-surface-light rounded px-3 py-2">
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="font-mono text-[10px] text-neutral-500">DAYS OF SUPPLY</span>
+              <span className="font-mono text-[9px] text-neutral-600">{daysOfSupply.current.date}</span>
+            </div>
+            <div className="flex items-end gap-3">
+              <span className={`font-mono text-lg font-bold ${
+                daysOfSupply.current.assessment === 'TIGHT' ? 'text-red-400' :
+                daysOfSupply.current.assessment === 'COMFORTABLE' ? 'text-green-glow' :
+                'text-cyan-glow'
+              }`}>
+                {daysOfSupply.current.commercial_days?.toFixed(1)}
+                <span className="text-xs text-neutral-500 ml-0.5">days</span>
+              </span>
+              {daysOfSupply.current.assessment && (
+                <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded border ${
+                  daysOfSupply.current.assessment === 'TIGHT'
+                    ? 'text-red-400 border-red-400/30 bg-red-400/10'
+                    : daysOfSupply.current.assessment === 'COMFORTABLE'
+                    ? 'text-green-glow border-green-glow/30 bg-green-glow/10'
+                    : 'text-neutral-400 border-neutral-700 bg-neutral-800/50'
+                }`}>
+                  {daysOfSupply.current.assessment.replace('_', ' ')}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 font-mono text-[9px] text-neutral-600 space-y-0.5">
+              {daysOfSupply.current.avg_5y_days != null && (
+                <div>
+                  5Y avg: {daysOfSupply.current.avg_5y_days?.toFixed(1)} days
+                  {daysOfSupply.current.deviation != null && (
+                    <span className={daysOfSupply.current.deviation < 0 ? 'text-red-400/60 ml-1' : 'text-green-glow/60 ml-1'}>
+                      {daysOfSupply.current.deviation > 0 ? '+' : ''}{daysOfSupply.current.deviation?.toFixed(1)} days vs seasonal norm
+                    </span>
+                  )}
+                </div>
+              )}
+              {daysOfSupply.current.trend_4w != null && (
+                <div>
+                  Trend:
+                  <span className={daysOfSupply.current.trend_4w < 0 ? 'text-red-400/60 ml-1' : 'text-green-glow/60 ml-1'}>
+                    {daysOfSupply.current.trend_4w > 0 ? '+' : ''}{daysOfSupply.current.trend_4w?.toFixed(1)} days over 4 weeks
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Global Supply-Demand Balance */}
+        {supplyDemand?.available && (
+          <div className="col-span-2 border border-border bg-surface-light rounded px-3 py-2">
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="font-mono text-[10px] text-neutral-500">GLOBAL BALANCE (EIA STEO)</span>
+              <span className="font-mono text-[9px] text-neutral-600">{supplyDemand.current.date}</span>
+            </div>
+            {supplyDemand.current.implied_balance != null ? (
+              <div className="flex items-end gap-2">
+                <span className={`font-mono text-lg font-bold ${
+                  supplyDemand.current.implied_balance > 0 ? 'text-red-400' : 'text-green-glow'
+                }`}>
+                  {supplyDemand.current.implied_balance > 0 ? '+' : ''}{supplyDemand.current.implied_balance?.toFixed(1)}
+                  <span className="text-xs text-neutral-500 ml-0.5">mb/d</span>
+                </span>
+                <span className={`font-mono text-[10px] ${
+                  supplyDemand.current.implied_balance > 0 ? 'text-red-400/70' : 'text-green-glow/70'
+                }`}>
+                  {supplyDemand.current.implied_balance > 0 ? 'SURPLUS' : 'DEFICIT'}
+                </span>
+              </div>
+            ) : (
+              <span className="font-mono text-[10px] text-neutral-600">STEO data pending</span>
+            )}
+            {supplyDemand.current.divergence_type && (
+              <div className={`mt-1.5 font-mono text-[9px] px-2 py-1 rounded border ${
+                supplyDemand.current.divergence_type === 'EIA_AIS_DIVERGENCE'
+                  ? 'text-orange-400/80 border-orange-400/20 bg-orange-400/5'
+                  : 'text-green-glow/60 border-green-glow/20 bg-green-glow/5'
+              }`}>
+                EIA vs AIS: {supplyDemand.current.divergence_type === 'EIA_AIS_DIVERGENCE' ? 'DIVERGENCE' : 'CONFIRMED'}
+                {supplyDemand.current.houston_deviation != null && (
+                  <span className="text-neutral-600 ml-1">
+                    (Houston {supplyDemand.current.houston_deviation > 0 ? '+' : ''}{supplyDemand.current.houston_deviation?.toFixed(0)}% vs avg)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

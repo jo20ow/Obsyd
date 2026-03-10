@@ -64,3 +64,52 @@ class EIAPredictionHistory(Base):
     pearson_r: Mapped[float] = mapped_column(Float, nullable=True)
     optimal_lag_days: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FreightProxyHistory(Base):
+    __tablename__ = "freight_proxy_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    fro_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stng_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dht_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+    insw_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+    proxy_index: Mapped[float] = mapped_column(Float, nullable=False)
+    brent_corr_30d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rerouting_corr_30d: Mapped[float | None] = mapped_column(Float, nullable=True)
+    divergence_flag: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SupplyDemandBalance(Base):
+    __tablename__ = "supply_demand_balance"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    world_production: Mapped[float | None] = mapped_column(Float, nullable=True)
+    world_consumption: Mapped[float | None] = mapped_column(Float, nullable=True)
+    implied_balance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    us_imports_eia: Mapped[float | None] = mapped_column(Float, nullable=True)
+    houston_ais_tankers: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    houston_deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    divergence_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    divergence_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DaysOfSupplyHistory(Base):
+    __tablename__ = "days_of_supply_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    commercial_stocks: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spr_stocks: Mapped[float | None] = mapped_column(Float, nullable=True)
+    product_supplied: Mapped[float | None] = mapped_column(Float, nullable=True)
+    commercial_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_5y_days: Mapped[float | None] = mapped_column(Float, nullable=True)
+    deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trend_4w: Mapped[float | None] = mapped_column(Float, nullable=True)
+    assessment: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -28,6 +28,7 @@ import TonneMilesPanel from './components/TonneMilesPanel'
 import DisruptionScorePanel from './components/DisruptionScorePanel'
 import MarketReportPanel from './components/MarketReportPanel'
 import EIAPredictionPanel, { EIAPredictionMini } from './components/EIAPredictionPanel'
+import FreightProxyPanel from './components/FreightProxyPanel'
 import { useAuth } from './context/AuthContext'
 
 const API = '/api'
@@ -398,7 +399,14 @@ function App() {
               </ErrorBoundary>
             </div>
 
-            {/* Row 4: STS + Rerouting + Crack Spread */}
+            {/* Row 4: Freight Proxy */}
+            <ErrorBoundary name="freight-proxy">
+              <div className="mt-3">
+                <FreightProxyPanel />
+              </div>
+            </ErrorBoundary>
+
+            {/* Row 5: STS + Rerouting + Crack Spread */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
               <ErrorBoundary name="sts-detection">
                 <ProGate feature="STS Detection">

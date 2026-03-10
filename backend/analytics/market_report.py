@@ -24,9 +24,12 @@ from sqlalchemy import func
 
 from backend.database import SessionLocal
 from backend.models.analytics import (
+    DaysOfSupplyHistory,
     DisruptionScoreHistory,
     EIAPredictionHistory,
+    FreightProxyHistory,
     MarketReport,
+    SupplyDemandBalance,
     TonneMilesHistory,
 )
 from backend.models.pro_features import CrackSpreadHistory, EquitySnapshot
@@ -124,6 +127,34 @@ CAUSAL_CHAINS = {
         "Media tone at {risk_score}/10 (topics: {top_topics}) aligns with the physical disruption — newsflow is reinforcing rather than diverging from market signals.",
         "GDELT risk score at {risk_score}/10 reflects heavy coverage of {top_topics}, supporting the disruption narrative visible in physical flow data.",
         "Sentiment at {risk_score}/10, driven by {top_topics} coverage, is directionally consistent with the chokepoint and rerouting signals.",
+    ],
+    ("freight_proxy_divergence", "rerouting_high"): [
+        "Tanker equities have declined over 5 days despite Cape rerouting at {cape_share}% — financial markets may be pricing in resolution ahead of physical normalization.",
+        "A divergence between tanker stocks and physical data: equities falling while Cape rerouting holds at {cape_share}%, suggesting the market expects a shorter disruption than the shipping data implies.",
+        "Financial markets are leading bearish: tanker equities down despite {cape_share}% Cape rerouting. Historically, this divergence resolves either through physical normalization or equity rebound.",
+        "Despite {cape_share}% of traffic rerouting via Cape, tanker equities have weakened — the market appears to discount the duration of the current disruption.",
+        "The tanker equity proxy has fallen while Cape rerouting remains at {cape_share}%, a financial-physical divergence that warrants monitoring for resolution direction.",
+    ],
+    ("eia_ais_divergence", "any"): [
+        "Real-time AIS data from Houston ({houston_count} vessels, {houston_change} vs avg) diverges from EIA baseline expectations — a potential surprise in this week's report.",
+        "EIA and AIS signals are diverging: Houston tanker activity at {houston_count} vessels ({houston_change} vs avg) does not match the official outlook, suggesting a possible inventory surprise.",
+        "Houston AIS data ({houston_count} vessels, {houston_change} vs avg) contradicts EIA expectations. These divergences have historically preceded inventory surprises.",
+        "A notable gap between EIA forecasts and real-time AIS: Houston zone at {houston_count} vessels ({houston_change} vs average), pointing to a potential mismatch in this week's inventory data.",
+        "AIS vessel tracking shows {houston_count} tankers in Houston ({houston_change} vs avg), diverging from EIA assumptions — watch for an inventory surprise on Wednesday.",
+    ],
+    ("days_of_supply_tight", "disruption"): [
+        "US commercial crude stocks provide {days} days of supply at current consumption rates, {deviation:.1f} days below the 5-year seasonal average — a buffer that shrinks further if the current disruption persists.",
+        "At {days} days of supply ({deviation:.1f} days below seasonal norm), US crude inventory coverage is tight. Extended chokepoint disruptions would further compress this already thin cushion.",
+        "Inventory coverage at {days} days ({deviation:.1f} days below 5Y avg) leaves limited margin for sustained supply disruption. The 4-week trend of {trend:+.1f} days adds to the tightening pressure.",
+        "US crude stocks cover {days} days of consumption, {deviation:.1f} days below seasonal average. Combined with the ongoing supply disruption, the inventory buffer is uncomfortably thin.",
+        "Days of supply at {days} ({deviation:.1f} vs 5Y seasonal) signals tightening fundamentals that could amplify price response to any further supply shock.",
+    ],
+    ("days_of_supply_comfortable", "any"): [
+        "US days of supply at {days} days ({deviation:+.1f} vs 5Y avg) provides a near-term cushion against the ongoing chokepoint disruption.",
+        "Inventory coverage at {days} days of supply ({deviation:+.1f} vs seasonal norm) gives the market some buffer against current supply chain stress.",
+        "At {days} days of supply, US crude inventories sit {deviation:+.1f} days above the 5-year average, providing a degree of insulation from the current disruption.",
+        "US commercial days of supply ({days} days, {deviation:+.1f} vs seasonal) remains comfortable, limiting the urgency of the physical supply disruption.",
+        "With {days} days of inventory coverage ({deviation:+.1f} vs 5Y avg), the US has adequate near-term supply despite the ongoing chokepoint stress.",
     ],
 }
 
@@ -666,6 +697,60 @@ class MarketReportGenerator:
                     )
                 )
 
+        # Freight proxy divergence
+        fp = data.get("freight_proxy") or {}
+        if fp.get("divergence") == "FREIGHT_PROXY_DIVERGENCE":
+            cape_share = data["rerouting"]["cape_share"]
+            parts.append(
+                self._pick_chain(("freight_proxy_divergence", "rerouting_high")).format(
+                    cape_share=round(cape_share, 0),
+                )
+            )
+
+        # Supply-demand balance
+        sd = data.get("supply_demand") or {}
+        if sd.get("balance") is not None:
+            balance = sd["balance"]
+            if abs(balance) > 0.3:
+                direction = "surplus" if balance > 0 else "deficit"
+                parts.append(
+                    self._pick(
+                        [
+                            f"Global supply-demand balance at {balance:+.1f} mb/d ({direction.upper()}) according to EIA STEO.",
+                            f"EIA STEO projects a {abs(balance):.1f} mb/d {direction}, providing {'bearish' if balance > 0 else 'bullish'} macro context.",
+                        ]
+                    )
+                )
+        if sd.get("divergence_type") == "EIA_AIS_DIVERGENCE" and sd.get("houston_count"):
+            houston_dev = sd.get("houston_deviation", 0)
+            change_str = f"{houston_dev:+.0f}% vs avg" if houston_dev else ""
+            parts.append(
+                self._pick_chain(("eia_ais_divergence", "any")).format(
+                    houston_count=sd["houston_count"],
+                    houston_change=change_str,
+                )
+            )
+
+        # Days of supply
+        dos = data.get("days_of_supply") or {}
+        if dos.get("days") and dos.get("deviation") is not None:
+            has_disruption = any(s["severity"] in ("CRITICAL", "HIGH") for s in signals)
+            if dos["assessment"] == "TIGHT" and has_disruption:
+                parts.append(
+                    self._pick_chain(("days_of_supply_tight", "disruption")).format(
+                        days=dos["days"],
+                        deviation=dos["deviation"],
+                        trend=dos.get("trend_4w", 0),
+                    )
+                )
+            elif dos["assessment"] == "COMFORTABLE":
+                parts.append(
+                    self._pick_chain(("days_of_supply_comfortable", "any")).format(
+                        days=dos["days"],
+                        deviation=dos["deviation"],
+                    )
+                )
+
         return " ".join(parts) if parts else None
 
     # === SECTION 5: OUTLOOK + KEY RISKS ===
@@ -781,6 +866,9 @@ class MarketReportGenerator:
             "chokepoints": [],
             "historical_events": [],
             "disruption_duration_days": None,
+            "freight_proxy": None,
+            "supply_demand": None,
+            "days_of_supply": None,
         }
 
         # 1. Disruption score
@@ -973,6 +1061,40 @@ class MarketReportGenerator:
                     }
         except Exception as e:
             logger.debug("Price cache read failed: %s", e)
+
+        # 10. Freight proxy
+        fp = self.db.query(FreightProxyHistory).order_by(FreightProxyHistory.date.desc()).first()
+        if fp:
+            data["freight_proxy"] = {
+                "index": fp.proxy_index,
+                "divergence": fp.divergence_flag,
+                "brent_corr": fp.brent_corr_30d,
+                "rerouting_corr": fp.rerouting_corr_30d,
+            }
+
+        # 11. Supply-demand balance
+        sd = self.db.query(SupplyDemandBalance).order_by(SupplyDemandBalance.date.desc()).first()
+        if sd:
+            data["supply_demand"] = {
+                "balance": sd.implied_balance,
+                "production": sd.world_production,
+                "consumption": sd.world_consumption,
+                "divergence_type": sd.divergence_type,
+                "houston_deviation": sd.houston_deviation,
+                "houston_count": sd.houston_ais_tankers,
+            }
+
+        # 12. Days of supply
+        dos = self.db.query(DaysOfSupplyHistory).order_by(DaysOfSupplyHistory.date.desc()).first()
+        if dos:
+            data["days_of_supply"] = {
+                "days": dos.commercial_days,
+                "total_days": dos.total_days,
+                "avg_5y": dos.avg_5y_days,
+                "deviation": dos.deviation,
+                "trend_4w": dos.trend_4w,
+                "assessment": dos.assessment,
+            }
 
         return data
 
