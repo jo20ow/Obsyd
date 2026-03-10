@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import time
 from datetime import date, datetime, timedelta, timezone
 
@@ -292,7 +293,9 @@ def _gather_data(db) -> dict:
                 if anomalies:
                     last = anomalies[-1]
                     ctx_list = last.get("disruption_context", [])
-                    context = ctx_list[0] if ctx_list else ""
+                    raw = ctx_list[0] if ctx_list else ""
+                    # Strip internal PortWatch type tags like "(OT)"
+                    context = re.sub(r"\s*\([^)]*\)\s*$", "", raw).strip()
                 data["chokepoints"].append(
                     {
                         "zone": result.get("chokepoint", cp),
@@ -532,9 +535,8 @@ def build_report(data: dict | None = None) -> dict:
                 "title": "Market Conditions Normal",
                 "paragraphs": [
                     "No significant supply disruptions detected across monitored chokepoints. All transit corridors are operating within normal parameters.",
-                    "Physical flow indicators — floating storage, rerouting ratios, and tonne-miles — are within baseline ranges.",
-                    "Market structure and refinery margins are not signaling acute supply stress at this time.",
-                    "Continue monitoring for emerging signals. Next EIA inventory report provides the near-term data catalyst.",
+                    "Physical flow indicators — floating storage, rerouting ratios, and tonne-miles — are within baseline ranges. Market structure and refinery margins are not signaling acute supply stress at this time.",
+                    "Key risk: monitor for emerging signals. Next EIA inventory report provides the near-term data catalyst.",
                 ],
                 "signals_active": 0,
                 "disruption_score": data.get("disruption_score", {}).get("composite"),
@@ -649,13 +651,15 @@ def build_report(data: dict | None = None) -> dict:
                 )
 
         # ---------------------------------------------------------------
-        # Paragraph 4: Key Risk — sentiment + summary
+        # Final sentence: always starts with "Key risk:"
         # ---------------------------------------------------------------
-        para4_parts = []
+        key_risk_parts = []
+
+        # Sentiment context
         for s in signals:
             if s["topic"] == "sentiment":
                 template = pick_template(s["key"])
-                para4_parts.append(template.format(**s["params"]))
+                key_risk_parts.append(template.format(**s["params"]))
 
         # Upcoming EIA
         now = datetime.now(timezone.utc)
@@ -666,22 +670,27 @@ def build_report(data: dict | None = None) -> dict:
 
         eia = data.get("eia_prediction")
         if eia and eia["prediction"] != "NEUTRAL":
-            para4_parts.append(f"Next EIA release ({next_eia}): AIS-based model signals a likely {eia['prediction']}.")
+            key_risk_parts.append(
+                f"Next EIA release ({next_eia}): AIS-based model signals a likely {eia['prediction']}."
+            )
 
-        if not para4_parts:
-            para4_parts.append(
-                f"Key risk: monitor chokepoint transit volumes and rerouting patterns "
+        if not key_risk_parts:
+            key_risk_parts.append(
+                f"monitor chokepoint transit volumes and rerouting patterns "
                 f"for confirmation of signal persistence. Next EIA release: {next_eia}."
             )
 
-        # Assemble paragraphs (filter empty)
+        # Prepend "Key risk:" to the assembled sentence
+        key_risk_text = "Key risk: " + " ".join(key_risk_parts)
+
+        # Assemble paragraphs (filter empty) + key risk sentence
         paragraphs = [
             " ".join(para1_parts) if para1_parts else None,
             " ".join(para2_parts) if para2_parts else None,
             " ".join(para3_parts) if para3_parts else None,
-            " ".join(para4_parts) if para4_parts else None,
         ]
         paragraphs = [p for p in paragraphs if p]
+        paragraphs.append(key_risk_text)
 
         return {
             "available": True,
