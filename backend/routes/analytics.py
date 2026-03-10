@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query
 
+from backend.analytics.market_report import get_market_report
 from backend.database import SessionLocal
 from backend.models.analytics import (
     DisruptionScoreHistory,
@@ -120,6 +121,21 @@ async def get_disruption_score(
         }
     finally:
         db.close()
+
+
+@router.get("/market-report")
+async def market_report_endpoint():
+    """Market Intelligence Report — narrative analysis from live signals.
+
+    Pro users get full report. Free users get title + severity + teaser.
+    """
+    report = await get_market_report()
+
+    if not report.get("available"):
+        return {"available": False, "reason": "no data yet"}
+
+    # Full report (no auth gate — teaser logic is frontend-side)
+    return report
 
 
 @router.get("/eia-prediction")
