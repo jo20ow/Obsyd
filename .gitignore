@@ -12,6 +12,8 @@ build/
 .venv/
 venv/
 env/
+node_modules/
+frontend/dist/
 .idea/
 .vscode/
 *.swp

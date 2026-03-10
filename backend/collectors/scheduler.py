@@ -43,6 +43,14 @@ logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
 
+# Shared job defaults: recover from missed runs, prevent overlap
+JOB_DEFAULTS = {
+    "misfire_grace_time": 3600,  # run jobs up to 1h late
+    "coalesce": True,  # if multiple runs missed, execute only once
+    "max_instances": 1,  # prevent parallel runs of the same job
+    "replace_existing": True,
+}
+
 
 async def _run_eia():
     db = SessionLocal()
@@ -81,7 +89,7 @@ def start_scheduler():
         _run_eia,
         CronTrigger(day_of_week="wed", hour=15, minute=0),
         id="eia_weekly",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # FRED: daily at 18:00 UTC (after US markets update)
@@ -89,7 +97,7 @@ def start_scheduler():
         _run_fred,
         CronTrigger(hour=18, minute=0),
         id="fred_daily",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # PortWatch: weekly Tuesday 12:00 UTC
@@ -97,7 +105,7 @@ def start_scheduler():
         collect_portwatch,
         CronTrigger(day_of_week="tue", hour=12, minute=0),
         id="portwatch_weekly",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # NOAA: hurricane/tropical alerts every 30 min
@@ -105,7 +113,7 @@ def start_scheduler():
         collect_noaa_alerts,
         CronTrigger(minute="*/30"),
         id="noaa_30min",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # GDELT: primary keywords every 2 hours (was 15min, caused 429s)
@@ -113,19 +121,19 @@ def start_scheduler():
         collect_gdelt_volume,
         CronTrigger(minute=0, hour="*/2"),
         id="gdelt_primary_2h",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
     scheduler.add_job(
         collect_gdelt_volume_secondary,
         CronTrigger(minute=30),
         id="gdelt_secondary_hourly",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
     scheduler.add_job(
         collect_gdelt_sentiment,
         CronTrigger(hour=14, minute=0),
         id="gdelt_sentiment_daily",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # JODI: monthly on 15th at 10:00 UTC (data usually available mid-month)
@@ -133,18 +141,23 @@ def start_scheduler():
         collect_jodi,
         CronTrigger(day=15, hour=10, minute=0),
         id="jodi_monthly",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # NASA FIRMS: thermal hotspots every 6h
-    scheduler.add_job(collect_firms, CronTrigger(hour="*/6", minute=15), id="firms_6h", replace_existing=True)
+    scheduler.add_job(
+        collect_firms,
+        CronTrigger(hour="*/6", minute=15),
+        id="firms_6h",
+        **JOB_DEFAULTS,
+    )
 
     # PortWatch chokepoint backfill: daily at 06:00 UTC
     scheduler.add_job(
         _run_portwatch_daily,
         CronTrigger(hour=6, minute=0),
         id="portwatch_daily_backfill",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Finnhub news: every 2 hours at :45
@@ -152,7 +165,7 @@ def start_scheduler():
         collect_finnhub_news,
         CronTrigger(minute=45, hour="*/2"),
         id="finnhub_news_2h",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Geofence aggregation: hourly
@@ -160,7 +173,7 @@ def start_scheduler():
         aggregate_geofence_events,
         CronTrigger(minute=5),
         id="geofence_hourly",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Geofence daily aggregation: 23:50 UTC (final end-of-day rollup)
@@ -168,7 +181,7 @@ def start_scheduler():
         aggregate_geofence_daily,
         CronTrigger(hour=23, minute=50),
         id="geofence_daily",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Floating storage detection: every 6 hours
@@ -176,7 +189,7 @@ def start_scheduler():
         detect_floating_storage,
         CronTrigger(hour="*/6", minute=30),
         id="floating_storage",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Sentiment risk score: every 6 hours
@@ -184,7 +197,7 @@ def start_scheduler():
         compute_sentiment_score,
         CronTrigger(hour="*/6", minute=10),
         id="sentiment_6h",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Live prices: refresh yfinance cache every 4 hours
@@ -192,7 +205,7 @@ def start_scheduler():
         refresh_live_prices,
         CronTrigger(hour="2,6,10,14,18,22", minute=0),
         id="live_price_refresh",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Signals: evaluate every 5 minutes
@@ -200,7 +213,7 @@ def start_scheduler():
         evaluate_signals,
         CronTrigger(minute="*/5"),
         id="signals_5min",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Daily fleet summary: 23:55 UTC (before day rollover)
@@ -208,7 +221,7 @@ def start_scheduler():
         create_daily_fleet_summary,
         CronTrigger(hour=23, minute=55),
         id="fleet_summary_daily",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Daily email snapshot: 06:45 UTC
@@ -216,7 +229,7 @@ def start_scheduler():
         send_daily_email,
         CronTrigger(hour=6, minute=45),
         id="daily_email",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Voyage detection: every 2 hours at :20
@@ -224,7 +237,7 @@ def start_scheduler():
         detect_voyages,
         CronTrigger(hour="*/2", minute=20),
         id="voyage_detection_2h",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     # Smart retention: daily 04:00 UTC (thin old vessel_positions)
@@ -232,7 +245,7 @@ def start_scheduler():
         run_retention,
         CronTrigger(hour=4, minute=0),
         id="retention_daily",
-        replace_existing=True,
+        **JOB_DEFAULTS,
     )
 
     scheduler.start()
