@@ -15,6 +15,7 @@ from backend.config import settings
 from backend.database import SessionLocal
 from backend.models.pro_features import EmailSubscriber
 from backend.models.subscription import Subscription
+from backend.models.vessels import FloatingStorageEvent
 from backend.models.waitlist import Waitlist
 from backend.routes.briefing import _build_briefing
 from backend.signals.crack_spread import get_crack_spread
@@ -199,6 +200,24 @@ def _build_subject_line(briefing: dict, rerouting: dict, crack: dict) -> str:
     return " | ".join(parts)
 
 
+def _get_floating_storage_count() -> tuple[int, int]:
+    """Query actual floating storage vessels from FloatingStorageEvent table.
+
+    Returns (total_active, vlcc_count).
+    """
+    db = SessionLocal()
+    try:
+        active = db.query(FloatingStorageEvent).filter(FloatingStorageEvent.status == "active").all()
+        total = len(active)
+        # VLCC: ship_type 80-89 with "VLCC" in name or large vessel indicators
+        vlcc = sum(1 for e in active if e.ship_name and "vlcc" in e.ship_name.lower())
+        return total, vlcc
+    except Exception:
+        return 0, 0
+    finally:
+        db.close()
+
+
 def _build_full_html(briefing: dict, rerouting: dict, crack: dict) -> str:
     """Build the comprehensive email HTML body."""
     now = datetime.now(timezone.utc)
@@ -299,9 +318,8 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict) -> str:
         else '<span style="color:#404040">No active signals</span>'
     )
 
-    # === FLOATING STORAGE ===
-    anchored_alerts = fleet.get("anchored_alerts", [])
-    storage_count = sum(1 for a in anchored_alerts if "storage" in a.get("title", "").lower())
+    # === FLOATING STORAGE (direct query, not from alerts) ===
+    storage_vessels, storage_vlcc = _get_floating_storage_count()
 
     return f"""<!DOCTYPE html>
 <html>
@@ -331,7 +349,7 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict) -> str:
   <span style="color:#e5e5e5;font-weight:bold">{tankers:,}</span> tankers
 </div>
 {f'<div style="font-size:11px;color:#737373;margin-bottom:4px">Zones: {" | ".join(zone_parts)}</div>' if zone_parts else ""}
-{f'<div style="font-size:11px;color:#737373;margin-bottom:12px">Floating Storage: <span style="color:#fb923c">{storage_count} alerts</span></div>' if storage_count > 0 else '<div style="margin-bottom:12px"></div>'}
+{f'<div style="font-size:11px;color:#737373;margin-bottom:12px">Floating Storage: <span style="color:#fb923c;font-weight:bold">{storage_vessels} vessels</span>{f" ({storage_vlcc} VLCCs)" if storage_vlcc > 0 else ""}</div>' if storage_vessels > 0 else '<div style="margin-bottom:12px"></div>'}
 
 <!-- DISRUPTIONS / CHOKEPOINTS -->
 {'<div style="font-size:10px;color:#404040;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a1a2e;padding-bottom:4px">ACTIVE DISRUPTIONS</div><table style="border-collapse:collapse;font-family:Courier New,Courier,monospace;font-size:12px;margin-bottom:12px">' + "".join(cp_rows) + "</table>" if cp_rows else '<div style="font-size:11px;color:#34d399;margin-bottom:12px">All chokepoints within normal range</div>'}
