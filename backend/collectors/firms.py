@@ -71,7 +71,7 @@ async def collect_firms():
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             for area in MONITOR_AREAS:
                 try:
-                    # VIIRS_SNPP_NRT = near-real-time VIIRS data, last 24h
+                    # NASA FIRMS API requires key in URL path (no header auth option)
                     url = f"{FIRMS_URL}/{settings.firms_api_key.get_secret_value()}/VIIRS_SNPP_NRT/{area['bbox']}/1"
                     resp = await client.get(url)
                     resp.raise_for_status()
@@ -118,7 +118,9 @@ async def collect_firms():
                     logger.info(f"FIRMS: {area['name']} — {count} hotspots")
 
                 except httpx.HTTPError as e:
-                    logger.warning(f"FIRMS: fetch failed for {area['name']}: {e}")
+                    # Mask API key in error message (httpx includes full URL)
+                    err_msg = str(e).replace(settings.firms_api_key.get_secret_value(), "***")
+                    logger.warning(f"FIRMS: fetch failed for {area['name']}: {err_msg}")
                     continue
 
         db.commit()

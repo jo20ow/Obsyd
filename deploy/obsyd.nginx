@@ -1,6 +1,14 @@
+# HTTPS is handled by Let's Encrypt / certbot on the VPS.
+# This config shows the HTTP server block only.
+# Certbot auto-generates the SSL server block in /etc/nginx/sites-available/.
+
+# Rate limiting zones
+limit_req_zone $binary_remote_addr zone=api:10m rate=30r/s;
+limit_req_zone $binary_remote_addr zone=collect:10m rate=1r/m;
+
 server {
     listen 80;
-    server_name _;  # Replace with your domain: obsyd.dev www.obsyd.dev
+    server_name obsyd.dev www.obsyd.dev;
 
     # Frontend (Static Files)
     root /home/obsyd/obsyd/frontend/dist;
@@ -11,8 +19,20 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # Collection endpoints — strict rate limit
+    location ~ ^/api/(eia|fred|jodi|thermal)/collect$ {
+        limit_req zone=collect burst=2 nodelay;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
     # API Proxy
     location /api/ {
+        limit_req zone=api burst=60 nodelay;
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

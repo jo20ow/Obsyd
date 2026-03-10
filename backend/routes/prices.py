@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from backend.auth.dependencies import require_pro
 from backend.collectors.eia import EIA_SERIES, collect_eia
 from backend.collectors.fred import FRED_SERIES, collect_fred
 from backend.collectors.portwatch_store import query_oil_prices
@@ -46,7 +47,7 @@ async def list_eia_series():
 
 
 @router.post("/eia/collect")
-async def trigger_eia_collection(db: Session = Depends(get_db)):
+async def trigger_eia_collection(db: Session = Depends(get_db), _user=Depends(require_pro)):
     """Manually trigger EIA data collection."""
     await collect_eia(db)
     return {"status": "ok", "message": "EIA collection complete"}
@@ -248,7 +249,7 @@ async def list_fred_series():
 
 
 @router.post("/fred/collect")
-async def trigger_fred_collection(db: Session = Depends(get_db)):
+async def trigger_fred_collection(db: Session = Depends(get_db), _user=Depends(require_pro)):
     """Manually trigger FRED data collection."""
     await collect_fred(db)
     return {"status": "ok", "message": "FRED collection complete"}

@@ -1,15 +1,14 @@
 import json
 import time
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-
-from backend.database import get_db
-from backend.models.sentiment import GDELTVolume, SentimentScore, NewsHeadline
-from backend.collectors.gdelt import KEYWORDS, _fetch_headlines
-
 import httpx
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from backend.collectors.gdelt import _fetch_headlines
+from backend.database import get_db
+from backend.models.sentiment import GDELTVolume, NewsHeadline, SentimentScore
 
 router = APIRouter(prefix="/api/sentiment", tags=["sentiment"])
 
@@ -37,11 +36,13 @@ async def get_volume(
         kw = r.keyword
         if kw not in by_keyword:
             by_keyword[kw] = []
-        by_keyword[kw].append({
-            "timestamp": r.timestamp,
-            "volume": r.volume,
-            "avg_tone": r.avg_tone,
-        })
+        by_keyword[kw].append(
+            {
+                "timestamp": r.timestamp,
+                "volume": r.volume,
+                "avg_tone": r.avg_tone,
+            }
+        )
 
     return {
         "source": "GDELT DOC 2.0",
@@ -59,12 +60,7 @@ async def get_headlines(db: Session = Depends(get_db)):
         return {"source": _headlines_cache_source, "articles": _headlines_cache, "cached": True}
 
     # Try Finnhub headlines from DB first
-    finnhub_rows = (
-        db.query(NewsHeadline)
-        .order_by(NewsHeadline.published_at.desc())
-        .limit(15)
-        .all()
-    )
+    finnhub_rows = db.query(NewsHeadline).order_by(NewsHeadline.published_at.desc()).limit(15).all()
 
     if finnhub_rows:
         formatted = [
@@ -108,11 +104,7 @@ async def get_headlines(db: Session = Depends(get_db)):
 @router.get("/risk")
 async def get_risk_score(db: Session = Depends(get_db)):
     """Get sentiment risk score (rule-based from GDELT tone, or LLM-based if configured)."""
-    latest = (
-        db.query(SentimentScore)
-        .order_by(SentimentScore.date.desc())
-        .first()
-    )
+    latest = db.query(SentimentScore).order_by(SentimentScore.date.desc()).first()
 
     if not latest:
         return {"available": False, "score": None}

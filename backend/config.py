@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     firms_api_key: Optional[SecretStr] = None
 
     # App secret (for HMAC tokens)
-    secret_key: str = "obsyd-change-me-in-production"
+    secret_key: SecretStr = SecretStr("obsyd-change-me-in-production")
 
     # Resend (email)
     resend_api_key: Optional[SecretStr] = None
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     lemonsqueezy_checkout_url: str = "https://obsyd.lemonsqueezy.com/buy/placeholder"
 
     # JWT
-    jwt_secret: str = "obsyd-jwt-change-me-in-production"
+    jwt_secret: SecretStr = SecretStr("obsyd-jwt-change-me-in-production")
     jwt_expiry_days: int = 30
 
     # LLM (BYOK)

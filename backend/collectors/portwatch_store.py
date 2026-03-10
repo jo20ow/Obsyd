@@ -453,17 +453,9 @@ FRED_OIL_SERIES = {
 
 def fetch_oil_prices(days: int = 365, fred_api_key: str | None = None) -> list[dict]:
     """Fetch daily WTI + Brent prices from FRED API."""
-    import os
+    from backend.config import settings
 
-    key = fred_api_key or os.environ.get("FRED_API_KEY", "")
-    if not key:
-        # Try loading from .env in project root
-        env_path = Path(__file__).parent.parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("FRED_API_KEY="):
-                    key = line.split("=", 1)[1].strip()
-                    break
+    key = fred_api_key or (settings.fred_api_key.get_secret_value() if settings.fred_api_key else "")
     if not key:
         return []
 

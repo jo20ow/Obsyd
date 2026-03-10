@@ -43,6 +43,16 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Phase 1: DB + Scheduler (no I/O, instant)
     init_db()
+
+    # Reject insecure default secrets
+    from backend.config import settings
+
+    for name in ("secret_key", "jwt_secret"):
+        val = getattr(settings, name)
+        raw = val.get_secret_value() if hasattr(val, "get_secret_value") else val
+        if "change-me" in raw:
+            logger.warning("SECURITY: %s uses default value — set it in .env before production!", name)
+
     start_scheduler()
     logger.info("Startup: DB initialized, scheduler started")
 

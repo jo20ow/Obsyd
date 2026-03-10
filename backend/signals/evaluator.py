@@ -32,7 +32,7 @@ def _compute_zone_stats(db: Session, zone_name: str) -> dict:
         db.query(func.max(VesselPosition.id))
         .filter(VesselPosition.zone == zone_name)
         .group_by(VesselPosition.mmsi)
-        .subquery()
+        .scalar_subquery()
     )
     positions = db.query(VesselPosition).filter(VesselPosition.id.in_(latest_ids)).all()
 

@@ -44,7 +44,9 @@ def create_token(email: str, subscription_status: str = "free", expiry_days: int
     }
     header = _b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
     body = _b64encode(json.dumps(payload).encode())
-    sig = hmac.new(settings.jwt_secret.encode(), f"{header}.{body}".encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(
+        settings.jwt_secret.get_secret_value().encode(), f"{header}.{body}".encode(), hashlib.sha256
+    ).hexdigest()
     return f"{header}.{body}.{sig}"
 
 
@@ -59,7 +61,9 @@ def create_magic_token(email: str) -> str:
     }
     header = _b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
     body = _b64encode(json.dumps(payload).encode())
-    sig = hmac.new(settings.jwt_secret.encode(), f"{header}.{body}".encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(
+        settings.jwt_secret.get_secret_value().encode(), f"{header}.{body}".encode(), hashlib.sha256
+    ).hexdigest()
     return f"{header}.{body}.{sig}"
 
 
@@ -70,7 +74,9 @@ def verify_token(token: str) -> dict | None:
         if len(parts) != 3:
             return None
         header, body, sig = parts
-        expected_sig = hmac.new(settings.jwt_secret.encode(), f"{header}.{body}".encode(), hashlib.sha256).hexdigest()
+        expected_sig = hmac.new(
+            settings.jwt_secret.get_secret_value().encode(), f"{header}.{body}".encode(), hashlib.sha256
+        ).hexdigest()
         if not hmac.compare_digest(sig, expected_sig):
             return None
         payload = json.loads(_b64decode(body))

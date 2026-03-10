@@ -17,4 +17,6 @@ env/
 *.swp
 *.swo
 *~
+data/
 .DS_Store
+STATUS_REPORT.md

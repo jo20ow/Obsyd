@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from backend.auth.dependencies import require_pro
+from backend.collectors.firms import PROXIMITY_KM, REFINERIES, _haversine_km, collect_firms
 from backend.database import get_db
 from backend.models.thermal import ThermalHotspot
-from backend.collectors.firms import collect_firms, REFINERIES, PROXIMITY_KM, _haversine_km
 
 router = APIRouter(prefix="/api/thermal", tags=["thermal"])
 
@@ -41,25 +42,28 @@ async def get_refinery_status(db: Session = Depends(get_db)):
     result = []
     for ref in REFINERIES:
         nearby = [
-            h for h in hotspots
+            h
+            for h in hotspots
             if h.area_name == ref["area"]
             and _haversine_km(ref["lat"], ref["lon"], h.latitude, h.longitude) <= PROXIMITY_KM
         ]
-        result.append({
-            "name": ref["name"],
-            "lat": ref["lat"],
-            "lon": ref["lon"],
-            "area": ref["area"],
-            "active": len(nearby) > 0,
-            "hotspot_count": len(nearby),
-            "max_brightness": max((h.brightness for h in nearby), default=0),
-        })
+        result.append(
+            {
+                "name": ref["name"],
+                "lat": ref["lat"],
+                "lon": ref["lon"],
+                "area": ref["area"],
+                "active": len(nearby) > 0,
+                "hotspot_count": len(nearby),
+                "max_brightness": max((h.brightness for h in nearby), default=0),
+            }
+        )
 
     return result
 
 
 @router.post("/collect")
-async def trigger_firms_collection():
+async def trigger_firms_collection(_user=Depends(require_pro)):
     """Manually trigger FIRMS data collection."""
     await collect_firms()
     return {"status": "ok", "message": "FIRMS collection complete"}

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 
+from backend.auth.dependencies import require_pro
+from backend.collectors.jodi import collect_jodi
 from backend.database import get_db
 from backend.models.jodi import JODIProduction
-from backend.collectors.jodi import collect_jodi
 
 router = APIRouter(prefix="/api/jodi", tags=["jodi"])
 
@@ -51,8 +52,7 @@ async def get_jodi_summary(db: Session = Depends(get_db)):
         db.query(JODIProduction)
         .join(
             latest,
-            (JODIProduction.country == latest.c.country)
-            & (JODIProduction.date == latest.c.max_date),
+            (JODIProduction.country == latest.c.country) & (JODIProduction.date == latest.c.max_date),
         )
         .order_by(JODIProduction.production.desc())
         .all()
@@ -72,7 +72,7 @@ async def get_jodi_summary(db: Session = Depends(get_db)):
 
 
 @router.post("/collect")
-async def trigger_jodi_collection():
+async def trigger_jodi_collection(_user=Depends(require_pro)):
     """Manually trigger JODI data collection."""
     await collect_jodi()
     return {"status": "ok", "message": "JODI collection complete"}
