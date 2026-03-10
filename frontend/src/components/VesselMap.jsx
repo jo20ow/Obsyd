@@ -623,7 +623,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                     {(z.name || '').toUpperCase()}
                   </span>
                   {z.no_ais_coverage ? (
-                    <span className="font-mono text-[9px] text-neutral-700">PW ONLY</span>
+                    <span className="font-mono text-[9px] text-neutral-700">PortWatch Data</span>
                   ) : total > 0 ? (
                     <span className="font-mono text-[10px] text-green-glow">{total}</span>
                   ) : null}

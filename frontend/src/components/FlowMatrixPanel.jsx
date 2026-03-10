@@ -96,8 +96,8 @@ export default function FlowMatrixPanel() {
         </div>
       )}
       {!loading && zones.length === 0 && (
-        <div className="px-4 py-6 text-center font-mono text-[10px] text-neutral-600">
-          No flow data yet. Voyages are detected as tankers transit between zones.
+        <div className="px-4 py-6 text-center font-mono text-[10px] text-neutral-600 italic">
+          Building flow data — requires multi-zone vessel observations.
         </div>
       )}
       {!loading && zones.length > 0 && (

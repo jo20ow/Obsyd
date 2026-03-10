@@ -67,7 +67,7 @@ function CustomTooltip({ active, payload, label }) {
   )
 }
 
-function DisruptionBanner({ disruptions }) {
+export function DisruptionBanner({ disruptions }) {
   if (!disruptions || disruptions.length === 0) return null
 
   return (
@@ -204,7 +204,6 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
 
   const chartData = pwHistory.map((d) => ({
     date: d.date,
-    n_total: d.n_total,
     n_tanker: d.n_tanker,
     brent: brentMap[d.date] ?? null,
   }))
@@ -270,22 +269,10 @@ function HistoryChart({ name, history, oilPrices, timeframe, onTimeframeChange }
           <Line
             yAxisId="left"
             type="monotone"
-            dataKey="n_total"
-            name="Total Vessels"
-            stroke="#00e5ff"
-            strokeWidth={1.5}
-            dot={false}
-            activeDot={{ r: 3 }}
-            connectNulls={false}
-          />
-          <Line
-            yAxisId="left"
-            type="monotone"
             dataKey="n_tanker"
             name="Tanker"
-            stroke="#00ff9d"
-            strokeWidth={1}
-            strokeDasharray="4 3"
+            stroke="#00e5ff"
+            strokeWidth={1.5}
             dot={false}
             activeDot={{ r: 3 }}
             connectNulls={false}
@@ -383,8 +370,6 @@ export default function ChokePointMonitor() {
 
   return (
     <div id="chokepoint-monitor">
-      <DisruptionBanner disruptions={disruptions} />
-
       <div className="border border-border bg-surface rounded px-4 py-3">
         <div className="flex items-center gap-2 mb-3">
           <span className="font-mono text-[10px] text-neutral-600 tracking-wider">CHOKEPOINT MONITOR // IMF PORTWATCH</span>

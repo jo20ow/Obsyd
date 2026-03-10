@@ -72,8 +72,8 @@ export default function VoyagesPanel({ onFlyToZone }) {
           </div>
         )}
         {!loading && voyages.length === 0 && (
-          <div className="px-4 py-6 text-center font-mono text-[10px] text-neutral-600">
-            No voyages detected yet. Data populates as tankers transit between zones.
+          <div className="px-4 py-6 text-center font-mono text-[10px] text-neutral-600 italic">
+            Collecting data — first voyages appear when tankers are tracked across multiple zones (typically 1-2 weeks).
           </div>
         )}
         {!loading && voyages.length > 0 && (

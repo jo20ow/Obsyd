@@ -180,7 +180,12 @@ export default function ZoneActivityChart() {
           {loading && <span className="font-mono text-[10px] text-neutral-600 animate-pulse">...</span>}
         </div>
       </div>
-      <div ref={containerRef} className="h-[250px] w-full" />
+      <div className="relative">
+        <span className="absolute left-1 top-1/2 -translate-y-1/2 -rotate-90 font-mono text-[9px] text-neutral-600 tracking-wider whitespace-nowrap pointer-events-none z-10 origin-center">
+          VESSELS IN ZONE (AIS)
+        </span>
+        <div ref={containerRef} className="h-[250px] w-full" />
+      </div>
       {!loading && zones.length === 0 && (
         <div className="px-4 py-4 font-mono text-[10px] text-neutral-600 text-center">
           No zone activity data yet. Data populates after daily aggregation runs.

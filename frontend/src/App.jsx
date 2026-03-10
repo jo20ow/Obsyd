@@ -8,7 +8,7 @@ import VesselMap from './components/VesselMap'
 import AlertsPanel from './components/AlertsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
-import ChokePointMonitor from './components/ChokePointMonitor'
+import ChokePointMonitor, { DisruptionBanner } from './components/ChokePointMonitor'
 import CorrelationPanel from './components/CorrelationPanel'
 import BriefingPanel from './components/BriefingPanel'
 import MarketStructure from './components/MarketStructure'
@@ -108,6 +108,7 @@ function App() {
   const [aisActive, setAisActive] = useState(false)
   const [gdeltActive, setGdeltActive] = useState(false)
   const [weatherAlerts, setWeatherAlerts] = useState([])
+  const [disruptions, setDisruptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -169,6 +170,11 @@ function App() {
           .then((r) => (r.ok ? r.json() : []))
           .then(setWeatherAlerts)
           .catch((e) => console.error('Weather alerts fetch:', e))
+
+        fetch(`${API}/portwatch/summary`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (d?.disruptions) setDisruptions(d.disruptions) })
+          .catch(() => {})
       } catch (e) {
         setError(e.message)
       } finally {
@@ -255,8 +261,9 @@ function App() {
         </div>
       </div>
 
-      {/* ===== TAB NAVIGATION ===== */}
+      {/* ===== DISRUPTIONS + TAB NAVIGATION ===== */}
       <div className="mt-4">
+        <DisruptionBanner disruptions={disruptions} />
         <TabBar active={activeTab} onChange={setActiveTab} />
       </div>
 
