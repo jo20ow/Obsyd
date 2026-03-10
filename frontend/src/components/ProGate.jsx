@@ -17,8 +17,7 @@ export default function ProGate({ children, feature = 'This feature' }) {
           </svg>
           <span className="text-[11px] text-neutral-400">{feature}</span>
           <span className="text-[10px] text-neutral-600">—</span>
-          <span className="text-[10px] text-cyan-glow/60">Unlock with Pro</span>
-          <span className="text-[10px] text-neutral-600">€9/mo</span>
+          <span className="text-[10px] text-cyan-glow/60">PRO — COMING SOON</span>
         </div>
       </div>
     </div>
