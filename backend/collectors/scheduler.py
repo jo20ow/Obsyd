@@ -19,7 +19,9 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from backend.collectors.crack_spreads import collect_crack_spreads
 from backend.collectors.eia import collect_eia
+from backend.collectors.equities import collect_equities
 from backend.collectors.finnhub_news import collect_finnhub_news
 from backend.collectors.firms import collect_firms
 from backend.collectors.fleet_summary import create_daily_fleet_summary
@@ -224,10 +226,26 @@ def start_scheduler():
         **JOB_DEFAULTS,
     )
 
-    # Daily email snapshot: 06:45 UTC
+    # Crack spread history: daily 22:00 UTC (after US market close)
+    scheduler.add_job(
+        collect_crack_spreads,
+        CronTrigger(hour=22, minute=0),
+        id="crack_spreads_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # Equities snapshot: daily 22:30 UTC (after crack spreads)
+    scheduler.add_job(
+        collect_equities,
+        CronTrigger(hour=22, minute=30),
+        id="equities_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # Daily briefing email: 07:00 UTC (before European market open)
     scheduler.add_job(
         send_daily_email,
-        CronTrigger(hour=6, minute=45),
+        CronTrigger(hour=7, minute=0),
         id="daily_email",
         **JOB_DEFAULTS,
     )
@@ -255,7 +273,8 @@ def start_scheduler():
         "JODI (monthly 15th), Live prices (every 4h), Signals (every 5min), "
         "Fleet summary (daily 23:55), Geofence daily (23:50), "
         "Floating storage (every 6h), Voyages (every 2h), "
-        "Daily email (06:45), Retention (daily 04:00) | "
+        "Crack spreads (daily 22:00), Equities (daily 22:30), "
+        "Daily email (07:00), Retention (daily 04:00) | "
         "FIRMS (every 6h) | NOAA (every 30min)"
     )
 

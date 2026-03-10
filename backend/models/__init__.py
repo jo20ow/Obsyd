@@ -5,6 +5,9 @@ from backend.models.ports import Disruption as Disruption
 from backend.models.ports import PortActivity as PortActivity
 from backend.models.prices import EIAPrice as EIAPrice
 from backend.models.prices import FREDSeries as FREDSeries
+from backend.models.pro_features import CrackSpreadHistory as CrackSpreadHistory
+from backend.models.pro_features import EmailSubscriber as EmailSubscriber
+from backend.models.pro_features import EquitySnapshot as EquitySnapshot
 from backend.models.sentiment import GDELTVolume as GDELTVolume
 from backend.models.sentiment import NewsHeadline as NewsHeadline
 from backend.models.sentiment import SentimentScore as SentimentScore

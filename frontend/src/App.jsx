@@ -319,7 +319,21 @@ function App() {
               </ErrorBoundary>
             </div>
 
-            {/* Row 3: Correlation Heatmap */}
+            {/* Row 3: Crack Spread + Related Equities [PRO] */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+              <ErrorBoundary name="crack-spread-market">
+                <ProGate feature="Crack Spreads">
+                  <CrackSpreadPanel />
+                </ProGate>
+              </ErrorBoundary>
+              <ErrorBoundary name="equities-market">
+                <ProGate feature="Related Equities">
+                  <RelatedEquitiesPanel />
+                </ProGate>
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 4: Correlation Heatmap */}
             <ErrorBoundary name="correlation">
               <div className="mt-3">
                 <CorrelationPanel />

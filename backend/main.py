@@ -22,6 +22,7 @@ from backend.database import init_db
 from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
+from backend.routes import email as email_routes
 from backend.routes import jodi as jodi_routes
 from backend.routes import portwatch as portwatch_routes
 from backend.routes import settings as settings_routes
@@ -97,6 +98,14 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(create_daily_fleet_summary())
     logger.info("Startup: Fleet summary scheduled")
 
+    # Pro features: backfill crack spreads + equities if empty
+    from backend.collectors.crack_spreads import collect_crack_spreads
+    from backend.collectors.equities import collect_equities
+
+    asyncio.create_task(collect_crack_spreads())
+    asyncio.create_task(collect_equities())
+    logger.info("Startup: Crack spreads + equities collection started (background)")
+
     logger.info("Startup complete")
     yield
     stop_aishub()
@@ -144,4 +153,5 @@ app.include_router(briefing_routes.router)
 app.include_router(waitlist_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(webhooks_routes.router)
+app.include_router(email_routes.router)
 app.include_router(voyages.router)
