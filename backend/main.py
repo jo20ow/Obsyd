@@ -106,6 +106,18 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(collect_equities())
     logger.info("Startup: Crack spreads + equities collection started (background)")
 
+    # STS detection initial run
+    from backend.collectors.sts_collector import collect_sts_events
+
+    asyncio.create_task(collect_sts_events())
+    logger.info("Startup: STS detection started (background)")
+
+    # Daily Briefing Email status
+    if settings.resend_api_key:
+        logger.info("Daily Briefing Email: enabled (RESEND_API_KEY configured)")
+    else:
+        logger.info("Daily Briefing Email: disabled (no RESEND_API_KEY)")
+
     logger.info("Startup complete")
     yield
     stop_aishub()

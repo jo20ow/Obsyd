@@ -37,7 +37,7 @@ export default function WaitlistSignup() {
         OBSYD PRO — COMING SOON
       </div>
       <div className="text-[10px] text-neutral-500 leading-relaxed mb-2.5">
-        LNG Tracking, Crack Spreads, Smart Alerts, Daily Briefing Email.
+        STS Detection · Crack Spreads · Related Equities · Daily Briefing Email
       </div>
 
       {done ? (

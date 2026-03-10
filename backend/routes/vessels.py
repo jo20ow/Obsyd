@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.auth.dependencies import require_pro
 from backend.database import get_db
 from backend.geofences.zones import LNG_TERMINALS, NO_AIS_COVERAGE, STS_HOTSPOTS, ZONES
 from backend.models.vessels import (
@@ -13,7 +14,6 @@ from backend.models.vessels import (
     VesselPosition,
     VesselRegistry,
 )
-from backend.signals.sts_detection import get_sts_summary
 from backend.signals.vessel_weight import classify_vessel, compute_weighted_count
 
 router = APIRouter(prefix="/api/vessels", tags=["vessels"])
@@ -213,16 +213,72 @@ async def get_weighted_vessels(
 
 
 @router.get("/sts")
-async def get_sts_intelligence(db: Session = Depends(get_db)):
-    """STS transfer detection + dark activity tracking.
+async def get_sts_intelligence(
+    user: dict = Depends(require_pro),
+    db: Session = Depends(get_db),
+):
+    """STS transfer detection + dark activity tracking (Pro only).
 
     Returns:
-    - sts_candidates: tankers anchored in known STS hotspots (SOG < 1 kn)
+    - sts_events: persisted STS candidate/proximity events
     - dark_vessels: tankers with no AIS signal for >48h
-    - proximity_pairs: two tankers within 500m of each other in STS zones
     - hotspots: STS hotspot zone definitions
     """
-    return get_sts_summary(db)
+    from backend.models.pro_features import STSEvent
+
+    # Read persisted events (active + last 7 days resolved)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    events = (
+        db.query(STSEvent)
+        .filter((STSEvent.status == "active") | (STSEvent.last_seen >= cutoff))
+        .order_by(STSEvent.last_seen.desc())
+        .all()
+    )
+
+    from backend.signals.sts_detection import detect_dark_vessels
+
+    dark = detect_dark_vessels(db)
+
+    return {
+        "sts_candidates": [
+            {
+                "mmsi": e.mmsi_1,
+                "ship_name": e.ship_name_1,
+                "class": e.ship_class_1,
+                "lat": e.lat,
+                "lon": e.lon,
+                "sog": None,
+                "zone": e.zone,
+                "sts_hotspot": e.zone,
+                "sts_display": e.zone.replace("sts_", "").replace("_", " ").title(),
+                "timestamp": e.last_seen.isoformat() if e.last_seen else None,
+                "age_hours": round(e.duration_hours or 0, 1),
+                "event_type": e.event_type,
+                "status": e.status,
+                "mmsi_2": e.mmsi_2,
+                "ship_name_2": e.ship_name_2,
+                "distance_m": e.distance_m,
+            }
+            for e in events
+        ],
+        "sts_candidate_count": sum(1 for e in events if e.event_type == "candidate"),
+        "dark_vessels": dark,
+        "dark_vessel_count": len(dark),
+        "proximity_pairs": [
+            {
+                "vessel_1": {"mmsi": e.mmsi_1, "ship_name": e.ship_name_1, "class": e.ship_class_1},
+                "vessel_2": {"mmsi": e.mmsi_2, "ship_name": e.ship_name_2, "class": e.ship_class_2},
+                "distance_km": round((e.distance_m or 0) / 1000, 3),
+                "hotspot": e.zone,
+            }
+            for e in events
+            if e.event_type == "proximity"
+        ],
+        "proximity_pair_count": sum(1 for e in events if e.event_type == "proximity"),
+        "hotspots": [
+            {"name": h["name"], "display_name": h["display_name"], "bounds": h["bounds"]} for h in STS_HOTSPOTS
+        ],
+    }
 
 
 @router.get("/floating-storage")

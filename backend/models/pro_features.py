@@ -1,4 +1,4 @@
-"""Models for Pro features: Crack Spread History, Equity Snapshots, Email Subscribers."""
+"""Models for Pro features: Crack Spread History, Equity Snapshots, Email Subscribers, STS Events."""
 
 from datetime import datetime
 
@@ -6,6 +6,27 @@ from sqlalchemy import Boolean, DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
+
+
+class STSEvent(Base):
+    __tablename__ = "sts_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mmsi_1: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    ship_name_1: Mapped[str | None] = mapped_column(String, nullable=True)
+    ship_class_1: Mapped[str | None] = mapped_column(String, nullable=True)
+    mmsi_2: Mapped[str | None] = mapped_column(String, nullable=True)
+    ship_name_2: Mapped[str | None] = mapped_column(String, nullable=True)
+    ship_class_2: Mapped[str | None] = mapped_column(String, nullable=True)
+    event_type: Mapped[str] = mapped_column(String, nullable=False, index=True)  # "candidate" or "proximity"
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lon: Mapped[float] = mapped_column(Float, nullable=False)
+    distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_hours: Mapped[float] = mapped_column(Float, default=0)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    status: Mapped[str] = mapped_column(String, default="active")  # "active" or "resolved"
 
 
 class CrackSpreadHistory(Base):

@@ -33,6 +33,7 @@ from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.collectors.retention import run_retention
+from backend.collectors.sts_collector import collect_sts_events
 from backend.database import SessionLocal
 from backend.notifications.daily_email import send_daily_email
 from backend.providers.price_provider import get_live_prices as refresh_live_prices
@@ -258,6 +259,14 @@ def start_scheduler():
         **JOB_DEFAULTS,
     )
 
+    # STS detection: every 4 hours at :40
+    scheduler.add_job(
+        collect_sts_events,
+        CronTrigger(hour="*/4", minute=40),
+        id="sts_detection_4h",
+        **JOB_DEFAULTS,
+    )
+
     # Smart retention: daily 04:00 UTC (thin old vessel_positions)
     scheduler.add_job(
         run_retention,
@@ -274,8 +283,8 @@ def start_scheduler():
         "Fleet summary (daily 23:55), Geofence daily (23:50), "
         "Floating storage (every 6h), Voyages (every 2h), "
         "Crack spreads (daily 22:00), Equities (daily 22:30), "
-        "Daily email (07:00), Retention (daily 04:00) | "
-        "FIRMS (every 6h) | NOAA (every 30min)"
+        "STS detection (every 4h), Daily email (07:00), "
+        "Retention (daily 04:00) | FIRMS (every 6h) | NOAA (every 30min)"
     )
 
 
