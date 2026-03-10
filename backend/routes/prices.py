@@ -102,8 +102,8 @@ _EQUITY_TTL = 300  # 5 min
 
 
 @router.get("/equities")
-async def get_related_equities():
-    """Related energy equities — tanker and LNG shipping stocks."""
+async def get_related_equities(_user=Depends(require_pro)):
+    """Related energy equities — tanker and LNG shipping stocks. Pro only."""
     import time as _time
 
     global _equity_cache, _equity_cache_ts

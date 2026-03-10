@@ -42,8 +42,8 @@ async def get_rerouting_index(
 
 
 @router.get("/crack-spread")
-async def get_crack_spread_endpoint():
-    """3:2:1 crack spread — refinery profitability indicator (live)."""
+async def get_crack_spread_endpoint(_user=Depends(require_pro)):
+    """3:2:1 crack spread — refinery profitability indicator (live). Pro only."""
     return await get_crack_spread()
 
 

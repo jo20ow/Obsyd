@@ -23,9 +23,9 @@ export default function CrackSpreadPanel() {
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
 
-  // Fetch live crack spread (no auth needed for basic view)
+  // Fetch live crack spread (Pro auth required)
   useEffect(() => {
-    fetch(`${API}/signals/crack-spread`)
+    fetch(`${API}/signals/crack-spread`, { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then(setLiveData)
       .catch(() => {})
