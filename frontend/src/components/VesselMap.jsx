@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { InfoPopover } from './Panel'
+import { useMode } from '../context/ModeContext'
 import { Map as MapGL } from 'react-map-gl/maplibre'
 import DeckGL from '@deck.gl/react'
 import { ScatterplotLayer, PolygonLayer, TextLayer } from '@deck.gl/layers'
@@ -52,7 +53,20 @@ function shipTypeLabel(t) {
   return `Type ${t ?? '?'}`
 }
 
-function shipColor(t, sog) {
+const LNG_KEYWORDS = ['LNG', 'GAS', 'METHANE', 'ARCTIC', 'CLEAN OCEAN']
+
+function isLngCarrier(v) {
+  if (!v?.ship_name) return false
+  const name = v.ship_name.toUpperCase()
+  return LNG_KEYWORDS.some((kw) => name.includes(kw))
+}
+
+function shipColor(t, sog, vessel, fsSet) {
+  if (vessel && fsSet?.has(vessel.mmsi)) return [255, 140, 0, 240] // floating storage = orange
+  if (vessel && isLngCarrier(vessel)) {
+    if ((sog ?? 0) < 0.5) return [255, 180, 0, 220]
+    return [245, 200, 60, 220]
+  }
   if (isTankerType(t)) {
     if ((sog ?? 0) < 0.5) return [255, 80, 80, 220]
     return [0, 229, 255, 220]
@@ -125,6 +139,7 @@ function normalizeVessel(v) {
 }
 
 export default function VesselMap({ zones = [], weatherAlerts = [] }) {
+  const { mode: dashMode } = useMode()
   const [vessels, setVessels] = useState([])
   const [globalVessels, setGlobalVessels] = useState([])
   const [mode, setMode] = useState('global')
@@ -133,7 +148,9 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
   const [thermalAvailable, setThermalAvailable] = useState(false)
   const [portwatch, setPortwatch] = useState(null)
   const [marine, setMarine] = useState({})
+  const [floatingStorage, setFloatingStorage] = useState([])
   const [viewState, setViewState] = useState(INITIAL_VIEW)
+  const [legendOpen, setLegendOpen] = useState(true)
 
   const hurricanes = useMemo(
     () => (Array.isArray(weatherAlerts) ? weatherAlerts : []).filter((a) => a && a.latitude && a.longitude),
@@ -174,6 +191,11 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
         }
       })
       .catch(() => {})
+
+    fetch(`${API}/vessels/floating-storage`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.events) setFloatingStorage(d.events.filter((e) => e.status === 'active')) })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -184,18 +206,27 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
 
   const isGlobal = mode === 'global'
 
-  // Normalize + merge vessels, dedup by MMSI
+  // Normalize + merge vessels, dedup by MMSI, filter by dashboard mode
   const displayVessels = useMemo(() => {
     const normalized = vessels.map(normalizeVessel).filter(Boolean)
-    if (!isGlobal) return normalized
-    const byMmsi = new Map()
-    for (const v of normalized) byMmsi.set(v.mmsi, v)
-    for (const v of globalVessels) {
-      const nv = normalizeVessel(v)
-      if (nv && !byMmsi.has(nv.mmsi)) byMmsi.set(nv.mmsi, nv)
+    let merged
+    if (!isGlobal) {
+      merged = normalized
+    } else {
+      const byMmsi = new Map()
+      for (const v of normalized) byMmsi.set(v.mmsi, v)
+      for (const v of globalVessels) {
+        const nv = normalizeVessel(v)
+        if (nv && !byMmsi.has(nv.mmsi)) byMmsi.set(nv.mmsi, nv)
+      }
+      merged = Array.from(byMmsi.values())
     }
-    return Array.from(byMmsi.values())
-  }, [isGlobal, vessels, globalVessels])
+
+    // Apply dashboard mode filter
+    if (dashMode === 'lng') return merged.filter((v) => isLngCarrier(v))
+    if (dashMode === 'crude') return merged.filter((v) => v.is_tanker && !isLngCarrier(v))
+    return merged
+  }, [isGlobal, vessels, globalVessels, dashMode])
 
   // Pre-compute filtered datasets
   const { tankerCount, anchoredCount, anchorRings, globalNonTankers, mainVessels, globalTankerCount, globalNonTankerCount } = useMemo(() => {
@@ -215,20 +246,33 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
     }
   }, [displayVessels, isGlobal])
 
+  // Floating storage MMSI set for layer coloring
+  const floatingStorageMmsis = useMemo(
+    () => new Set(floatingStorage.map((e) => e.mmsi)),
+    [floatingStorage],
+  )
+
   // Stable thermal data — always present, just empty when off
   const thermalLayerData = useMemo(
     () => (showThermal ? thermalData : []),
     [showThermal, thermalData],
   )
 
+  // Filter zones by dashboard mode
+  const filteredZones = useMemo(() => {
+    if (dashMode === 'crude') return zones.filter((z) => !z.is_lng_terminal)
+    if (dashMode === 'lng') return zones.filter((z) => !z.is_sts)
+    return zones
+  }, [zones, dashMode])
+
   // Build layers — ALWAYS the same layer IDs to avoid DeckGL destroy/recreate crashes
   const layers = useMemo(() => [
     new PolygonLayer({
       id: 'geofences',
-      data: zones,
+      data: filteredZones,
       getPolygon: (z) => zoneToPoly(z.bounds),
-      getFillColor: (z) => z.is_sts ? [255, 160, 0, 12] : z.no_ais_coverage ? [120, 120, 140, 8] : [0, 229, 255, 18],
-      getLineColor: (z) => z.is_sts ? [255, 160, 0, 60] : z.no_ais_coverage ? [120, 120, 140, 40] : [0, 229, 255, 80],
+      getFillColor: (z) => z.is_lng_terminal ? [245, 200, 60, 12] : z.is_sts ? [255, 160, 0, 12] : z.no_ais_coverage ? [120, 120, 140, 8] : [0, 229, 255, 18],
+      getLineColor: (z) => z.is_lng_terminal ? [245, 200, 60, 70] : z.is_sts ? [255, 160, 0, 60] : z.no_ais_coverage ? [120, 120, 140, 40] : [0, 229, 255, 80],
       getLineWidth: 1,
       lineWidthUnits: 'pixels',
       filled: true,
@@ -237,10 +281,10 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
     }),
     new TextLayer({
       id: 'zone-labels',
-      data: zones,
+      data: filteredZones,
       getPosition: (z) => zoneCenter(z.bounds),
       getText: (z) => (z.name || '').toUpperCase(),
-      getColor: (z) => z.is_sts ? [255, 160, 0, 100] : z.no_ais_coverage ? [120, 120, 140, 80] : [0, 229, 255, 120],
+      getColor: (z) => z.is_lng_terminal ? [245, 200, 60, 110] : z.is_sts ? [255, 160, 0, 100] : z.no_ais_coverage ? [120, 120, 140, 80] : [0, 229, 255, 120],
       getSize: 11,
       fontFamily: 'JetBrains Mono, monospace',
       fontWeight: 700,
@@ -273,7 +317,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
       radiusUnits: 'pixels',
       radiusMinPixels: 1,
       radiusMaxPixels: 4,
-      getFillColor: (d) => shipColor(d.ship_type, d.sog),
+      getFillColor: (d) => shipColor(d.ship_type, d.sog, d, floatingStorageMmsis),
       pickable: true,
       updateTriggers: { getPosition: [globalNonTankers.length] },
     }),
@@ -285,7 +329,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
       radiusUnits: 'pixels',
       radiusMinPixels: 3,
       radiusMaxPixels: 8,
-      getFillColor: (d) => shipColor(d.ship_type, d.sog),
+      getFillColor: (d) => shipColor(d.ship_type, d.sog, d, floatingStorageMmsis),
       pickable: true,
       updateTriggers: {
         getFillColor: [mainVessels.length],
@@ -327,7 +371,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
       filled: true,
       pickable: true,
     }),
-  ], [zones, anchorRings, globalNonTankers, mainVessels, thermalLayerData, hurricanes])
+  ], [filteredZones, anchorRings, globalNonTankers, mainVessels, thermalLayerData, hurricanes, floatingStorageMmsis])
 
   // Tooltip — wrapped in try/catch so DeckGL never crashes from tooltip
   const getTooltip = useCallback(({ object, layer }) => {
@@ -343,6 +387,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
             <div><span style="color:#666">TYPE</span> ${shipTypeLabel(object.ship_type)} <span style="color:#555">(${object.ship_type ?? '?'})</span></div>
             <div><span style="color:#666">SOG</span> ${Number(object.sog ?? 0).toFixed(1)} kn &nbsp;<span style="color:#666">HDG</span> ${hdg}</div>
             ${object.zone ? `<div><span style="color:#666">ZONE</span> <span style="color:#00e5ff">${escHtml(object.zone).toUpperCase()}</span></div>` : ''}
+            ${floatingStorageMmsis.has(object.mmsi) ? `<div style="color:#ff8c00;font-size:10px;font-weight:bold;margin-top:2px">FLOATING STORAGE — ${floatingStorage.find((e) => e.mmsi === object.mmsi)?.duration_days ?? '?'}d stationary</div>` : ''}
             ${object.timestamp ? `<div style="color:#555;font-size:10px;margin-top:2px">${timeAgo(object.timestamp)}</div>` : ''}
           </div>`,
           style: { background: '#0a0a0f', border: '1px solid #1e1e2e', borderRadius: '4px', padding: '8px' },
@@ -452,67 +497,102 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
         </DeckGL>
 
         {/* Legend overlay */}
-        <div className="absolute bottom-3 left-3 bg-[#0a0a0f]/90 border border-border rounded px-3 py-2.5 font-mono text-[10px] space-y-1.5 pointer-events-auto">
-          <div className="flex items-center gap-2 text-neutral-500 tracking-wider mb-1">
+        <div className="absolute bottom-3 left-3 bg-[#0a0a0f]/90 border border-border rounded font-mono text-[10px] pointer-events-auto" style={{ maxHeight: '250px', display: 'flex', flexDirection: 'column' }}>
+          <button
+            onClick={() => setLegendOpen((v) => !v)}
+            className="flex items-center gap-2 text-neutral-500 tracking-wider px-3 py-2 hover:text-neutral-300 transition-colors shrink-0"
+          >
+            <span className="text-[9px]" style={{ display: 'inline-block', transition: 'transform 0.15s', transform: legendOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
             LEGEND
             <InfoPopover text="Real-time vessel positions via AIS (AISstream + AISHub). Cyan = moving tankers, Red = anchored vessels (SOG &lt; 0.5 kn)." />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-glow shrink-0" />
-            <span className="text-neutral-300">Tanker (moving)</span>
-            <span className="text-cyan-glow ml-auto pl-3">{globalTankerCount}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-400 shrink-0" />
-            <span className="text-neutral-300">Anchored (SOG&lt;0.5)</span>
-            <span className="text-red-400 ml-auto pl-3">{anchoredCount}</span>
-          </div>
-          {isGlobal && (
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-neutral-500 shrink-0" />
-              <span className="text-neutral-400">Cargo / Other</span>
-              <span className="text-neutral-500 ml-auto pl-3">{globalNonTankerCount}</span>
-            </div>
-          )}
-          <div className="border-t border-border pt-1.5 mt-1.5 space-y-1">
-            <div className="text-neutral-500 tracking-wider">ZONES</div>
-            {zones.filter((z) => !z.is_sts).map((z) => (
-              <button
-                key={z.name}
-                onClick={() => flyToZone(z)}
-                className="flex items-center gap-2 w-full text-left hover:text-cyan-glow transition-colors group"
-              >
-                <span className={`w-2 h-2 rounded-sm shrink-0 ${z.no_ais_coverage ? 'bg-neutral-600/40' : 'bg-cyan-glow/40'}`} />
-                <span className="text-neutral-400 group-hover:text-cyan-glow">{(z.name || '').toUpperCase()}</span>
-                {z.no_ais_coverage ? (
-                  <span className="text-neutral-700 ml-auto text-[9px]">TRANSIT DATA</span>
-                ) : (
-                  <span className="text-neutral-600 ml-auto">{zoneVesselCounts[z.name] || '—'}</span>
-                )}
-              </button>
-            ))}
-            {zones.some((z) => z.is_sts) && (
-              <>
-                <div className="text-orange-400/60 tracking-wider mt-1">STS HOTSPOTS</div>
-                {zones.filter((z) => z.is_sts).map((z) => (
+          </button>
+          {legendOpen && (
+            <div className="overflow-y-auto scrollbar-hidden px-3 pb-2.5 space-y-1.5" style={{ minHeight: 0 }}>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-glow shrink-0" />
+                <span className="text-neutral-300">Tanker (moving)</span>
+                <span className="text-cyan-glow ml-auto pl-3">{globalTankerCount}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: '#f5c83c' }} />
+                <span className="text-neutral-300">LNG Carrier</span>
+                <span className="text-amber-400 ml-auto pl-3">{displayVessels.filter(isLngCarrier).length}</span>
+              </div>
+              {floatingStorage.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: '#ff8c00' }} />
+                  <span className="text-neutral-300">Floating Storage</span>
+                  <span className="text-orange-400 ml-auto pl-3">{floatingStorage.length}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400 shrink-0" />
+                <span className="text-neutral-300">Anchored (SOG&lt;0.5)</span>
+                <span className="text-red-400 ml-auto pl-3">{anchoredCount}</span>
+              </div>
+              {isGlobal && (
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-neutral-500 shrink-0" />
+                  <span className="text-neutral-400">Cargo / Other</span>
+                  <span className="text-neutral-500 ml-auto pl-3">{globalNonTankerCount}</span>
+                </div>
+              )}
+              <div className="border-t border-border pt-1.5 mt-1.5 space-y-1">
+                <div className="text-neutral-500 tracking-wider">ZONES</div>
+                {filteredZones.filter((z) => !z.is_sts && !z.is_lng_terminal).map((z) => (
                   <button
                     key={z.name}
                     onClick={() => flyToZone(z)}
-                    className="flex items-center gap-2 w-full text-left hover:text-orange-400 transition-colors group"
+                    className="flex items-center gap-2 w-full text-left hover:text-cyan-glow transition-colors group"
                   >
-                    <span className="w-2 h-2 rounded-sm shrink-0 bg-orange-400/30" />
-                    <span className="text-neutral-500 group-hover:text-orange-400 text-[9px]">{z.display_name}</span>
+                    <span className={`w-2 h-2 rounded-sm shrink-0 ${z.no_ais_coverage ? 'bg-neutral-600/40' : 'bg-cyan-glow/40'}`} />
+                    <span className="text-neutral-400 group-hover:text-cyan-glow">{(z.name || '').toUpperCase()}</span>
+                    {z.no_ais_coverage ? (
+                      <span className="text-neutral-700 ml-auto text-[9px]">TRANSIT DATA</span>
+                    ) : (
+                      <span className="text-neutral-600 ml-auto">{zoneVesselCounts[z.name] || '—'}</span>
+                    )}
                   </button>
                 ))}
-              </>
-            )}
-            <button
-              onClick={() => setViewState({ ...INITIAL_VIEW, transitionDuration: 800 })}
-              className="text-neutral-600 hover:text-neutral-400 transition-colors mt-0.5"
-            >
-              RESET VIEW
-            </button>
-          </div>
+                {filteredZones.some((z) => z.is_sts) && (
+                  <>
+                    <div className="text-orange-400/60 tracking-wider mt-1">STS HOTSPOTS</div>
+                    {filteredZones.filter((z) => z.is_sts).map((z) => (
+                      <button
+                        key={z.name}
+                        onClick={() => flyToZone(z)}
+                        className="flex items-center gap-2 w-full text-left hover:text-orange-400 transition-colors group"
+                      >
+                        <span className="w-2 h-2 rounded-sm shrink-0 bg-orange-400/30" />
+                        <span className="text-neutral-500 group-hover:text-orange-400 text-[9px]">{z.display_name}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+                {filteredZones.some((z) => z.is_lng_terminal) && (
+                  <>
+                    <div className="text-amber-400/60 tracking-wider mt-1">LNG TERMINALS</div>
+                    {filteredZones.filter((z) => z.is_lng_terminal).map((z) => (
+                      <button
+                        key={z.name}
+                        onClick={() => flyToZone(z)}
+                        className="flex items-center gap-2 w-full text-left hover:text-amber-400 transition-colors group"
+                      >
+                        <span className="w-2 h-2 shrink-0 bg-amber-400/30" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
+                        <span className="text-neutral-500 group-hover:text-amber-400 text-[9px]">{z.display_name}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+                <button
+                  onClick={() => setViewState({ ...INITIAL_VIEW, transitionDuration: 800 })}
+                  className="text-neutral-600 hover:text-neutral-400 transition-colors mt-0.5"
+                >
+                  RESET VIEW
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -522,7 +602,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           ACTIVE GEOFENCE ZONES
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          {zones.filter((z) => !z.is_sts).map((z) => {
+          {filteredZones.filter((z) => !z.is_sts && !z.is_lng_terminal).map((z) => {
             const count = zoneVesselCounts[z.name] || 0
             const cp = portwatch?.chokepoints?.find((c) => c.zone === z.name)
             return (
@@ -573,6 +653,31 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
         {portwatch && (
           <div className="font-mono text-[9px] text-neutral-700 mt-2">
             Source: IMF PortWatch{portwatch.date ? ` (${portwatch.date})` : ''} // AIS: AISHub + AISStream
+          </div>
+        )}
+        {/* Floating Storage Summary */}
+        {floatingStorage.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-border">
+            <div className="font-mono text-[10px] text-orange-400/80 tracking-wider mb-2">
+              FLOATING STORAGE — {floatingStorage.length} ACTIVE
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {floatingStorage.map((e) => (
+                <button
+                  key={e.mmsi}
+                  onClick={() => setViewState({ longitude: e.lon, latitude: e.lat, zoom: 10, pitch: 0, bearing: 0, transitionDuration: 800 })}
+                  className="text-left border border-orange-500/20 bg-orange-500/5 rounded px-3 py-2 hover:border-orange-500/40 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10px] text-orange-400 truncate">{e.ship_name}</span>
+                    <span className="font-mono text-[10px] text-orange-300 font-bold shrink-0 ml-2">{e.duration_days}d</span>
+                  </div>
+                  <div className="font-mono text-[9px] text-neutral-600 mt-0.5">
+                    {e.ship_class} // {e.zone?.toUpperCase() || '?'} // SOG {e.avg_sog?.toFixed(2)} kn
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>

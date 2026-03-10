@@ -14,6 +14,7 @@ Symbols:
 """
 
 import logging
+import math
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ SYMBOLS = {
     "WTI": "CL=F",
     "BRENT": "BZ=F",
     "NG": "NG=F",
+    "JKM": "JKM=F",
+    "TTF": "TTF=F",
     "GOLD": "GC=F",
     "SILVER": "SI=F",
     "COPPER": "HG=F",
@@ -35,6 +38,8 @@ DISPLAY_NAMES = {
     "WTI": "WTI Crude (CL=F)",
     "BRENT": "Brent Crude (BZ=F)",
     "NG": "Natural Gas (NG=F)",
+    "JKM": "JKM LNG Asia (JKM=F)",
+    "TTF": "TTF Gas Europe (TTF=F)",
     "GOLD": "Gold (GC=F)",
     "SILVER": "Silver (SI=F)",
     "COPPER": "Copper (HG=F)",
@@ -62,7 +67,7 @@ def _fetch_quotes() -> dict:
             info = t.fast_info
             last = info.last_price
             prev = info.previous_close
-            if not last or last <= 0:
+            if not last or (isinstance(last, float) and math.isnan(last)) or last <= 0:
                 continue
             change = last - prev if prev else 0
             change_pct = (change / prev * 100) if prev else 0
@@ -90,6 +95,7 @@ async def get_live_prices() -> dict:
         return {"source": "yfinance", "prices": _price_cache}
 
     import asyncio
+
     loop = asyncio.get_event_loop()
     try:
         prices = await loop.run_in_executor(_executor, _fetch_quotes)
@@ -113,14 +119,16 @@ def _fetch_intraday(yf_sym: str, interval: str, period: str) -> list[dict]:
         return []
     ohlcv = []
     for idx, row in df.iterrows():
-        ohlcv.append({
-            "datetime": idx.strftime("%Y-%m-%d %H:%M:%S"),
-            "open": round(float(row["Open"]), 4),
-            "high": round(float(row["High"]), 4),
-            "low": round(float(row["Low"]), 4),
-            "close": round(float(row["Close"]), 4),
-            "volume": int(row.get("Volume", 0)),
-        })
+        ohlcv.append(
+            {
+                "datetime": idx.strftime("%Y-%m-%d %H:%M:%S"),
+                "open": round(float(row["Open"]), 4),
+                "high": round(float(row["High"]), 4),
+                "low": round(float(row["Low"]), 4),
+                "close": round(float(row["Close"]), 4),
+                "volume": int(row.get("Volume", 0)),
+            }
+        )
     return ohlcv
 
 
@@ -142,12 +150,18 @@ _INTERVAL_MAP = {
 async def get_intraday(symbol: str, interval: str = "15min", outputsize: int = 96) -> dict:
     yf_sym = SYMBOLS.get(symbol.upper())
     if not yf_sym:
-        return {"source": "yfinance", "symbol": symbol, "interval": interval, "data": [],
-                "error": f"Unknown symbol: {symbol}. Available: {', '.join(SYMBOLS.keys())}"}
+        return {
+            "source": "yfinance",
+            "symbol": symbol,
+            "interval": interval,
+            "data": [],
+            "error": f"Unknown symbol: {symbol}. Available: {', '.join(SYMBOLS.keys())}",
+        }
 
     yf_interval, yf_period = _INTERVAL_MAP.get(interval, ("15m", "5d"))
 
     import asyncio
+
     loop = asyncio.get_event_loop()
     try:
         ohlcv = await loop.run_in_executor(_executor, _fetch_intraday, yf_sym, yf_interval, yf_period)

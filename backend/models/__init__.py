@@ -1,9 +1,18 @@
-from backend.models.prices import EIAPrice, FREDSeries
-from backend.models.vessels import VesselPosition, GeofenceEvent, GlobalVesselPosition
-from backend.models.alerts import Alert
-from backend.models.ports import PortActivity, Disruption
-from backend.models.weather import WeatherAlert
-from backend.models.sentiment import GDELTVolume, SentimentScore, NewsHeadline
-from backend.models.jodi import JODIProduction
-from backend.models.thermal import ThermalHotspot
-from backend.models.fleet import DailyFleetSummary
+from backend.models.alerts import Alert as Alert
+from backend.models.fleet import DailyFleetSummary as DailyFleetSummary
+from backend.models.jodi import JODIProduction as JODIProduction
+from backend.models.ports import Disruption as Disruption
+from backend.models.ports import PortActivity as PortActivity
+from backend.models.prices import EIAPrice as EIAPrice
+from backend.models.prices import FREDSeries as FREDSeries
+from backend.models.sentiment import GDELTVolume as GDELTVolume
+from backend.models.sentiment import NewsHeadline as NewsHeadline
+from backend.models.sentiment import SentimentScore as SentimentScore
+from backend.models.subscription import Subscription as Subscription
+from backend.models.thermal import ThermalHotspot as ThermalHotspot
+from backend.models.vessels import FloatingStorageEvent as FloatingStorageEvent
+from backend.models.vessels import GeofenceEvent as GeofenceEvent
+from backend.models.vessels import GlobalVesselPosition as GlobalVesselPosition
+from backend.models.vessels import VesselPosition as VesselPosition
+from backend.models.waitlist import Waitlist as Waitlist
+from backend.models.weather import WeatherAlert as WeatherAlert

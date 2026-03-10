@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { InfoPopover } from './Panel'
+import WaitlistSignup from './WaitlistSignup'
 
 const API = '/api'
 
@@ -82,7 +83,7 @@ export default function BriefingPanel() {
       {/* Market bar */}
       {market && Object.keys(market).length > 0 && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs border-t border-border pt-2">
-          {['wti', 'brent', 'ng', 'gold'].map((key) => {
+          {['wti', 'brent', 'ng', 'jkm', 'ttf', 'gold'].map((key) => {
             const m = market[key]
             if (!m) return null
             const up = m.change_pct >= 0
@@ -118,6 +119,11 @@ export default function BriefingPanel() {
           )}
         </div>
       )}
+
+      {/* Waitlist signup */}
+      <div className="mt-3">
+        <WaitlistSignup />
+      </div>
     </div>
   )
 }

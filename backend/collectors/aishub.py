@@ -78,8 +78,14 @@ def _parse_row(row: dict) -> dict | None:
     }
 
 
-async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
-    """Fetch global positions, store all + zone tankers. Returns per-zone tanker counts."""
+async def _fetch_global(client: httpx.AsyncClient, *, skip_history: bool = False) -> dict[str, int]:
+    """Fetch global positions, store all + zone tankers. Returns per-zone tanker counts.
+
+    Args:
+        skip_history: If True, update the GlobalVesselPosition snapshot but skip
+                      appending to VesselPosition history (used when aisstream
+                      handles zone tracking).
+    """
     params = {
         "username": (settings.aishub_api_key.get_secret_value() if settings.aishub_api_key else None)
         or settings.aishub_username,
@@ -149,9 +155,10 @@ async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
         )
 
         # Zone table: only tankers inside a geofence (appended for history)
-        # Apply hygiene filters before storing (plausibility + dedup)
-        if parsed["is_tanker"] and parsed["zone"]:
+        # Skip when aisstream handles zone tracking
+        if not skip_history and parsed["is_tanker"] and parsed["zone"]:
             zone_name = parsed["zone"]["name"]
+            # Apply hygiene filters before storing (plausibility + dedup)
             if filter_and_count(
                 parsed["mmsi"],
                 parsed["lat"],
@@ -176,58 +183,73 @@ async def _fetch_global(client: httpx.AsyncClient) -> dict[str, int]:
                     )
                 )
 
-    db = SessionLocal()
-    try:
-        # Replace global snapshot (delete old, insert new)
-        db.query(GlobalVesselPosition).delete()
-        if global_positions:
-            db.add_all(global_positions)
+    def _db_bulk_write():
+        db = SessionLocal()
+        try:
+            # Replace global snapshot (delete old, insert new) — ALWAYS
+            db.query(GlobalVesselPosition).delete()
+            if global_positions:
+                db.add_all(global_positions)
 
-        # Append zone tankers
-        if zone_positions:
-            db.add_all(zone_positions)
+            # Append zone tankers (skipped when aisstream handles history)
+            if zone_positions:
+                db.add_all(zone_positions)
 
-        db.commit()
-        stats = get_stats()
-        logger.info(
-            f"AISHub: {len(global_positions)} global, "
-            f"{len(zone_positions)} zone tankers stored "
-            f"(hygiene: {stats['rejected']} rejected, {stats['deduped']} deduped)"
-        )
-        return zone_counts
-    except Exception as e:
-        db.rollback()
-        logger.error(f"AISHub: DB write failed: {e}")
-        return {}
-    finally:
-        db.close()
+            db.commit()
+            if skip_history:
+                logger.info(
+                    f"AISHub: {len(global_positions)} global snapshot updated (history skipped — aisstream active)"
+                )
+            else:
+                stats = get_stats()
+                logger.info(
+                    f"AISHub: {len(global_positions)} global, "
+                    f"{len(zone_positions)} zone tankers stored "
+                    f"(hygiene: {stats['rejected']} rejected, {stats['deduped']} deduped)"
+                )
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"AISHub: DB write failed: {e}")
+            return False
+        finally:
+            db.close()
+
+    success = await asyncio.to_thread(_db_bulk_write)
+    return zone_counts if success else {}
 
 
 async def _poll_loop():
-    """Main polling loop. One global call per minute."""
+    """Main polling loop. One global call per minute.
+
+    Always fetches from AISHub and updates the GlobalVesselPosition snapshot.
+    When aisstream is connected, skips appending to VesselPosition history
+    (aisstream handles zone tracking with better real-time coverage).
+    """
     async with httpx.AsyncClient() as client:
         while True:
             try:
                 from backend.collectors.aisstream import aisstream_connected
 
-                if aisstream_connected:
-                    logger.debug("AISHub: aisstream active, skipping poll")
-                    await asyncio.sleep(POLL_INTERVAL)
-                    continue
+                skip_history = bool(aisstream_connected)
+                if skip_history:
+                    logger.debug("AISHub: aisstream active, snapshot-only mode (skipping history)")
 
-                zone_counts = await _fetch_global(client)
+                zone_counts = await _fetch_global(client, skip_history=skip_history)
+
                 if zone_counts:
                     breakdown = ", ".join(f"{z}={c}" for z, c in sorted(zone_counts.items()))
                     logger.info(f"AISHub: zone tankers: {breakdown}")
 
                 # Log zones with no coverage (terrestrial AIS limitation)
-                all_zone_names = {z["name"] for z in ZONES}
-                covered = set(zone_counts.keys())
-                no_coverage = all_zone_names - covered
-                if no_coverage:
-                    logger.info(
-                        f"AISHub: no coverage for {', '.join(sorted(no_coverage))} (terrestrial AIS limitation)"
-                    )
+                if not skip_history:
+                    all_zone_names = {z["name"] for z in ZONES}
+                    covered = set(zone_counts.keys())
+                    no_coverage = all_zone_names - covered
+                    if no_coverage:
+                        logger.info(
+                            f"AISHub: no coverage for {', '.join(sorted(no_coverage))} (terrestrial AIS limitation)"
+                        )
 
             except asyncio.CancelledError:
                 logger.info("AISHub: poll task cancelled")

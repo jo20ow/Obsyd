@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
 import SettingsPanel from './SettingsPanel'
+import AuthButton from './AuthButton'
+import { useMode } from '../context/ModeContext'
+
+const MODES = [
+  { key: 'crude', label: 'CRUDE' },
+  { key: 'lng', label: 'LNG' },
+  { key: 'all', label: 'ALL' },
+]
 
 export default function Header({ aisActive, gdeltActive, compactMode, onToggleCompact }) {
+  const { mode, setMode } = useMode()
   const [health, setHealth] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -34,6 +43,22 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
           </div>
         </div>
         <div className="flex items-center gap-4">
+          {/* Mode toggle */}
+          <div className="flex items-center border border-border rounded overflow-hidden">
+            {MODES.map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setMode(m.key)}
+                className={`font-mono text-[10px] tracking-wider px-2.5 py-1 transition-colors ${
+                  mode === m.key
+                    ? 'bg-cyan-glow/15 text-cyan-glow'
+                    : 'text-neutral-600 hover:text-neutral-400'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
           <StatusDot label="EIA" ok={eiaOk} />
           <StatusDot label="FRED" ok={fredOk} />
           <StatusDot label="AIS" ok={aisOk} />
@@ -46,6 +71,7 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
               COMPACT
             </button>
           )}
+          <AuthButton />
           <button
             onClick={() => setSettingsOpen(true)}
             className="text-neutral-600 hover:text-neutral-300 transition-colors ml-1"

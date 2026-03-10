@@ -19,8 +19,14 @@ const RULE_ICONS = {
   cushing_drawdown: 'CUSH',
   refinery_thermal: 'THERM',
   chokepoint_anomaly: 'CHOKE',
+  crack_spread_high: 'CRACK',
+  crack_spread_low: 'CRACK',
+  rerouting_high: 'ROUTE',
+  convergence: 'CONV',
   weather: 'WX',
 }
+
+const CONVERGENCE_STYLE = { dot: 'bg-amber-400', text: 'text-amber-400', border: 'border-amber-500/30' }
 
 const RULE_GROUP_LABELS = {
   flow_anomaly: 'chokepoints with anomalous transit',
@@ -123,7 +129,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
   }
 
   function renderAlert(a) {
-    const sev = SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.info
+    const sev = a.rule === 'convergence' ? CONVERGENCE_STYLE : (SEVERITY_STYLES[a.severity] || SEVERITY_STYLES.info)
     const icon = RULE_ICONS[a.rule] || 'SIG'
     const isWx = a.isWeather
     return (
@@ -172,7 +178,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
         </span>
       </div>
 
-      <div className="max-h-[400px] overflow-y-auto">
+      <div className="max-h-[400px] overflow-y-auto scrollbar-hidden">
         {displayItems.length === 0 ? (
           <div className="px-4 py-6 text-center font-mono text-xs text-neutral-600">
             No alerts generated yet

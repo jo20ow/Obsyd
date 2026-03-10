@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Query
 
 from backend.signals.correlation import compute_correlations
+from backend.signals.crack_spread import get_crack_spread
 from backend.signals.historical_lookup import find_anomalies
 from backend.signals.market_structure import get_market_structure
 from backend.signals.tonnage_proxy import compute_rerouting_index
@@ -35,6 +36,12 @@ async def get_rerouting_index(
 ):
     """Cape/Suez rerouting index — detects traffic diversion from Suez to Cape of Good Hope."""
     return compute_rerouting_index(days=days)
+
+
+@router.get("/crack-spread")
+async def get_crack_spread_endpoint():
+    """3:2:1 crack spread — refinery profitability indicator."""
+    return await get_crack_spread()
 
 
 @router.get("/historical")

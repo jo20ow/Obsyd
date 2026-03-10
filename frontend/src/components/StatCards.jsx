@@ -23,6 +23,22 @@ const ENERGY_CARDS = [
     valueClass: 'text-cyan-glow',
   },
   {
+    id: null,
+    liveKey: 'JKM',
+    label: 'JKM LNG ASIA',
+    unit: '$/MMBtu',
+    valueClass: 'text-amber-400',
+    liveOnly: true,
+  },
+  {
+    id: null,
+    liveKey: 'TTF',
+    label: 'TTF GAS EUROPE',
+    unit: '€/MWh',
+    valueClass: 'text-pink-400',
+    liveOnly: true,
+  },
+  {
     id: 'PET.WCSSTUS1.W',
     liveKey: null,
     label: 'CUSHING STOCKS',
@@ -98,8 +114,38 @@ function PriceCard({ label, value, unit, changePct, changeLabel, date, isLive, l
   )
 }
 
-export default function StatCards({ data, live, liveSource }) {
+export default function StatCards({ data, live: liveProp, liveSource: liveSourceProp }) {
   const [commodities, setCommodities] = useState(null)
+  const [ownLive, setOwnLive] = useState(null)
+  const [ownSource, setOwnSource] = useState(null)
+
+  // StatCards fetches its own live prices — independent of App.jsx
+  useEffect(() => {
+    let retryTimeout
+    function fetchLive() {
+      fetch('/api/prices/live')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.available && d.prices && Object.keys(d.prices).length >= 3) {
+            setOwnLive(d.prices)
+            setOwnSource(d.source)
+          } else {
+            // yfinance not ready yet — retry in 10s
+            retryTimeout = setTimeout(fetchLive, 10_000)
+          }
+        })
+        .catch(() => {
+          retryTimeout = setTimeout(fetchLive, 10_000)
+        })
+    }
+    fetchLive()
+    const interval = setInterval(fetchLive, 2 * 60 * 1000) // repoll every 2min
+    return () => { clearInterval(interval); clearTimeout(retryTimeout) }
+  }, [])
+
+  // Use own fetched data, fall back to parent prop
+  const live = ownLive || liveProp
+  const liveSource = ownSource || liveSourceProp
 
   useEffect(() => {
     fetch('/api/prices/commodities')
@@ -125,7 +171,14 @@ export default function StatCards({ data, live, liveSource }) {
             changePct = liveQuote.change_pct
             changeLabel = 'vs prev day'
             date = liveQuote.date
-          } else {
+          } else if (cfg.liveOnly) {
+            // Live-only cards (JKM, TTF) — no EIA fallback
+            value = null
+            changePct = null
+            changeLabel = ''
+            date = ''
+          } else if (cfg.id) {
+            // EIA weekly fallback for WTI/Brent/NG/Cushing
             const [latest, prev] = getLatestTwo(data, cfg.id)
             value = latest?.value ?? null
             date = latest?.period || ''
@@ -135,26 +188,38 @@ export default function StatCards({ data, live, liveSource }) {
               changePct = null
             }
             changeLabel = 'vs prev week'
+          } else {
+            value = null
+            changePct = null
+            changeLabel = ''
+            date = ''
           }
 
-          // Cushing uses its own formatting
-          const displayValue = cfg.id === 'PET.WCSSTUS1.W' ? null : value
-
           return (
-            <div key={cfg.id} className="border border-border bg-surface rounded px-4 py-3">
+            <div key={cfg.liveKey || cfg.id} className="border border-border bg-surface rounded px-4 py-3">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-neutral-500">{cfg.label}</span>
-                  <SourceBadge isLive={isLive} liveSource={liveSource} />
+                  {cfg.liveOnly && !isLive ? (
+                    <span className="font-mono text-[10px] text-neutral-700">DELAYED</span>
+                  ) : (
+                    <SourceBadge isLive={isLive} liveSource={liveSource} />
+                  )}
                 </div>
                 <span className="font-mono text-[10px] text-neutral-600">{date}</span>
               </div>
               <div className="flex items-end justify-between">
                 <div>
-                  <span className={`font-mono text-2xl font-bold ${cfg.valueClass}`}>
-                    {formatValue(value, cfg.id)}
-                  </span>
-                  <span className="font-mono text-xs text-neutral-500 ml-2">{cfg.unit}</span>
+                  {cfg.liveOnly && !isLive ? (
+                    <span className="font-mono text-sm text-neutral-600">Data unavailable</span>
+                  ) : (
+                    <>
+                      <span className={`font-mono text-2xl font-bold ${cfg.valueClass}`}>
+                        {formatValue(value, cfg.id)}
+                      </span>
+                      <span className="font-mono text-xs text-neutral-500 ml-2">{cfg.unit}</span>
+                    </>
+                  )}
                 </div>
                 {changePct != null && (
                   <div className="text-right">

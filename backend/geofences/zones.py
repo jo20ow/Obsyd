@@ -92,6 +92,88 @@ STS_HOTSPOTS: list[dict] = [
 ]
 
 
+# LNG terminal geofences — export and import terminals for LNG carrier tracking
+LNG_TERMINALS: list[dict] = [
+    # Export terminals
+    {
+        "name": "lng_sabine_pass",
+        "display_name": "Sabine Pass LNG (US)",
+        "bounds": [[29.64, -93.95], [29.84, -93.75]],
+        "description": "Cheniere Energy — largest US LNG export terminal. 30 MTPA capacity.",
+        "terminal_type": "export",
+        "capacity_mtpa": 30,
+    },
+    {
+        "name": "lng_cameron",
+        "display_name": "Cameron LNG (US)",
+        "bounds": [[29.68, -93.43], [29.88, -93.23]],
+        "description": "Sempra Energy — Gulf Coast LNG export. 14 MTPA capacity.",
+        "terminal_type": "export",
+        "capacity_mtpa": 14,
+    },
+    {
+        "name": "lng_freeport",
+        "display_name": "Freeport LNG (US)",
+        "bounds": [[28.84, -95.41], [29.04, -95.21]],
+        "description": "Freeport LNG — Texas Gulf Coast. 20 MTPA capacity.",
+        "terminal_type": "export",
+        "capacity_mtpa": 20,
+    },
+    {
+        "name": "lng_ras_laffan",
+        "display_name": "Ras Laffan LNG (Qatar)",
+        "bounds": [[25.83, 51.43], [26.03, 51.63]],
+        "description": "QatarEnergy — world's largest LNG export complex. 77 MTPA capacity.",
+        "terminal_type": "export",
+        "capacity_mtpa": 77,
+    },
+    {
+        "name": "lng_bonny_island",
+        "display_name": "Bonny Island LNG (Nigeria)",
+        "bounds": [[4.32, 7.05], [4.52, 7.25]],
+        "description": "Nigeria LNG — West Africa's primary LNG export. 22 MTPA capacity.",
+        "terminal_type": "export",
+        "capacity_mtpa": 22,
+    },
+    # Import terminals
+    {
+        "name": "lng_gate_rotterdam",
+        "display_name": "GATE Terminal (Rotterdam)",
+        "bounds": [[51.87, 3.93], [52.03, 4.09]],
+        "description": "GATE Terminal — Netherlands LNG import. Key European regasification.",
+        "terminal_type": "import",
+    },
+    {
+        "name": "lng_incheon",
+        "display_name": "Incheon LNG (South Korea)",
+        "bounds": [[37.35, 126.47], [37.51, 126.63]],
+        "description": "KOGAS Incheon — one of the world's largest LNG import terminals.",
+        "terminal_type": "import",
+    },
+    {
+        "name": "lng_sodegaura",
+        "display_name": "Sodegaura LNG (Japan)",
+        "bounds": [[35.34, 139.85], [35.50, 140.01]],
+        "description": "Tokyo Gas/TEPCO — major Japanese LNG receiving terminal.",
+        "terminal_type": "import",
+    },
+    {
+        "name": "lng_dahej",
+        "display_name": "Dahej LNG (India)",
+        "bounds": [[21.63, 72.50], [21.79, 72.66]],
+        "description": "Petronet LNG — India's largest LNG import terminal.",
+        "terminal_type": "import",
+    },
+    {
+        "name": "lng_zeebrugge",
+        "display_name": "Zeebrugge LNG (Belgium)",
+        "bounds": [[51.27, 3.10], [51.43, 3.26]],
+        "description": "Fluxys LNG — key European LNG hub and interconnection point.",
+        "terminal_type": "import",
+    },
+]
+
+
 def point_in_sts_zone(lat: float, lon: float) -> dict | None:
     """Return the STS hotspot zone for a given position, or None."""
     for zone in STS_HOTSPOTS:

@@ -17,6 +17,8 @@ const SYMBOLS = [
   { key: 'WTI', label: 'WTI', color: '#00e5ff', fred: 'DCOILWTICO' },
   { key: 'BRENT', label: 'Brent', color: '#00ff9d', fred: 'DCOILBRENTEU' },
   { key: 'NG', label: 'Nat Gas', color: '#a78bfa' },
+  { key: 'JKM', label: 'JKM', color: '#f59e0b', liveOnly: true },
+  { key: 'TTF', label: 'TTF', color: '#ec4899', liveOnly: true },
   { key: 'GOLD', label: 'Gold', color: '#fbbf24' },
   { key: 'SILVER', label: 'Silver', color: '#94a3b8' },
   { key: 'COPPER', label: 'Copper', color: '#f97316' },
@@ -46,15 +48,24 @@ export default function PriceChart({ data, live }) {
   const [fredData, setFredData] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  // Fetch intraday/OHLCV data (yfinance) for 1D/1W/1M and hybrid 3M/1Y candle mode
+  // Determine if this symbol has FRED historical data
+  const hasFred = !!symbol.fred
+
+  // Fetch intraday/OHLCV data (yfinance)
+  // For symbols without FRED data, always use yfinance regardless of timeframe
   useEffect(() => {
-    const needsIntraday = timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle')
+    const needsIntraday = timeframe.type === 'intraday'
+      || (timeframe.type === 'hybrid' && chartStyle === 'candle')
+      || !hasFred  // no FRED data — always use yfinance
     if (!needsIntraday) {
       setIntradayData(null)
       return
     }
+    // For ALL timeframe on non-FRED symbols, use weekly candles
+    const interval = timeframe.interval || '1wk'
+    const outputsize = timeframe.outputsize || 0
     setLoading(true)
-    fetch(`${API}/prices/intraday?symbol=${symbol.key}&interval=${timeframe.interval}&outputsize=${timeframe.outputsize}`)
+    fetch(`${API}/prices/intraday?symbol=${symbol.key}&interval=${interval}${outputsize ? `&outputsize=${outputsize}` : ''}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         setIntradayData(d?.data?.length ? d.data : null)
@@ -65,10 +76,11 @@ export default function PriceChart({ data, live }) {
         setIntradayData(null)
         setLoading(false)
       })
-  }, [timeframe, symbol, chartStyle])
+  }, [timeframe, symbol, chartStyle, hasFred])
 
-  // Fetch FRED daily data for line mode (fred + hybrid) via dedicated /chart endpoint
+  // Fetch FRED daily data for line mode (fred + hybrid) — only for WTI/Brent
   useEffect(() => {
+    if (!hasFred) return
     const needsFred = timeframe.type === 'fred' || (timeframe.type === 'hybrid' && chartStyle === 'line')
     if (!needsFred) return
     if (fredData) return // only fetch once
@@ -83,14 +95,14 @@ export default function PriceChart({ data, live }) {
         setFredData(null)
         setLoading(false)
       })
-  }, [timeframe, chartStyle])
+  }, [timeframe, chartStyle, hasFred])
 
   // Render chart
   useEffect(() => {
     if (!containerRef.current) return
 
-    const isIntraday = (timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle')) && intradayData?.length > 0
-    const isFred = (timeframe.type === 'fred' || (timeframe.type === 'hybrid' && chartStyle === 'line')) && fredData
+    const isIntraday = (timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle') || !hasFred) && intradayData?.length > 0
+    const isFred = hasFred && (timeframe.type === 'fred' || (timeframe.type === 'hybrid' && chartStyle === 'line')) && fredData
 
     if (!isIntraday && !isFred) return
 
@@ -196,22 +208,6 @@ export default function PriceChart({ data, live }) {
           })
           s2.setData(appendLive(filterByRange(fredData['DCOILWTICO'], timeframe.label), 'WTI'))
         }
-      } else {
-        // No FRED data for this symbol — show WTI+Brent
-        if (fredData['DCOILWTICO']) {
-          const s1 = chart.addSeries(LineSeries, {
-            color: '#00e5ff', lineWidth: 2, title: 'WTI',
-            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-          })
-          s1.setData(appendLive(filterByRange(fredData['DCOILWTICO'], timeframe.label), 'WTI'))
-        }
-        if (fredData['DCOILBRENTEU']) {
-          const s2 = chart.addSeries(LineSeries, {
-            color: '#00ff9d', lineWidth: 2, title: 'Brent',
-            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-          })
-          s2.setData(appendLive(filterByRange(fredData['DCOILBRENTEU'], timeframe.label), 'BRENT'))
-        }
       }
     }
 
@@ -230,9 +226,9 @@ export default function PriceChart({ data, live }) {
       chartRef.current = null
       seriesRef.current = null
     }
-  }, [data, timeframe, symbol, intradayData, fredData, chartStyle, live])
+  }, [data, timeframe, symbol, intradayData, fredData, chartStyle, live, hasFred])
 
-  const isIntraday = timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle')
+  const isIntraday = timeframe.type === 'intraday' || (timeframe.type === 'hybrid' && chartStyle === 'candle') || !hasFred
 
   return (
     <div className="border border-border bg-surface rounded">
@@ -311,7 +307,9 @@ export default function PriceChart({ data, live }) {
       <div ref={containerRef} className="h-[350px] w-full" />
       {isIntraday && !intradayData && !loading && (
         <div className="px-4 py-2 font-mono text-[10px] text-neutral-600">
-          No intraday data available. Try 3M/1Y/ALL for daily prices.
+          {symbol.liveOnly
+            ? `${symbol.label} — data unavailable via free provider`
+            : 'No intraday data available. Try a different timeframe.'}
         </div>
       )}
     </div>

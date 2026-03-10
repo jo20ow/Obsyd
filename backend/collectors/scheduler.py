@@ -9,6 +9,7 @@ Schedule:
   - Finnhub: Every 2 hours at :45 (energy news headlines)
   - FIRMS: Every 6 hours
   - Fleet summary: Daily 23:55 UTC
+  - Geofence daily: Daily 23:50 UTC (end-of-day rollup)
   - Retention: Daily 04:00 UTC (thin old vessel_positions)
   - NOAA: Every 30 min (hurricane/tropical alerts)
 """
@@ -19,21 +20,23 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from backend.collectors.eia import collect_eia
-from backend.collectors.fred import collect_fred
-from backend.collectors.portwatch import collect_portwatch
-from backend.collectors.gdelt import collect_gdelt_volume, collect_gdelt_volume_secondary, collect_gdelt_sentiment
-from backend.collectors.jodi import collect_jodi
-from backend.collectors.firms import collect_firms
-from backend.collectors.geofence_aggregator import aggregate_geofence_events
 from backend.collectors.finnhub_news import collect_finnhub_news
+from backend.collectors.firms import collect_firms
 from backend.collectors.fleet_summary import create_daily_fleet_summary
-from backend.collectors.retention import run_retention
+from backend.collectors.fred import collect_fred
+from backend.collectors.gdelt import collect_gdelt_sentiment, collect_gdelt_volume, collect_gdelt_volume_secondary
+from backend.collectors.geofence_aggregator import aggregate_geofence_daily, aggregate_geofence_events
+from backend.collectors.jodi import collect_jodi
 from backend.collectors.noaa import collect_noaa_alerts
+from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
-from backend.signals.evaluator import evaluate_signals
-from backend.signals.sentiment_scorer import compute_sentiment_score
-from backend.providers.price_provider import get_live_prices as refresh_live_prices
+from backend.collectors.retention import run_retention
 from backend.database import SessionLocal
+from backend.notifications.daily_email import send_daily_email
+from backend.providers.price_provider import get_live_prices as refresh_live_prices
+from backend.signals.evaluator import evaluate_signals
+from backend.signals.floating_storage import detect_floating_storage
+from backend.signals.sentiment_scorer import compute_sentiment_score
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +136,7 @@ def start_scheduler():
     )
 
     # NASA FIRMS: thermal hotspots every 6h
-    scheduler.add_job(collect_firms, CronTrigger(hour="*/6", minute=15),
-        id="firms_6h", replace_existing=True)
+    scheduler.add_job(collect_firms, CronTrigger(hour="*/6", minute=15), id="firms_6h", replace_existing=True)
 
     # PortWatch chokepoint backfill: daily at 06:00 UTC
     scheduler.add_job(
@@ -157,6 +159,22 @@ def start_scheduler():
         aggregate_geofence_events,
         CronTrigger(minute=5),
         id="geofence_hourly",
+        replace_existing=True,
+    )
+
+    # Geofence daily aggregation: 23:50 UTC (final end-of-day rollup)
+    scheduler.add_job(
+        aggregate_geofence_daily,
+        CronTrigger(hour=23, minute=50),
+        id="geofence_daily",
+        replace_existing=True,
+    )
+
+    # Floating storage detection: every 6 hours
+    scheduler.add_job(
+        detect_floating_storage,
+        CronTrigger(hour="*/6", minute=30),
+        id="floating_storage",
         replace_existing=True,
     )
 
@@ -192,6 +210,14 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Daily email snapshot: 06:45 UTC
+    scheduler.add_job(
+        send_daily_email,
+        CronTrigger(hour=6, minute=45),
+        id="daily_email",
+        replace_existing=True,
+    )
+
     # Smart retention: daily 04:00 UTC (thin old vessel_positions)
     scheduler.add_job(
         run_retention,
@@ -205,7 +231,8 @@ def start_scheduler():
         "Scheduler started: EIA (weekly Wed), FRED (daily), "
         "PortWatch (weekly Tue), GDELT (every 2h), Finnhub (every 2h), "
         "JODI (monthly 15th), Live prices (every 4h), Signals (every 5min), "
-        "Fleet summary (daily 23:55), Retention (daily 04:00) | "
+        "Fleet summary (daily 23:55), Geofence daily (23:50), "
+        "Floating storage (every 6h), Daily email (06:45), Retention (daily 04:00) | "
         "FIRMS (every 6h) | NOAA (every 30min)"
     )
 

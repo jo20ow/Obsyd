@@ -4,15 +4,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
-
+from backend.collectors.eia import EIA_SERIES, collect_eia
+from backend.collectors.fred import FRED_SERIES, collect_fred
+from backend.collectors.portwatch_store import query_oil_prices
 from backend.database import get_db
 from backend.models.prices import EIAPrice, FREDSeries
-from backend.collectors.eia import collect_eia, EIA_SERIES
-from backend.collectors.fred import collect_fred, FRED_SERIES
-from backend.collectors.portwatch_store import query_oil_prices
 from backend.providers import price_provider
-from backend.providers.twelvedata_provider import SYMBOLS as TD_SYMBOLS
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/prices", tags=["prices"])
 
@@ -54,9 +53,9 @@ async def trigger_eia_collection(db: Session = Depends(get_db)):
 
 
 FUNDAMENTALS_SERIES = [
-    "PET.WPULEUS3.W",   # Refinery Utilization
-    "PET.WCRIMUS2.W",   # Crude Imports
-    "PET.WCREXUS2.W",   # Crude Exports
+    "PET.WPULEUS3.W",  # Refinery Utilization
+    "PET.WCRIMUS2.W",  # Crude Imports
+    "PET.WCREXUS2.W",  # Crude Exports
     "PET.WCSSTUS1.W.SPR",  # SPR
 ]
 
@@ -69,16 +68,9 @@ async def get_eia_fundamentals(
     """Get EIA fundamentals: refinery utilization, imports, exports, SPR."""
     result = {}
     for sid in FUNDAMENTALS_SERIES:
-        rows = (
-            db.query(EIAPrice)
-            .filter(EIAPrice.series_id == sid)
-            .order_by(EIAPrice.period.desc())
-            .limit(limit)
-            .all()
-        )
+        rows = db.query(EIAPrice).filter(EIAPrice.series_id == sid).order_by(EIAPrice.period.desc()).limit(limit).all()
         result[sid] = [
-            {"period": r.period, "value": r.value, "unit": r.unit, "description": r.description}
-            for r in rows
+            {"period": r.period, "value": r.value, "unit": r.unit, "description": r.description} for r in rows
         ]
     return result
 
@@ -89,6 +81,78 @@ async def get_live_prices():
     return await price_provider.get_live_prices()
 
 
+EQUITY_TICKERS = {
+    "tanker": [
+        {"ticker": "FRO", "name": "Frontline", "sector": "Tanker"},
+        {"ticker": "STNG", "name": "Scorpio Tankers", "sector": "Tanker"},
+        {"ticker": "INSW", "name": "Intl Seaways", "sector": "Tanker"},
+        {"ticker": "DHT", "name": "DHT Holdings", "sector": "Tanker"},
+    ],
+    "lng": [
+        {"ticker": "FLNG", "name": "FLEX LNG", "sector": "LNG Shipping"},
+        {"ticker": "GLNG", "name": "Golar LNG", "sector": "LNG Shipping"},
+    ],
+}
+
+# Cache for equities
+_equity_cache: dict = {}
+_equity_cache_ts: float = 0.0
+_EQUITY_TTL = 300  # 5 min
+
+
+@router.get("/equities")
+async def get_related_equities():
+    """Related energy equities — tanker and LNG shipping stocks."""
+    import time as _time
+
+    global _equity_cache, _equity_cache_ts
+    now = _time.monotonic()
+    if _equity_cache and (now - _equity_cache_ts) < _EQUITY_TTL:
+        return _equity_cache
+
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch():
+        import yfinance as yf
+
+        result = {"tanker": [], "lng": []}
+        all_tickers = []
+        for group in EQUITY_TICKERS.values():
+            all_tickers.extend(g["ticker"] for g in group)
+        batch = yf.Tickers(" ".join(all_tickers))
+        for category, entries in EQUITY_TICKERS.items():
+            for entry in entries:
+                try:
+                    info = batch.tickers[entry["ticker"]].fast_info
+                    price = info.last_price
+                    prev = info.previous_close
+                    if not price or price <= 0:
+                        continue
+                    change_pct = ((price - prev) / prev * 100) if prev else 0
+                    result[category].append(
+                        {
+                            "ticker": entry["ticker"],
+                            "name": entry["name"],
+                            "sector": entry["sector"],
+                            "price": round(price, 2),
+                            "change_pct": round(change_pct, 2),
+                        }
+                    )
+                except Exception:
+                    logger.debug("Equity fetch failed for %s", entry["ticker"])
+                    continue
+        return result
+
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        data = await loop.run_in_executor(pool, _fetch)
+
+    _equity_cache = data
+    _equity_cache_ts = now
+    return data
+
+
 @router.get("/commodities")
 async def get_commodities():
     """Get all commodity prices grouped by category."""
@@ -96,12 +160,14 @@ async def get_commodities():
     prices = result.get("prices", {})
 
     energy = {k: v for k, v in prices.items() if k in ("WTI", "BRENT", "NG")}
+    gas = {k: v for k, v in prices.items() if k in ("NG", "JKM", "TTF")}
     metals = {k: v for k, v in prices.items() if k in ("GOLD", "COPPER")}
     agriculture = {}
 
     return {
         "source": result.get("source"),
         "energy": energy,
+        "gas": gas,
         "metals": metals,
         "agriculture": agriculture,
     }

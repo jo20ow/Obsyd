@@ -15,7 +15,11 @@ import BriefingPanel from './components/BriefingPanel'
 import MarketStructure from './components/MarketStructure'
 import ReroutingIndex from './components/ReroutingIndex'
 import EventTimeline from './components/EventTimeline'
+import ZoneActivityChart from './components/ZoneActivityChart'
 import STSPanel from './components/STSPanel'
+import CrackSpreadPanel from './components/CrackSpreadPanel'
+import RelatedEquitiesPanel from './components/RelatedEquitiesPanel'
+import ProGate from './components/ProGate'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const API = '/api'
@@ -170,6 +174,16 @@ function App() {
           <ErrorBoundary name="market-structure">
             <MarketStructure />
           </ErrorBoundary>
+          <ErrorBoundary name="crack-spread">
+            <ProGate feature="Crack Spread">
+              <CrackSpreadPanel />
+            </ProGate>
+          </ErrorBoundary>
+          <ErrorBoundary name="related-equities">
+            <ProGate feature="Related Equities">
+              <RelatedEquitiesPanel />
+            </ProGate>
+          </ErrorBoundary>
           <ErrorBoundary name="macro">
             <MacroPanel />
           </ErrorBoundary>
@@ -183,9 +197,16 @@ function App() {
           <ChokePointMonitor />
         </div>
       </ErrorBoundary>
+      <ErrorBoundary name="zone-activity">
+        <div className="mt-4">
+          <ZoneActivityChart />
+        </div>
+      </ErrorBoundary>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <ErrorBoundary name="sts-detection">
-          <STSPanel />
+          <ProGate feature="STS Detection">
+            <STSPanel />
+          </ProGate>
         </ErrorBoundary>
         <ErrorBoundary name="rerouting">
           <ReroutingIndex />

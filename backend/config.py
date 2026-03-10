@@ -32,6 +32,20 @@ class Settings(BaseSettings):
     # NASA FIRMS (BYOK)
     firms_api_key: Optional[SecretStr] = None
 
+    # App secret (for HMAC tokens)
+    secret_key: str = "obsyd-change-me-in-production"
+
+    # Resend (email)
+    resend_api_key: Optional[SecretStr] = None
+
+    # Lemon Squeezy (payments)
+    lemonsqueezy_webhook_secret: Optional[SecretStr] = None
+    lemonsqueezy_checkout_url: str = "https://obsyd.lemonsqueezy.com/buy/placeholder"
+
+    # JWT
+    jwt_secret: str = "obsyd-jwt-change-me-in-production"
+    jwt_expiry_days: int = 30
+
     # LLM (BYOK)
     openai_api_key: Optional[SecretStr] = None
     anthropic_api_key: Optional[SecretStr] = None

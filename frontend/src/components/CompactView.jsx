@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import WaitlistSignup from './WaitlistSignup'
 
 const API = '/api'
 
@@ -193,6 +194,11 @@ export default function CompactView({ onSwitchToFull }) {
             </div>
           </div>
         )}
+
+        {/* Waitlist signup */}
+        <div className="border-b border-border">
+          <WaitlistSignup />
+        </div>
 
         {/* Full Dashboard button */}
         <div className="px-4 py-3 flex justify-end">

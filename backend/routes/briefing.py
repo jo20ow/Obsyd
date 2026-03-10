@@ -13,13 +13,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter
 
 from backend.database import SessionLocal
-from backend.models.vessels import GlobalVesselPosition, GeofenceEvent
-from backend.models.fleet import DailyFleetSummary
 from backend.models.alerts import Alert
+from backend.models.fleet import DailyFleetSummary
 from backend.models.prices import FREDSeries
 from backend.models.sentiment import SentimentScore
-from backend.signals.historical_lookup import find_anomalies, CHOKEPOINT_NAMES
+from backend.models.vessels import GlobalVesselPosition
 from backend.providers import yfinance_provider
+from backend.signals.historical_lookup import find_anomalies
 from backend.signals.market_structure import get_market_structure
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ async def _market_snapshot(db) -> dict:
     try:
         result = await yfinance_provider.get_live_prices()
         prices = result.get("prices", {})
-        for key in ("WTI", "BRENT", "NG", "GOLD", "SILVER", "COPPER"):
+        for key in ("WTI", "BRENT", "NG", "JKM", "TTF", "GOLD", "SILVER", "COPPER"):
             if key in prices:
                 p = prices[key]
                 snapshot[key.lower()] = {
@@ -77,23 +77,17 @@ async def _market_snapshot(db) -> dict:
         logger.warning(f"Briefing: yfinance failed: {e}")
 
     # DXY from FRED
-    dxy = db.query(FREDSeries).filter(
-        FREDSeries.series_id == "DTWEXBGS"
-    ).order_by(FREDSeries.date.desc()).first()
+    dxy = db.query(FREDSeries).filter(FREDSeries.series_id == "DTWEXBGS").order_by(FREDSeries.date.desc()).first()
     if dxy:
         snapshot["dxy"] = {"value": dxy.value, "date": dxy.date}
 
     # Yield curve
-    spread = db.query(FREDSeries).filter(
-        FREDSeries.series_id == "T10Y2Y"
-    ).order_by(FREDSeries.date.desc()).first()
+    spread = db.query(FREDSeries).filter(FREDSeries.series_id == "T10Y2Y").order_by(FREDSeries.date.desc()).first()
     if spread:
         snapshot["yield_curve"] = {"spread": spread.value, "date": spread.date}
 
     # Sentiment
-    sentiment = db.query(SentimentScore).order_by(
-        SentimentScore.created_at.desc()
-    ).first()
+    sentiment = db.query(SentimentScore).order_by(SentimentScore.created_at.desc()).first()
     if sentiment:
         snapshot["sentiment_score"] = sentiment.risk_score
 
@@ -144,26 +138,22 @@ def _chokepoint_anomalies() -> list[dict]:
                     comparisons.append(comp)
 
                 # Calculate avg Brent impact
-                impacts_7d = [
-                    e.get("brent_change_7d_pct")
-                    for e in past if "brent_change_7d_pct" in e
-                ]
-                avg_impact = (
-                    round(sum(impacts_7d) / len(impacts_7d), 1)
-                    if impacts_7d else None
-                )
+                impacts_7d = [e.get("brent_change_7d_pct") for e in past if "brent_change_7d_pct" in e]
+                avg_impact = round(sum(impacts_7d) / len(impacts_7d), 1) if impacts_7d else None
 
-                anomalies.append({
-                    "severity": severity,
-                    "chokepoint": cp,
-                    "title": f"{result['chokepoint']}: {drop:+.1f}% Transit",
-                    "current_value": current.get("n_total", 0),
-                    "average_30d": current.get("avg_30d", 0),
-                    "drop_pct": round(drop, 1),
-                    "historical_count": len(past),
-                    "avg_brent_impact_7d": avg_impact,
-                    "historical_comparisons": comparisons,
-                })
+                anomalies.append(
+                    {
+                        "severity": severity,
+                        "chokepoint": cp,
+                        "title": f"{result['chokepoint']}: {drop:+.1f}% Transit",
+                        "current_value": current.get("n_total", 0),
+                        "average_30d": current.get("avg_30d", 0),
+                        "drop_pct": round(drop, 1),
+                        "historical_count": len(past),
+                        "avg_brent_impact_7d": avg_impact,
+                        "historical_comparisons": comparisons,
+                    }
+                )
         except Exception as e:
             logger.warning(f"Briefing anomaly check for {cp} failed: {e}")
 
@@ -179,6 +169,7 @@ def _fleet_status(db) -> dict:
 
     # Current snapshot
     from sqlalchemy import func
+
     totals = db.query(
         func.count(GlobalVesselPosition.id).label("total"),
         func.sum(GlobalVesselPosition.is_tanker).label("tankers"),
@@ -188,9 +179,7 @@ def _fleet_status(db) -> dict:
         status["tankers_global"] = totals.tankers or 0
 
     # Recent daily summaries for trend
-    summaries = db.query(DailyFleetSummary).order_by(
-        DailyFleetSummary.date.desc()
-    ).limit(7).all()
+    summaries = db.query(DailyFleetSummary).order_by(DailyFleetSummary.date.desc()).limit(7).all()
     if summaries:
         status["daily_trend"] = [
             {
@@ -203,17 +192,19 @@ def _fleet_status(db) -> dict:
         ]
 
     # Anchored vessel alerts (deduplicated: 1 per zone, most recent)
-    recent_alerts = db.query(Alert).filter(
-        Alert.rule.in_(["anchored_vessels", "floating_storage"])
-    ).order_by(Alert.created_at.desc()).limit(20).all()
+    recent_alerts = (
+        db.query(Alert)
+        .filter(Alert.rule.in_(["anchored_vessels", "floating_storage"]))
+        .order_by(Alert.created_at.desc())
+        .limit(20)
+        .all()
+    )
     seen_zones = set()
     anchored_alerts = []
     for a in recent_alerts:
         if a.zone not in seen_zones:
             seen_zones.add(a.zone)
-            anchored_alerts.append(
-                {"zone": a.zone, "title": a.title, "time": a.created_at.isoformat()}
-            )
+            anchored_alerts.append({"zone": a.zone, "title": a.title, "time": a.created_at.isoformat()})
     if anchored_alerts:
         status["anchored_alerts"] = anchored_alerts
 
@@ -222,15 +213,12 @@ def _fleet_status(db) -> dict:
 
 def _alerts_summary(db) -> dict:
     """Summary of recent alerts by type."""
-    from sqlalchemy import func
     from datetime import timedelta
 
+    from sqlalchemy import func
+
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    counts = db.query(
-        Alert.rule, func.count(Alert.id)
-    ).filter(
-        Alert.created_at > cutoff
-    ).group_by(Alert.rule).all()
+    counts = db.query(Alert.rule, func.count(Alert.id)).filter(Alert.created_at > cutoff).group_by(Alert.rule).all()
 
     return {
         "last_24h": {rule: count for rule, count in counts},
@@ -251,6 +239,7 @@ def _upcoming_events(now: datetime) -> dict:
     next_eia = now.replace(hour=15, minute=30, second=0, microsecond=0)
     if days_to_wed > 0 or (days_to_wed == 0 and now.hour >= 16):
         from datetime import timedelta
+
         next_eia += timedelta(days=days_to_wed if days_to_wed > 0 else 7)
     events["eia_report"] = next_eia.strftime("%A %H:%M UTC")
 

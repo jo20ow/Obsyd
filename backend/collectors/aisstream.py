@@ -39,7 +39,8 @@ RECONNECT_BASE = 5
 RECONNECT_MAX = 120
 
 # Track known tanker MMSIs from ShipStaticData messages
-_tanker_mmsis: set[int] = set()
+# Maps mmsi -> ship_type (e.g. 80, 81, 84 …)
+_tanker_mmsis: dict[int, int] = {}
 
 _ws_task: asyncio.Task | None = None
 
@@ -69,36 +70,32 @@ def _handle_static_data(msg: dict):
     ship_type = static.get("Type", 0)
 
     if is_tanker(ship_type):
-        _tanker_mmsis.add(mmsi)
+        _tanker_mmsis[mmsi] = ship_type
     else:
-        _tanker_mmsis.discard(mmsi)
+        _tanker_mmsis.pop(mmsi, None)
 
 
-def _handle_position_report(msg: dict):
-    """Process a PositionReport for a known tanker and store in database."""
+def _parse_position_report(msg: dict) -> dict | None:
+    """Parse a PositionReport for a known tanker. Returns dict or None."""
     meta = msg.get("MetaData", {})
     mmsi = meta.get("MMSI")
-    if mmsi is None:
-        return
-
-    if mmsi not in _tanker_mmsis:
-        return
+    if mmsi is None or mmsi not in _tanker_mmsis:
+        return None
 
     report = msg.get("Message", {}).get("PositionReport", {})
     lat = report.get("Latitude", meta.get("latitude"))
     lon = report.get("Longitude", meta.get("longitude"))
 
     if lat is None or lon is None:
-        return
+        return None
 
     zone = find_zone(lat, lon)
     if zone is None:
-        return
+        return None
 
     sog = report.get("Sog", 0.0)
     cog = report.get("Cog", 0.0)
     heading = report.get("TrueHeading", 0.0)
-    # TrueHeading 511 = not available
     if heading == 511:
         heading = cog
 
@@ -113,30 +110,47 @@ def _handle_position_report(msg: dict):
     except (ValueError, TypeError):
         ts = datetime.now(timezone.utc)
 
-    # Apply hygiene filters (plausibility + dedup)
-    if not filter_and_count(str(mmsi), lat, lon, sog, 80, ts):
-        return
+    ship_type = _tanker_mmsis.get(mmsi, 80)
 
+    if not filter_and_count(str(mmsi), lat, lon, sog, ship_type, ts):
+        return None
+
+    return {
+        "mmsi": str(mmsi),
+        "ship_name": ship_name,
+        "lat": lat,
+        "lon": lon,
+        "sog": sog,
+        "cog": cog,
+        "heading": heading,
+        "zone": zone["name"],
+        "ts": ts,
+        "ship_type": ship_type,
+    }
+
+
+def _db_write_position(data: dict):
+    """Write a single vessel position to DB (runs in thread pool)."""
     db = SessionLocal()
     try:
         db.add(
             VesselPosition(
-                mmsi=str(mmsi),
-                ship_name=ship_name,
-                ship_type=80,  # already filtered as tanker
-                latitude=lat,
-                longitude=lon,
-                sog=sog,
-                cog=cog,
-                heading=heading,
-                zone=zone["name"],
-                timestamp=ts,
+                mmsi=data["mmsi"],
+                ship_name=data["ship_name"],
+                ship_type=data.get("ship_type", 80),
+                latitude=data["lat"],
+                longitude=data["lon"],
+                sog=data["sog"],
+                cog=data["cog"],
+                heading=data["heading"],
+                zone=data["zone"],
+                timestamp=data["ts"],
             )
         )
         db.commit()
     except Exception as e:
         db.rollback()
-        logger.error(f"DB write failed for MMSI {mmsi}: {e}")
+        logger.error(f"DB write failed for MMSI {data['mmsi']}: {e}")
     finally:
         db.close()
 
@@ -181,7 +195,9 @@ async def _ws_loop():
                     if msg_type == "ShipStaticData":
                         _handle_static_data(msg)
                     elif msg_type == "PositionReport":
-                        _handle_position_report(msg)
+                        data = _parse_position_report(msg)
+                        if data:
+                            await asyncio.to_thread(_db_write_position, data)
 
                     msg_count += 1
                     if msg_count % 1000 == 0:
