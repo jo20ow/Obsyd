@@ -1,127 +1,92 @@
 import { useState, useEffect } from 'react'
-import { InfoPopover } from './Panel'
 import WaitlistSignup from './WaitlistSignup'
 
 const API = '/api'
 
-const SEVERITY_DOT = {
+const SEV_DOT = {
   critical: 'bg-red-400',
   warning: 'bg-orange-400',
   info: 'bg-neutral-500',
 }
-
-const SEVERITY_TEXT = {
+const SEV_TEXT = {
   critical: 'text-red-400',
   warning: 'text-orange-400',
   info: 'text-neutral-400',
 }
 
 export default function BriefingPanel() {
-  const [briefing, setBriefing] = useState(null)
-  const [error, setError] = useState(false)
+  const [b, setB] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/briefing/today`)
       .then((r) => (r.ok ? r.json() : null))
-      .then(setBriefing)
-      .catch(() => setError(true))
+      .then(setB)
+      .catch(() => {})
   }, [])
 
-  if (error || !briefing) return null
+  if (!b) return null
 
-  const { market_snapshot: market, market_structure: mktStruct, anomalies, fleet_status: fleet, upcoming } = briefing
-  const hasAnomalies = anomalies && anomalies.length > 0
+  const { market_snapshot: mkt, anomalies, fleet_status: fleet, upcoming } = b
+  const top = anomalies?.[0]
 
   return (
-    <div className="border border-border bg-surface p-4 font-mono text-sm">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${hasAnomalies ? 'bg-red-400 animate-pulse' : 'bg-emerald-400'}`} />
-          <span className="text-cyan-glow font-bold text-xs tracking-widest">
-            OBSYD BRIEFING
-          </span>
-          <span className="text-neutral-600 text-xs">// {briefing.date}</span>
-          <InfoPopover text="Daily summary of key market anomalies. Based on PortWatch transits and FRED price data." />
-        </div>
+    <div className="border border-border bg-surface px-4 py-2.5 font-mono text-xs space-y-1">
+      {/* Line 1: Top Alert */}
+      <div className="flex items-center gap-2">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${top ? SEV_DOT[top.severity] : 'bg-emerald-400'}`} />
+        {top ? (
+          <>
+            <span className={`font-bold ${SEV_TEXT[top.severity]}`}>{top.title}</span>
+            {anomalies.length > 1 && <span className="text-neutral-600">+{anomalies.length - 1} more</span>}
+          </>
+        ) : (
+          <span className="text-emerald-400/80">All chokepoints within normal range</span>
+        )}
       </div>
 
-      {/* Anomalies — compact, click scrolls to ChokePointMonitor for details */}
-      {hasAnomalies ? (
-        <div className="mb-3 space-y-1">
-          {anomalies.map((a, i) => (
-            <button
-              key={i}
-              onClick={() => document.getElementById('chokepoint-monitor')?.scrollIntoView({ behavior: 'smooth' })}
-              className="flex items-center gap-2 w-full text-left hover:bg-white/3 rounded px-1 py-0.5 transition-colors"
-            >
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SEVERITY_DOT[a.severity]}`} />
-              <span className={`text-xs font-bold ${SEVERITY_TEXT[a.severity]}`}>
-                {a.title}
-              </span>
-              {a.historical_count > 0 && a.avg_brent_impact_7d != null && (
-                <span className={`text-xs ${a.avg_brent_impact_7d > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                  Brent {a.avg_brent_impact_7d > 0 ? '+' : ''}{a.avg_brent_impact_7d}% (n={a.historical_count})
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="text-emerald-400/80 text-xs mb-3 pl-1">
-          All chokepoints within normal range
-        </div>
-      )}
-
-      {/* Fleet status */}
-      {fleet && fleet.tankers_global > 0 && (
-        <div className="text-neutral-400 text-xs mb-3 pl-4">
+      {/* Line 2: Fleet */}
+      {fleet?.tankers_global > 0 && (
+        <div className="text-neutral-400 pl-3.5">
           Global fleet: {fleet.total_vessels_global?.toLocaleString()} vessels, {fleet.tankers_global?.toLocaleString()} tankers
         </div>
       )}
 
-      {/* Market bar */}
-      {market && Object.keys(market).length > 0 && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs border-t border-border pt-2">
-          {['wti', 'brent', 'ng', 'jkm', 'ttf', 'gold'].map((key) => {
-            const m = market[key]
-            if (!m) return null
-            const up = m.change_pct >= 0
+      {/* Line 3: Prices inline */}
+      {mkt && (
+        <div className="flex flex-wrap gap-x-3 pl-3.5">
+          {['wti', 'brent', 'ng', 'ttf', 'gold'].map((k) => {
+            const p = mkt[k]
+            if (!p?.price) return null
+            const up = (p.change_pct || 0) >= 0
             return (
-              <span key={key} className="text-neutral-300">
-                {key.toUpperCase()}{' '}
-                <span className="text-neutral-100">${m.price != null ? m.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>{' '}
+              <span key={k} className="text-neutral-300 whitespace-nowrap">
+                <span className="text-neutral-500">{k.toUpperCase()}</span>{' '}
+                ${p.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
                 <span className={up ? 'text-emerald-400' : 'text-red-400'}>
-                  ({up ? '+' : ''}{m.change_pct != null ? m.change_pct.toFixed(1) : '?'}%)
+                  {up ? '+' : ''}{p.change_pct?.toFixed(1)}%
                 </span>
               </span>
             )
           })}
-          {mktStruct?.summary && mktStruct.summary !== 'unavailable' && (() => {
-            const s = mktStruct.summary
-            const cls = s === 'backwardation' ? 'text-red-400' : s === 'contango' ? 'text-emerald-400' : 'text-neutral-500'
-            return (
-              <span className={cls}>
-                {s.toUpperCase()}
-                {mktStruct.curves?.WTI?.spread_pct != null && ` (${mktStruct.curves.WTI.spread_pct > 0 ? '+' : ''}${mktStruct.curves.WTI.spread_pct.toFixed(1)}%)`}
-              </span>
-            )
-          })()}
-          {market.sentiment_score != null && (
-            <span className="text-neutral-500">
-              Sentiment: {market.sentiment_score}/10
-            </span>
-          )}
-          {upcoming?.eia_report && (
-            <span className="text-neutral-600">
-              Next EIA: {upcoming.eia_report}
-            </span>
-          )}
         </div>
       )}
 
-      {/* Waitlist signup */}
-      <div className="mt-3">
+      {/* Line 4: Sentiment + Next EIA */}
+      <div className="text-neutral-500 pl-3.5">
+        {mkt?.sentiment_score != null && (
+          <>
+            Sentiment:{' '}
+            <span className={
+              mkt.sentiment_score >= 7 ? 'text-red-400' : mkt.sentiment_score >= 4 ? 'text-orange-400' : 'text-emerald-400'
+            }>{mkt.sentiment_score}/10</span>
+          </>
+        )}
+        {mkt?.sentiment_score != null && upcoming?.eia_report && <span className="text-neutral-700"> · </span>}
+        {upcoming?.eia_report && <>Next EIA: {upcoming.eia_report}</>}
+      </div>
+
+      {/* Waitlist */}
+      <div className="pt-1.5">
         <WaitlistSignup />
       </div>
     </div>
