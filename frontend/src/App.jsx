@@ -26,6 +26,7 @@ import PriceTicker from './components/PriceTicker'
 import TransitChart from './components/TransitChart'
 import TonneMilesPanel from './components/TonneMilesPanel'
 import DisruptionScorePanel from './components/DisruptionScorePanel'
+import MarketReportPanel from './components/MarketReportPanel'
 import EIAPredictionPanel, { EIAPredictionMini } from './components/EIAPredictionPanel'
 import { useAuth } from './context/AuthContext'
 
@@ -276,8 +277,13 @@ function App() {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <>
-            {/* Row 0: Supply Disruption Index */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-3">
+            {/* Row 0: Market Intelligence Report */}
+            <ErrorBoundary name="market-report">
+              <MarketReportPanel />
+            </ErrorBoundary>
+
+            {/* Row 1: Supply Disruption Index */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-3 mt-3">
               <ErrorBoundary name="disruption-score">
                 <DisruptionScorePanel />
               </ErrorBoundary>

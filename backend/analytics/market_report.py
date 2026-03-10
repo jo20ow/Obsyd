@@ -1,18 +1,15 @@
 """
-Market Intelligence Report — narrative text generated from live signal data.
+Market Intelligence Report v2 — Deep Analysis Engine.
 
-Assembles a 4-paragraph report:
-  1. Catalyst — what triggered the current situation
-  2. Physical — what's happening in physical oil markets
-  3. Market — what market pricing tells us
-  4. Key Risk — what to watch next
+5-section narrative report:
+  1. CATALYST — what is driving the market right now
+  2. HISTORICAL CONTEXT — comparison with past events
+  3. PHYSICAL FLOWS + CONTRADICTIONS — what's happening and what doesn't add up
+  4. MARKET IMPLICATIONS + SECTOR — pricing, spreads, equities
+  5. OUTLOOK + KEY RISKS — trajectory, conditions, what to watch
 
-Template rotation: each CAUSAL_CHAINS key has 5 variants, selected
-by date-seeded random.choice() so the same report renders within a day
-but a different variant appears the next day.
-
-Scheduled: every 2 hours (alongside disruption score).
-Cached: 2 hours in-memory.
+Template rotation: date-seeded random for daily consistency.
+Cached: 30 minutes with smart invalidation.
 """
 
 import asyncio
@@ -23,15 +20,18 @@ import re
 import time
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import func
+
 from backend.database import SessionLocal
 from backend.models.analytics import (
     DisruptionScoreHistory,
     EIAPredictionHistory,
+    MarketReport,
     TonneMilesHistory,
 )
-from backend.models.pro_features import CrackSpreadHistory
+from backend.models.pro_features import CrackSpreadHistory, EquitySnapshot
 from backend.models.sentiment import SentimentScore
-from backend.models.vessels import FloatingStorageEvent, VesselRegistry
+from backend.models.vessels import FloatingStorageEvent, GeofenceEvent, VesselRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +41,10 @@ logger = logging.getLogger(__name__)
 _report_cache: dict | None = None
 _report_cache_ts: float = 0.0
 _report_lock = asyncio.Lock()
-CACHE_TTL = 7200  # 2 hours
+CACHE_TTL = 1800  # 30 minutes
 
 # ---------------------------------------------------------------------------
-# Template rotation
+# CAUSAL_CHAINS — 5 variants per key, date-seeded rotation
 # ---------------------------------------------------------------------------
 
 CAUSAL_CHAINS = {
@@ -127,7 +127,6 @@ CAUSAL_CHAINS = {
     ],
 }
 
-# Divergence templates
 DIVERGENCE_TEMPLATES = [
     "Despite the physical supply disruption, {commodity} declined {change}%, suggesting demand-side concerns or expectations of diplomatic resolution are currently outweighing supply risk in market pricing.",
     "A notable divergence has emerged: physical supply signals remain stressed, yet {commodity} fell {change}%. The market may be pricing in demand destruction, strategic reserve releases, or a faster-than-expected resolution.",
@@ -145,568 +144,1017 @@ INVERSE_DIVERGENCE_TEMPLATES = [
 ]
 
 
-def pick_template(key: tuple) -> str:
-    """Pick a template variant seeded by today's date + key for daily consistency."""
-    random.seed(date.today().isoformat() + str(key))
-    return random.choice(CAUSAL_CHAINS[key])  # nosec B311
-
-
 # ---------------------------------------------------------------------------
-# Data gathering
+# Report Generator
 # ---------------------------------------------------------------------------
 
 
-def _gather_data(db) -> dict:
-    """Collect all signal data from DB and signal modules."""
-    data = {
-        "market_prices": {"brent": None, "wti": None},
-        "disruption_score": None,
-        "tonne_miles": None,
-        "eia_prediction": None,
-        "floating_storage": {"active_count": 0, "vlcc_count": 0},
-        "crack_spreads": None,
-        "market_structure": None,
-        "rerouting": {"cape_share": 0, "state": "normal"},
-        "sentiment": None,
-        "chokepoints": [],
-    }
+class MarketReportGenerator:
+    """Builds 5-section market intelligence reports from live signal data."""
 
-    # 1. Disruption score (latest)
-    ds = (
-        db.query(DisruptionScoreHistory)
-        .order_by(DisruptionScoreHistory.date.desc(), DisruptionScoreHistory.id.desc())
-        .first()
-    )
-    if ds:
-        data["disruption_score"] = {
-            "composite": ds.composite_score,
-            "hormuz": ds.hormuz_component,
-            "cape": ds.cape_component,
-            "storage": ds.storage_component,
-            "crack": ds.crack_component,
-            "backwardation": ds.backwardation_component,
-            "sentiment": ds.sentiment_component,
-        }
+    def __init__(self, db_session):
+        self.db = db_session
+        self.today = date.today()
+        random.seed(self.today.isoformat())
 
-    # 2. Tonne-miles (latest)
-    tm = db.query(TonneMilesHistory).order_by(TonneMilesHistory.date.desc()).first()
-    if tm:
-        data["tonne_miles"] = {
-            "index": tm.tonne_miles_index,
-            "raw": tm.tonne_miles_raw,
-            "cape_share": round((tm.cape_share or 0) * 100, 1),
-            "avg_distance": tm.avg_distance,
-        }
-        data["rerouting"]["cape_share"] = round((tm.cape_share or 0) * 100, 1)
-        if (tm.cape_share or 0) > 0.40:
-            data["rerouting"]["state"] = "high"
-        elif (tm.cape_share or 0) > 0.30:
-            data["rerouting"]["state"] = "elevated"
+    # === PUBLIC ===
 
-    # 3. EIA prediction (latest)
-    eia = db.query(EIAPredictionHistory).order_by(EIAPredictionHistory.date.desc()).first()
-    if eia:
-        change_pct = None
-        if eia.tanker_count_30d_avg and eia.tanker_count_30d_avg > 0:
-            change_pct = round((eia.tanker_count - eia.tanker_count_30d_avg) / eia.tanker_count_30d_avg * 100, 1)
-        data["eia_prediction"] = {
-            "prediction": eia.prediction,
-            "tanker_count": eia.tanker_count,
-            "tanker_count_30d_avg": eia.tanker_count_30d_avg,
-            "change_pct": change_pct,
-            "anchored_ratio": eia.anchored_ratio,
-        }
+    def generate(self) -> dict:
+        """Main entry: collect data, rank signals, build 5 sections."""
+        data = self._collect_all_data()
+        signals = self._rank_signals(data)
 
-    # 4. Floating storage
-    fs_events = db.query(FloatingStorageEvent).filter(FloatingStorageEvent.status == "active").all()
-    vlcc_count = 0
-    for ev in fs_events:
-        # Check if vessel is VLCC via registry
-        if ev.mmsi:
-            reg = db.query(VesselRegistry).filter(VesselRegistry.mmsi == ev.mmsi).first()
-            if reg and reg.ship_class == "VLCC":
-                vlcc_count += 1
-    data["floating_storage"] = {
-        "active_count": len(fs_events),
-        "vlcc_count": vlcc_count,
-    }
+        sections = {}
 
-    # 5. Crack spreads (from DB history — avoids calling yfinance in report)
-    crack = db.query(CrackSpreadHistory).order_by(CrackSpreadHistory.date.desc()).first()
-    if crack:
-        # Compute percentile from last 365 days
-        rows = (
-            db.query(CrackSpreadHistory.three_two_one_crack).order_by(CrackSpreadHistory.date.desc()).limit(365).all()
-        )
-        values = sorted(r[0] for r in rows if r[0] is not None)
-        percentile = 0
-        if values and len(values) >= 30:
-            rank = sum(1 for v in values if v <= crack.three_two_one_crack)
-            percentile = int(rank / len(values) * 100)
-        data["crack_spreads"] = {
-            "value": crack.three_two_one_crack,
-            "percentile_1y": percentile,
-        }
+        # Section 1: CATALYST (always present)
+        sections["catalyst"] = self._build_catalyst(signals, data)
 
-    # 6. Market structure (from disruption score backwardation component)
-    # We read the raw spread from the market_structure signal
-    try:
-        from backend.signals.market_structure import _fetch_structure
+        # Section 2: HISTORICAL CONTEXT
+        try:
+            sections["historical"] = self._build_historical_context(signals, data)
+        except Exception as e:
+            logger.warning("Historical context skipped: %s", e)
+            sections["historical"] = None
 
-        structure = _fetch_structure()
-        if structure and "BRENT" in structure.get("curves", {}):
-            brent_curve = structure["curves"]["BRENT"]
-            data["market_structure"] = {
-                "spread_pct": brent_curve.get("spread_pct", 0),
-                "structure": brent_curve.get("structure", "flat"),
-            }
-    except Exception as e:
-        logger.debug("Market structure fetch failed: %s", e)
+        # Section 3: PHYSICAL FLOWS + CONTRADICTIONS
+        try:
+            sections["physical"] = self._build_physical_analysis(signals, data)
+        except Exception as e:
+            logger.warning("Physical analysis skipped: %s", e)
+            sections["physical"] = None
 
-    # 7. Sentiment
-    sent = db.query(SentimentScore).order_by(SentimentScore.created_at.desc()).first()
-    if sent:
-        factors = []
-        if sent.risk_factors:
-            try:
-                factors = json.loads(sent.risk_factors) if isinstance(sent.risk_factors, str) else sent.risk_factors
-            except (json.JSONDecodeError, TypeError):
-                pass
-        data["sentiment"] = {
-            "risk_score": sent.risk_score,
-            "risk_factors": factors[:3] if factors else [],
-        }
+        # Section 4: MARKET + SECTOR
+        try:
+            sections["market"] = self._build_market_sector(signals, data)
+        except Exception as e:
+            logger.warning("Market analysis skipped: %s", e)
+            sections["market"] = None
 
-    # 8. Chokepoint anomalies (from historical_lookup)
-    try:
-        from backend.signals.historical_lookup import find_anomalies
+        # Section 5: OUTLOOK + RISKS
+        try:
+            sections["outlook"] = self._build_outlook(signals, data)
+        except Exception as e:
+            logger.warning("Outlook skipped: %s", e)
+            sections["outlook"] = None
 
-        for cp in ("hormuz", "suez", "malacca", "bab_el_mandeb"):
-            result = find_anomalies(cp, threshold_pct=40.0)
-            current = result.get("current", {})
-            drop = current.get("drop_pct", 0)
-            if drop < -25:
-                severity = "CRITICAL" if drop < -50 else "WARNING"
-                # Find disruption context
-                anomalies = result.get("anomalies", [])
-                context = ""
-                if anomalies:
-                    last = anomalies[-1]
-                    ctx_list = last.get("disruption_context", [])
-                    raw = ctx_list[0] if ctx_list else ""
-                    # Strip internal PortWatch type tags like "(OT)"
-                    context = re.sub(r"\s*\([^)]*\)\s*$", "", raw).strip()
-                data["chokepoints"].append(
-                    {
-                        "zone": result.get("chokepoint", cp),
-                        "zone_short": cp,
-                        "drop_pct": abs(round(drop, 0)),
-                        "vessels": current.get("n_total", 0),
-                        "severity": severity,
-                        "disruption_name": context or "recent events",
-                    }
-                )
-    except Exception as e:
-        logger.debug("Chokepoint anomaly check failed: %s", e)
+        # Headlines for free-user teaser
+        headlines = {}
+        for key, text in sections.items():
+            if text:
+                first_sentence = text.split(". ")[0] + "."
+                headlines[key] = first_sentence[:120]
 
-    # 9. Market prices (from yfinance cache — don't call live)
-    try:
-        from backend.providers.yfinance_provider import _price_cache
+        # Full report
+        full_paragraphs = [text for text in sections.values() if text]
+        full_report = "\n\n".join(full_paragraphs)
 
-        if _price_cache:
-            prices = _price_cache.get("prices", {})
-            if "BRENT" in prices:
-                b = prices["BRENT"]
-                data["market_prices"]["brent"] = {
-                    "price": b.get("current", 0),
-                    "change_pct": b.get("change_pct", 0),
-                }
-            if "WTI" in prices:
-                w = prices["WTI"]
-                data["market_prices"]["wti"] = {
-                    "price": w.get("current", 0),
-                    "change_pct": w.get("change_pct", 0),
-                }
-    except Exception as e:
-        logger.debug("Price cache read failed: %s", e)
-
-    return data
-
-
-# ---------------------------------------------------------------------------
-# Report builder
-# ---------------------------------------------------------------------------
-
-
-def _build_signal_list(data: dict) -> list[dict]:
-    """Identify active signals from gathered data, sorted by severity."""
-    signals = []
-
-    # Chokepoint disruptions
-    for cp in data["chokepoints"]:
-        if cp["drop_pct"] >= 80 and cp["zone_short"] == "hormuz":
-            signals.append(
-                {
-                    "key": ("hormuz_critical", "none"),
-                    "severity": "CRITICAL",
-                    "topic": "chokepoint",
-                    "params": {
-                        "pct": int(cp["drop_pct"]),
-                        "vessels": cp["vessels"],
-                        "disruption_name": cp["disruption_name"],
-                        "oil_pct": 21,  # Hormuz handles ~21% of global seaborne oil
-                    },
-                }
-            )
-        elif cp["drop_pct"] >= 25:
-            cape_share = data["rerouting"]["cape_share"]
-            if cape_share > 30:
-                signals.append(
-                    {
-                        "key": ("chokepoint_drop", "rerouting_high"),
-                        "severity": "HIGH",
-                        "topic": "chokepoint",
-                        "params": {
-                            "pct": int(cp["drop_pct"]),
-                            "zone": cp["zone"],
-                            "cape_share": round(cape_share, 1),
-                        },
-                    }
-                )
-
-    # Rerouting + tonne-miles
-    cape_share = data["rerouting"]["cape_share"]
-    tm = data.get("tonne_miles")
-    if cape_share > 30 and tm:
-        if tm["index"] > 110:
-            signals.append(
-                {
-                    "key": ("rerouting_high", "tonne_miles_elevated"),
-                    "severity": "HIGH",
-                    "topic": "physical",
-                    "params": {
-                        "avg_distance": int(tm["avg_distance"] or 0),
-                        "tm_index": round(tm["index"], 1),
-                    },
-                }
-            )
-        else:
-            signals.append(
-                {
-                    "key": ("rerouting_high", "tonne_miles_normal"),
-                    "severity": "MEDIUM",
-                    "topic": "physical",
-                    "params": {
-                        "cape_share": round(cape_share, 1),
-                        "tm_index": round(tm["index"], 1),
-                    },
-                }
-            )
-
-    # Floating storage
-    fs = data["floating_storage"]
-    if fs["active_count"] > 3:
-        signals.append(
-            {
-                "key": ("floating_storage_high", "any"),
-                "severity": "MEDIUM",
-                "topic": "physical",
-                "params": {
-                    "fs_count": fs["active_count"],
-                    "vlcc_count": fs["vlcc_count"],
-                },
-            }
-        )
-    elif fs["active_count"] == 0 and data["chokepoints"]:
-        signals.append(
-            {
-                "key": ("floating_storage_zero", "chokepoint_drop"),
-                "severity": "LOW",
-                "topic": "physical",
-                "params": {},
-            }
-        )
-
-    # Crack spreads + market structure
-    crack = data.get("crack_spreads")
-    ms = data.get("market_structure")
-    if crack and crack["percentile_1y"] > 75:
-        if ms and ms["spread_pct"] < 0:
-            signals.append(
-                {
-                    "key": ("crack_spread_high", "backwardation"),
-                    "severity": "HIGH",
-                    "topic": "market",
-                    "params": {
-                        "percentile": crack["percentile_1y"],
-                        "crack_value": round(crack["value"], 2),
-                        "spread_pct": round(abs(ms["spread_pct"]), 1),
-                    },
-                }
-            )
-        else:
-            signals.append(
-                {
-                    "key": ("crack_spread_high", "no_backwardation"),
-                    "severity": "MEDIUM",
-                    "topic": "market",
-                    "params": {
-                        "percentile": crack["percentile_1y"],
-                        "crack_value": round(crack["value"], 2),
-                    },
-                }
-            )
-
-    # EIA prediction
-    eia = data.get("eia_prediction")
-    if eia:
-        change_pct = eia.get("change_pct")
-        if change_pct is not None:
-            change_str = f"{change_pct:+.0f}%" if change_pct != 0 else "flat"
-        else:
-            change_str = "N/A"
-        anchored_pct = round((eia.get("anchored_ratio") or 0) * 100, 1)
-
-        if eia["prediction"] == "BUILD" and (change_pct or 0) > 0:
-            signals.append(
-                {
-                    "key": ("houston_high", "eia_build"),
-                    "severity": "MEDIUM",
-                    "topic": "physical",
-                    "params": {
-                        "houston_count": eia["tanker_count"],
-                        "houston_change": change_str,
-                        "anchored_pct": anchored_pct,
-                    },
-                }
-            )
-        elif eia["prediction"] == "DRAW" and (change_pct or 0) < 0:
-            signals.append(
-                {
-                    "key": ("houston_low", "eia_draw"),
-                    "severity": "MEDIUM",
-                    "topic": "physical",
-                    "params": {
-                        "houston_count": eia["tanker_count"],
-                        "houston_change": change_str,
-                        "anchored_pct": anchored_pct,
-                    },
-                }
-            )
-
-    # Sentiment
-    sent = data.get("sentiment")
-    if sent and sent["risk_score"] >= 6 and data["chokepoints"]:
-        topics_str = ", ".join(sent["risk_factors"][:2]) if sent["risk_factors"] else "geopolitical risk"
-        signals.append(
-            {
-                "key": ("sentiment_negative", "disruption"),
-                "severity": "LOW",
-                "topic": "sentiment",
-                "params": {
-                    "risk_score": sent["risk_score"],
-                    "top_topics": topics_str,
-                },
-            }
-        )
-
-    # Sort by severity
-    severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-    signals.sort(key=lambda s: severity_order.get(s["severity"], 99))
-    return signals
-
-
-def build_report(data: dict | None = None) -> dict:
-    """Build the 4-paragraph market intelligence report.
-
-    Returns dict with paragraphs, metadata, and severity level.
-    """
-    db = SessionLocal()
-    try:
-        if data is None:
-            data = _gather_data(db)
-
-        signals = _build_signal_list(data)
-
-        if not signals:
-            return {
-                "available": True,
-                "severity": "LOW",
-                "title": "Market Conditions Normal",
-                "paragraphs": [
-                    "No significant supply disruptions detected across monitored chokepoints. All transit corridors are operating within normal parameters.",
-                    "Physical flow indicators — floating storage, rerouting ratios, and tonne-miles — are within baseline ranges. Market structure and refinery margins are not signaling acute supply stress at this time.",
-                    "Key risk: monitor for emerging signals. Next EIA inventory report provides the near-term data catalyst.",
-                ],
-                "signals_active": 0,
-                "disruption_score": data.get("disruption_score", {}).get("composite"),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-            }
-
-        # Determine overall severity
-        top_severity = signals[0]["severity"]
-
-        # Build title from top signal
-        ds = data.get("disruption_score", {})
-        composite = ds.get("composite", 0) if ds else 0
+        # Severity + title
+        ds = data.get("disruption_score") or {}
+        composite = ds.get("composite", 0)
         if composite >= 75:
             title = "CRITICAL — Severe Supply Disruption"
+            severity = "CRITICAL"
         elif composite >= 50:
             title = "HIGH — Elevated Supply Stress"
+            severity = "HIGH"
         elif composite >= 25:
             title = "MODERATE — Supply Disruption Developing"
+            severity = "MODERATE"
         else:
             title = "LOW — Minor Supply Signals"
+            severity = "LOW"
 
-        # ---------------------------------------------------------------
-        # Paragraph 1: Catalyst — most severe chokepoint signal
-        # ---------------------------------------------------------------
-        para1_parts = []
+        sections_available = [k for k, v in sections.items() if v]
+
+        # Historical events count
+        hist_events = data.get("historical_events", [])
+
+        result = {
+            "available": True,
+            "severity": severity,
+            "title": title,
+            "full_report": full_report,
+            "catalyst": sections.get("catalyst", ""),
+            "sections": sections,
+            "headlines": headlines,
+            "sections_available": sections_available,
+            "signals_count": len(signals),
+            "historical_events_compared": len(hist_events),
+            "disruption_score": composite,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Persist to DB
+        try:
+            self.db.add(
+                MarketReport(
+                    date=self.today.isoformat(),
+                    full_report=full_report,
+                    sections_json=json.dumps(sections, default=str),
+                    headlines_json=json.dumps(headlines, default=str),
+                    signals_count=len(signals),
+                    disruption_score=composite,
+                )
+            )
+            self.db.commit()
+        except Exception as e:
+            logger.debug("Report persistence failed: %s", e)
+            self.db.rollback()
+
+        return result
+
+    # === SECTION 1: CATALYST ===
+
+    def _build_catalyst(self, signals, data):
+        """What is the dominant signal driving the market?"""
+        parts = []
+
+        # Disruption score intro when elevated
+        ds = data.get("disruption_score") or {}
+        composite = ds.get("composite", 0)
+        if composite > 50:
+            level = "HIGH" if composite < 75 else "CRITICAL"
+            parts.append(
+                self._pick(
+                    [
+                        f"The OBSYD Supply Disruption Index stands at {composite:.0f}/100 ({level}), reflecting convergent stress across multiple indicators.",
+                        f"Multiple disruption signals are converging — the Supply Disruption Index at {composite:.0f}/100 ({level}) reflects simultaneous stress across chokepoints, pricing, and fleet behavior.",
+                        f"At {composite:.0f}/100, the Supply Disruption Index is in {level} territory, driven by concurrent anomalies across several monitored dimensions.",
+                    ]
+                )
+            )
+
+        # Lead chokepoint signal
         for s in signals:
             if s["topic"] == "chokepoint":
-                template = pick_template(s["key"])
-                para1_parts.append(template.format(**s["params"]))
+                parts.append(self._pick_chain(s["key"]).format(**s["params"]))
                 break
 
-        if not para1_parts:
-            # No chokepoint signal — use disruption score summary
+        if not parts:
             if composite > 0:
-                para1_parts.append(
+                parts.append(
                     f"The Supply Disruption Index stands at {composite:.0f}/100, "
                     f"reflecting {'elevated' if composite >= 50 else 'moderate'} supply chain stress "
                     f"across monitored chokepoints and market indicators."
                 )
+            else:
+                return "No significant signals detected across monitored chokepoints and market indicators."
 
-        # ---------------------------------------------------------------
-        # Paragraph 2: Physical — rerouting, tonne-miles, storage, EIA
-        # ---------------------------------------------------------------
-        para2_parts = []
-        for s in signals:
-            if s["topic"] == "physical":
-                template = pick_template(s["key"])
-                para2_parts.append(template.format(**s["params"]))
+        return " ".join(parts)
 
-        if not para2_parts:
-            tm = data.get("tonne_miles")
-            if tm:
-                para2_parts.append(
-                    f"The Tonne-Miles Index is at {tm['index']:.0f} with average distances "
-                    f"of {int(tm['avg_distance'] or 0)}nm, within normal operating range."
+    # === SECTION 2: HISTORICAL CONTEXT ===
+
+    def _build_historical_context(self, signals, data):
+        """Compare current situation with past events from anomaly data."""
+        events = data.get("historical_events", [])
+        if not events:
+            return None
+
+        # Current disruption
+        chokepoints = data.get("chokepoints", [])
+        if not chokepoints:
+            return None
+
+        current = chokepoints[0]  # Most severe
+        current_drop = current["drop_pct"]
+        parts = []
+
+        # Find events at the same chokepoint
+        same_cp = [e for e in events if not e.get("ongoing")]
+        severe = [e for e in same_cp if abs(e.get("max_drop_pct", 0)) > 40]
+
+        if same_cp:
+            # Find closest precedent by severity
+            same_cp.sort(key=lambda e: abs(e.get("max_drop_pct", 0)), reverse=True)
+            closest = same_cp[0]
+            closest_drop = abs(closest.get("max_drop_pct", 0))
+            closest_name = (
+                closest.get("disruption_context", ["prior event"])[0]
+                if closest.get("disruption_context")
+                else "prior event"
+            )
+            closest_name = re.sub(r"\s*\([^)]*\)\s*$", "", closest_name).strip()
+            b7 = closest.get("brent_change_7d_pct")
+            b30 = closest.get("brent_change_30d_pct")
+
+            if current_drop > closest_drop:
+                parts.append(
+                    self._pick(
+                        [
+                            f"The current {current_drop:.0f}% disruption is the most severe in the dataset. The closest precedent is {closest_name} ({closest_drop:.0f}% drop), which saw Brent move {b7:+.1f}% over 7 days and {b30:+.1f}% over 30 days."
+                            if b7 is not None and b30 is not None
+                            else f"The current {current_drop:.0f}% disruption exceeds every recorded event in the dataset. The closest comparison is {closest_name} at {closest_drop:.0f}%.",
+                            f"No historical precedent matches the current {current_drop:.0f}% disruption in severity. The nearest comparison — {closest_name} at {closest_drop:.0f}% — resulted in a {b7:+.1f}% Brent move over 7 days."
+                            if b7 is not None
+                            else f"At {current_drop:.0f}%, this disruption exceeds every prior event in the dataset, including {closest_name} ({closest_drop:.0f}%).",
+                            f"This {current_drop:.0f}% contraction exceeds every recorded event. During the most comparable episode ({closest_name}, {closest_drop:.0f}%), Brent moved {b7:+.1f}% in the first week."
+                            if b7 is not None
+                            else f"The current {current_drop:.0f}% contraction is unprecedented in the dataset. The closest event was {closest_name} at {closest_drop:.0f}%.",
+                        ]
+                    )
+                )
+            elif b7 is not None:
+                parts.append(
+                    self._pick(
+                        [
+                            f"The current disruption ({current_drop:.0f}%) is comparable to {closest_name} ({closest_drop:.0f}%), during which Brent moved {b7:+.1f}% over 7 days.",
+                            f"Historical precedent: {closest_name} saw a similar {closest_drop:.0f}% drop, with Brent reacting {b7:+.1f}% (7d){f' and {b30:+.1f}% (30d)' if b30 is not None else ''}.",
+                        ]
+                    )
                 )
 
-        # ---------------------------------------------------------------
-        # Paragraph 3: Market — cracks, backwardation, prices, divergence
-        # ---------------------------------------------------------------
-        para3_parts = []
-        for s in signals:
-            if s["topic"] == "market":
-                template = pick_template(s["key"])
-                para3_parts.append(template.format(**s["params"]))
+        # Average price reaction across severe events
+        if len(severe) >= 3:
+            impacts_7d = [e["brent_change_7d_pct"] for e in severe if e.get("brent_change_7d_pct") is not None]
+            impacts_30d = [e["brent_change_30d_pct"] for e in severe if e.get("brent_change_30d_pct") is not None]
+            if len(impacts_7d) >= 3:
+                avg_7d = sum(impacts_7d) / len(impacts_7d)
+                avg_30d = sum(impacts_30d) / len(impacts_30d) if impacts_30d else 0
+                parts.append(
+                    self._pick(
+                        [
+                            f"Across {len(impacts_7d)} severe disruptions (>40% drop) in the dataset, the average Brent reaction was {avg_7d:+.1f}% at 7 days and {avg_30d:+.1f}% at 30 days.",
+                            f"Historical average for severe disruptions (>40% drop, n={len(impacts_7d)}): Brent {avg_7d:+.1f}% after 7 days, {avg_30d:+.1f}% after 30 days.",
+                            f"The dataset contains {len(impacts_7d)} comparable severe events. Mean Brent response: {avg_7d:+.1f}% (7d), {avg_30d:+.1f}% (30d).",
+                        ]
+                    )
+                )
 
-        # Divergence detection
-        physical_bullish = (
-            any(s["severity"] == "CRITICAL" and s["topic"] == "chokepoint" for s in signals)
-            or data["rerouting"]["cape_share"] > 30
-            or (data.get("crack_spreads", {}).get("percentile_1y", 0) > 80)
-        )
-
+        # Current Brent vs historical
         brent = data["market_prices"].get("brent")
-        wti = data["market_prices"].get("wti")
-
-        price_falling = (brent and brent["change_pct"] < -3) or (wti and wti["change_pct"] < -3)
-
-        if physical_bullish and price_falling:
-            random.seed(date.today().isoformat() + "divergence")
-            brent_change = brent["change_pct"] if brent else (wti["change_pct"] if wti else 0)
-            commodity = "Brent" if brent and brent["change_pct"] < -3 else "WTI"
-            divergence_text = random.choice(DIVERGENCE_TEMPLATES).format(  # nosec B311
-                commodity=commodity,
-                change=round(abs(brent_change), 1),
+        if brent and same_cp and same_cp[0].get("brent_at_start"):
+            hist_price = same_cp[0]["brent_at_start"]
+            parts.append(
+                self._pick(
+                    [
+                        f"Brent currently trades at ${brent['price']:.2f}, compared to ${hist_price:.2f} during the most comparable prior event.",
+                        f"For context, Brent was at ${hist_price:.2f} during the closest historical precedent — it now stands at ${brent['price']:.2f}.",
+                    ]
+                )
             )
-            para3_parts.insert(0, divergence_text)
 
-        # Inverse divergence: physical bearish but price rising
-        physical_bearish = data["floating_storage"]["active_count"] > 5 or (composite < 20)
+        return " ".join(parts) if parts else None
 
-        price_rising = (brent and brent["change_pct"] > 3) or (wti and wti["change_pct"] > 3)
+    # === SECTION 3: PHYSICAL FLOWS + CONTRADICTIONS ===
 
-        if physical_bearish and price_rising:
-            random.seed(date.today().isoformat() + "inverse_divergence")
-            brent_change = brent["change_pct"] if brent else (wti["change_pct"] if wti else 0)
-            commodity = "Brent" if brent and brent["change_pct"] > 3 else "WTI"
-            inverse_text = random.choice(INVERSE_DIVERGENCE_TEMPLATES).format(  # nosec B311
-                commodity=commodity,
-                change=round(abs(brent_change), 1),
-                score=round(composite, 0),
-            )
-            para3_parts.insert(0, inverse_text)
+    def _build_physical_analysis(self, signals, data):
+        """Physical flow analysis with explicit contradiction flagging."""
+        parts = []
+        contradictions = []
 
-        if not para3_parts:
-            crack = data.get("crack_spreads")
-            if crack:
-                para3_parts.append(
-                    f"The 3-2-1 crack spread at ${crack['value']:.2f}/bbl "
-                    f"({crack['percentile_1y']}th percentile vs 1Y) "
-                    f"reflects {'tight' if crack['percentile_1y'] > 60 else 'balanced'} refinery margins."
+        rerouting = data["rerouting"]
+        tm = data.get("tonne_miles") or {}
+        cape_share = rerouting["cape_share"]
+        tm_index = tm.get("index", 100)
+
+        # Rerouting + tonne-miles
+        if cape_share > 30:
+            if tm_index > 110:
+                parts.append(
+                    self._pick_chain(("rerouting_high", "tonne_miles_elevated")).format(
+                        avg_distance=int(tm.get("avg_distance") or 0),
+                        tm_index=round(tm_index, 1),
+                    )
+                )
+            else:
+                parts.append(
+                    self._pick_chain(("rerouting_high", "tonne_miles_normal")).format(
+                        cape_share=round(cape_share, 1),
+                        tm_index=round(tm_index, 1),
+                    )
+                )
+                # Contradiction: high rerouting but flat tonne-miles
+                contradictions.append(
+                    self._pick(
+                        [
+                            f"This is a notable divergence: {cape_share:.0f}% Cape rerouting would normally spike tonne-miles demand, but the index at {tm_index:.0f} suggests fleet-wide activity has contracted. Fewer ships are sailing, not just sailing further.",
+                            f"The flat Tonne-Miles Index ({tm_index:.0f}) despite {cape_share:.0f}% rerouting reveals an important dynamic: the disruption has reduced overall shipping volume, not merely redirected it.",
+                            f"A {cape_share:.0f}% Cape share should elevate tonne-miles significantly. That the index remains at {tm_index:.0f} implies the fleet is shrinking its active footprint — vessels are anchoring, not rerouting.",
+                        ]
+                    )
                 )
 
-        # ---------------------------------------------------------------
-        # Final sentence: always starts with "Key risk:"
-        # ---------------------------------------------------------------
-        key_risk_parts = []
+        # Floating storage contradictions
+        fs = data["floating_storage"]
+        has_critical = any(s["severity"] == "CRITICAL" and s["topic"] == "chokepoint" for s in signals)
 
-        # Sentiment context
-        for s in signals:
-            if s["topic"] == "sentiment":
-                template = pick_template(s["key"])
-                key_risk_parts.append(template.format(**s["params"]))
+        if fs["active_count"] == 0 and has_critical:
+            contradictions.append(
+                self._pick(
+                    [
+                        "Floating storage remains at zero despite a major chokepoint closure — a departure from the 2020 pattern where contango-driven storage peaked at over 100 VLCCs. The current zero reading suggests tankers are waiting for passage rather than seeking storage economics, indicating the market expects eventual reopening.",
+                        "The absence of floating storage during a chokepoint crisis is unusual. In previous disruptions, vessels unable to discharge typically converted to floating storage within 10-14 days. The current zero count implies operators still expect the disruption to resolve relatively quickly.",
+                        "Zero floating storage alongside a near-total chokepoint shutdown is a contrarian signal. Either tankers are anchoring at origin rather than loading, or the market anticipates a resolution before storage economics become attractive.",
+                    ]
+                )
+            )
+        elif fs["active_count"] > 3:
+            parts.append(
+                self._pick_chain(("floating_storage_high", "any")).format(
+                    fs_count=fs["active_count"],
+                    vlcc_count=fs["vlcc_count"],
+                )
+            )
 
-        # Upcoming EIA
+        # Zone trends (7-day)
+        zone_trends = self._get_zone_trends_7d()
+        if zone_trends:
+            down = [z for z, pct in zone_trends.items() if pct < -10]
+            up = [z for z, pct in zone_trends.items() if pct > 10]
+
+            if down:
+                zones_str = ", ".join(z.replace("geofence_", "").title() for z in down)
+                parts.append(
+                    self._pick(
+                        [
+                            f"Over the past 7 days, vessel activity has declined notably in {zones_str}, reinforcing the physical contraction visible in aggregate data.",
+                            f"7-day trend shows continued decline in {zones_str} zone activity, consistent with sustained disruption rather than normalization.",
+                            f"Week-over-week, {zones_str} traffic continues to deteriorate — no signs of recovery in physical flow data.",
+                        ]
+                    )
+                )
+            if up:
+                zones_str = ", ".join(z.replace("geofence_", "").title() for z in up)
+                parts.append(
+                    self._pick(
+                        [
+                            f"In contrast, {zones_str} vessel activity has increased over 7 days, potentially absorbing some redirected traffic.",
+                            f"7-day data shows rising activity in {zones_str}, suggesting partial traffic redistribution.",
+                        ]
+                    )
+                )
+
+        # Append contradictions
+        parts.extend(contradictions)
+
+        return " ".join(parts) if parts else None
+
+    # === SECTION 4: MARKET + SECTOR ===
+
+    def _build_market_sector(self, signals, data):
+        """Financial signals + equity sector implications."""
+        parts = []
+
+        # Price-physical divergence
+        divergence = self._check_divergence(signals, data)
+        if divergence:
+            parts.append(divergence)
+
+        # Crack spreads + futures curve
+        cs = data.get("crack_spreads") or {}
+        ms = data.get("market_structure") or {}
+        percentile = cs.get("percentile_1y", 0)
+
+        if percentile > 75:
+            if ms.get("spread_pct", 0) < 0:
+                parts.append(
+                    self._pick_chain(("crack_spread_high", "backwardation")).format(
+                        percentile=percentile,
+                        crack_value=round(cs["value"], 2),
+                        spread_pct=round(abs(ms["spread_pct"]), 1),
+                    )
+                )
+            else:
+                parts.append(
+                    self._pick_chain(("crack_spread_high", "no_backwardation")).format(
+                        percentile=percentile,
+                        crack_value=round(cs["value"], 2),
+                    )
+                )
+
+        # Crack spread trend (30d)
+        vs_30d = cs.get("vs_30d_pct")
+        if vs_30d is not None:
+            if vs_30d > 15:
+                parts.append(
+                    self._pick(
+                        [
+                            f"Crack spreads have widened {vs_30d:.0f}% over 30 days, indicating accelerating refinery margin pressure.",
+                            f"The {vs_30d:.0f}% expansion in cracks over 30 days suggests the product market is tightening faster than crude.",
+                        ]
+                    )
+                )
+            elif vs_30d < -15:
+                parts.append(
+                    self._pick(
+                        [
+                            f"Despite elevated absolute levels, cracks have narrowed {abs(vs_30d):.0f}% over 30 days — the margin expansion may be plateauing.",
+                            f"Cracks have contracted {abs(vs_30d):.0f}% from their 30-day peak, suggesting the market is beginning to price in demand response.",
+                        ]
+                    )
+                )
+
+        # Equity sector highlights
+        eq = self._get_equity_highlights()
+        if eq:
+            tanker_avg = eq.get("tanker_avg")
+            if tanker_avg is not None and abs(tanker_avg) > 2:
+                if tanker_avg > 0:
+                    parts.append(
+                        self._pick(
+                            [
+                                f"Tanker equities are responding — the sector averaged {tanker_avg:+.1f}% today, consistent with expectations of elevated freight rates during sustained rerouting.",
+                                f"The tanker sector ({tanker_avg:+.1f}% avg) is pricing in higher day rates as Cape rerouting extends voyage durations and binds fleet capacity.",
+                            ]
+                        )
+                    )
+                else:
+                    parts.append(
+                        self._pick(
+                            [
+                                f"Tanker equities declined {tanker_avg:.1f}% on average despite physical supply disruption — the market may be pricing demand destruction over freight rate upside.",
+                                f"The tanker sector fell {abs(tanker_avg):.1f}% on average, a bearish read that suggests investors see demand risk outweighing the freight rate tailwind from rerouting.",
+                            ]
+                        )
+                    )
+
+            top = eq.get("top")
+            if top and abs(top["change_pct"]) > 3:
+                parts.append(
+                    self._pick(
+                        [
+                            f"Notable mover: {top['ticker']} {top['change_pct']:+.1f}% ({top['name']}).",
+                            f"{top['ticker']} led the energy complex at {top['change_pct']:+.1f}%.",
+                        ]
+                    )
+                )
+
+            hc = eq.get("highest_corr")
+            if hc and hc["corr"] > 0.7:
+                parts.append(
+                    self._pick(
+                        [
+                            f"Highest WTI correlation: {hc['ticker']} (r={hc['corr']:.2f} over 30d) — the most price-sensitive equity in the current environment.",
+                            f"{hc['ticker']} maintains the strongest WTI linkage (r={hc['corr']:.2f}, 30d), making it the most direct equity proxy for crude price moves.",
+                        ]
+                    )
+                )
+
+        # EIA prediction
+        eia = data.get("eia_prediction") or {}
+        if eia.get("prediction") and eia["prediction"] != "NEUTRAL":
+            change_pct = eia.get("change_pct")
+            if change_pct is not None:
+                change_str = f"{change_pct:+.0f}%" if change_pct != 0 else "flat"
+            else:
+                change_str = "N/A"
+            anchored_pct = round((eia.get("anchored_ratio") or 0) * 100, 1)
+
+            key = ("houston_high", "eia_build") if eia["prediction"] == "BUILD" else ("houston_low", "eia_draw")
+            parts.append(
+                self._pick_chain(key).format(
+                    houston_count=eia.get("tanker_count", 0),
+                    houston_change=change_str,
+                    anchored_pct=anchored_pct,
+                )
+            )
+
+            hit_rate = eia.get("hit_rate")
+            total = eia.get("total_predictions", 0)
+            if hit_rate and total >= 8:
+                parts.append(
+                    self._pick(
+                        [
+                            f"The AIS-based model has called {hit_rate:.0f}% of EIA outcomes correctly over {total} weeks — a directional indicator, not a precise forecast.",
+                            f"Historical accuracy: {hit_rate:.0f}% over {total} weeks. Useful as a directional signal, not a volume prediction.",
+                        ]
+                    )
+                )
+
+        return " ".join(parts) if parts else None
+
+    # === SECTION 5: OUTLOOK + KEY RISKS ===
+
+    def _build_outlook(self, signals, data):
+        """Forward-looking observations and key risks."""
+        parts = []
+        risks = []
+
+        rerouting = data["rerouting"]
+        fs = data["floating_storage"]
+        cape_share = rerouting["cape_share"]
+
+        # Disruption duration
+        duration_days = data.get("disruption_duration_days")
+        if duration_days and duration_days > 0:
+            parts.append(
+                self._pick(
+                    [
+                        f"The current disruption has persisted for {duration_days} days with no signs of normalization in physical flow data.",
+                        f"Day {duration_days} of the disruption — transit data shows no recovery trend.",
+                        f"{duration_days} days into the disruption, physical indicators continue to show stress rather than stabilization.",
+                    ]
+                )
+            )
+
+            # Duration-based risks
+            if duration_days > 7 and fs["active_count"] == 0:
+                risks.append(
+                    self._pick(
+                        [
+                            "If the disruption extends beyond 14 days, floating storage accumulation becomes likely as tankers exhaust discharge options. The current zero floating storage count is unlikely to persist.",
+                            "Extended closure beyond two weeks typically triggers floating storage buildup. With zero floating storage currently, this transition would represent a significant shift in fleet behavior.",
+                            f"Historical patterns suggest floating storage begins accumulating 10-14 days into a major chokepoint closure. At day {duration_days} with zero storage, the fleet is approaching that threshold.",
+                        ]
+                    )
+                )
+
+            if duration_days > 3 and cape_share > 35:
+                risks.append(
+                    self._pick(
+                        [
+                            f"Sustained Cape rerouting at {cape_share:.0f}% adds 10-15 days to Middle East-Europe voyages. If maintained for 30+ days, the effective global tanker fleet shrinks by an estimated 5-8%, structurally tightening the freight market.",
+                            f"Every week of {cape_share:.0f}% Cape routing absorbs additional fleet capacity. Beyond 30 days, the compounding effect on available tonnage could push tanker day rates significantly higher.",
+                        ]
+                    )
+                )
+
+        # Sentiment risk
+        sent = data.get("sentiment") or {}
+        if sent.get("risk_score", 0) > 6:
+            risks.append(
+                self._pick(
+                    [
+                        f"GDELT risk score at {sent['risk_score']:.0f}/10 — elevated media negativity can amplify price volatility independent of physical fundamentals.",
+                        f"News sentiment at {sent['risk_score']:.0f}/10 adds a feedback risk: negative media coverage can accelerate positioning changes beyond what physical data warrants.",
+                    ]
+                )
+            )
+
+        # EIA upcoming
         now = datetime.now(timezone.utc)
         days_until_wed = (2 - now.weekday()) % 7
         if days_until_wed == 0 and now.hour >= 16:
             days_until_wed = 7
         next_eia = (now + timedelta(days=days_until_wed)).strftime("%A %B %d")
 
-        eia = data.get("eia_prediction")
-        if eia and eia["prediction"] != "NEUTRAL":
-            key_risk_parts.append(
-                f"Next EIA release ({next_eia}): AIS-based model signals a likely {eia['prediction']}."
+        eia = data.get("eia_prediction") or {}
+        if eia.get("prediction") and eia["prediction"] != "NEUTRAL":
+            parts.append(f"Next EIA release ({next_eia}): AIS-based model signals a likely {eia['prediction']}.")
+
+        # Build "Key risk:" line
+        if risks:
+            parts.append("Key risk: " + risks[0])
+            if len(risks) > 1:
+                parts.append("Also watching: " + risks[1])
+        else:
+            parts.append(
+                self._pick(
+                    [
+                        "Key risk: duration — the market is pricing a short disruption, but physical data shows no normalization. The gap between market expectation and physical reality typically resolves with a sharp move.",
+                        "Key risk: the longer physical disruption persists without price fully reflecting it, the sharper the eventual adjustment tends to be.",
+                    ]
+                )
             )
 
-        if not key_risk_parts:
-            key_risk_parts.append(
-                f"monitor chokepoint transit volumes and rerouting patterns "
-                f"for confirmation of signal persistence. Next EIA release: {next_eia}."
-            )
+        return " ".join(parts) if parts else None
 
-        # Prepend "Key risk:" to the assembled sentence
-        key_risk_text = "Key risk: " + " ".join(key_risk_parts)
+    # === HELPERS ===
 
-        # Assemble paragraphs (filter empty) + key risk sentence
-        paragraphs = [
-            " ".join(para1_parts) if para1_parts else None,
-            " ".join(para2_parts) if para2_parts else None,
-            " ".join(para3_parts) if para3_parts else None,
-        ]
-        paragraphs = [p for p in paragraphs if p]
-        paragraphs.append(key_risk_text)
+    def _pick(self, templates):  # nosec B311
+        """Pick a template variant using the date-seeded RNG."""
+        return templates[random.randint(0, len(templates) - 1)]  # nosec B311
 
-        return {
-            "available": True,
-            "severity": top_severity,
-            "title": title,
-            "paragraphs": paragraphs,
-            "signals_active": len(signals),
-            "disruption_score": composite,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+    def _pick_chain(self, key):
+        """Pick from CAUSAL_CHAINS using date-seeded RNG."""
+        if key not in CAUSAL_CHAINS:
+            return ""
+        return self._pick(CAUSAL_CHAINS[key])
+
+    def _collect_all_data(self) -> dict:
+        """Gather all signal data from DB and signal modules."""
+        data = {
+            "market_prices": {"brent": None, "wti": None},
+            "disruption_score": None,
+            "tonne_miles": None,
+            "eia_prediction": None,
+            "floating_storage": {"active_count": 0, "vlcc_count": 0},
+            "crack_spreads": None,
+            "market_structure": None,
+            "rerouting": {"cape_share": 0, "state": "normal"},
+            "sentiment": None,
+            "chokepoints": [],
+            "historical_events": [],
+            "disruption_duration_days": None,
         }
+
+        # 1. Disruption score
+        ds = (
+            self.db.query(DisruptionScoreHistory)
+            .order_by(DisruptionScoreHistory.date.desc(), DisruptionScoreHistory.id.desc())
+            .first()
+        )
+        if ds:
+            data["disruption_score"] = {
+                "composite": ds.composite_score,
+                "hormuz": ds.hormuz_component,
+                "cape": ds.cape_component,
+                "storage": ds.storage_component,
+                "crack": ds.crack_component,
+                "backwardation": ds.backwardation_component,
+                "sentiment": ds.sentiment_component,
+            }
+
+        # 2. Tonne-miles
+        tm = self.db.query(TonneMilesHistory).order_by(TonneMilesHistory.date.desc()).first()
+        if tm:
+            data["tonne_miles"] = {
+                "index": tm.tonne_miles_index,
+                "raw": tm.tonne_miles_raw,
+                "cape_share": round((tm.cape_share or 0) * 100, 1),
+                "avg_distance": tm.avg_distance,
+            }
+            data["rerouting"]["cape_share"] = round((tm.cape_share or 0) * 100, 1)
+            if (tm.cape_share or 0) > 0.40:
+                data["rerouting"]["state"] = "high"
+            elif (tm.cape_share or 0) > 0.30:
+                data["rerouting"]["state"] = "elevated"
+
+        # 3. EIA prediction
+        eia = self.db.query(EIAPredictionHistory).order_by(EIAPredictionHistory.date.desc()).first()
+        if eia:
+            change_pct = None
+            if eia.tanker_count_30d_avg and eia.tanker_count_30d_avg > 0:
+                change_pct = round((eia.tanker_count - eia.tanker_count_30d_avg) / eia.tanker_count_30d_avg * 100, 1)
+            # Hit rate
+            scored = self.db.query(EIAPredictionHistory).filter(EIAPredictionHistory.correct.isnot(None)).all()
+            total = len(scored)
+            correct = sum(1 for p in scored if p.correct == 1)
+            data["eia_prediction"] = {
+                "prediction": eia.prediction,
+                "tanker_count": eia.tanker_count,
+                "tanker_count_30d_avg": eia.tanker_count_30d_avg,
+                "change_pct": change_pct,
+                "anchored_ratio": eia.anchored_ratio,
+                "hit_rate": round(correct / total * 100, 0) if total > 0 else None,
+                "total_predictions": total,
+            }
+
+        # 4. Floating storage
+        fs_events = self.db.query(FloatingStorageEvent).filter(FloatingStorageEvent.status == "active").all()
+        vlcc_count = 0
+        for ev in fs_events:
+            if ev.mmsi:
+                reg = self.db.query(VesselRegistry).filter(VesselRegistry.mmsi == ev.mmsi).first()
+                if reg and reg.ship_class == "VLCC":
+                    vlcc_count += 1
+        data["floating_storage"] = {"active_count": len(fs_events), "vlcc_count": vlcc_count}
+
+        # 5. Crack spreads (from DB — avoids yfinance call)
+        crack = self.db.query(CrackSpreadHistory).order_by(CrackSpreadHistory.date.desc()).first()
+        if crack:
+            rows = (
+                self.db.query(CrackSpreadHistory.three_two_one_crack)
+                .order_by(CrackSpreadHistory.date.desc())
+                .limit(365)
+                .all()
+            )
+            values = sorted(r[0] for r in rows if r[0] is not None)
+            percentile = 0
+            if values and len(values) >= 30:
+                rank = sum(1 for v in values if v <= crack.three_two_one_crack)
+                percentile = int(rank / len(values) * 100)
+
+            # 30d trend
+            vs_30d = None
+            if len(values) >= 30:
+                avg_30d = sum(values[-30:]) / 30
+                if avg_30d > 0:
+                    vs_30d = round((crack.three_two_one_crack - avg_30d) / avg_30d * 100, 1)
+
+            data["crack_spreads"] = {
+                "value": crack.three_two_one_crack,
+                "percentile_1y": percentile,
+                "vs_30d_pct": vs_30d,
+            }
+
+        # 6. Market structure
+        try:
+            from backend.signals.market_structure import _fetch_structure
+
+            structure = _fetch_structure()
+            if structure and "BRENT" in structure.get("curves", {}):
+                brent_curve = structure["curves"]["BRENT"]
+                data["market_structure"] = {
+                    "spread_pct": brent_curve.get("spread_pct", 0),
+                    "structure": brent_curve.get("structure", "flat"),
+                }
+        except Exception as e:
+            logger.debug("Market structure fetch failed: %s", e)
+
+        # 7. Sentiment
+        sent = self.db.query(SentimentScore).order_by(SentimentScore.created_at.desc()).first()
+        if sent:
+            factors = []
+            if sent.risk_factors:
+                try:
+                    factors = json.loads(sent.risk_factors) if isinstance(sent.risk_factors, str) else sent.risk_factors
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            data["sentiment"] = {
+                "risk_score": sent.risk_score,
+                "risk_factors": factors[:3] if factors else [],
+            }
+
+        # 8. Chokepoint anomalies + historical events
+        try:
+            from backend.signals.historical_lookup import find_anomalies
+
+            for cp in ("hormuz", "suez", "malacca", "bab_el_mandeb"):
+                result = find_anomalies(cp, threshold_pct=40.0)
+                current = result.get("current", {})
+                drop = current.get("drop_pct", 0)
+
+                # Collect historical events (for section 2)
+                for evt in result.get("anomalies", []):
+                    evt["chokepoint"] = cp
+                    data["historical_events"].append(evt)
+
+                if drop < -25:
+                    severity = "CRITICAL" if drop < -50 else "WARNING"
+                    anomalies = result.get("anomalies", [])
+                    context = ""
+                    if anomalies:
+                        last = anomalies[-1]
+                        ctx_list = last.get("disruption_context", [])
+                        raw = ctx_list[0] if ctx_list else ""
+                        context = re.sub(r"\s*\([^)]*\)\s*$", "", raw).strip()
+
+                    data["chokepoints"].append(
+                        {
+                            "zone": result.get("chokepoint", cp),
+                            "zone_short": cp,
+                            "drop_pct": abs(round(drop, 0)),
+                            "vessels": current.get("n_total", 0),
+                            "severity": severity,
+                            "disruption_name": context or "recent events",
+                        }
+                    )
+
+                    # Disruption duration from ongoing anomaly
+                    if anomalies and anomalies[-1].get("ongoing"):
+                        start = anomalies[-1].get("start_date")
+                        if start:
+                            try:
+                                start_dt = datetime.strptime(start, "%Y-%m-%d")
+                                duration = (datetime.now() - start_dt).days
+                                if (
+                                    data["disruption_duration_days"] is None
+                                    or duration > data["disruption_duration_days"]
+                                ):
+                                    data["disruption_duration_days"] = duration
+                            except ValueError:
+                                pass
+        except Exception as e:
+            logger.debug("Chokepoint anomaly check failed: %s", e)
+
+        # 9. Market prices (from yfinance cache)
+        try:
+            from backend.providers.yfinance_provider import _price_cache
+
+            if _price_cache:
+                prices = _price_cache.get("prices", {})
+                if "BRENT" in prices:
+                    b = prices["BRENT"]
+                    data["market_prices"]["brent"] = {
+                        "price": b.get("current", 0),
+                        "change_pct": b.get("change_pct", 0),
+                    }
+                if "WTI" in prices:
+                    w = prices["WTI"]
+                    data["market_prices"]["wti"] = {
+                        "price": w.get("current", 0),
+                        "change_pct": w.get("change_pct", 0),
+                    }
+        except Exception as e:
+            logger.debug("Price cache read failed: %s", e)
+
+        return data
+
+    def _rank_signals(self, data: dict) -> list[dict]:
+        """Identify active signals, sorted by severity."""
+        signals = []
+
+        # Chokepoint disruptions
+        for cp in data["chokepoints"]:
+            if cp["drop_pct"] >= 80 and cp["zone_short"] == "hormuz":
+                signals.append(
+                    {
+                        "key": ("hormuz_critical", "none"),
+                        "severity": "CRITICAL",
+                        "topic": "chokepoint",
+                        "params": {
+                            "pct": int(cp["drop_pct"]),
+                            "vessels": cp["vessels"],
+                            "disruption_name": cp["disruption_name"],
+                            "oil_pct": 21,
+                        },
+                    }
+                )
+            elif cp["drop_pct"] >= 25:
+                cape_share = data["rerouting"]["cape_share"]
+                if cape_share > 30:
+                    signals.append(
+                        {
+                            "key": ("chokepoint_drop", "rerouting_high"),
+                            "severity": "HIGH",
+                            "topic": "chokepoint",
+                            "params": {
+                                "pct": int(cp["drop_pct"]),
+                                "zone": cp["zone"],
+                                "cape_share": round(cape_share, 1),
+                            },
+                        }
+                    )
+
+        # Rerouting + tonne-miles
+        cape_share = data["rerouting"]["cape_share"]
+        tm = data.get("tonne_miles")
+        if cape_share > 30 and tm:
+            if tm["index"] > 110:
+                signals.append(
+                    {
+                        "key": ("rerouting_high", "tonne_miles_elevated"),
+                        "severity": "HIGH",
+                        "topic": "physical",
+                        "params": {},
+                    }
+                )
+            else:
+                signals.append(
+                    {
+                        "key": ("rerouting_high", "tonne_miles_normal"),
+                        "severity": "MEDIUM",
+                        "topic": "physical",
+                        "params": {},
+                    }
+                )
+
+        # Floating storage
+        fs = data["floating_storage"]
+        if fs["active_count"] > 3:
+            signals.append(
+                {"key": ("floating_storage_high", "any"), "severity": "MEDIUM", "topic": "physical", "params": {}}
+            )
+        elif fs["active_count"] == 0 and data["chokepoints"]:
+            signals.append(
+                {
+                    "key": ("floating_storage_zero", "chokepoint_drop"),
+                    "severity": "LOW",
+                    "topic": "physical",
+                    "params": {},
+                }
+            )
+
+        # Crack spreads
+        crack = data.get("crack_spreads")
+        ms = data.get("market_structure")
+        if crack and crack["percentile_1y"] > 75:
+            sub = "backwardation" if ms and ms.get("spread_pct", 0) < 0 else "no_backwardation"
+            signals.append(
+                {
+                    "key": ("crack_spread_high", sub),
+                    "severity": "HIGH" if sub == "backwardation" else "MEDIUM",
+                    "topic": "market",
+                    "params": {},
+                }
+            )
+
+        # EIA prediction
+        eia = data.get("eia_prediction")
+        if eia and eia.get("prediction") != "NEUTRAL":
+            signals.append({"key": "eia", "severity": "MEDIUM", "topic": "market", "params": {}})
+
+        # Sentiment
+        sent = data.get("sentiment")
+        if sent and sent["risk_score"] >= 6 and data["chokepoints"]:
+            signals.append(
+                {"key": ("sentiment_negative", "disruption"), "severity": "LOW", "topic": "sentiment", "params": {}}
+            )
+
+        severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        signals.sort(key=lambda s: severity_order.get(s["severity"], 99))
+        return signals
+
+    def _get_zone_trends_7d(self) -> dict[str, float]:
+        """7-day zone trends: compare last 3 days vs prior 3 days."""
+        today = self.today.isoformat()
+        d3 = (self.today - timedelta(days=3)).isoformat()
+        d7 = (self.today - timedelta(days=7)).isoformat()
+
+        # Recent 3 days
+        recent = (
+            self.db.query(GeofenceEvent.zone, func.avg(GeofenceEvent.tanker_count))
+            .filter(GeofenceEvent.date >= d3, GeofenceEvent.date <= today)
+            .group_by(GeofenceEvent.zone)
+            .all()
+        )
+        recent_map = {z: avg for z, avg in recent if avg}
+
+        # Prior 3 days
+        prior = (
+            self.db.query(GeofenceEvent.zone, func.avg(GeofenceEvent.tanker_count))
+            .filter(GeofenceEvent.date >= d7, GeofenceEvent.date < d3)
+            .group_by(GeofenceEvent.zone)
+            .all()
+        )
+        prior_map = {z: avg for z, avg in prior if avg}
+
+        trends = {}
+        for zone in set(recent_map) | set(prior_map):
+            r = recent_map.get(zone, 0)
+            p = prior_map.get(zone, 0)
+            if p > 0:
+                trends[zone] = round((r - p) / p * 100, 1)
+
+        return trends
+
+    def _get_equity_highlights(self) -> dict | None:
+        """Get top/bottom performers and sector averages from EquitySnapshot."""
+        latest_date = self.db.query(func.max(EquitySnapshot.date)).scalar()
+        if not latest_date:
+            return None
+
+        snaps = self.db.query(EquitySnapshot).filter(EquitySnapshot.date == latest_date).all()
+        if not snaps:
+            return None
+
+        result = {}
+
+        # Tanker sector average
+        tankers = [s for s in snaps if s.sector and "tanker" in s.sector.lower()]
+        if tankers:
+            tanker_changes = [s.change_pct for s in tankers if s.change_pct is not None]
+            if tanker_changes:
+                result["tanker_avg"] = round(sum(tanker_changes) / len(tanker_changes), 1)
+
+        # Top performer
+        with_change = [s for s in snaps if s.change_pct is not None]
+        if with_change:
+            top = max(with_change, key=lambda s: s.change_pct)
+            result["top"] = {"ticker": top.ticker, "name": top.name, "change_pct": top.change_pct}
+
+        # Highest WTI correlation
+        with_corr = [s for s in snaps if s.wti_corr_30d is not None]
+        if with_corr:
+            best = max(with_corr, key=lambda s: abs(s.wti_corr_30d))
+            result["highest_corr"] = {"ticker": best.ticker, "corr": best.wti_corr_30d}
+
+        return result if result else None
+
+    def _check_divergence(self, signals, data) -> str | None:
+        """Check if price direction contradicts physical signals."""
+        ds = data.get("disruption_score") or {}
+        composite = ds.get("composite", 0)
+        brent = data["market_prices"].get("brent")
+        wti = data["market_prices"].get("wti")
+
+        physical_bullish = (
+            any(s["severity"] == "CRITICAL" and s["topic"] == "chokepoint" for s in signals)
+            or data["rerouting"]["cape_share"] > 30
+            or (data.get("crack_spreads", {}).get("percentile_1y", 0) > 80)
+        )
+        price_falling = (brent and brent["change_pct"] < -3) or (wti and wti["change_pct"] < -3)
+
+        if physical_bullish and price_falling:
+            random.seed(self.today.isoformat() + "divergence")
+            change = brent["change_pct"] if brent and brent["change_pct"] < -3 else wti["change_pct"]
+            commodity = "Brent" if brent and brent["change_pct"] < -3 else "WTI"
+            return random.choice(DIVERGENCE_TEMPLATES).format(  # nosec B311
+                commodity=commodity, change=round(abs(change), 1)
+            )
+
+        physical_bearish = data["floating_storage"]["active_count"] > 5 or composite < 20
+        price_rising = (brent and brent["change_pct"] > 3) or (wti and wti["change_pct"] > 3)
+
+        if physical_bearish and price_rising:
+            random.seed(self.today.isoformat() + "inverse_divergence")
+            change = brent["change_pct"] if brent and brent["change_pct"] > 3 else wti["change_pct"]
+            commodity = "Brent" if brent and brent["change_pct"] > 3 else "WTI"
+            return random.choice(INVERSE_DIVERGENCE_TEMPLATES).format(  # nosec B311
+                commodity=commodity, change=round(abs(change), 1), score=round(composite, 0)
+            )
+
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def build_report() -> dict:
+    """Build report using a fresh DB session."""
+    db = SessionLocal()
+    try:
+        gen = MarketReportGenerator(db)
+        return gen.generate()
     finally:
         db.close()
 
 
 async def get_market_report() -> dict:
-    """Get cached market intelligence report. Rebuilds every 2 hours."""
+    """Get cached market intelligence report. Rebuilds every 30 min."""
     global _report_cache, _report_cache_ts
 
     now = time.monotonic()

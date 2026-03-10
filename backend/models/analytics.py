@@ -36,6 +36,19 @@ class DisruptionScoreHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class MarketReport(Base):
+    __tablename__ = "market_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    full_report: Mapped[str] = mapped_column(Text, nullable=False)
+    sections_json: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    headlines_json: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    signals_count: Mapped[int] = mapped_column(Integer, default=0)
+    disruption_score: Mapped[float] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class EIAPredictionHistory(Base):
     __tablename__ = "eia_prediction_history"
 
