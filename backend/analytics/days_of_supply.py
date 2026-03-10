@@ -29,8 +29,8 @@ _SERIES = {
     },
     "product_supplied": {
         "route": "petroleum/sum/sndw/data/",
-        "facets": {"series": ["WTTNTUS2"]},
-        "desc": "US Total Product Supplied",
+        "facets": {"series": ["WRPUPUS2"]},
+        "desc": "US Product Supplied of Petroleum Products",
     },
 }
 
