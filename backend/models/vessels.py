@@ -55,6 +55,47 @@ class GeofenceEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class VoyageEvent(Base):
+    """Detected transit of a tanker between two geofence zones."""
+
+    __tablename__ = "voyage_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mmsi: Mapped[str] = mapped_column(String, index=True)
+    ship_name: Mapped[str] = mapped_column(String, default="")
+    ship_type: Mapped[int] = mapped_column(Integer, default=80)
+    origin_zone: Mapped[str] = mapped_column(String, index=True)
+    origin_first_seen: Mapped[datetime] = mapped_column(DateTime)
+    origin_last_seen: Mapped[datetime] = mapped_column(DateTime)
+    destination_zone: Mapped[str] = mapped_column(String, index=True)
+    destination_first_seen: Mapped[datetime] = mapped_column(DateTime)
+    transit_hours: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String, default="arrived")  # in_transit | arrived | uncertain
+
+
+class VesselRegistry(Base):
+    """Enriched vessel metadata from AIS static data + heuristics."""
+
+    __tablename__ = "vessel_registry"
+
+    mmsi: Mapped[str] = mapped_column(String, primary_key=True)
+    imo: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    ship_name: Mapped[str] = mapped_column(String, default="")
+    ship_type: Mapped[int] = mapped_column(Integer, default=0)
+    ship_type_detailed: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    ship_class: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    dwt: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    dwt_estimated: Mapped[bool] = mapped_column(Integer, default=False)  # SQLite 0/1
+    gross_tonnage: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    length: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    beam: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    draft: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    flag_state: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    destination: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    year_built: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class FloatingStorageEvent(Base):
     """Tanker stationary for 7+ days — potential floating storage."""
 

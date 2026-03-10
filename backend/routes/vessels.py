@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.geofences.zones import LNG_TERMINALS, NO_AIS_COVERAGE, STS_HOTSPOTS, ZONES
-from backend.models.vessels import FloatingStorageEvent, GeofenceEvent, GlobalVesselPosition, VesselPosition
+from backend.models.vessels import (
+    FloatingStorageEvent,
+    GeofenceEvent,
+    GlobalVesselPosition,
+    VesselPosition,
+    VesselRegistry,
+)
 from backend.signals.sts_detection import get_sts_summary
 from backend.signals.vessel_weight import classify_vessel, compute_weighted_count
 
@@ -37,6 +43,14 @@ async def get_vessel_positions(
         query = query.filter(VesselPosition.zone == zone)
 
     rows = query.limit(limit).all()
+
+    # Batch-fetch registry data for all MMSIs
+    mmsi_list = [r.mmsi for r in rows]
+    registry_map = {}
+    if mmsi_list:
+        regs = db.query(VesselRegistry).filter(VesselRegistry.mmsi.in_(mmsi_list)).all()
+        registry_map = {reg.mmsi: reg for reg in regs}
+
     return [
         {
             "mmsi": r.mmsi,
@@ -48,6 +62,8 @@ async def get_vessel_positions(
             "cog": r.cog,
             "zone": r.zone,
             "timestamp": r.timestamp.isoformat(),
+            "ship_class": registry_map[r.mmsi].ship_class if r.mmsi in registry_map else None,
+            "estimated_dwt": registry_map[r.mmsi].dwt if r.mmsi in registry_map else None,
         }
         for r in rows
     ]
@@ -225,15 +241,23 @@ async def get_floating_storage(
         .all()
     )
 
+    # Batch-fetch registry for DWT
+    fs_mmsis = [r.mmsi for r in rows]
+    fs_reg_map = {}
+    if fs_mmsis:
+        regs = db.query(VesselRegistry).filter(VesselRegistry.mmsi.in_(fs_mmsis)).all()
+        fs_reg_map = {reg.mmsi: reg for reg in regs}
+
     events = []
     for r in rows:
         cls_name, _ = classify_vessel(r.ship_name, r.ship_type)
+        reg = fs_reg_map.get(r.mmsi)
         events.append(
             {
                 "mmsi": r.mmsi,
                 "ship_name": r.ship_name,
                 "ship_type": r.ship_type,
-                "ship_class": cls_name,
+                "ship_class": reg.ship_class if reg else cls_name,
                 "zone": r.zone,
                 "lat": r.latitude,
                 "lon": r.longitude,
@@ -242,6 +266,7 @@ async def get_floating_storage(
                 "duration_days": r.duration_days,
                 "avg_sog": r.avg_sog,
                 "status": r.status,
+                "estimated_dwt": reg.dwt if reg else None,
             }
         )
 
@@ -278,3 +303,34 @@ async def get_zone_history(
         )
 
     return {"days": days, "zones": series}
+
+
+@router.get("/registry")
+async def get_vessel_registry(
+    mmsi: str = Query(..., description="Vessel MMSI"),
+    db: Session = Depends(get_db),
+):
+    """Get enriched vessel metadata from registry."""
+    reg = db.query(VesselRegistry).filter(VesselRegistry.mmsi == mmsi).first()
+    if not reg:
+        return {"found": False, "mmsi": mmsi}
+
+    return {
+        "found": True,
+        "mmsi": reg.mmsi,
+        "imo": reg.imo,
+        "ship_name": reg.ship_name,
+        "ship_type": reg.ship_type,
+        "ship_type_detailed": reg.ship_type_detailed,
+        "ship_class": reg.ship_class,
+        "dwt": reg.dwt,
+        "dwt_estimated": bool(reg.dwt_estimated),
+        "gross_tonnage": reg.gross_tonnage,
+        "length": reg.length,
+        "beam": reg.beam,
+        "draft": reg.draft,
+        "flag_state": reg.flag_state,
+        "destination": reg.destination,
+        "year_built": reg.year_built,
+        "last_updated": reg.last_updated.isoformat() if reg.last_updated else None,
+    }

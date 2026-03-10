@@ -37,6 +37,7 @@ from backend.providers.price_provider import get_live_prices as refresh_live_pri
 from backend.signals.evaluator import evaluate_signals
 from backend.signals.floating_storage import detect_floating_storage
 from backend.signals.sentiment_scorer import compute_sentiment_score
+from backend.signals.voyage_detector import detect_voyages
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,14 @@ def start_scheduler():
         replace_existing=True,
     )
 
+    # Voyage detection: every 2 hours at :20
+    scheduler.add_job(
+        detect_voyages,
+        CronTrigger(hour="*/2", minute=20),
+        id="voyage_detection_2h",
+        replace_existing=True,
+    )
+
     # Smart retention: daily 04:00 UTC (thin old vessel_positions)
     scheduler.add_job(
         run_retention,
@@ -232,7 +241,8 @@ def start_scheduler():
         "PortWatch (weekly Tue), GDELT (every 2h), Finnhub (every 2h), "
         "JODI (monthly 15th), Live prices (every 4h), Signals (every 5min), "
         "Fleet summary (daily 23:55), Geofence daily (23:50), "
-        "Floating storage (every 6h), Daily email (06:45), Retention (daily 04:00) | "
+        "Floating storage (every 6h), Voyages (every 2h), "
+        "Daily email (06:45), Retention (daily 04:00) | "
         "FIRMS (every 6h) | NOAA (every 30min)"
     )
 

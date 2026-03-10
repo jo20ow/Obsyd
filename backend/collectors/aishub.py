@@ -21,6 +21,7 @@ from backend.config import settings
 from backend.database import SessionLocal
 from backend.geofences.zones import ZONES, find_zone, is_tanker
 from backend.models.vessels import GlobalVesselPosition, VesselPosition
+from backend.signals.vessel_enrichment import upsert_vessel_registry
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,9 @@ async def _fetch_global(client: httpx.AsyncClient, *, skip_history: bool = False
                     )
                 )
 
+    # Collect tanker MMSIs for enrichment (name + type only from AISHub)
+    tanker_rows = [p for p in vessels_data if _parse_row(p) is not None and is_tanker(int(p.get("TYPE", 0) or 0))]
+
     def _db_bulk_write():
         db = SessionLocal()
         try:
@@ -196,6 +200,21 @@ async def _fetch_global(client: httpx.AsyncClient, *, skip_history: bool = False
                 db.add_all(zone_positions)
 
             db.commit()
+
+            # Enrich tanker registry (name/type only — AISHub has no dimensions)
+            for row in tanker_rows[:200]:  # Cap to avoid slow cycles
+                try:
+                    upsert_vessel_registry(
+                        str(row.get("MMSI", "")),
+                        ship_name=str(row.get("NAME", "")).strip(),
+                        ship_type=int(row.get("TYPE", 0) or 0),
+                        db=db,
+                    )
+                except Exception as exc:
+                    logger.debug("AISHub enrichment failed for row: %s", exc)
+                    continue
+            db.commit()
+
             if skip_history:
                 logger.info(
                     f"AISHub: {len(global_positions)} global snapshot updated (history skipped — aisstream active)"

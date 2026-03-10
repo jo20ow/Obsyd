@@ -19,7 +19,7 @@ from backend.collectors.jodi import collect_jodi
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.database import init_db
-from backend.routes import alerts, health, ports, prices, sentiment, vessels, weather
+from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
 from backend.routes import jodi as jodi_routes
@@ -134,3 +134,4 @@ app.include_router(briefing_routes.router)
 app.include_router(waitlist_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(webhooks_routes.router)
+app.include_router(voyages.router)

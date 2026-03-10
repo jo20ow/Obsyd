@@ -384,8 +384,9 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           html: `<div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#c8c8d0;line-height:1.5">
             <div style="color:#00e5ff;font-weight:bold;margin-bottom:2px">${escHtml(object.ship_name)}</div>
             <div><span style="color:#666">MMSI</span> ${escHtml(object.mmsi)}</div>
-            <div><span style="color:#666">TYPE</span> ${shipTypeLabel(object.ship_type)} <span style="color:#555">(${object.ship_type ?? '?'})</span></div>
+            <div><span style="color:#666">TYPE</span> ${shipTypeLabel(object.ship_type)} <span style="color:#555">(${object.ship_type ?? '?'})</span>${object.ship_class ? ` <span style="color:#a78bfa;font-size:10px">${escHtml(object.ship_class)}</span>` : ''}</div>
             <div><span style="color:#666">SOG</span> ${Number(object.sog ?? 0).toFixed(1)} kn &nbsp;<span style="color:#666">HDG</span> ${hdg}</div>
+            ${object.estimated_dwt ? `<div><span style="color:#666">DWT</span> ~${Number(object.estimated_dwt).toLocaleString()}t <span style="color:#555">(est)</span></div>` : ''}
             ${object.zone ? `<div><span style="color:#666">ZONE</span> <span style="color:#00e5ff">${escHtml(object.zone).toUpperCase()}</span></div>` : ''}
             ${floatingStorageMmsis.has(object.mmsi) ? `<div style="color:#ff8c00;font-size:10px;font-weight:bold;margin-top:2px">FLOATING STORAGE — ${floatingStorage.find((e) => e.mmsi === object.mmsi)?.duration_days ?? '?'}d stationary</div>` : ''}
             ${object.timestamp ? `<div style="color:#555;font-size:10px;margin-top:2px">${timeAgo(object.timestamp)}</div>` : ''}
@@ -673,7 +674,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                     <span className="font-mono text-[10px] text-orange-300 font-bold shrink-0 ml-2">{e.duration_days}d</span>
                   </div>
                   <div className="font-mono text-[9px] text-neutral-600 mt-0.5">
-                    {e.ship_class} // {e.zone?.toUpperCase() || '?'} // SOG {e.avg_sog?.toFixed(2)} kn
+                    {e.ship_class} // {e.zone?.toUpperCase() || '?'} // SOG {e.avg_sog?.toFixed(2)} kn{e.estimated_dwt ? ` // ~${Number(e.estimated_dwt).toLocaleString()}t` : ''}
                   </div>
                 </button>
               ))}

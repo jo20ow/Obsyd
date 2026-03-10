@@ -26,6 +26,7 @@ from backend.config import settings
 from backend.database import SessionLocal
 from backend.geofences.zones import ZONES, find_zone, is_tanker
 from backend.models.vessels import VesselPosition
+from backend.signals.vessel_enrichment import upsert_vessel_registry
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def _build_subscription() -> dict:
 
 
 def _handle_static_data(msg: dict):
-    """Extract ship type from ShipStaticData and track tanker MMSIs."""
+    """Extract ship type from ShipStaticData, track tanker MMSIs, and enrich registry."""
     meta = msg.get("MetaData", {})
     mmsi = meta.get("MMSI")
     if mmsi is None:
@@ -73,6 +74,46 @@ def _handle_static_data(msg: dict):
         _tanker_mmsis[mmsi] = ship_type
     else:
         _tanker_mmsis.pop(mmsi, None)
+        return  # Only enrich tankers
+
+    # Extract dimensions for vessel registry
+    dim = static.get("Dimension", {})
+    length = None
+    beam = None
+    if dim:
+        a = dim.get("A", 0) or 0
+        b = dim.get("B", 0) or 0
+        c = dim.get("C", 0) or 0
+        d = dim.get("D", 0) or 0
+        if a + b > 0:
+            length = float(a + b)
+        if c + d > 0:
+            beam = float(c + d)
+
+    draft = static.get("MaximumStaticDraught", 0) or 0
+    if draft:
+        draft = float(draft) / 10.0  # AIS draft is in 1/10 meters
+
+    imo_raw = static.get("ImoNumber", 0)
+    imo = str(imo_raw) if imo_raw and imo_raw > 0 else None
+
+    ship_name = meta.get("ShipName", "").strip()
+    destination = static.get("Destination", "").strip()
+
+    # Upsert into VesselRegistry (fire-and-forget, non-blocking)
+    try:
+        upsert_vessel_registry(
+            str(mmsi),
+            ship_name=ship_name,
+            ship_type=ship_type,
+            imo=imo,
+            length=length,
+            beam=beam,
+            draft=draft if draft and draft > 0 else None,
+            destination=destination or None,
+        )
+    except Exception as exc:
+        logger.debug("Vessel registry upsert failed for MMSI %s: %s", mmsi, exc)
 
 
 def _parse_position_report(msg: dict) -> dict | None:

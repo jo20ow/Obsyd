@@ -16,6 +16,8 @@ import MarketStructure from './components/MarketStructure'
 import ReroutingIndex from './components/ReroutingIndex'
 import EventTimeline from './components/EventTimeline'
 import ZoneActivityChart from './components/ZoneActivityChart'
+import VoyagesPanel from './components/VoyagesPanel'
+import FlowMatrixPanel from './components/FlowMatrixPanel'
 import STSPanel from './components/STSPanel'
 import CrackSpreadPanel from './components/CrackSpreadPanel'
 import RelatedEquitiesPanel from './components/RelatedEquitiesPanel'
@@ -202,6 +204,14 @@ function App() {
           <ZoneActivityChart />
         </div>
       </ErrorBoundary>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        <ErrorBoundary name="voyages">
+          <VoyagesPanel />
+        </ErrorBoundary>
+        <ErrorBoundary name="flow-matrix">
+          <FlowMatrixPanel />
+        </ErrorBoundary>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         <ErrorBoundary name="sts-detection">
           <ProGate feature="STS Detection">
