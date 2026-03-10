@@ -40,44 +40,54 @@ WEIGHTS = {
 
 
 def _hormuz_component() -> float:
-    """Score 0-100 based on Hormuz transit drop vs 30d average.
+    """Score 0-100 based on Hormuz transit drop vs stable baseline.
 
-    PortWatch publishes with 3-5 day lag, so we find the latest date
-    with meaningful data (n_tanker >= 10) and compare the 7 days
-    ending there against the prior 30 days.
+    Uses the last 7 days of available data (crisis or not) and compares
+    against a stable pre-crisis baseline: days 14-60 before latest date.
+    This window avoids both PortWatch publication lag (days 0-7 gap)
+    and any recent crisis onset (days 7-14 transition).
     """
     if not PORTWATCH_DB.exists():
         return 0.0
 
     conn = sqlite3.connect(str(PORTWATCH_DB))
     try:
-        # Find latest date with meaningful Hormuz data
-        last_good = conn.execute(
-            "SELECT date FROM chokepoint_daily WHERE portid = ? AND n_tanker >= 10 ORDER BY date DESC LIMIT 1",
+        # Latest date with ANY Hormuz data
+        last_row = conn.execute(
+            "SELECT date FROM chokepoint_daily WHERE portid = ? ORDER BY date DESC LIMIT 1",
             (HORMUZ_PORTID,),
         ).fetchone()
 
-        if not last_good:
+        if not last_row:
             return 0.0
 
-        last_date = last_good[0]
-        cutoff_7d = (datetime.strptime(last_date, "%Y-%m-%d") - timedelta(days=6)).strftime("%Y-%m-%d")
-        cutoff_30d = (datetime.strptime(last_date, "%Y-%m-%d") - timedelta(days=36)).strftime("%Y-%m-%d")
+        last_date = last_row[0]
+        last_dt = datetime.strptime(last_date, "%Y-%m-%d")
+
+        # Recent: last 7 days of data
+        recent_start = (last_dt - timedelta(days=6)).strftime("%Y-%m-%d")
 
         recent = conn.execute(
             "SELECT AVG(n_tanker) FROM chokepoint_daily WHERE portid = ? AND date >= ? AND date <= ?",
-            (HORMUZ_PORTID, cutoff_7d, last_date),
+            (HORMUZ_PORTID, recent_start, last_date),
         ).fetchone()
+
+        # Stable baseline: days 14-60 before latest (skips transition period)
+        baseline_end = (last_dt - timedelta(days=14)).strftime("%Y-%m-%d")
+        baseline_start = (last_dt - timedelta(days=60)).strftime("%Y-%m-%d")
 
         baseline = conn.execute(
-            "SELECT AVG(n_tanker) FROM chokepoint_daily WHERE portid = ? AND date >= ? AND date < ?",
-            (HORMUZ_PORTID, cutoff_30d, cutoff_7d),
+            "SELECT AVG(n_tanker) FROM chokepoint_daily WHERE portid = ? AND date >= ? AND date <= ?",
+            (HORMUZ_PORTID, baseline_start, baseline_end),
         ).fetchone()
 
-        if not recent or not recent[0] or not baseline or not baseline[0]:
+        recent_val = recent[0] if recent and recent[0] is not None else 0
+        baseline_val = baseline[0] if baseline and baseline[0] else 0
+
+        if baseline_val <= 0:
             return 0.0
 
-        drop_pct = ((baseline[0] - recent[0]) / baseline[0]) * 100
+        drop_pct = ((baseline_val - recent_val) / baseline_val) * 100
         drop_pct = max(0, drop_pct)  # Only care about drops
         return min(100, drop_pct * 2)  # -50% drop = score 100
     finally:
