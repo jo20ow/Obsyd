@@ -2,9 +2,10 @@
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from backend.analytics.market_report import get_market_report
+from backend.auth.dependencies import get_current_user
 from backend.database import SessionLocal
 from backend.models.analytics import (
     DaysOfSupplyHistory,
@@ -14,6 +15,7 @@ from backend.models.analytics import (
     SupplyDemandBalance,
     TonneMilesHistory,
 )
+from backend.models.subscription import Subscription
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -127,18 +129,47 @@ async def get_disruption_score(
 
 
 @router.get("/market-report")
-async def market_report_endpoint():
+async def market_report_endpoint(user: dict | None = Depends(get_current_user)):
     """Market Intelligence Report — narrative analysis from live signals.
 
-    Pro users get full report. Free users get title + severity + teaser.
+    Pro users get full report. Free users get catalyst + headlines teaser.
     """
     report = await get_market_report()
 
     if not report.get("available"):
         return {"available": False, "reason": "no data yet"}
 
-    # Full report (no auth gate — teaser logic is frontend-side)
-    return report
+    # Check Pro status (token + DB fallback)
+    is_pro = False
+    if user:
+        if user.get("sub_status") == "pro":
+            is_pro = True
+        else:
+            db = SessionLocal()
+            try:
+                sub = (
+                    db.query(Subscription)
+                    .filter(Subscription.email == user["email"], Subscription.status == "active")
+                    .first()
+                )
+                is_pro = sub is not None
+            finally:
+                db.close()
+
+    if is_pro:
+        report["pro_required"] = False
+        return report
+
+    # Free tier: catalyst + headlines teaser only
+    return {
+        "available": True,
+        "catalyst": report.get("catalyst", ""),
+        "headlines": {k: v[:100] for k, v in report.get("headlines", {}).items()},
+        "disruption_score": report.get("disruption_score"),
+        "signals_count": report.get("signals_count"),
+        "generated_at": report.get("generated_at"),
+        "pro_required": True,
+    }
 
 
 @router.get("/eia-prediction")
