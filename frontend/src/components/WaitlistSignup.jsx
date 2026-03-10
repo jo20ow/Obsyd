@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 const API = '/api'
 
@@ -7,14 +7,6 @@ export default function WaitlistSignup() {
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
-  const [count, setCount] = useState(null)
-
-  useEffect(() => {
-    fetch(`${API}/waitlist/count`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setCount(d.count))
-      .catch(() => {})
-  }, [done])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -45,7 +37,7 @@ export default function WaitlistSignup() {
         OBSYD PRO — COMING SOON
       </div>
       <div className="text-[10px] text-neutral-500 leading-relaxed mb-2.5">
-        LNG Tracking, Crack Spreads, Smart Alerts, Daily Briefing Email. €9/month.
+        LNG Tracking, Crack Spreads, Smart Alerts, Daily Briefing Email.
       </div>
 
       {done ? (
@@ -74,12 +66,6 @@ export default function WaitlistSignup() {
 
       {error && (
         <div className="text-[10px] text-red-400 mt-1.5">{error}</div>
-      )}
-
-      {count != null && count > 0 && (
-        <div className="text-[10px] text-neutral-600 mt-2">
-          {count} {count === 1 ? 'trader' : 'traders'} on the waitlist
-        </div>
       )}
     </div>
   )
