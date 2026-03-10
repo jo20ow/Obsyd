@@ -1195,8 +1195,14 @@ class MarketReportGenerator:
         # Sentiment
         sent = data.get("sentiment")
         if sent and sent["risk_score"] >= 6 and data["chokepoints"]:
+            top_topics = ", ".join(sent.get("risk_factors", [])[:3]) or "geopolitical risk"
             signals.append(
-                {"key": ("sentiment_negative", "disruption"), "severity": "LOW", "topic": "sentiment", "params": {}}
+                {
+                    "key": ("sentiment_negative", "disruption"),
+                    "severity": "LOW",
+                    "topic": "sentiment",
+                    "params": {"risk_score": sent["risk_score"], "top_topics": top_topics},
+                }
             )
 
         severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}

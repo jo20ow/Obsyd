@@ -110,7 +110,10 @@ async def _fetch_steo():
                             consumption = parsed
                         logger.info("STEO %s: %.2f mb/d", label, parsed)
             except Exception as e:
-                logger.warning("STEO %s fetch failed: %s", series_id, e)
+                err_msg = str(e)
+                if settings.eia_api_key:
+                    err_msg = err_msg.replace(settings.eia_api_key.get_secret_value(), "***")
+                logger.warning("STEO %s fetch failed: %s", series_id, err_msg)
 
     return production, consumption
 

@@ -149,7 +149,10 @@ async def _fetch_eia(key, limit=52):
             logger.info("EIA %s: fetched %d rows", key, len(rows))
             return rows
         except Exception as e:
-            logger.warning("EIA %s fetch failed: %s", key, e)
+            err_msg = str(e)
+            if settings.eia_api_key:
+                err_msg = err_msg.replace(settings.eia_api_key.get_secret_value(), "***")
+            logger.warning("EIA %s fetch failed: %s", key, err_msg)
             return []
 
 
