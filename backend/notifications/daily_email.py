@@ -369,32 +369,12 @@ def _get_disruption_context(db) -> dict:
 
     report = db.query(MarketReport).order_by(MarketReport.created_at.desc()).first()
     if report:
+        # Always use full sections_json (headlines_json is truncated)
         try:
-            headlines = json.loads(report.headlines_json) if report.headlines_json else {}
-            result["catalyst"] = headlines.get("catalyst", "")
+            sections = json.loads(report.sections_json) if report.sections_json else {}
+            result["catalyst"] = sections.get("catalyst", "")
         except (json.JSONDecodeError, TypeError):
             pass
-        if not result["catalyst"]:
-            try:
-                sections = json.loads(report.sections_json) if report.sections_json else {}
-                full = sections.get("catalyst", "")
-                # Take first sentence only
-                for end in (".", "!", "?"):
-                    idx = full.find(end)
-                    if idx != -1:
-                        result["catalyst"] = full[: idx + 1]
-                        break
-                else:
-                    # Truncate at last whole sentence within 300 chars
-                    snippet = full[:300]
-                    last_dot = snippet.rfind(".")
-                    if last_dot > 20:
-                        result["catalyst"] = snippet[: last_dot + 1]
-                    else:
-                        last_space = snippet.rfind(" ")
-                        result["catalyst"] = (snippet[:last_space] + "...") if last_space > 20 else snippet
-            except (json.JSONDecodeError, TypeError):
-                pass
 
     return result
 
@@ -573,27 +553,25 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
                 "<tr>"
                 f'<td style="padding:3px 0;color:{_ACCENT};font-weight:600;font-size:15px">{name}</td>'
                 f'<td style="padding:3px 0;text-align:right;font-size:15px">'
-                f'<span style="color:{_TEXT}">{d["current"]:,} vessels</span>'
-                f'<span style="color:{pct_color};font-weight:700;margin-left:8px">{_pct(d["drop_pct"])}</span>'
+                f'<span style="color:{pct_color};font-weight:700">{_pct(d["drop_pct"])} vs 30d avg</span>'
                 "</td></tr>"
             )
 
-    # If we also have the main anomaly chokepoints, show them too (at the top)
+    # Main anomaly chokepoints (at the top)
     main_cp_rows = ""
     for a in anomalies:
         cp_name = a.get("chokepoint", "?").capitalize()
-        current = a.get("current_value", 0)
         drop = a.get("drop_pct")
         pct_color = _RED if (drop or 0) < 0 else _GREEN
         extra = ""
         if cp_name.lower() == "hormuz" and cape_pct is not None:
-            extra = f'<span style="color:{_MUTED};font-size:13px;margin-left:6px">Cape rerouting {cape_pct:.1f}%</span>'
+            extra = f' <span style="color:{_MUTED};font-size:13px">&middot; Cape rerouting {cape_pct:.1f}%</span>'
         main_cp_rows += (
             "<tr>"
-            f'<td style="padding:3px 0;color:{_ACCENT};font-weight:600;font-size:15px">{cp_name}{extra}</td>'
+            f'<td style="padding:3px 0;color:{_ACCENT};font-weight:600;font-size:15px">{cp_name}</td>'
             f'<td style="padding:3px 0;text-align:right;font-size:15px">'
-            f'<span style="color:{_TEXT}">{current:,} vessels</span>'
-            f'<span style="color:{pct_color};font-weight:700;margin-left:8px">{_pct(drop)}</span>'
+            f'<span style="color:{pct_color};font-weight:700">{_pct(drop)} vs 30d avg</span>'
+            f"{extra}"
             "</td></tr>"
         )
 
