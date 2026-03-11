@@ -53,7 +53,7 @@ export default function BriefingPanel() {
 
       {/* Line 3: Prices inline */}
       {mkt && (
-        <div className="flex flex-wrap gap-x-3 pl-3.5">
+        <div className="flex flex-wrap gap-x-3 pl-3.5 text-[10px] md:text-xs">
           {['wti', 'brent', 'ng', 'ttf', 'gold'].map((k) => {
             const p = mkt[k]
             if (!p?.price) return null

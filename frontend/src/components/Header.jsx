@@ -13,6 +13,7 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
   const { mode, setMode } = useMode()
   const [health, setHealth] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     function poll() {
@@ -38,12 +39,13 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
           <div className="text-cyan-glow font-mono text-xl font-bold tracking-widest">
             OBSYD
           </div>
-          <div className="text-neutral-500 font-mono text-xs hidden sm:block">
+          <div className="text-neutral-500 font-mono text-xs hidden md:block">
             // ENERGY MARKET INTELLIGENCE
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          {/* Mode toggle */}
+
+        {/* Desktop nav */}
+        <div className="hidden md:flex items-center gap-4">
           <div className="flex items-center border border-border rounded overflow-hidden">
             {MODES.map((m) => (
               <button
@@ -83,7 +85,69 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
             </svg>
           </button>
         </div>
+
+        {/* Mobile nav: auth + hamburger */}
+        <div className="flex md:hidden items-center gap-3">
+          <AuthButton />
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="text-neutral-400 hover:text-cyan-glow transition-colors font-mono text-lg"
+            aria-label="Menu"
+          >
+            {menuOpen ? '✕' : '☰'}
+          </button>
+        </div>
       </header>
+
+      {/* Mobile dropdown menu */}
+      {menuOpen && (
+        <div className="md:hidden border-b border-border bg-surface px-3 py-3 space-y-3">
+          {/* Mode toggle */}
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">MODE</span>
+            <div className="flex items-center border border-border rounded overflow-hidden">
+              {MODES.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => { setMode(m.key); setMenuOpen(false) }}
+                  className={`font-mono text-[10px] tracking-wider px-2.5 py-1 transition-colors ${
+                    mode === m.key
+                      ? 'bg-cyan-glow/15 text-cyan-glow'
+                      : 'text-neutral-600 hover:text-neutral-400'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Status dots */}
+          <div className="flex items-center gap-4">
+            <StatusDot label="EIA" ok={eiaOk} />
+            <StatusDot label="FRED" ok={fredOk} />
+            <StatusDot label="AIS" ok={aisOk} />
+            <StatusDot label="GDELT" ok={gdeltOk} />
+          </div>
+          {/* Compact + Settings */}
+          <div className="flex items-center gap-3">
+            {!compactMode && onToggleCompact && (
+              <button
+                onClick={() => { onToggleCompact(); setMenuOpen(false) }}
+                className="font-mono text-[10px] text-neutral-600 hover:text-cyan-glow tracking-wider transition-colors border border-border hover:border-cyan-glow/30 px-2 py-1"
+              >
+                COMPACT
+              </button>
+            )}
+            <button
+              onClick={() => { setSettingsOpen(true); setMenuOpen(false) }}
+              className="font-mono text-[10px] text-neutral-600 hover:text-cyan-glow tracking-wider transition-colors border border-border hover:border-cyan-glow/30 px-2 py-1"
+            >
+              SETTINGS
+            </button>
+          </div>
+        </div>
+      )}
+
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
   )

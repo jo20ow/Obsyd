@@ -36,7 +36,7 @@ export default function PriceTicker() {
   }, [])
 
   return (
-    <div className="border border-border bg-surface rounded px-3 py-2 flex items-center gap-1 overflow-x-auto scrollbar-hidden">
+    <div className="border border-border bg-surface rounded px-3 py-2 flex items-center flex-wrap gap-y-1.5 gap-x-1">
       <span className="font-mono text-[9px] text-neutral-600 tracking-wider shrink-0 mr-1">
         {source === 'yfinance' && (
           <span className="inline-flex items-center gap-1">

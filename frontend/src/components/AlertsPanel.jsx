@@ -178,7 +178,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
         </span>
       </div>
 
-      <div className="max-h-[400px] overflow-y-auto scrollbar-hidden">
+      <div className="max-h-[300px] md:max-h-[400px] overflow-y-auto scrollbar-hidden">
         {displayItems.length === 0 ? (
           <div className="px-4 py-6 text-center font-mono text-xs text-neutral-600">
             No alerts generated yet

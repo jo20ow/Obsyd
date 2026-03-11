@@ -18,8 +18,13 @@ body {
   color: #c8c8d0;
   font-family: var(--font-mono);
   -webkit-font-smoothing: antialiased;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 #root {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
 }
