@@ -9,6 +9,7 @@ Flow:
 """
 
 import logging
+import re
 
 import httpx
 from fastapi import APIRouter, Depends, Response
@@ -26,13 +27,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
+
 class MagicLinkRequest(BaseModel):
     email: str
 
     @field_validator("email")
     @classmethod
     def normalize(cls, v: str) -> str:
-        return v.strip().lower()
+        v = v.strip().lower()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email format")
+        return v
 
 
 @router.post("/magic-link")
