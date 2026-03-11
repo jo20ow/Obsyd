@@ -34,7 +34,7 @@ export default function WaitlistSignup() {
   return (
     <div className="border border-cyan-glow/20 bg-cyan-glow/[0.03] px-4 py-3">
       <div className="text-[10px] text-cyan-glow/80 tracking-wider mb-1.5">
-        Get the OBSYD Daily Briefing — free during beta.
+        Get the OBSYD Daily Briefing — it's free.
       </div>
       <div className="text-[10px] text-neutral-500 leading-relaxed mb-2.5">
         Market snapshot, disruption alerts, and chokepoint analysis delivered to your inbox every morning.
