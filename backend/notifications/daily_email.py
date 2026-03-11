@@ -1,22 +1,18 @@
 """
-Daily Briefing Email — comprehensive morning briefing for Pro subscribers.
+Daily Briefing Email — compact morning briefing for all subscribers.
 
 Scheduled daily at 07:00 UTC via APScheduler.
 Uses Resend API (free tier: 100 emails/day, capped at 95 for safety).
-
-Pro-exclusive sections: Crack Spread Analysis, Equity Movers,
-STS Activity, Chokepoint Detail, Weekly Context (Mondays).
 """
 
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import httpx
 
 from backend.config import settings
 from backend.database import SessionLocal
-from backend.models.prices import FREDSeries
 from backend.models.pro_features import (
     CrackSpreadHistory,
     EmailSubscriber,
@@ -24,7 +20,7 @@ from backend.models.pro_features import (
     STSEvent,
 )
 from backend.models.subscription import Subscription
-from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
+from backend.models.vessels import FloatingStorageEvent
 from backend.models.waitlist import Waitlist
 from backend.routes.briefing import _build_briefing
 from backend.signals.crack_spread import get_crack_spread
@@ -227,19 +223,6 @@ def _pct(val, fallback="---"):
     return f"{sign}{val:.1f}%"
 
 
-def _fmt_mcap(val):
-    """Format market cap in human-readable form."""
-    if val is None:
-        return "---"
-    if val >= 1e12:
-        return f"${val / 1e12:.1f}T"
-    if val >= 1e9:
-        return f"${val / 1e9:.0f}B"
-    if val >= 1e6:
-        return f"${val / 1e6:.0f}M"
-    return f"${val:,.0f}"
-
-
 def _build_subject_line(briefing: dict, rerouting: dict, crack: dict) -> str:
     """Dynamic subject: date + WTI + top signal."""
     now = datetime.now(timezone.utc)
@@ -282,11 +265,11 @@ def _get_floating_storage_count() -> tuple[int, int]:
         db.close()
 
 
-# ─── Pro-exclusive data helpers ──────────────────────────────────────────────
+# ─── Data helpers ────────────────────────────────────────────────────────────
 
 
 def _gather_pro_data(db, crack: dict) -> dict:
-    """Gather all Pro-exclusive data with per-section error handling."""
+    """Gather supplementary data with per-section error handling."""
     data: dict = {}
 
     try:
@@ -309,12 +292,6 @@ def _gather_pro_data(db, crack: dict) -> dict:
     except Exception as e:
         logger.warning("Email chokepoint detail failed: %s", e)
 
-    if datetime.now(timezone.utc).weekday() == 0:
-        try:
-            data["weekly_context"] = _get_weekly_context(db)
-        except Exception as e:
-            logger.warning("Email weekly context failed: %s", e)
-
     return data
 
 
@@ -336,10 +313,8 @@ def _get_crack_analysis(db, crack: dict) -> dict | None:
     percentile = crack.get("percentile_1y")
 
     pct_vs_30d = None
-    highlight = False
     if avg_30d and avg_30d != 0:
         pct_vs_30d = ((s321 - avg_30d) / avg_30d) * 100
-        highlight = abs(pct_vs_30d) > 10
 
     pct_vs_7d = None
     if avg_7d and avg_7d != 0:
@@ -352,7 +327,6 @@ def _get_crack_analysis(db, crack: dict) -> dict | None:
         "percentile": percentile,
         "pct_vs_7d": round(pct_vs_7d, 1) if pct_vs_7d is not None else None,
         "pct_vs_30d": round(pct_vs_30d, 1) if pct_vs_30d is not None else None,
-        "highlight": highlight,
     }
 
 
@@ -434,91 +408,25 @@ def _get_chokepoint_detail() -> list[dict] | None:
     return details if details else None
 
 
-def _get_weekly_context(db) -> dict | None:
-    """Monday-only: zone WoW, Cushing stocks, crack spread trend."""
-    now = datetime.now(timezone.utc)
-    context: dict = {}
-
-    # Zone tanker counts: this week vs last week
-    this_week_start = (now - timedelta(days=7)).strftime("%Y-%m-%d")
-    last_week_start = (now - timedelta(days=14)).strftime("%Y-%m-%d")
-
-    this_week = db.query(GeofenceEvent).filter(GeofenceEvent.date >= this_week_start).all()
-    last_week = (
-        db.query(GeofenceEvent)
-        .filter(
-            GeofenceEvent.date >= last_week_start,
-            GeofenceEvent.date < this_week_start,
-        )
-        .all()
-    )
-
-    zone_this: dict[str, list] = {}
-    for e in this_week:
-        zone_this.setdefault(e.zone, []).append(e.tanker_count)
-    zone_last: dict[str, list] = {}
-    for e in last_week:
-        zone_last.setdefault(e.zone, []).append(e.tanker_count)
-
-    zone_changes = []
-    for zone in set(list(zone_this.keys()) + list(zone_last.keys())):
-        vals_this = zone_this.get(zone, [0])
-        vals_last = zone_last.get(zone, [0])
-        avg_this = sum(vals_this) / max(len(vals_this), 1)
-        avg_last = sum(vals_last) / max(len(vals_last), 1)
-        if avg_last > 0:
-            change_pct = ((avg_this - avg_last) / avg_last) * 100
-            if abs(change_pct) > 5:
-                zone_changes.append(
-                    {
-                        "zone": zone.replace("_", " ").title(),
-                        "change_pct": round(change_pct, 1),
-                    }
-                )
-
-    if zone_changes:
-        zone_changes.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
-        context["zone_changes"] = zone_changes[:5]
-
-    # EIA Cushing stocks (FRED: WCUSTUS1, thousands of barrels)
-    cushing = (
-        db.query(FREDSeries).filter(FREDSeries.series_id == "WCUSTUS1").order_by(FREDSeries.date.desc()).limit(2).all()
-    )
-    if len(cushing) >= 2:
-        delta = cushing[0].value - cushing[1].value
-        context["cushing"] = {
-            "current": cushing[0].value,
-            "delta": delta,
-        }
-
-    # Crack spread week-over-week
-    crack_hist = db.query(CrackSpreadHistory).order_by(CrackSpreadHistory.date.desc()).limit(14).all()
-    if len(crack_hist) >= 14:
-        this_avg = sum(r.three_two_one_crack for r in crack_hist[:7]) / 7
-        last_avg = sum(r.three_two_one_crack for r in crack_hist[7:14]) / 7
-        context["crack_trend"] = {
-            "this_week": round(this_avg, 2),
-            "last_week": round(last_avg, 2),
-            "change": round(this_avg - last_avg, 2),
-        }
-
-    return context if context else None
-
-
 # ─── HTML Template ───────────────────────────────────────────────────────────
 
-_SECTION_HEADER = (
-    '<div style="font-size:10px;color:#404040;letter-spacing:1.5px;'
-    "margin-bottom:8px;border-bottom:1px solid #1a1a2e;"
-    'padding-bottom:4px">{title}</div>'
-)
-_SECTION_END = '<div style="margin-bottom:12px"></div>'
+_DIVIDER = '<div style="border-top:1px solid #333;margin:16px 0"></div>'
+
+# Shared inline style constants (email clients need inline styles everywhere)
+_FONT = "-apple-system,'Segoe UI',Arial,sans-serif"
+_BG = "#1a1a2e"
+_TEXT = "#e0e0e0"
+_MUTED = "#888"
+_ACCENT = "#00d4aa"
+_GREEN = "#00cc66"
+_RED = "#ff4444"
+_ORANGE = "#ff8800"
 
 
 def _build_full_html(briefing: dict, rerouting: dict, crack: dict, pro_data: dict) -> str:
-    """Build the comprehensive email HTML body with Pro-exclusive sections."""
+    """Build compact Bloomberg-style daily briefing email."""
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%d %b %Y").upper()
+    date_str = now.strftime("%A, %d %B %Y")
 
     market = briefing.get("market_snapshot", {})
     mkt_struct = briefing.get("market_structure") or {}
@@ -526,330 +434,197 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, pro_data: dic
     alerts_summary = briefing.get("alerts_summary", {})
     fleet = briefing.get("fleet_status", {})
 
-    # === MARKET SNAPSHOT ===
-    price_rows = []
-    for key, label in [("wti", "WTI"), ("brent", "BRENT"), ("ng", "NG"), ("ttf", "TTF"), ("gold", "GOLD")]:
+    # --- Price grid (2 rows x 3 columns) ---
+    def _pcell(key, label):
         p = market.get(key, {})
         price = p.get("price")
         change = p.get("change_pct")
-        price_str = f"${_safe(price)}" if price is not None else "---"
-        change_str = _pct(change) if change is not None else ""
-        color = "#34d399" if (change or 0) >= 0 else "#f87171"
-        price_rows.append(
-            f'<tr><td style="padding:2px 12px 2px 0;color:#737373">{label}</td>'
-            f'<td style="padding:2px 12px 2px 0;color:#e5e5e5;font-weight:bold">{price_str}</td>'
-            f'<td style="padding:2px 0;color:{color}">{change_str}</td></tr>'
+        td = f'style="padding:5px 0;font-size:13px;font-family:{_FONT};width:33%"'
+        if price is None:
+            return f'<td {td}><span style="color:{_MUTED}">{label}</span> ---</td>'
+        pfmt = f"${price:,.0f}" if price >= 100 else f"${price:.2f}"
+        chg = ""
+        if change is not None:
+            arrow = "&#9650;" if change >= 0 else "&#9660;"
+            c = _GREEN if change >= 0 else _RED
+            chg = f' <span style="color:{c};font-size:11px">{arrow}{abs(change):.1f}%</span>'
+        return (
+            f"<td {td}>"
+            f'<span style="color:{_MUTED}">{label}</span> '
+            f'<span style="color:#fff;font-weight:600">{pfmt}</span>{chg}</td>'
         )
 
-    # Futures curve
+    price_rows = ""
+    for row in [
+        [("wti", "WTI"), ("brent", "BRENT"), ("ng", "NG")],
+        [("ttf", "TTF"), ("gold", "GOLD"), ("copper", "COPPER")],
+    ]:
+        cells = "".join(_pcell(k, lbl) for k, lbl in row)
+        price_rows += f"<tr>{cells}</tr>"
+
+    # --- Futures + Crack one-liner ---
     summary = mkt_struct.get("summary", "unavailable")
     wti_spread = mkt_struct.get("curves", {}).get("WTI", {}).get("spread_pct")
-    curve_str = summary.upper()
+    futures_str = summary.capitalize()
     if wti_spread is not None:
-        curve_str += f" ({_pct(wti_spread)})"
+        futures_str += f" ({_pct(wti_spread)})"
 
-    # Crack spread summary line
     crack_str = ""
+    ca = pro_data.get("crack_analysis") or {}
     if crack and not crack.get("error"):
         s321 = crack.get("spread_321")
-        avg30 = crack.get("avg_30d")
         if s321 is not None:
-            diff = ""
-            if avg30:
-                d = s321 - avg30
-                diff = (
-                    f' <span style="color:{"#34d399" if d >= 0 else "#f87171"}">'
-                    f"({_pct((d / avg30) * 100)} vs 30d)</span>"
-                )
-            crack_str = f'3-2-1 Crack: <span style="color:#22d3ee;font-weight:bold">${_safe(s321)}/bbl</span>{diff}'
+            pct_parts: list[str] = []
+            pctile = ca.get("percentile") or crack.get("percentile_1y")
+            pct_vs_30d = ca.get("pct_vs_30d")
+            if pctile is not None:
+                pct_parts.append(f"{pctile}th pct")
+            if pct_vs_30d is not None:
+                c = _GREEN if pct_vs_30d >= 0 else _RED
+                pct_parts.append(f'<span style="color:{c}">{_pct(pct_vs_30d)} vs 30d</span>')
+            crack_str = (
+                f' &middot; 3-2-1 Crack: <span style="color:{_ACCENT};font-weight:600">${_safe(s321)}/bbl</span>'
+            )
+            if pct_parts:
+                crack_str += f" ({', '.join(pct_parts)})"
 
-    # === CRACK SPREAD ANALYSIS (Pro) ===
-    crack_analysis_html = ""
-    ca = pro_data.get("crack_analysis")
-    if ca:
-        ca_parts = []
-        ca_parts.append(
-            f'<div style="font-size:12px;color:#e5e5e5;margin-bottom:4px">'
-            f'3-2-1: <span style="color:#22d3ee;font-weight:bold">${_safe(ca["spread"])}/bbl</span>'
-            f"</div>"
+    futures_line = f'Futures: <span style="color:{_TEXT}">{futures_str}</span>{crack_str}'
+
+    # --- Disruption section (only when active) ---
+    disruption_html = ""
+    cd = pro_data.get("chokepoint_detail")
+    r_current = rerouting.get("current", {}) if rerouting.get("available") else {}
+    cape_pct = r_current.get("ratio_pct")
+
+    dlines: list[str] = []
+    shown: set[str] = set()
+
+    for a in anomalies:
+        cp = a.get("chokepoint", "?").capitalize()
+        shown.add(cp.upper())
+        current = a.get("current_value", "?")
+        drop = a.get("drop_pct")
+        c = _RED if a.get("severity") == "critical" else _ORANGE
+        drop_s = f"{_pct(drop)} vs 30d" if drop is not None else ""
+        line = f'<span style="color:{c}">{cp}: {current} vessels ({drop_s})</span>'
+        if cp.lower() == "hormuz" and cape_pct is not None:
+            line += f" &middot; Cape rerouting: {cape_pct:.1f}%"
+        dlines.append(line)
+
+    if cd:
+        for d in cd:
+            if d["name"] in shown:
+                continue
+            c = (
+                _RED
+                if d["drop_pct"] < -25
+                else _ORANGE
+                if d["drop_pct"] < -10
+                else _GREEN
+                if d["drop_pct"] > 10
+                else _MUTED
+            )
+            name = d["name"].replace("STRAIT OF ", "").replace(" STRAIT", "").title()
+            dlines.append(
+                f'<span style="color:{c}">{name}: {d["current"]} vessels ({_pct(d["drop_pct"])} vs 30d)</span>'
+            )
+
+    if dlines:
+        disruption_html = (
+            _DIVIDER + '<div style="margin-bottom:6px">'
+            f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+            f'background:{_RED};margin-right:6px;vertical-align:middle"></span>'
+            f'<span style="color:{_RED};font-size:11px;font-weight:600;letter-spacing:0.5px;'
+            f'vertical-align:middle">ACTIVE DISRUPTION</span></div>'
+            f'<div style="font-size:13px;color:{_TEXT};line-height:1.8">' + "<br>".join(dlines) + "</div>"
         )
 
-        avgs = []
-        if ca.get("avg_7d") is not None:
-            c7 = "#34d399" if (ca.get("pct_vs_7d") or 0) >= 0 else "#f87171"
-            avgs.append(f'vs 7d: ${_safe(ca["avg_7d"])} (<span style="color:{c7}">{_pct(ca["pct_vs_7d"])}</span>)')
-        if ca.get("avg_30d") is not None:
-            c30 = "#34d399" if (ca.get("pct_vs_30d") or 0) >= 0 else "#f87171"
-            avgs.append(f'vs 30d: ${_safe(ca["avg_30d"])} (<span style="color:{c30}">{_pct(ca["pct_vs_30d"])}</span>)')
-        if avgs:
-            ca_parts.append(
-                f'<div style="font-size:11px;color:#a3a3a3;margin-bottom:4px">{"&middot;".join(avgs)}</div>'
-            )
-
-        if ca.get("percentile") is not None:
-            ca_parts.append(
-                f'<div style="font-size:11px;color:#737373;margin-bottom:4px">'
-                f"{ca['percentile']}th percentile vs 1 year</div>"
-            )
-
-        if ca.get("highlight"):
-            direction = "up" if (ca.get("pct_vs_30d") or 0) > 0 else "down"
-            ca_parts.append(
-                f'<div style="font-size:11px;color:#f87171;font-weight:bold;margin-bottom:4px">'
-                f"Significant move {direction}: {_pct(ca['pct_vs_30d'])} vs 30d average</div>"
-            )
-
-        crack_analysis_html = _SECTION_HEADER.format(title="CRACK SPREAD ANALYSIS") + "".join(ca_parts) + _SECTION_END
-
-    # === AIS OVERVIEW ===
+    # --- Fleet & Signals (2 compact lines) ---
     total_vessels = fleet.get("total_vessels_global", 0)
     tankers = fleet.get("tankers_global", 0)
-    zone_parts = []
-    for a in anomalies:
-        zone_parts.append(f"{a['chokepoint'].capitalize()} {a.get('current_value', '?')}")
+    storage_vessels, _ = _get_floating_storage_count()
+    total_24h = alerts_summary.get("total_24h", 0)
+    sentiment_score = market.get("sentiment_score")
 
-    storage_vessels, storage_vlcc = _get_floating_storage_count()
+    fleet_line = (
+        f"Fleet: {total_vessels:,} vessels &middot; {tankers:,} tankers &middot; Floating storage: {storage_vessels}"
+    )
 
-    # === EQUITY MOVERS (Pro) ===
+    sig_parts: list[str] = []
+    if total_24h > 0:
+        sig_parts.append(f"Alerts: {total_24h} active")
+    if sentiment_score is not None:
+        sc = _RED if sentiment_score >= 7 else _ORANGE if sentiment_score >= 4 else _GREEN
+        sig_parts.append(f'Risk score: <span style="color:{sc};font-weight:600">{sentiment_score:.1f}/10</span>')
+    signals_line = " &middot; ".join(sig_parts)
+
+    fleet_html = _DIVIDER + f'<div style="font-size:13px;color:{_TEXT};line-height:1.8">{fleet_line}</div>'
+    if signals_line:
+        fleet_html += f'<div style="font-size:13px;color:{_TEXT};line-height:1.8">{signals_line}</div>'
+
+    # --- Equity Movers (1 line) ---
     equity_html = ""
     em = pro_data.get("equity_movers")
     if em and em.get("top_movers"):
-        movers_spans = []
+        movers = []
         for m in em["top_movers"]:
-            color = "#34d399" if m["change_pct"] >= 0 else "#f87171"
+            c = _GREEN if m["change_pct"] >= 0 else _RED
             sign = "+" if m["change_pct"] >= 0 else ""
-            movers_spans.append(f'<span style="color:{color}">{m["ticker"]} {sign}{m["change_pct"]:.1f}%</span>')
-
-        corr_line = ""
+            movers.append(f'<span style="color:{c}">{m["ticker"]} {sign}{m["change_pct"]:.1f}%</span>')
+        corr_str = ""
         hc = em.get("highest_corr")
         if hc:
-            corr_line = (
-                f'<div style="font-size:11px;color:#737373;margin-bottom:4px">'
-                f"Highest WTI correlation: {hc['ticker']} (r={hc['corr']:.2f})</div>"
-            )
-
+            corr_str = f" | WTI corr: {hc['ticker']} (r={hc['corr']:.2f})"
         equity_html = (
-            _SECTION_HEADER.format(title="EQUITY MOVERS")
-            + '<div style="font-size:12px;color:#e5e5e5;margin-bottom:4px">'
-            + " &nbsp;|&nbsp; ".join(movers_spans)
-            + "</div>"
-            + corr_line
-            + _SECTION_END
+            _DIVIDER + f'<div style="font-size:13px;color:{_TEXT}">Movers: {" &middot; ".join(movers)}{corr_str}</div>'
         )
 
-    # === CHOKEPOINTS (existing — critical/warning anomalies) ===
-    cp_rows = []
-    for a in anomalies:
-        cp_name = a.get("chokepoint", "?").upper()
-        current = a.get("current_value", "?")
-        avg = a.get("average_30d", "?")
-        drop = a.get("drop_pct")
-        drop_str = _pct(drop) if drop is not None else ""
-        severity = a.get("severity", "info")
-        color = "#f87171" if severity == "critical" else "#fb923c" if severity == "warning" else "#737373"
-        cp_rows.append(
-            f'<tr><td style="padding:2px 12px 2px 0;color:{color};font-weight:bold">{cp_name}</td>'
-            f'<td style="padding:2px 12px 2px 0;color:#e5e5e5">{current} transits (avg {avg})</td>'
-            f'<td style="padding:2px 0;color:{color}">{drop_str}</td></tr>'
-        )
-
-    # === CHOKEPOINT DETAIL (Pro — expanded, >10% threshold) ===
-    cp_detail_html = ""
-    cd = pro_data.get("chokepoint_detail")
-    if cd:
-        cd_rows = []
-        for d in cd:
-            color = (
-                "#f87171"
-                if d["drop_pct"] < -25
-                else "#fb923c"
-                if d["drop_pct"] < -10
-                else "#34d399"
-                if d["drop_pct"] > 10
-                else "#737373"
-            )
-            cd_rows.append(
-                f'<tr><td style="padding:2px 12px 2px 0;color:{color};font-weight:bold">{d["name"]}</td>'
-                f'<td style="padding:2px 12px 2px 0;color:#e5e5e5">{d["current"]} vessels</td>'
-                f'<td style="padding:2px 0;color:{color}">{_pct(d["drop_pct"])} vs 30d</td></tr>'
-            )
-
-        # Rerouting state
-        rerouting_line = ""
-        r_current = rerouting.get("current", {}) if rerouting.get("available") else {}
-        ratio_pct = r_current.get("ratio_pct")
-        r_state = r_current.get("state", "")
-        if ratio_pct is not None:
-            sc = "#f87171" if r_state == "elevated" else "#34d399" if r_state == "normal" else "#fb923c"
-            rerouting_line = (
-                f'<div style="font-size:11px;color:#737373;margin-bottom:4px">'
-                f"Rerouting: Cape Share {ratio_pct:.1f}% "
-                f'(<span style="color:{sc}">{r_state.upper()}</span>)</div>'
-            )
-
-        cp_detail_html = (
-            _SECTION_HEADER.format(title="CHOKEPOINT DETAIL")
-            + '<table style="border-collapse:collapse;font-family:Courier New,Courier,monospace;'
-            + 'font-size:11px;margin-bottom:4px">'
-            + "".join(cd_rows)
-            + "</table>"
-            + rerouting_line
-            + _SECTION_END
-        )
-
-    # === SIGNALS ===
-    signals_parts = []
-    total_24h = alerts_summary.get("total_24h", 0)
-    if total_24h > 0:
-        by_rule = alerts_summary.get("last_24h", {})
-        rule_parts = [f"{rule}: {count}" for rule, count in sorted(by_rule.items(), key=lambda x: -x[1])[:3]]
-        signals_parts.append(f"Active Alerts: {total_24h} ({', '.join(rule_parts)})")
-
-    # Rerouting
-    r_current = rerouting.get("current", {}) if rerouting.get("available") else {}
-    ratio_pct = r_current.get("ratio_pct")
-    state = r_current.get("state", "")
-    if ratio_pct is not None:
-        state_color = "#f87171" if state == "elevated" else "#34d399" if state == "normal" else "#fb923c"
-        signals_parts.append(f'Cape Share: {ratio_pct:.1f}% (<span style="color:{state_color}">{state.upper()}</span>)')
-
-    # Sentiment
-    sentiment_score = market.get("sentiment_score")
-    if sentiment_score is not None:
-        score_color = "#f87171" if sentiment_score >= 7 else "#fb923c" if sentiment_score >= 4 else "#34d399"
-        signals_parts.append(
-            f'Risk Score: <span style="color:{score_color};font-weight:bold">{sentiment_score:.1f}/10</span>'
-        )
-
-    signals_html = (
-        "<br>".join(f'<span style="color:#a3a3a3">{s}</span>' for s in signals_parts)
-        if signals_parts
-        else '<span style="color:#404040">No active signals</span>'
-    )
-
-    # === STS ACTIVITY (Pro, conditional) ===
+    # --- STS Activity (1 line, conditional) ---
     sts_html = ""
     sa = pro_data.get("sts_activity")
-    if sa:
-        zone_list = " | ".join(f"{z} ({c})" for z, c in sorted(sa["by_zone"].items(), key=lambda x: -x[1]))
+    if sa and sa.get("candidates", 0) > 0:
+        top = f" &middot; {sa['top_zone']} ({sa['top_zone_count']})" if sa.get("top_zone") else ""
         sts_html = (
-            _SECTION_HEADER.format(title="STS ACTIVITY")
-            + f'<div style="font-size:11px;color:#a3a3a3;margin-bottom:4px">'
-            f'Active candidates: <span style="color:#fb923c;font-weight:bold">{sa["candidates"]}</span>'
-            f' &middot; Proximity pairs: <span style="color:#fb923c;font-weight:bold">{sa["pairs"]}</span>'
-            f"</div>"
-            f'<div style="font-size:11px;color:#737373;margin-bottom:12px">{zone_list}</div>'
+            _DIVIDER + f'<div style="font-size:13px;color:{_TEXT}">'
+            f"STS: {sa['candidates']} candidates &middot; {sa['pairs']} proximity pairs{top}</div>"
         )
 
-    # === WEEKLY CONTEXT (Pro, Monday only) ===
-    weekly_html = ""
-    wc = pro_data.get("weekly_context")
-    if wc:
-        wc_parts = []
-
-        zc = wc.get("zone_changes")
-        if zc:
-            zone_strs = []
-            for z in zc:
-                color = "#34d399" if z["change_pct"] > 0 else "#f87171"
-                zone_strs.append(f'{z["zone"]} <span style="color:{color}">{_pct(z["change_pct"])}</span>')
-            wc_parts.append(
-                f'<div style="font-size:11px;color:#a3a3a3;margin-bottom:4px">'
-                f"Zone traffic WoW: {' | '.join(zone_strs)}</div>"
-            )
-
-        cu = wc.get("cushing")
-        if cu:
-            delta_color = "#34d399" if cu["delta"] < 0 else "#f87171"
-            delta_sign = "+" if cu["delta"] >= 0 else ""
-            wc_parts.append(
-                f'<div style="font-size:11px;color:#a3a3a3;margin-bottom:4px">'
-                f"Cushing Stocks: {cu['current'] / 1000:.1f}M bbl "
-                f'(<span style="color:{delta_color}">{delta_sign}{cu["delta"] / 1000:.1f}M</span>)'
-                f"</div>"
-            )
-
-        ct = wc.get("crack_trend")
-        if ct:
-            change_color = "#34d399" if ct["change"] >= 0 else "#f87171"
-            wc_parts.append(
-                f'<div style="font-size:11px;color:#a3a3a3;margin-bottom:4px">'
-                f"Crack Spread: ${_safe(ct['this_week'])}/bbl "
-                f"(prior week ${_safe(ct['last_week'])}, "
-                f'<span style="color:{change_color}">{"+" if ct["change"] >= 0 else ""}'
-                f"{_safe(ct['change'])}</span>)</div>"
-            )
-
-        if wc_parts:
-            weekly_html = _SECTION_HEADER.format(title="WEEKLY CONTEXT") + "".join(wc_parts) + _SECTION_END
-
-    # === ASSEMBLE FINAL HTML ===
+    # --- Assemble final HTML ---
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#09090b;font-family:'Courier New',Courier,monospace;font-size:13px;color:#d4d4d4">
-<div style="max-width:560px;margin:0 auto;padding:24px 16px">
+<body style="margin:0;padding:0;background:#111;font-family:{_FONT};color:{_TEXT}">
+<div style="max-width:600px;margin:0 auto;padding:24px 16px">
+<div style="background:{_BG};border-radius:4px;padding:28px 24px">
 
-<div style="border:1px solid #27272a;padding:20px;background:#0a0a12">
+<div style="font-size:24px;font-weight:700;color:{_ACCENT};margin-bottom:2px">OBSYD</div>
+<div style="font-size:14px;color:{_MUTED};margin-bottom:16px">{date_str}</div>
+<div style="border-top:1px solid #333;margin-bottom:16px"></div>
 
-<div style="font-size:11px;color:#22d3ee;font-weight:bold;letter-spacing:2px;margin-bottom:4px">
-  OBSYD DAILY BRIEFING
-</div>
-<div style="font-size:10px;color:#404040;margin-bottom:16px">{date_str}</div>
-
-<!-- MARKET SNAPSHOT -->
-<div style="font-size:10px;color:#404040;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a1a2e;padding-bottom:4px">MARKET SNAPSHOT</div>
-<table style="border-collapse:collapse;font-family:'Courier New',Courier,monospace;font-size:12px;margin-bottom:8px">
-  {"".join(price_rows)}
+<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:{_FONT}">
+{price_rows}
 </table>
-<div style="font-size:11px;color:#737373;margin-bottom:4px">Futures Curve: <span style="color:#e5e5e5">{curve_str}</span></div>
-{f'<div style="font-size:11px;color:#737373;margin-bottom:12px">{crack_str}</div>' if crack_str else _SECTION_END}
+<div style="font-size:12px;color:{_MUTED};margin-top:10px;line-height:1.5">{futures_line}</div>
 
-{crack_analysis_html}
+{disruption_html}
 
-<!-- AIS OVERVIEW -->
-<div style="font-size:10px;color:#404040;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a1a2e;padding-bottom:4px">AIS OVERVIEW</div>
-<div style="font-size:11px;color:#a3a3a3;margin-bottom:4px">
-  Global Fleet: <span style="color:#e5e5e5;font-weight:bold">{total_vessels:,}</span> vessels &middot;
-  <span style="color:#e5e5e5;font-weight:bold">{tankers:,}</span> tankers
-</div>
-{f'<div style="font-size:11px;color:#737373;margin-bottom:4px">Zones: {" | ".join(zone_parts)}</div>' if zone_parts else ""}
-{f'<div style="font-size:11px;color:#737373;margin-bottom:12px">Floating Storage: <span style="color:#fb923c;font-weight:bold">{storage_vessels} vessels</span>{f" ({storage_vlcc} VLCCs)" if storage_vlcc > 0 else ""}</div>' if storage_vessels > 0 else _SECTION_END}
+{fleet_html}
 
 {equity_html}
 
-<!-- DISRUPTIONS / CHOKEPOINTS -->
-{'<div style="font-size:10px;color:#404040;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a1a2e;padding-bottom:4px">ACTIVE DISRUPTIONS</div><table style="border-collapse:collapse;font-family:Courier New,Courier,monospace;font-size:12px;margin-bottom:12px">' + "".join(cp_rows) + "</table>" if cp_rows else '<div style="font-size:11px;color:#34d399;margin-bottom:12px">All chokepoints within normal range</div>'}
-
-{cp_detail_html}
-
-<!-- SIGNALS -->
-<div style="font-size:10px;color:#404040;letter-spacing:1.5px;margin-bottom:8px;border-bottom:1px solid #1a1a2e;padding-bottom:4px">SIGNALS</div>
-<div style="font-size:11px;line-height:1.8;margin-bottom:16px">
-  {signals_html}
-</div>
-
 {sts_html}
 
-{weekly_html}
-
-<!-- FOOTER -->
-<div style="border-top:1px solid #27272a;padding-top:12px;margin-top:8px">
-  <div style="font-size:10px;color:#525252;margin-bottom:8px;line-height:1.6">
-    This briefing includes Pro-exclusive data: Crack Spreads, Equity Correlations, STS Detection.
-  </div>
-  <a href="https://obsyd.dev" style="color:#22d3ee;text-decoration:none;font-size:11px;letter-spacing:1px">
-    VIEW FULL DASHBOARD &rarr;
-  </a>
+<div style="border-top:1px solid #333;margin-top:20px;padding-top:16px">
+<a href="https://obsyd.dev" style="color:{_ACCENT};text-decoration:none;font-size:14px;font-weight:600">View full dashboard &#8594;</a>
 </div>
 
 </div>
 
-<div style="font-size:9px;color:#404040;margin-top:16px;line-height:1.6;text-align:center">
-  You're receiving this as an OBSYD Pro subscriber<br>
-  <a href="https://obsyd.dev/api/email/unsubscribe?token={{{{token}}}}" style="color:#525252">Unsubscribe</a>
-  &middot;
-  <a href="https://obsyd.dev" style="color:#525252">Manage subscription</a>
+<div style="font-size:12px;color:#666;margin-top:16px;line-height:1.6;text-align:center">
+You subscribed to OBSYD Daily Briefing.<br>
+<a href="https://obsyd.dev/api/email/unsubscribe?token={{{{token}}}}" style="color:{_MUTED};text-decoration:underline">Unsubscribe</a>
+&middot;
+<a href="https://obsyd.dev" style="color:{_MUTED};text-decoration:underline">Manage subscription</a>
 </div>
 
 </div>
