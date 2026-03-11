@@ -234,7 +234,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
     const nonTankers = isGlobal ? displayVessels.filter((v) => !v.is_tanker) : []
     const zoneVessels = displayVessels.filter((v) => v.zone)
     const rings = zoneVessels.filter((v) => v.is_tanker && v.sog < 0.5)
-    const anchored = zoneVessels.filter((v) => v.sog < 0.5)
+    const anchored = zoneVessels.filter((v) => v.is_tanker && v.sog < 0.5)
     return {
       tankerCount: tankers.length,
       anchoredCount: anchored.length,
@@ -448,7 +448,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
     for (const v of displayVessels) {
       if (v.zone) {
         counts[v.zone] = (counts[v.zone] || 0) + 1
-        if (v.sog < 0.5) anchored[v.zone] = (anchored[v.zone] || 0) + 1
+        if (v.is_tanker && v.sog < 0.5) anchored[v.zone] = (anchored[v.zone] || 0) + 1
       }
     }
     return { total: counts, anchored }
@@ -509,7 +509,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           >
             <span className="text-[9px]" style={{ display: 'inline-block', transition: 'transform 0.15s', transform: legendOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
             LEGEND
-            <InfoPopover text="Real-time vessel positions via AIS (AISstream + AISHub). Cyan = moving tankers, Red = anchored vessels (SOG &lt; 0.5 kn)." />
+            <InfoPopover text="Real-time vessel positions via AIS (AISstream + AISHub). Cyan = moving tankers, Red = tankers at anchor (SOG &lt; 0.5 kn)." />
           </button>
           {legendOpen && (
             <div className="overflow-y-auto scrollbar-hidden px-3 pb-2.5 space-y-1.5" style={{ minHeight: 0 }}>
@@ -532,7 +532,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
               )}
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-red-400 shrink-0" />
-                <span className="text-neutral-300">Anchored (SOG&lt;0.5)</span>
+                <span className="text-neutral-300">Tankers at Anchor</span>
                 <span className="text-red-400 ml-auto pl-3">{anchoredCount}</span>
               </div>
               {isGlobal && (
@@ -630,7 +630,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
                 </div>
                 {!z.no_ais_coverage && total > 0 ? (
                   <div className="font-mono text-[9px] text-neutral-600 mt-0.5">
-                    {transit} in transit · {anch} anchored
+                    {transit} in transit · {anch} at anchor
                     {total > 0 && <span className="text-neutral-700"> ({Math.round((transit / total) * 100)}%)</span>}
                   </div>
                 ) : (
