@@ -33,10 +33,18 @@ from backend.signals.tonnage_proxy import compute_rerouting_index
 logger = logging.getLogger(__name__)
 
 DAILY_SEND_LIMIT = 95
+RESEND_FREE_TIER_LIMIT = 100
+LIMIT_WARN_THRESHOLD = 90
+LIMIT_WARN_RESET = 85
+OPS_EMAIL = "obsyd.dev@pm.me"
+
+_limit_warning_sent = False
 
 
 async def send_daily_email():
     """Main entry point called by scheduler at 07:00 UTC."""
+    global _limit_warning_sent
+
     api_key = settings.resend_api_key
     if not api_key:
         logger.warning("Daily email: RESEND_API_KEY not configured, skipping")
@@ -69,6 +77,32 @@ async def send_daily_email():
         if not subscribers and not legacy_only:
             logger.info("Daily email: no subscribers, skipping")
             return
+
+        # --- Resend free tier safety check ---
+        total_recipients = len(subscribers) + len(legacy_only)
+
+        if total_recipients > RESEND_FREE_TIER_LIMIT:
+            logger.error(
+                "Resend free tier limit exceeded (%d/%d subscribers), skipping daily briefing",
+                total_recipients,
+                RESEND_FREE_TIER_LIMIT,
+            )
+            return
+
+        if total_recipients > LIMIT_WARN_THRESHOLD:
+            logger.warning(
+                "Approaching Resend free tier limit (%d/%d subscribers)",
+                total_recipients,
+                RESEND_FREE_TIER_LIMIT,
+            )
+            if not _limit_warning_sent:
+                try:
+                    await _send_limit_warning(api_key, total_recipients)
+                    _limit_warning_sent = True
+                except Exception as e:
+                    logger.error("Failed to send limit warning email: %s", e)
+        elif total_recipients < LIMIT_WARN_RESET:
+            _limit_warning_sent = False
 
         # Build data
         briefing = await _build_briefing()
@@ -105,6 +139,27 @@ async def send_daily_email():
         logger.error("Daily email build failed: %s", e)
     finally:
         db.close()
+
+
+async def _send_limit_warning(api_key: str, count: int):
+    """Send a one-time warning email to ops when approaching the Resend free tier limit."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "from": "OBSYD <briefing@obsyd.dev>",
+                "to": [OPS_EMAIL],
+                "subject": f"OBSYD: Approaching email limit — {count}/{RESEND_FREE_TIER_LIMIT} subscribers",
+                "html": (
+                    f"<p>You have <strong>{count}</strong> active subscribers.</p>"
+                    f"<p>Resend free tier allows {RESEND_FREE_TIER_LIMIT} emails/day. "
+                    "Consider upgrading to Resend Pro ($20/mo) or enabling paid subscriptions.</p>"
+                ),
+            },
+        )
+        resp.raise_for_status()
+    logger.info("Limit warning email sent to %s (%d subscribers)", OPS_EMAIL, count)
 
 
 def _sync_pro_subscribers(db):
