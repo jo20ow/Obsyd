@@ -7,6 +7,7 @@ Uses Resend API (free tier: 100 emails/day, capped at 95 for safety).
 
 import json
 import logging
+import re
 import secrets
 from datetime import datetime, timezone
 
@@ -384,7 +385,14 @@ def _get_disruption_context(db) -> dict:
                         result["catalyst"] = full[: idx + 1]
                         break
                 else:
-                    result["catalyst"] = full[:200]
+                    # Truncate at last whole sentence within 300 chars
+                    snippet = full[:300]
+                    last_dot = snippet.rfind(".")
+                    if last_dot > 20:
+                        result["catalyst"] = snippet[: last_dot + 1]
+                    else:
+                        last_space = snippet.rfind(" ")
+                        result["catalyst"] = (snippet[:last_space] + "...") if last_space > 20 else snippet
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -401,12 +409,18 @@ def _get_eia_prediction(db) -> dict | None:
     tanker_change_pct = None
     if latest.tanker_count_30d_avg and latest.tanker_count_30d_avg > 0:
         tanker_change_pct = ((latest.tanker_count - latest.tanker_count_30d_avg) / latest.tanker_count_30d_avg) * 100
+
+    # Only include pearson_r if meaningful (r > 0.2 and >= 8 weeks of data)
+    weeks_count = db.query(EIAPredictionHistory).count()
+    r_val = latest.pearson_r
+    show_r = r_val is not None and abs(r_val) > 0.2 and weeks_count >= 8
+
     return {
         "prediction": latest.prediction,
         "tanker_count": latest.tanker_count,
         "tanker_count_30d_avg": latest.tanker_count_30d_avg,
         "tanker_change_pct": round(tanker_change_pct, 1) if tanker_change_pct is not None else None,
-        "pearson_r": latest.pearson_r,
+        "pearson_r": r_val if show_r else None,
     }
 
 
@@ -513,8 +527,13 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
     has_disruption = bool(anomalies) or (score is not None and score >= 40)
 
     if has_disruption:
-        # Badge + score
-        score_text = f" Score: {score:.0f}/100" if score is not None else ""
+        # Badge + score — use single source (DisruptionScoreHistory)
+        score_int = round(score) if score is not None else None
+        score_text = f" Score: {score_int}/100" if score_int is not None else ""
+        # Strip any embedded score references from catalyst to avoid inconsistency
+        if catalyst and score_int is not None:
+            catalyst = re.sub(r"\bAt \d+/100[,.]?\s*", "", catalyst).strip()
+            catalyst = re.sub(r"\bscore[: ]+\d+/100[,.]?\s*", "", catalyst, flags=re.IGNORECASE).strip()
         disruption_html = (
             _DIVIDER + '<div style="margin-bottom:12px">'
             f'<span style="display:inline-block;background:{_RED};color:#fff;font-size:11px;'

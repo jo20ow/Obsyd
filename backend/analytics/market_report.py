@@ -233,7 +233,17 @@ class MarketReportGenerator:
         for key, text in sections.items():
             if text:
                 first_sentence = text.split(". ")[0] + "."
-                headlines[key] = first_sentence[:120]
+                if len(first_sentence) > 200:
+                    # Truncate at last complete sentence within 200 chars
+                    truncated = first_sentence[:200]
+                    last_dot = truncated.rfind(".")
+                    if last_dot > 20:
+                        first_sentence = truncated[: last_dot + 1]
+                    else:
+                        # No good sentence boundary — use first 200 chars with ellipsis
+                        last_space = truncated.rfind(" ")
+                        first_sentence = truncated[:last_space] + "..." if last_space > 20 else truncated + "..."
+                headlines[key] = first_sentence
 
         # Full report
         full_paragraphs = [text for text in sections.values() if text]
