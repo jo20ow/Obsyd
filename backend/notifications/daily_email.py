@@ -77,16 +77,26 @@ async def send_daily_email():
 
         # --- Resend free tier safety check ---
         total_recipients = len(subscribers) + len(legacy_only)
+        logger.info(
+            "Daily email: %d total recipients (%d subscribers + %d waitlist)",
+            total_recipients,
+            len(subscribers),
+            len(legacy_only),
+        )
 
-        if total_recipients > RESEND_FREE_TIER_LIMIT:
-            logger.error(
-                "Resend free tier limit exceeded (%d/%d subscribers), skipping daily briefing",
+        if total_recipients > DAILY_SEND_LIMIT:
+            logger.warning(
+                "Resend free tier limit: %d recipients but only sending to first %d",
                 total_recipients,
-                RESEND_FREE_TIER_LIMIT,
+                DAILY_SEND_LIMIT,
             )
-            return
-
-        if total_recipients > LIMIT_WARN_THRESHOLD:
+            if not _limit_warning_sent:
+                try:
+                    await _send_limit_warning(api_key, total_recipients)
+                    _limit_warning_sent = True
+                except Exception as e:
+                    logger.error("Failed to send limit warning email: %s", e)
+        elif total_recipients > LIMIT_WARN_THRESHOLD:
             logger.warning(
                 "Approaching Resend free tier limit (%d/%d subscribers)",
                 total_recipients,

@@ -9,9 +9,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
 
-from backend.auth.dependencies import require_pro
+from backend.auth.dependencies import require_auth, require_pro
 from backend.database import SessionLocal
 from backend.models.pro_features import EmailSubscriber
+from backend.models.waitlist import Waitlist
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,32 @@ async def unsubscribe(token: str = Query(...)):
         db.close()
 
 
+@router.get("/stats")
+async def email_stats(_user=Depends(require_auth)):
+    """Subscriber counts for monitoring (auth required)."""
+    db = SessionLocal()
+    try:
+        active_subs = db.query(EmailSubscriber).filter(EmailSubscriber.active == True).count()  # noqa: E712
+        inactive_subs = db.query(EmailSubscriber).filter(EmailSubscriber.active == False).count()  # noqa: E712
+        waitlist_total = db.query(Waitlist).filter(Waitlist.subscribed == True).count()  # noqa: E712
+        sub_emails = {s.email for s in db.query(EmailSubscriber.email).filter(EmailSubscriber.active == True).all()}  # noqa: E712
+        waitlist_only = (
+            db.query(Waitlist).filter(Waitlist.subscribed == True, Waitlist.email.notin_(sub_emails)).count()  # noqa: E712
+        )
+        total_daily = active_subs + waitlist_only
+        return {
+            "email_subscribers": active_subs,
+            "email_unsubscribed": inactive_subs,
+            "waitlist_subscribed": waitlist_total,
+            "waitlist_only": waitlist_only,
+            "total_daily_recipients": total_daily,
+            "daily_send_limit": 95,
+            "headroom": max(0, 95 - total_daily),
+        }
+    finally:
+        db.close()
+
+
 @router.post("/test-briefing")
 async def test_briefing(user=Depends(require_pro)):
     """Send a test briefing email to the authenticated Pro user."""
@@ -117,6 +144,6 @@ async def test_briefing(user=Depends(require_pro)):
         return {"status": "ok", "message": f"Test briefing sent to {email}"}
     except Exception as e:
         logger.error("Test briefing failed: %s", e)
-        return {"error": str(e)}
+        return {"error": "Failed to send test briefing"}
     finally:
         db.close()
