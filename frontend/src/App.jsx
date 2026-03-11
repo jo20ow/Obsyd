@@ -55,14 +55,7 @@ function ProBanner() {
   return (
     <div className="border border-cyan-glow/10 bg-cyan-glow/[0.02] rounded px-4 py-2 flex items-center justify-between flex-wrap gap-2">
       <span className="font-mono text-[10px] text-neutral-500">
-        <span className="text-cyan-glow/80 font-bold">OBSYD PRO</span>
-        <span className="mx-2 text-neutral-700">—</span>
-        STS Detection · Crack Spreads · Related Equities · Daily Briefing Email
-        <span className="mx-2 text-neutral-700">—</span>
-        <span className="text-neutral-400">COMING SOON</span>
-      </span>
-      <span className="font-mono text-[10px] text-cyan-glow/50 cursor-pointer hover:text-cyan-glow transition-colors">
-        LOG IN / SIGN UP
+        OBSYD is open source and free to use. Advanced features coming soon.
       </span>
     </div>
   )
@@ -75,10 +68,7 @@ function ProFooter() {
   return (
     <div className="mt-6 border-t border-border pt-4 pb-2">
       <div className="text-center font-mono text-[10px] text-neutral-600">
-        <span className="text-cyan-glow/60">OBSYD Pro</span>: STS Detection · Crack Spreads · Related Equities · Daily Briefing Email.{' '}
-        <span className="text-cyan-glow/40 cursor-pointer hover:text-cyan-glow transition-colors underline underline-offset-2">
-          Log in / Sign up
-        </span>
+        OBSYD is open source and free to use. Advanced features coming soon.
       </div>
     </div>
   )

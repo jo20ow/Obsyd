@@ -34,15 +34,15 @@ export default function WaitlistSignup() {
   return (
     <div className="border border-cyan-glow/20 bg-cyan-glow/[0.03] px-4 py-3">
       <div className="text-[10px] text-cyan-glow/80 tracking-wider mb-1.5">
-        OBSYD PRO — COMING SOON
+        Get the OBSYD Daily Briefing — free during beta.
       </div>
       <div className="text-[10px] text-neutral-500 leading-relaxed mb-2.5">
-        STS Detection · Crack Spreads · Related Equities · Daily Briefing Email
+        Market snapshot, disruption alerts, and chokepoint analysis delivered to your inbox every morning.
       </div>
 
       {done ? (
         <div className="text-[11px] text-emerald-400 font-bold">
-          You're on the list.
+          You're subscribed.
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex gap-0 max-w-[600px]">
@@ -59,7 +59,7 @@ export default function WaitlistSignup() {
             disabled={submitting || !email.trim()}
             className="shrink-0 text-[10px] tracking-wider text-cyan-glow border border-cyan-glow/30 hover:border-cyan-glow/60 rounded-r px-3 py-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {submitting ? '...' : 'JOIN WAITLIST'}
+            {submitting ? '...' : 'SUBSCRIBE'}
           </button>
         </form>
       )}

@@ -125,7 +125,7 @@ export default function MarketReportPanel() {
                 <TeaserLine key={key} sectionKey={key} headline={headlines?.[key] || ''} />
               ))}
               <div className="text-center font-mono text-[10px] text-cyan-glow/40 mt-2 cursor-pointer hover:text-cyan-glow transition-colors">
-                Unlock full market intelligence — OBSYD Pro
+                Unlock full market intelligence
               </div>
             </div>
           )}
