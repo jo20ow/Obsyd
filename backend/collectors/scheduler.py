@@ -249,10 +249,18 @@ def start_scheduler():
         **JOB_DEFAULTS,
     )
 
-    # Daily briefing email: 07:00 UTC (before European market open)
+    # Pre-email price refresh: Mon-Fri 06:45 UTC (fresh prices for daily email)
+    scheduler.add_job(
+        refresh_live_prices,
+        CronTrigger(day_of_week="mon-fri", hour=6, minute=45),
+        id="pre_email_price_refresh",
+        **JOB_DEFAULTS,
+    )
+
+    # Daily briefing email: Mon-Fri 07:00 UTC (before European market open)
     scheduler.add_job(
         send_daily_email,
-        CronTrigger(hour=7, minute=0),
+        CronTrigger(day_of_week="mon-fri", hour=7, minute=0),
         id="daily_email",
         **JOB_DEFAULTS,
     )
@@ -337,7 +345,7 @@ def start_scheduler():
         "Fleet summary (daily 23:55), Geofence daily (23:50), "
         "Floating storage (every 6h), Voyages (every 2h), "
         "Crack spreads (daily 22:00), Equities (daily 22:30), "
-        "STS detection (every 4h), Daily email (07:00), "
+        "STS detection (every 4h), Daily email (Mon-Fri 07:00), "
         "Retention (daily 04:00) | FIRMS (every 6h) | NOAA (every 30min) | "
         "Tonne-Miles (every 6h) | Disruption Score (every 2h) | EIA Prediction (weekly Tue)"
     )
