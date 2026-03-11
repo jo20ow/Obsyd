@@ -37,8 +37,7 @@ def _get_chokepoint_series(portname: str) -> list[dict]:
         return []
     conn = sqlite3.connect(str(PORTWATCH_DB))
     rows = conn.execute(
-        "SELECT date, n_total, n_tanker FROM chokepoint_daily "
-        "WHERE portname = ? ORDER BY date",
+        "SELECT date, n_total, n_tanker FROM chokepoint_daily WHERE portname = ? ORDER BY date",
         (portname,),
     ).fetchall()
     conn.close()
@@ -49,9 +48,7 @@ def _get_brent_prices() -> dict[str, float]:
     """Load all Brent prices from fred_series as {date: price}."""
     db = SessionLocal()
     try:
-        rows = db.query(FREDSeries).filter(
-            FREDSeries.series_id == "DCOILBRENTEU"
-        ).all()
+        rows = db.query(FREDSeries).filter(FREDSeries.series_id == "DCOILBRENTEU").all()
         return {r.date: r.value for r in rows}
     finally:
         db.close()
@@ -62,15 +59,13 @@ def _get_disruptions_context() -> dict[str, list[str]]:
     if not PORTWATCH_DB.exists():
         return {}
     conn = sqlite3.connect(str(PORTWATCH_DB))
-    rows = conn.execute(
-        "SELECT event_name, event_type, start_date, end_date FROM disruptions"
-    ).fetchall()
+    rows = conn.execute("SELECT event_name, event_type, start_date, end_date FROM disruptions").fetchall()
     conn.close()
 
     context = {}
     for name, etype, start, end in rows:
         if start:
-            context.setdefault(start[:10], []).append(f"{name} ({etype})")
+            context.setdefault(start[:10], []).append(name)
     return context
 
 
@@ -101,7 +96,7 @@ def find_anomalies(
     current_event = None
 
     for i in range(window, len(series)):
-        avg = sum(s["n_total"] for s in series[i - window:i]) / window
+        avg = sum(s["n_total"] for s in series[i - window : i]) / window
         if avg == 0:
             continue
 
@@ -177,14 +172,10 @@ def _enrich_event(event: dict, brent: dict, disruptions: dict):
         event["brent_at_start"] = brent_before
     if brent_before and brent_after_7d:
         event["brent_after_7d"] = brent_after_7d
-        event["brent_change_7d_pct"] = round(
-            (brent_after_7d - brent_before) / brent_before * 100, 1
-        )
+        event["brent_change_7d_pct"] = round((brent_after_7d - brent_before) / brent_before * 100, 1)
     if brent_before and brent_after_30d:
         event["brent_after_30d"] = brent_after_30d
-        event["brent_change_30d_pct"] = round(
-            (brent_after_30d - brent_before) / brent_before * 100, 1
-        )
+        event["brent_change_30d_pct"] = round((brent_after_30d - brent_before) / brent_before * 100, 1)
 
     # Disruption context (check ±7 days around start)
     try:

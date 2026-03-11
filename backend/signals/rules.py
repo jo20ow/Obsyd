@@ -35,21 +35,33 @@ ZONE_ANCHOR_BASELINES = {
     "panama": {"normal_pct": 50, "threshold_pct": 75},
 }
 
-DEDUP_HOURS = 6  # suppress duplicate alerts within this window
-
-
-def _recent_alert_exists(db: Session, rule: str, zone: str) -> Alert | None:
-    """Check if an identical alert (same rule + zone) exists within DEDUP_HOURS."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=DEDUP_HOURS)
-    return db.query(Alert).filter(Alert.rule == rule, Alert.zone == zone, Alert.created_at > cutoff).first()
+DEDUP_HOURS = 24  # suppress duplicate alerts within this window
 
 
 def _upsert_alert(db: Session, rule: str, zone: str, severity: str, title: str, detail: str):
-    """Create a new alert or update the timestamp of an existing one within the dedup window."""
-    existing = _recent_alert_exists(db, rule, zone)
+    """Create a new alert or update the most recent existing one within the dedup window.
+
+    If multiple duplicates exist (same rule + zone within DEDUP_HOURS), keeps only the
+    most recent and deletes the rest to prevent duplicate buildup.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=DEDUP_HOURS)
+    existing = (
+        db.query(Alert)
+        .filter(Alert.rule == rule, Alert.zone == zone, Alert.created_at > cutoff)
+        .order_by(Alert.created_at.desc())
+        .all()
+    )
+
     if existing:
-        existing.created_at = datetime.now(timezone.utc)
-        existing.detail = detail
+        # Update the most recent one
+        latest = existing[0]
+        latest.created_at = datetime.now(timezone.utc)
+        latest.title = title
+        latest.detail = detail
+        latest.severity = severity
+        # Delete any older duplicates
+        for old in existing[1:]:
+            db.delete(old)
         db.commit()
         return
 
