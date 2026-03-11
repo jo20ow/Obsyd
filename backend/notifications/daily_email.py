@@ -514,6 +514,9 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
         if catalyst and score_int is not None:
             catalyst = re.sub(r"\bAt \d+/100[,.]?\s*", "", catalyst).strip()
             catalyst = re.sub(r"\bscore[: ]+\d+/100[,.]?\s*", "", catalyst, flags=re.IGNORECASE).strip()
+            # Ensure first character is uppercase after stripping
+            if catalyst and catalyst[0].islower():
+                catalyst = catalyst[0].upper() + catalyst[1:]
         disruption_html = (
             _DIVIDER + '<div style="margin-bottom:12px">'
             f'<span style="display:inline-block;background:{_RED};color:#fff;font-size:11px;'

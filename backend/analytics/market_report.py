@@ -52,11 +52,11 @@ CACHE_TTL = 1800  # 30 minutes
 
 CAUSAL_CHAINS = {
     ("hormuz_critical", "none"): [
-        "Strait of Hormuz transit has collapsed {pct}% to {vessels} vessels — effectively closed since {disruption_name}. This represents approximately {oil_pct}% of global seaborne oil supply at risk.",
-        "Physical flows through the Strait of Hormuz have plummeted {pct}% to just {vessels} vessels, rendering the chokepoint effectively shut since {disruption_name}. Roughly {oil_pct}% of global seaborne crude is directly affected.",
-        "Hormuz shipping activity has contracted {pct}% to {vessels} vessels — a near-total halt since {disruption_name}. An estimated {oil_pct}% of the world's seaborne oil supply transits this corridor.",
-        "The Strait of Hormuz is effectively closed. Transit volumes have fallen {pct}% to {vessels} vessels following {disruption_name}, putting approximately {oil_pct}% of global seaborne oil flows at risk.",
-        "Only {vessels} vessels transited the Strait of Hormuz — a {pct}% collapse since {disruption_name}. The chokepoint normally handles roughly {oil_pct}% of global seaborne oil.",
+        "Strait of Hormuz transit has collapsed {pct}% — effectively closed since {disruption_name}. This represents approximately {oil_pct}% of global seaborne oil supply at risk.",
+        "Physical flows through the Strait of Hormuz have plummeted {pct}%, rendering the chokepoint effectively shut since {disruption_name}. Roughly {oil_pct}% of global seaborne crude is directly affected.",
+        "Hormuz shipping activity has contracted {pct}% — a near-total halt since {disruption_name}. An estimated {oil_pct}% of the world's seaborne oil supply transits this corridor.",
+        "The Strait of Hormuz is effectively closed. Transit volumes have fallen {pct}% following {disruption_name}, putting approximately {oil_pct}% of global seaborne oil flows at risk.",
+        "Transit through the Strait of Hormuz has collapsed {pct}% since {disruption_name}. The chokepoint normally handles roughly {oil_pct}% of global seaborne oil.",
     ],
     ("chokepoint_drop", "rerouting_high"): [
         "The {pct}% drop in {zone} transit is driving rerouting via Cape of Good Hope, now at {cape_share}% of combined Suez-Cape traffic.",
@@ -318,9 +318,9 @@ class MarketReportGenerator:
             parts.append(
                 self._pick(
                     [
-                        f"The OBSYD Supply Disruption Index stands at {composite:.0f}/100 ({level}), reflecting convergent stress across multiple indicators.",
-                        f"Multiple disruption signals are converging — the Supply Disruption Index at {composite:.0f}/100 ({level}) reflects simultaneous stress across chokepoints, pricing, and fleet behavior.",
-                        f"At {composite:.0f}/100, the Supply Disruption Index is in {level} territory, driven by concurrent anomalies across several monitored dimensions.",
+                        f"The Supply Disruption Index is at {level} level, reflecting convergent stress across multiple indicators.",
+                        "Multiple disruption signals are converging — the Supply Disruption Index reflects simultaneous stress across chokepoints, pricing, and fleet behavior.",
+                        f"The Supply Disruption Index is in {level} territory, driven by concurrent anomalies across several monitored dimensions.",
                     ]
                 )
             )
@@ -333,9 +333,9 @@ class MarketReportGenerator:
 
         if not parts:
             if composite > 0:
+                level_word = "elevated" if composite >= 50 else "moderate"
                 parts.append(
-                    f"The Supply Disruption Index stands at {composite:.0f}/100, "
-                    f"reflecting {'elevated' if composite >= 50 else 'moderate'} supply chain stress "
+                    f"The Supply Disruption Index reflects {level_word} supply chain stress "
                     f"across monitored chokepoints and market indicators."
                 )
             else:
