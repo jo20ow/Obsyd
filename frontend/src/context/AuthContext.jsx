@@ -4,7 +4,9 @@ const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
+  const [checkoutUrl, setCheckoutUrl] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [pricingOpen, setPricingOpen] = useState(false)
 
   const refresh = useCallback(() => {
     fetch('/api/auth/me', { credentials: 'include' })
@@ -15,8 +17,13 @@ export function AuthProvider({ children }) {
         } else {
           setUser(null)
         }
+        // checkout_url is returned for both authed-free and anon users
+        setCheckoutUrl(data?.checkout_url || null)
       })
-      .catch(() => setUser(null))
+      .catch(() => {
+        setUser(null)
+        setCheckoutUrl(null)
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -42,9 +49,23 @@ export function AuthProvider({ children }) {
   }, [])
 
   const isPro = user?.tier === 'pro'
+  const openPricing = useCallback(() => setPricingOpen(true), [])
+  const closePricing = useCallback(() => setPricingOpen(false), [])
 
   return (
-    <AuthContext.Provider value={{ user, isPro, loading, refresh, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isPro,
+        loading,
+        refresh,
+        logout,
+        checkoutUrl,
+        pricingOpen,
+        openPricing,
+        closePricing,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

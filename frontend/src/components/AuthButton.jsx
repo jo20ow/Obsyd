@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 
 export default function AuthButton() {
-  const { user, isPro, logout } = useAuth()
+  const { user, isPro, logout, openPricing } = useAuth()
   const [showLogin, setShowLogin] = useState(false)
   const [email, setEmail] = useState('')
   const [sending, setSending] = useState(false)
@@ -11,10 +11,18 @@ export default function AuthButton() {
   if (user?.authenticated) {
     return (
       <div className="flex items-center gap-2 font-mono text-[10px]">
-        {isPro && (
+        {isPro ? (
           <span className="text-cyan-glow border border-cyan-glow/30 px-1.5 py-0.5 tracking-wider">
             PRO
           </span>
+        ) : (
+          <button
+            type="button"
+            onClick={openPricing}
+            className="text-cyan-glow border border-cyan-glow/40 hover:bg-cyan-glow/10 px-1.5 py-0.5 tracking-wider transition-colors"
+          >
+            GO PRO
+          </button>
         )}
         <span className="text-neutral-500 hidden sm:inline">{user.email}</span>
         <button

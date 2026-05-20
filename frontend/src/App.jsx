@@ -21,6 +21,7 @@ import STSPanel from './components/STSPanel'
 import CrackSpreadPanel from './components/CrackSpreadPanel'
 import RelatedEquitiesPanel from './components/RelatedEquitiesPanel'
 import ProGate from './components/ProGate'
+import PricingModal from './components/PricingModal'
 import ErrorBoundary from './components/ErrorBoundary'
 import PriceTicker from './components/PriceTicker'
 import TransitChart from './components/TransitChart'
@@ -49,26 +50,40 @@ function Disclaimer() {
 }
 
 function ProBanner() {
-  const { isPro } = useAuth()
+  const { isPro, openPricing } = useAuth()
   if (isPro) return null
 
   return (
     <div className="border border-cyan-glow/10 bg-cyan-glow/[0.02] rounded px-4 py-2 flex items-center justify-between flex-wrap gap-2">
       <span className="font-mono text-[10px] text-neutral-500">
-        OBSYD is open source and free to use. Advanced features coming soon.
+        OBSYD is open source and free to use. Pro adds daily briefings, custom alerts, and deep-dive panels.
       </span>
+      <button
+        type="button"
+        onClick={openPricing}
+        className="font-mono text-[10px] tracking-wider text-cyan-glow hover:text-cyan-glow/80 underline-offset-2 hover:underline"
+      >
+        See Pro →
+      </button>
     </div>
   )
 }
 
 function ProFooter() {
-  const { isPro } = useAuth()
+  const { isPro, openPricing } = useAuth()
   if (isPro) return null
 
   return (
     <div className="mt-6 border-t border-border pt-4 pb-2">
       <div className="text-center font-mono text-[10px] text-neutral-600">
-        OBSYD is open source and free to use. Advanced features coming soon.
+        OBSYD is open source and free to use.{' '}
+        <button
+          type="button"
+          onClick={openPricing}
+          className="text-cyan-glow/80 hover:text-cyan-glow underline-offset-2 hover:underline"
+        >
+          Upgrade to Pro →
+        </button>
       </div>
     </div>
   )
@@ -438,6 +453,9 @@ function App() {
       {/* ===== FOOTER ===== */}
       <ProFooter />
       <Disclaimer />
+
+      {/* ===== PRICING MODAL (rendered conditionally by AuthContext state) ===== */}
+      <PricingModal />
     </div>
   )
 }

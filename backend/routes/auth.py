@@ -147,7 +147,11 @@ async def verify_magic_link(token: str, response: Response):
 async def get_me(user: dict | None = Depends(get_current_user)):
     """Get current user info and subscription status."""
     if not user:
-        return {"authenticated": False, "tier": "free"}
+        return {
+            "authenticated": False,
+            "tier": "free",
+            "checkout_url": settings.lemonsqueezy_checkout_url,
+        }
 
     # Refresh subscription status from DB
     db = SessionLocal()
