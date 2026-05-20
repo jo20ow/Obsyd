@@ -53,19 +53,24 @@ function timeAgo(isoStr) {
 export default function AlertsPanel({ weatherAlerts = [] }) {
   const [alerts, setAlerts] = useState([])
   const [chokeAlerts, setChokeAlerts] = useState([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`${API}/alerts?limit=20`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setAlerts)
-      .catch((e) => console.error('AlertsPanel alerts:', e))
-
-    fetch(`${API}/alerts/portwatch`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.alerts) setChokeAlerts(data.alerts)
-      })
-      .catch((e) => console.error('AlertsPanel portwatch:', e))
+    // Wait until both alert sources have responded (or failed) before
+    // hiding the loading state — otherwise the panel briefly renders an
+    // incomplete merge and re-shuffles a second later.
+    Promise.allSettled([
+      fetch(`${API}/alerts?limit=20`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then(setAlerts)
+        .catch((e) => console.error('AlertsPanel alerts:', e)),
+      fetch(`${API}/alerts/portwatch`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data?.alerts) setChokeAlerts(data.alerts)
+        })
+        .catch((e) => console.error('AlertsPanel portwatch:', e)),
+    ]).finally(() => setLoading(false))
   }, [])
 
   // Merge signal alerts, weather alerts, and chokepoint alerts
@@ -162,6 +167,28 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
               </span>
             )}
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="border border-border bg-surface rounded">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+          <span className="font-mono text-xs text-neutral-500">SIGNAL ALERTS</span>
+          <span className="font-mono text-[10px] text-neutral-600 animate-pulse">LOADING ...</span>
+        </div>
+        <div className="px-4 py-4 space-y-3 animate-pulse">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-start gap-2.5">
+              <div className="h-5 w-12 bg-neutral-800 rounded" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3 bg-neutral-800 rounded" style={{ width: `${85 - i * 10}%` }} />
+                <div className="h-2.5 bg-neutral-800/60 rounded" style={{ width: `${60 - i * 5}%` }} />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     )

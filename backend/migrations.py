@@ -50,6 +50,10 @@ def run_migrations() -> None:
     if _add_column_if_missing("subscriptions", "trial_ends_at", "DATETIME"):
         applied.append("subscriptions.trial_ends_at")
 
+    # 2026-05-20: onboarding drip for trial subs (day 0/2/5)
+    if _add_column_if_missing("subscriptions", "drip_stage", "INTEGER"):
+        applied.append("subscriptions.drip_stage")
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:
@@ -59,6 +63,9 @@ def run_migrations() -> None:
 def list_pending() -> Iterable[str]:
     """Diagnostic: report which migrations would still be applied."""
     pending: list[str] = []
-    if "trial_ends_at" not in _existing_columns("subscriptions"):
+    cols = _existing_columns("subscriptions")
+    if "trial_ends_at" not in cols:
         pending.append("subscriptions.trial_ends_at")
+    if "drip_stage" not in cols:
+        pending.append("subscriptions.drip_stage")
     return pending

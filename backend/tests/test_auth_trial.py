@@ -18,6 +18,13 @@ from fastapi.testclient import TestClient
 from backend.auth.jwt import create_token
 from backend.main import app
 from backend.models.subscription import Subscription
+from backend.notifications import trial_drip
+
+
+@pytest.fixture(autouse=True)
+def _mute_welcome_email(monkeypatch):
+    """Trial-start sends a welcome email; we mute Resend in every test."""
+    monkeypatch.setattr(trial_drip, "send_welcome_now", lambda email: True)
 
 
 @pytest.fixture

@@ -30,6 +30,7 @@ import DisruptionScorePanel from './components/DisruptionScorePanel'
 import MarketReportPanel from './components/MarketReportPanel'
 import EIAPredictionPanel, { EIAPredictionMini } from './components/EIAPredictionPanel'
 import FreightProxyPanel from './components/FreightProxyPanel'
+import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
 
 const API = '/api'
@@ -109,7 +110,35 @@ function TabBar({ active, onChange }) {
   )
 }
 
+/**
+ * Top-level router. Anonymous visitors hitting `/` see the marketing
+ * Landing; signed-in users, the dashboard. Any `/app` path always
+ * forces the dashboard (for bookmarks, social-media links, direct demo).
+ * We read pathname once at mount — sufficient because the SPA never
+ * navigates between landing↔dashboard internally; each is its own route.
+ */
 function App() {
+  const { user, loading: authLoading } = useAuth()
+  // Read once at module init — no need to react to client-side navigation
+  // since neither route mutates the URL after mount.
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+  const wantsApp = pathname.startsWith('/app') || pathname.startsWith('/dashboard')
+
+  // Anon visitor on the root path -> Landing. The PricingModal is also
+  // mounted here so the Landing's "Start trial" button can open it.
+  if (!wantsApp && !user && !authLoading) {
+    return (
+      <>
+        <Landing />
+        <PricingModal />
+      </>
+    )
+  }
+
+  return <Dashboard />
+}
+
+function Dashboard() {
   const [compactMode, setCompactMode] = useState(false)
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)

@@ -30,3 +30,7 @@ class Subscription(Base):
     # status == "trialing", the subscription is effectively expired. Cleared
     # when the user converts to a paid LS subscription.
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Onboarding drip progress for in-app trials (and any subscriber we want
+    # to nudge): 0=welcome sent, 1=day-2 sent, 2=day-5 sent, 3=done.
+    # NULL means the user is not (yet) in the drip flow.
+    drip_stage: Mapped[int | None] = mapped_column(Integer, nullable=True)

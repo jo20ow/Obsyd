@@ -42,6 +42,7 @@ from backend.collectors.retention import run_retention
 from backend.collectors.sts_collector import collect_sts_events
 from backend.database import SessionLocal
 from backend.notifications.daily_email import send_daily_email
+from backend.notifications.trial_drip import process_trial_drip
 from backend.providers.price_provider import get_live_prices as refresh_live_prices
 from backend.signals.evaluator import evaluate_signals
 from backend.signals.floating_storage import detect_floating_storage
@@ -262,6 +263,16 @@ def start_scheduler():
         send_daily_email,
         CronTrigger(day_of_week="mon-fri", hour=7, minute=0),
         id="daily_email",
+        **JOB_DEFAULTS,
+    )
+
+    # Trial onboarding drip: daily at 08:30 UTC (after daily briefing).
+    # Advances each in-app trial one drip stage if its age has crossed
+    # the next threshold (day-0 fires synchronously from start-trial).
+    scheduler.add_job(
+        process_trial_drip,
+        CronTrigger(hour=8, minute=30),
+        id="trial_drip_daily",
         **JOB_DEFAULTS,
     )
 

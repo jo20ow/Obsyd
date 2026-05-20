@@ -235,12 +235,24 @@ async def start_trial(response: Response, user: dict = Depends(require_auth)):
             status="trialing",
             plan="pro",
             trial_ends_at=now + timedelta(days=TRIAL_DAYS),
+            drip_stage=0,  # welcome email sent right below
         )
         db.add(trial)
         db.commit()
         db.refresh(trial)
     finally:
         db.close()
+
+    # Fire the welcome email synchronously. We tolerate failure (e.g. Resend
+    # outage) and don't roll back the trial — the daily drip processor will
+    # not re-send day 0 because drip_stage is already 0.
+    try:
+        from backend.notifications.trial_drip import send_welcome_now
+
+        send_welcome_now(user["email"])
+    except Exception:
+        # Logged inside send_welcome_now; never block trial activation.
+        pass
 
     # Re-issue session token with sub_status=pro so the frontend sees Pro
     # immediately without waiting for a /me refresh.
