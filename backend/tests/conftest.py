@@ -43,6 +43,8 @@ _DB_CONSUMERS = (
     "backend.auth.dependencies",
     "backend.routes.auth",
     "backend.routes.webhooks",
+    "backend.routes.alert_rules",
+    "backend.notifications.alert_runner",
 )
 
 

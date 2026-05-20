@@ -1,3 +1,5 @@
+from backend.models.alert_rules import AlertRule as AlertRule
+from backend.models.alert_rules import UserAlertEvent as UserAlertEvent
 from backend.models.alerts import Alert as Alert
 from backend.models.fleet import DailyFleetSummary as DailyFleetSummary
 from backend.models.jodi import JODIProduction as JODIProduction

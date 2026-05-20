@@ -41,6 +41,7 @@ from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chok
 from backend.collectors.retention import run_retention
 from backend.collectors.sts_collector import collect_sts_events
 from backend.database import SessionLocal
+from backend.notifications.alert_runner import process_alert_rules
 from backend.notifications.daily_email import send_daily_email
 from backend.notifications.trial_drip import process_trial_drip
 from backend.providers.price_provider import get_live_prices as refresh_live_prices
@@ -273,6 +274,16 @@ def start_scheduler():
         process_trial_drip,
         CronTrigger(hour=8, minute=30),
         id="trial_drip_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # User-defined alert rules: evaluate every 30 minutes. Each rule has
+    # a 6h cooldown after triggering, so this cadence is responsive but
+    # not spammy. Cap per run inside the runner protects against runaway.
+    scheduler.add_job(
+        process_alert_rules,
+        CronTrigger(minute="15,45"),
+        id="user_alert_rules_30min",
         **JOB_DEFAULTS,
     )
 

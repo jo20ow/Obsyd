@@ -31,6 +31,7 @@ from backend.routes import settings as settings_routes
 from backend.routes import signals as signals_routes
 from backend.routes import thermal as thermal_routes
 from backend.routes import waitlist as waitlist_routes
+from backend.routes import alert_rules as alert_rules_routes
 from backend.routes import webhooks as webhooks_routes
 from backend.signals.sentiment_scorer import compute_sentiment_score
 
@@ -176,6 +177,7 @@ app.include_router(briefing_routes.router)
 app.include_router(waitlist_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(webhooks_routes.router)
+app.include_router(alert_rules_routes.router)
 app.include_router(email_routes.router)
 app.include_router(voyages.router)
 app.include_router(analytics_routes.router)
