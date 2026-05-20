@@ -18,6 +18,7 @@ Usage in routes:
 from fastapi import Cookie, HTTPException, Request
 
 from backend.auth.jwt import verify_token
+from backend.auth.subscription_check import is_pro
 from backend.database import SessionLocal
 from backend.models.subscription import Subscription
 
@@ -41,25 +42,23 @@ def require_auth(request: Request, obsyd_token: str | None = Cookie(None)) -> di
 
 
 def require_pro(request: Request, obsyd_token: str | None = Cookie(None)) -> dict:
-    """Require Pro subscription. Raises 401/403 if not authorized."""
+    """Require Pro subscription (paid or in-trial). Raises 401/403 otherwise."""
     user = require_auth(request, obsyd_token)
 
-    # Check if token says pro
+    # JWT sub_status is a fast-path. It can become stale (subscription changes
+    # between token-issue and now), so a "free" claim still triggers a DB read.
     if user.get("sub_status") == "pro":
         return user
 
-    # Double-check against DB in case subscription was updated after token was issued
     db = SessionLocal()
     try:
         sub = (
             db.query(Subscription)
-            .filter(
-                Subscription.email == user["email"],
-                Subscription.status == "active",
-            )
+            .filter(Subscription.email == user["email"])
+            .order_by(Subscription.id.desc())  # newest first
             .first()
         )
-        if sub:
+        if is_pro(sub):
             return user
     finally:
         db.close()

@@ -19,6 +19,7 @@ from backend.collectors.jodi import collect_jodi
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.database import init_db
+from backend.migrations import run_migrations
 from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import analytics as analytics_routes
 from backend.routes import auth as auth_routes
@@ -45,6 +46,7 @@ logging.basicConfig(
 async def lifespan(app: FastAPI):
     # Phase 1: DB + Scheduler (no I/O, instant)
     init_db()
+    run_migrations()
 
     # Reject insecure default secrets
     from backend.config import settings

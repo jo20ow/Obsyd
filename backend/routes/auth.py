@@ -12,15 +12,18 @@ import logging
 import re
 
 import httpx
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, field_validator
 
-from backend.auth.dependencies import get_current_user
+from backend.auth.dependencies import get_current_user, require_auth
 from backend.auth.jwt import create_magic_token, create_token, verify_token
+from backend.auth.subscription_check import is_pro
 from backend.config import settings
 from backend.database import SessionLocal
 from backend.models.subscription import Subscription
 from backend.models.waitlist import Waitlist
+
+TRIAL_DAYS = 14
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +116,17 @@ async def verify_magic_link(token: str, response: Response):
 
     email = payload["email"]
 
-    # Check subscription status
+    # Check subscription status (paid OR in-trial both count as pro)
     db = SessionLocal()
     sub_status = "free"
     try:
-        sub = db.query(Subscription).filter(Subscription.email == email, Subscription.status == "active").first()
-        if sub:
+        sub = (
+            db.query(Subscription)
+            .filter(Subscription.email == email)
+            .order_by(Subscription.id.desc())
+            .first()
+        )
+        if is_pro(sub):
             sub_status = "pro"
     finally:
         db.close()
@@ -153,13 +161,18 @@ async def get_me(user: dict | None = Depends(get_current_user)):
             "checkout_url": settings.lemonsqueezy_checkout_url,
         }
 
-    # Refresh subscription status from DB
+    # Refresh subscription status from DB (paid OR in-trial both count as pro)
     db = SessionLocal()
     try:
         sub = (
-            db.query(Subscription).filter(Subscription.email == user["email"], Subscription.status == "active").first()
+            db.query(Subscription)
+            .filter(Subscription.email == user["email"])
+            .order_by(Subscription.id.desc())
+            .first()
         )
-        tier = "pro" if sub else "free"
+        tier = "pro" if is_pro(sub) else "free"
+        trial_ends_at = sub.trial_ends_at.isoformat() if (sub and sub.status == "trialing" and sub.trial_ends_at) else None
+        trial_used = bool(sub)  # any past subscription record disables fresh trial signup
     finally:
         db.close()
 
@@ -167,6 +180,8 @@ async def get_me(user: dict | None = Depends(get_current_user)):
         "authenticated": True,
         "email": user["email"],
         "tier": tier,
+        "trial_ends_at": trial_ends_at,
+        "trial_eligible": tier == "free" and not trial_used,
         "checkout_url": settings.lemonsqueezy_checkout_url if tier == "free" else None,
     }
 
@@ -180,6 +195,72 @@ async def logout(response: Response):
         path="/",
     )
     return {"status": "ok"}
+
+
+@router.post("/start-trial")
+async def start_trial(response: Response, user: dict = Depends(require_auth)):
+    """Start a 14-day in-app Pro trial. No card required.
+
+    One trial per email — any prior Subscription record (active, expired,
+    cancelled, or previous trial) disables a fresh trial. This keeps the
+    flow simple and prevents trial-cycling.
+    """
+    from datetime import datetime, timedelta
+
+    db = SessionLocal()
+    try:
+        existing = (
+            db.query(Subscription)
+            .filter(Subscription.email == user["email"])
+            .order_by(Subscription.id.desc())
+            .first()
+        )
+        if existing is not None:
+            if is_pro(existing):
+                # Already Pro — nothing to do, surface that to the client.
+                return {
+                    "status": "already_pro",
+                    "tier": "pro",
+                    "trial_ends_at": existing.trial_ends_at.isoformat() if existing.trial_ends_at else None,
+                }
+            # Past trial / expired / cancelled — trial not re-grantable.
+            raise HTTPException(
+                status_code=409,
+                detail="Trial already used. Subscribe via the Pro checkout to reactivate.",
+            )
+
+        now = datetime.utcnow()
+        trial = Subscription(
+            email=user["email"],
+            status="trialing",
+            plan="pro",
+            trial_ends_at=now + timedelta(days=TRIAL_DAYS),
+        )
+        db.add(trial)
+        db.commit()
+        db.refresh(trial)
+    finally:
+        db.close()
+
+    # Re-issue session token with sub_status=pro so the frontend sees Pro
+    # immediately without waiting for a /me refresh.
+    new_session_token = create_token(user["email"], subscription_status="pro")
+    response.set_cookie(
+        key="obsyd_token",
+        value=new_session_token,
+        max_age=settings.jwt_expiry_days * 86400,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        domain="obsyd.dev",
+        path="/",
+    )
+    return {
+        "status": "trial_started",
+        "tier": "pro",
+        "trial_ends_at": trial.trial_ends_at.isoformat(),
+        "days_remaining": TRIAL_DAYS,
+    }
 
 
 def _magic_link_html(url: str) -> str:

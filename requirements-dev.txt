@@ -1,0 +1,4 @@
+# Dev/test-only dependencies — not shipped to the VPS.
+# Install: pip install -r requirements-dev.txt
+pytest==8.3.4
+pytest-asyncio==0.25.0

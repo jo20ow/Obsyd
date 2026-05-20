@@ -69,24 +69,47 @@ async def lemonsqueezy_webhook(request: Request):
     db = SessionLocal()
     try:
         if event_name == "subscription_created":
+            # Idempotency by LS subscription_id (replayed webhooks must not duplicate).
             existing = db.query(Subscription).filter(Subscription.lemon_squeezy_id == subscription_id).first()
 
             if existing:
                 existing.status = "active"
                 existing.email = email
+                existing.trial_ends_at = None  # paid now, clear any leftover trial marker
             else:
-                db.add(
-                    Subscription(
-                        email=email,
-                        lemon_squeezy_id=subscription_id,
-                        status="active",
-                        plan="pro",
-                        customer_id=customer_id,
-                        variant_id=variant_id,
-                        update_url=update_url,
-                        cancel_url=cancel_url,
+                # Email-match upgrade: if the user previously started an in-app
+                # trial (no LS id), upgrade that row to a paid LS sub instead
+                # of creating a duplicate Subscription per email.
+                trial_sub = (
+                    db.query(Subscription)
+                    .filter(
+                        Subscription.email == email,
+                        Subscription.lemon_squeezy_id.is_(None),
                     )
+                    .order_by(Subscription.id.desc())
+                    .first()
                 )
+                if trial_sub is not None:
+                    trial_sub.lemon_squeezy_id = subscription_id
+                    trial_sub.status = "active"
+                    trial_sub.customer_id = customer_id
+                    trial_sub.variant_id = variant_id
+                    trial_sub.update_url = update_url
+                    trial_sub.cancel_url = cancel_url
+                    trial_sub.trial_ends_at = None
+                else:
+                    db.add(
+                        Subscription(
+                            email=email,
+                            lemon_squeezy_id=subscription_id,
+                            status="active",
+                            plan="pro",
+                            customer_id=customer_id,
+                            variant_id=variant_id,
+                            update_url=update_url,
+                            cancel_url=cancel_url,
+                        )
+                    )
             db.commit()
 
         elif event_name in ("subscription_updated", "subscription_resumed"):
@@ -106,6 +129,16 @@ async def lemonsqueezy_webhook(request: Request):
             sub = db.query(Subscription).filter(Subscription.lemon_squeezy_id == subscription_id).first()
             if sub:
                 sub.status = "active"
+                db.commit()
+
+        elif event_name == "subscription_payment_failed":
+            # LS retry policy will attempt the charge again; we mark the
+            # sub as past_due so we can show a banner in the UI later.
+            # `is_pro()` still treats past_due as Pro (grace period); a
+            # follow-up subscription_expired event will eventually downgrade.
+            sub = db.query(Subscription).filter(Subscription.lemon_squeezy_id == subscription_id).first()
+            if sub:
+                sub.status = "past_due"
                 db.commit()
 
     except Exception as e:

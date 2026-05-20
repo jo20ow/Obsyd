@@ -5,6 +5,8 @@ const AuthContext = createContext()
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [checkoutUrl, setCheckoutUrl] = useState(null)
+  const [trialEndsAt, setTrialEndsAt] = useState(null)
+  const [trialEligible, setTrialEligible] = useState(false)
   const [loading, setLoading] = useState(true)
   const [pricingOpen, setPricingOpen] = useState(false)
 
@@ -19,13 +21,32 @@ export function AuthProvider({ children }) {
         }
         // checkout_url is returned for both authed-free and anon users
         setCheckoutUrl(data?.checkout_url || null)
+        setTrialEndsAt(data?.trial_ends_at || null)
+        setTrialEligible(Boolean(data?.trial_eligible))
       })
       .catch(() => {
         setUser(null)
         setCheckoutUrl(null)
+        setTrialEndsAt(null)
+        setTrialEligible(false)
       })
       .finally(() => setLoading(false))
   }, [])
+
+  const startTrial = useCallback(async () => {
+    const res = await fetch('/api/auth/start-trial', {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}))
+      return { ok: false, status: res.status, detail }
+    }
+    const data = await res.json()
+    // Refresh so the rest of the UI immediately reflects pro tier.
+    refresh()
+    return { ok: true, ...data }
+  }, [refresh])
 
   useEffect(() => {
     refresh()
@@ -61,6 +82,9 @@ export function AuthProvider({ children }) {
         refresh,
         logout,
         checkoutUrl,
+        trialEndsAt,
+        trialEligible,
+        startTrial,
         pricingOpen,
         openPricing,
         closePricing,
