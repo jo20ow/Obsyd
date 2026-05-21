@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import Panel from './Panel'
+import useFetchWithError from '../hooks/useFetchWithError'
 
 const API = '/api'
 
@@ -36,19 +37,10 @@ function fmtCap(val) {
 }
 
 export default function RelatedEquitiesPanel() {
-  const [data, setData] = useState(null)
+  const { data, error, refetch } = useFetchWithError(`${API}/signals/equities`)
   const [sortKey, setSortKey] = useState('wti_corr_30d')
   const [sortAsc, setSortAsc] = useState(false)
   const [groupMode, setGroupMode] = useState(true)
-
-  useEffect(() => {
-    fetch(`${API}/signals/equities`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) setData(d)
-      })
-      .catch(() => {})
-  }, [])
 
   const equities = data?.equities || []
 
@@ -101,6 +93,18 @@ export default function RelatedEquitiesPanel() {
   return (
     <Panel id="related-equities" title="RELATED EQUITIES" info={INFO_TEXT} collapsible headerRight={headerRight}>
       <div className="px-4 py-3 font-mono text-xs">
+        {error && (
+          <div className="border border-red-500/20 bg-red-500/5 px-2.5 py-1.5 mb-2 flex items-center justify-between gap-2">
+            <span className="text-[10px] text-red-300">Equities fetch failed ({error}).</span>
+            <button
+              type="button"
+              onClick={refetch}
+              className="text-[10px] text-red-200 hover:text-red-100 underline-offset-2 hover:underline"
+            >
+              retry
+            </button>
+          </div>
+        )}
         {/* Table header */}
         <div className="grid grid-cols-[60px_1fr_70px_60px_60px_60px_70px] gap-1 text-[9px] text-neutral-600 tracking-wider mb-2 border-b border-border pb-1">
           <button className="text-left hover:text-neutral-400" onClick={() => handleSort('ticker')}>

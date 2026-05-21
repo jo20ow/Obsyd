@@ -57,7 +57,7 @@ export default function TransitChart() {
     fetch(`${API}/prices/oil?days=365`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.series) setOilPrices(d.series) })
-      .catch(() => {})
+      .catch((e) => console.error('TransitChart oil prices:', e))
   }, [])
 
   const fetchHistory = useCallback((cp, days) => {
@@ -65,7 +65,7 @@ export default function TransitChart() {
     fetch(`${API}/portwatch/chokepoints/${cp}/history?days=${days}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setHistory(d.history) })
-      .catch(() => {})
+      .catch((e) => console.error('TransitChart history:', e))
       .finally(() => setLoading(false))
   }, [])
 

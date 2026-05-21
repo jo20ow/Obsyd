@@ -172,15 +172,17 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
   }, [mode])
 
   useEffect(() => {
+    // VesselMap stays renderable even with partial-overlay failures; we log
+    // each fetch failure so it's debuggable from the browser console.
     fetch(`${API}/ports/summary`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setPortwatch(d) })
-      .catch(() => {})
+      .catch((e) => console.error('VesselMap ports/summary:', e))
 
     fetch(`${API}/weather/marine`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.zones) setMarine(d.zones) })
-      .catch(() => {})
+      .catch((e) => console.error('VesselMap weather/marine:', e))
 
     fetch(`${API}/thermal/hotspots`)
       .then((r) => (r.ok ? r.json() : []))
@@ -190,12 +192,12 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           if (data.length > 0) setThermalAvailable(true)
         }
       })
-      .catch(() => {})
+      .catch((e) => console.error('VesselMap thermal/hotspots:', e))
 
     fetch(`${API}/vessels/floating-storage`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.events) setFloatingStorage(d.events.filter((e) => e.status === 'active')) })
-      .catch(() => {})
+      .catch((e) => console.error('VesselMap vessels/floating-storage:', e))
   }, [])
 
   useEffect(() => {

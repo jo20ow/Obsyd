@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
 import Panel from './Panel'
+import useFetchWithError from '../hooks/useFetchWithError'
 
 const API = '/api'
 
@@ -10,14 +10,7 @@ const PRED_STYLES = {
 }
 
 export function EIAPredictionMini() {
-  const [data, setData] = useState(null)
-
-  useEffect(() => {
-    fetch(`${API}/analytics/eia-prediction`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
-      .catch(() => {})
-  }, [])
+  const { data } = useFetchWithError(`${API}/analytics/eia-prediction`)
 
   if (!data?.available) return null
 
