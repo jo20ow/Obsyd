@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
 import WaitlistSignup from './WaitlistSignup'
+import useFetchWithError from '../hooks/useFetchWithError'
 
 const API = '/api'
 
@@ -15,15 +15,29 @@ const SEV_TEXT = {
 }
 
 export default function BriefingPanel() {
-  const [b, setB] = useState(null)
+  const { data: b, loading, error, refetch } = useFetchWithError(`${API}/briefing/today`)
 
-  useEffect(() => {
-    fetch(`${API}/briefing/today`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setB)
-      .catch(() => {})
-  }, [])
-
+  if (loading) {
+    return (
+      <div className="border border-border bg-surface px-4 py-2.5 font-mono text-[11px] text-neutral-600 animate-pulse">
+        BRIEFING // LOADING ...
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="border border-red-500/20 bg-red-500/5 px-4 py-2 font-mono text-[10px] text-red-300 flex items-center justify-between gap-3">
+        <span>Briefing fetch failed ({error}).</span>
+        <button
+          type="button"
+          onClick={refetch}
+          className="text-red-200 hover:text-red-100 underline-offset-2 hover:underline"
+        >
+          retry
+        </button>
+      </div>
+    )
+  }
   if (!b) return null
 
   const { market_snapshot: mkt, anomalies, fleet_status: fleet, upcoming } = b

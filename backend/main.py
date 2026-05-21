@@ -20,6 +20,7 @@ from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.database import init_db
 from backend.migrations import run_migrations
+from backend.observability import TraceIDMiddleware, setup_logging
 from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import analytics as analytics_routes
 from backend.routes import auth as auth_routes
@@ -35,12 +36,8 @@ from backend.routes import alert_rules as alert_rules_routes
 from backend.routes import webhooks as webhooks_routes
 from backend.signals.sentiment_scorer import compute_sentiment_score
 
+setup_logging()
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 
 
 @asynccontextmanager
@@ -160,6 +157,10 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Trace IDs: generated per request, exposed via X-Trace-Id response header
+# and embedded into every log line via the contextvar in backend.observability.
+app.add_middleware(TraceIDMiddleware)
 
 app.include_router(health.router)
 app.include_router(prices.router)
