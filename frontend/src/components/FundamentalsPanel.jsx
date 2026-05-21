@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
 import { SkeletonCard } from './Skeleton'
 import Panel from './Panel'
+import useFetchWithError from '../hooks/useFetchWithError'
 
 const API = '/api'
 
@@ -66,35 +66,32 @@ function NetFlowBar({ imports, exports }) {
 }
 
 export default function FundamentalsPanel() {
-  const [data, setData] = useState(undefined)
-  const [error, setError] = useState(null)
-  const [daysOfSupply, setDaysOfSupply] = useState(null)
-  const [supplyDemand, setSupplyDemand] = useState(null)
-
-  useEffect(() => {
-    fetch(`${API}/prices/eia/fundamentals`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
-      .catch((e) => { console.error('FundamentalsPanel fetch:', e); setError(e.message) })
-
-    fetch(`${API}/analytics/days-of-supply`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setDaysOfSupply)
-      .catch(() => {})
-
-    fetch(`${API}/analytics/supply-demand`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setSupplyDemand)
-      .catch(() => {})
-  }, [])
+  const {
+    data,
+    loading,
+    error,
+    refetch,
+  } = useFetchWithError(`${API}/prices/eia/fundamentals`)
+  // Secondary fetches stay opt-in; failures are non-fatal for the panel.
+  const { data: daysOfSupply } = useFetchWithError(`${API}/analytics/days-of-supply`)
+  const { data: supplyDemand } = useFetchWithError(`${API}/analytics/supply-demand`)
 
   if (error) return (
-    <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
-      <div className="font-mono text-[10px] text-red-400">FUNDAMENTALS // FETCH ERROR</div>
+    <div className="border border-red-500/20 bg-red-500/5 rounded px-4 py-3 flex items-center justify-between gap-3">
+      <span className="font-mono text-[10px] text-red-300">
+        Fundamentals fetch failed ({error}).
+      </span>
+      <button
+        type="button"
+        onClick={refetch}
+        className="font-mono text-[10px] text-red-200 hover:text-red-100 underline-offset-2 hover:underline"
+      >
+        retry
+      </button>
     </div>
   )
 
-  if (data === undefined) return <SkeletonCard lines={4} />
+  if (loading) return <SkeletonCard lines={4} />
   if (!data) return null
 
   const getLatest = (seriesId) => {

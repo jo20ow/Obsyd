@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import useFetchWithError from '../hooks/useFetchWithError'
 import { createChart, ColorType } from 'lightweight-charts'
 import Panel from './Panel'
 
@@ -17,27 +18,18 @@ const TIMEFRAMES = [
 ]
 
 export default function CrackSpreadPanel() {
-  const [data, setData] = useState(null)
-  const [liveData, setLiveData] = useState(null)
   const [timeframe, setTimeframe] = useState(TIMEFRAMES[2])
   const chartContainerRef = useRef(null)
   const chartRef = useRef(null)
 
-  // Fetch live crack spread (Pro auth required)
-  useEffect(() => {
-    fetch(`${API}/signals/crack-spread`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setLiveData)
-      .catch(() => {})
-  }, [])
-
-  // Fetch historical data (Pro endpoint)
-  useEffect(() => {
-    fetch(`${API}/signals/crack-spreads?days=${timeframe.days}`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
-      .catch(() => {})
-  }, [timeframe])
+  // Live + historical fetches surface errors instead of silently failing.
+  const { data: liveData, error: liveError, refetch: refetchLive } = useFetchWithError(
+    `${API}/signals/crack-spread`,
+  )
+  const { data, error: histError, refetch: refetchHist } = useFetchWithError(
+    `${API}/signals/crack-spreads?days=${timeframe.days}`,
+    { deps: [timeframe.days] },
+  )
 
   // Chart rendering
   useEffect(() => {
@@ -161,9 +153,24 @@ export default function CrackSpreadPanel() {
     </div>
   )
 
+  const fetchError = liveError || histError
+  const retry = liveError ? refetchLive : refetchHist
+
   return (
     <Panel id="crack-spread" title="3:2:1 CRACK SPREAD" info={INFO_TEXT} collapsible headerRight={headerRight}>
       <div className="px-4 py-3 font-mono text-xs space-y-3">
+        {fetchError && (
+          <div className="border border-red-500/20 bg-red-500/5 px-2.5 py-1.5 flex items-center justify-between gap-2">
+            <span className="text-[10px] text-red-300">Crack-spread fetch failed ({fetchError}).</span>
+            <button
+              type="button"
+              onClick={retry}
+              className="text-[10px] text-red-200 hover:text-red-100 underline-offset-2 hover:underline"
+            >
+              retry
+            </button>
+          </div>
+        )}
         {/* Current values */}
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-end gap-4">
