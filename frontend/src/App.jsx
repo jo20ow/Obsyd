@@ -30,6 +30,7 @@ import DisruptionScorePanel from './components/DisruptionScorePanel'
 import MarketReportPanel from './components/MarketReportPanel'
 import EIAPredictionPanel, { EIAPredictionMini } from './components/EIAPredictionPanel'
 import FreightProxyPanel from './components/FreightProxyPanel'
+import AlertRulesPanel from './components/AlertRulesPanel'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
 
@@ -40,6 +41,7 @@ const TABS = [
   { key: 'market', label: 'MARKET' },
   { key: 'signals', label: 'SIGNALS' },
   { key: 'sentiment', label: 'SENTIMENT' },
+  { key: 'alerts', label: 'ALERTS' },
 ]
 
 function Disclaimer() {
@@ -457,6 +459,13 @@ function Dashboard() {
               </ErrorBoundary>
             </div>
           </>
+        )}
+
+        {/* ALERTS TAB (Pro feature; panel itself handles the gate) */}
+        {activeTab === 'alerts' && (
+          <ErrorBoundary name="alert-rules">
+            <AlertRulesPanel />
+          </ErrorBoundary>
         )}
 
         {/* SENTIMENT TAB */}
