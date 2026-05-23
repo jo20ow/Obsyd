@@ -45,6 +45,7 @@ from backend.notifications.alert_runner import process_alert_rules
 from backend.notifications.daily_email import send_daily_email
 from backend.notifications.trial_drip import process_trial_drip
 from backend.providers.price_provider import get_live_prices as refresh_live_prices
+from backend.signals.alert_outcomes import snapshot_and_backfill_outcomes
 from backend.signals.evaluator import evaluate_signals
 from backend.signals.floating_storage import detect_floating_storage
 from backend.signals.sentiment_scorer import compute_sentiment_score
@@ -348,6 +349,16 @@ def start_scheduler():
         compute_days_of_supply,
         CronTrigger(day_of_week="wed", hour=18, minute=0),
         id="days_of_supply_weekly",
+        **JOB_DEFAULTS,
+    )
+
+    # Alert outcome tracking (silent): every 2 hours at :35
+    # Captures Brent/WTI snapshots at T+0, T+1d, T+7d, T+30d per alert.
+    # Not surfaced in UI until sample size is honest (n>=30 per rule type).
+    scheduler.add_job(
+        snapshot_and_backfill_outcomes,
+        CronTrigger(hour="*/2", minute=35),
+        id="alert_outcomes_2h",
         **JOB_DEFAULTS,
     )
 

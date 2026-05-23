@@ -1,4 +1,3 @@
-import WaitlistSignup from './WaitlistSignup'
 import useFetchWithError from '../hooks/useFetchWithError'
 
 const API = '/api'
@@ -99,10 +98,6 @@ export default function BriefingPanel() {
         {upcoming?.eia_report && <>Next EIA: {upcoming.eia_report}</>}
       </div>
 
-      {/* Waitlist */}
-      <div className="pt-1.5">
-        <WaitlistSignup />
-      </div>
     </div>
   )
 }

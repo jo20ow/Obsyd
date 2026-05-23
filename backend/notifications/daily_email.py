@@ -597,30 +597,36 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
             f"{all_cp_rows}</table>"
         )
 
-    # ── EIA Prediction (Wednesdays only) ──
+    # ── Houston Tanker Activity Context (Wednesdays only, ahead of EIA release) ──
     eia_html = ""
     eia = data.get("eia_prediction")
     if eia:
-        prediction = eia["prediction"]
-        pred_color = _RED if prediction == "BUILD" else _GREEN if prediction == "DRAW" else _MUTED
+        change_pct = eia.get("tanker_change_pct")
+        if change_pct is None:
+            change_color = _MUTED
+        elif change_pct >= 5:
+            change_color = _RED
+        elif change_pct <= -5:
+            change_color = _GREEN
+        else:
+            change_color = _TEXT
         details_parts = []
         if eia.get("tanker_count") is not None and eia.get("tanker_count_30d_avg") is not None:
-            details_parts.append(f"Houston tankers: {eia['tanker_count']} vs {eia['tanker_count_30d_avg']:.0f} avg")
-            if eia.get("tanker_change_pct") is not None:
-                details_parts.append(f"({_pct(eia['tanker_change_pct'])})")
+            details_parts.append(f"Houston tankers: {eia['tanker_count']} vs {eia['tanker_count_30d_avg']:.0f} (30d avg)")
         if eia.get("pearson_r") is not None:
-            details_parts.append(f"r={eia['pearson_r']:.2f}")
-        details = " ".join(details_parts)
+            details_parts.append(f"observed Pearson r={eia['pearson_r']:.2f}")
+        details = " · ".join(details_parts) if details_parts else "—"
+        headline = _pct(change_pct) if change_pct is not None else "no data"
 
         eia_html = (
             _DIVIDER + '<div style="margin-bottom:4px">'
             f'<span style="display:inline-block;background:{_AMBER};color:#1a1a2e;font-size:11px;'
             f"font-weight:600;letter-spacing:1px;text-transform:uppercase;"
-            f'padding:3px 8px;border-radius:4px;vertical-align:middle">EIA TODAY</span>'
+            f'padding:3px 8px;border-radius:4px;vertical-align:middle">EIA RELEASE TODAY</span>'
             f'<span style="font-size:15px;color:{_TEXT};margin-left:10px;vertical-align:middle">'
-            f'AIS prediction: <span style="color:{pred_color};font-weight:700">{prediction}</span></span>'
+            f'Houston tanker activity: <span style="color:{change_color};font-weight:700">{headline}</span> vs 30d avg</span>'
             "</div>"
-            f'<div style="font-size:13px;color:{_MUTED};line-height:1.5">{details}</div>'
+            f'<div style="font-size:13px;color:{_MUTED};line-height:1.5">{details} · informational context, not a forecast</div>'
         )
 
     # ── Equity Movers (1 line) ──

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Integer, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -17,3 +17,22 @@ class Alert(Base):
     title: Mapped[str] = mapped_column(String)
     detail: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AlertOutcome(Base):
+    """Silent price snapshots taken at fixed horizons after an alert fires.
+
+    Used to build a research-only track record of whether alerts coincided
+    with subsequent Brent/WTI price moves. Never surfaced in the UI without
+    sufficient sample size (n>=30) — and even then only as historical context,
+    never as a recommendation. See docs/superpowers/specs for the rationale.
+    """
+    __tablename__ = "alert_outcomes"
+    __table_args__ = (UniqueConstraint("alert_id", "horizon_days", name="uq_alert_horizon"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id"), index=True, nullable=False)
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)  # 0, 1, 7, 30
+    brent_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wti_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

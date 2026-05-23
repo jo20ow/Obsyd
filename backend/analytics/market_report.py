@@ -108,18 +108,18 @@ CAUSAL_CHAINS = {
         "No floating storage activity detected. Tankers appear to be waiting near disrupted chokepoints for passage rather than repositioning as floating tanks.",
     ],
     ("houston_high", "eia_build"): [
-        "Houston zone tanker count at {houston_count} ({houston_change} vs 30d avg) with {anchored_pct}% anchored suggests elevated import arrivals. AIS data points to a likely inventory build in this week's EIA report.",
-        "Elevated tanker presence in Houston ({houston_count} vessels, {houston_change} vs 30d avg) with {anchored_pct}% at anchor indicates heavy import activity — consistent with an EIA inventory build.",
-        "AIS data shows {houston_count} tankers in the Houston zone ({houston_change} vs 30d avg), with {anchored_pct}% anchored. This pattern historically correlates with rising crude inventories.",
-        "Gulf Coast tanker activity is elevated at {houston_count} vessels ({houston_change} vs 30d avg). The high anchored ratio ({anchored_pct}%) suggests arrivals awaiting discharge — pointing to an EIA build.",
-        "Houston tanker count at {houston_count} ({houston_change} vs avg), {anchored_pct}% anchored. Arrival patterns suggest import-driven inventory accumulation ahead of this week's EIA release.",
+        "Houston zone tanker count at {houston_count} ({houston_change} vs 30d avg) with {anchored_pct}% anchored — elevated import arrival activity observed.",
+        "Elevated tanker presence in Houston ({houston_count} vessels, {houston_change} vs 30d avg) with {anchored_pct}% at anchor — high import-flow activity in the Gulf Coast zone.",
+        "AIS data shows {houston_count} tankers in the Houston zone ({houston_change} vs 30d avg), with {anchored_pct}% anchored — a pattern historically correlated with rising crude inventories. Not a forecast.",
+        "Gulf Coast tanker activity is elevated at {houston_count} vessels ({houston_change} vs 30d avg). The high anchored ratio ({anchored_pct}%) is consistent with arrivals awaiting discharge.",
+        "Houston tanker count at {houston_count} ({houston_change} vs avg), {anchored_pct}% anchored — observed arrival pattern ahead of this week's EIA release.",
     ],
     ("houston_low", "eia_draw"): [
-        "Below-average Houston tanker activity ({houston_count}, {houston_change} vs 30d avg) suggests reduced crude arrivals. AIS data points to a likely inventory draw.",
-        "Houston zone tanker count has dropped to {houston_count} ({houston_change} vs 30d avg), indicating lower import volumes — consistent with an EIA inventory draw.",
-        "AIS shows reduced Gulf Coast tanker presence ({houston_count} vessels, {houston_change} vs avg), suggesting lighter import flows and a probable EIA draw.",
-        "Tanker activity in Houston is below average at {houston_count} ({houston_change} vs 30d). Reduced arrivals typically precede inventory drawdowns in EIA data.",
-        "Gulf Coast vessel count at {houston_count} ({houston_change} vs average) points to softer crude imports, supporting a draw in this week's EIA report.",
+        "Below-average Houston tanker activity ({houston_count}, {houston_change} vs 30d avg) — reduced inbound arrival activity observed.",
+        "Houston zone tanker count has dropped to {houston_count} ({houston_change} vs 30d avg) — lower observed import-flow activity in the Gulf Coast zone.",
+        "AIS shows reduced Gulf Coast tanker presence ({houston_count} vessels, {houston_change} vs avg) — lighter observed import flows.",
+        "Tanker activity in Houston is below average at {houston_count} ({houston_change} vs 30d). Reduced arrivals historically correlate with inventory drawdowns in subsequent EIA data. Not a forecast.",
+        "Gulf Coast vessel count at {houston_count} ({houston_change} vs average) — softer observed crude-import activity in the Houston zone.",
     ],
     ("sentiment_negative", "disruption"): [
         "GDELT news sentiment at {risk_score}/10, dominated by {top_topics}, reinforcing the physical supply disruption signals.",
@@ -697,14 +697,14 @@ class MarketReportGenerator:
 
             hit_rate = eia.get("hit_rate")
             total = eia.get("total_predictions", 0)
-            if hit_rate and total >= 8:
+            # Only surface historical accuracy when sample is large enough to be meaningful.
+            # 8 weeks is still tiny (n=8 ≈ coin-flip noise); we surface it only as observational
+            # context, never as a recommendation. This is a research log, not a track record.
+            if hit_rate and total >= 30:
                 parts.append(
-                    self._pick(
-                        [
-                            f"The AIS-based model has called {hit_rate:.0f}% of EIA outcomes correctly over {total} weeks — a directional indicator, not a precise forecast.",
-                            f"Historical accuracy: {hit_rate:.0f}% over {total} weeks. Useful as a directional signal, not a volume prediction.",
-                        ]
-                    )
+                    f"Observed historical correlation between Houston tanker activity and "
+                    f"subsequent EIA changes: {hit_rate:.0f}% directional agreement over {total} weeks. "
+                    f"This is not a forecast and should not be used to size positions."
                 )
 
         # Freight proxy divergence
@@ -829,8 +829,13 @@ class MarketReportGenerator:
         next_eia = (now + timedelta(days=days_until_wed)).strftime("%A %B %d")
 
         eia = data.get("eia_prediction") or {}
-        if eia.get("prediction") and eia["prediction"] != "NEUTRAL":
-            parts.append(f"Next EIA release ({next_eia}): AIS-based model signals a likely {eia['prediction']}.")
+        change_pct = eia.get("tanker_change_pct") if isinstance(eia, dict) else None
+        if change_pct is not None and abs(change_pct) >= 5:
+            direction = "above" if change_pct > 0 else "below"
+            parts.append(
+                f"Next EIA release ({next_eia}): Houston tanker activity is {abs(change_pct):.1f}% "
+                f"{direction} the 30-day average — context, not a forecast."
+            )
 
         # Build "Key risk:" line
         if risks:

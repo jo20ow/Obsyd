@@ -1,12 +1,22 @@
-# OBSYD — Open-Source Energy Market Intelligence
+# OBSYD — Open dashboard for public energy data
 
-**Track global oil tanker movements, chokepoint flows, and commodity prices in one dashboard.**
+**One dashboard for AIS vessel tracking, chokepoint transits, EIA fundamentals, FRED macro, and 9 other public energy data sources.**
 
-[Live Demo](https://obsyd.dev) | [MIT License](LICENSE)
+[Live Demo](https://obsyd.dev) · [Cloud Pricing](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
-OBSYD aggregates free, public data sources into a single energy market intelligence platform. It tracks real-time vessel positions at six global chokepoints, detects floating storage and ship-to-ship transfers, and correlates physical oil flows with commodity prices. Built as an open-source alternative to Bloomberg Terminal or Kpler for retail commodity traders and independent energy analysts.
+OBSYD aggregates 13 free, public data sources into one auditable dashboard — live AIS vessel positions, IMF PortWatch chokepoint transits, EIA inventories, FRED macro, GDELT news volume, and more. Every rule, threshold, and correlation runs in code you can read on GitHub. No proprietary scoring, no black-box ML, no "trust us".
+
+OBSYD is **not** a Bloomberg or Kpler replacement — it doesn't have proprietary cargo, owner, or charter data, and PortWatch publishes with a 3–5 day lag. It is a way to stop wiring up 13 APIs by hand and to see the public data side-by-side, with the signal code open for audit.
 
 ![OBSYD Dashboard](docs/screenshot.png)
+
+## Cloud hosting or self-host
+
+OBSYD is open source under AGPL-3.0. Two ways to use it:
+
+- **Self-host (free):** Clone the repo, plug in your own API keys, run on your own infra. Full feature set, no usage limits.
+- **Cloud Free (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). Full dashboard, 30-day history, up to 3 alerts. No API access, no exports.
+- **Cloud Pro (€15/month or €149/year):** Hosted on obsyd.dev. Full history back to 2019, unlimited alerts, API access (rate-limited), CSV/JSON exports, daily email brief Mon–Fri. 14-day free trial, no card required.
 
 ## Features
 
@@ -108,7 +118,7 @@ The React frontend uses deck.gl for GPU-accelerated map rendering of 40,000+ ves
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0-or-later](LICENSE). Self-hosting is encouraged. If you offer OBSYD (or a modified version) as a service over a network, AGPL §13 requires you to publish your source changes — this protects the project from closed-source forks of the hosted offering.
 
 ## Disclaimer
 

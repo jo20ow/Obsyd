@@ -4,21 +4,21 @@ import { useAuth } from '../context/AuthContext'
 const PILLARS = [
   {
     label: '01',
-    title: 'Live AIS, six chokepoints',
+    title: 'Six chokepoints on one map',
     body:
-      'Real-time tanker positions through Hormuz, Suez, Malacca, Panama, Cape, and Houston — without a Bloomberg seat. Floating storage and ship-to-ship transfers flagged automatically.',
+      'Live AIS tanker positions through Hormuz, Suez, Malacca, Panama, Cape, and Houston — aggregated from public feeds you would otherwise have to wire up yourself.',
   },
   {
     label: '02',
-    title: 'Auditable signal engine',
+    title: 'Read every rule on GitHub',
     body:
-      "Every chokepoint anomaly, flow alert, and correlation is computed by code you can read on GitHub. No black-box ML — Pearson with lag optimisation, transparent thresholds, traceable rules.",
+      'Every threshold, every anomaly check, every correlation runs in code you can audit. No black-box ML, no proprietary scoring, no "trust us" — just transparent rules over public data.',
   },
   {
     label: '03',
-    title: 'Daily briefing in your inbox',
+    title: 'Self-host or use the cloud',
     body:
-      'Mon–Fri 07:00 UTC, before European open: the overnight anomalies, the correlations that moved, the rerouting that the market hasn\'t priced in yet.',
+      'Run OBSYD on your own infra with your own API keys (AGPL-3.0), or skip setup and use obsyd.dev. Both paths give the same code; the cloud tier just saves you the ops work.',
   },
 ]
 
@@ -26,7 +26,7 @@ const STATS = [
   { label: 'tanker positions tracked', value: '3.6M+' },
   { label: 'zone-day events', value: '330+' },
   { label: 'data sources aggregated', value: '13' },
-  { label: 'open-source', value: 'MIT' },
+  { label: 'license', value: 'AGPL-3.0' },
 ]
 
 export default function Landing() {
@@ -48,6 +48,14 @@ export default function Landing() {
             <a href="#pricing" className="hover:text-neutral-200">
               PRICING
             </a>
+            <a
+              href="https://github.com/jo20ow/Obsyd"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-neutral-200 hidden sm:inline"
+            >
+              GITHUB
+            </a>
             <a href="/app" className="hover:text-cyan-glow">
               {user ? 'OPEN APP →' : 'LIVE DEMO →'}
             </a>
@@ -58,17 +66,17 @@ export default function Landing() {
       {/* HERO */}
       <section className="px-4 py-12 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[4px] text-cyan-glow mb-4">
-          ENERGY · MARKET · INTELLIGENCE
+          OPEN · ENERGY · DATA
         </div>
         <h1 className="text-3xl sm:text-5xl lg:text-6xl text-neutral-100 leading-tight font-mono font-bold mb-6">
-          See physical oil flow
+          One dashboard for public
           <br />
-          <span className="text-cyan-glow">before the price moves.</span>
+          <span className="text-cyan-glow">energy market data.</span>
         </h1>
         <p className="text-sm sm:text-base text-neutral-400 max-w-2xl leading-relaxed mb-8">
-          OBSYD aggregates live AIS, IMF chokepoint data, EIA fundamentals, and FRED macro
-          into a single dashboard — with a transparent signal engine you can read on GitHub.
-          Built for energy analysts who can't justify a Kpler or Bloomberg seat.
+          OBSYD aggregates live AIS, IMF chokepoint transits, EIA fundamentals, FRED macro, and
+          11 other public feeds into one auditable dashboard. Open source under AGPL-3.0 — run it
+          yourself, or use the hosted cloud version.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3">
@@ -78,19 +86,18 @@ export default function Landing() {
           >
             Open the live dashboard →
           </a>
-          {!isPro && (
-            <button
-              type="button"
-              onClick={openPricing}
-              className="px-6 py-3 text-[11px] tracking-wider border border-cyan-glow/40 text-cyan-glow hover:bg-cyan-glow/10 transition-colors text-center"
-            >
-              Start 14-day Pro trial
-            </button>
-          )}
+          <a
+            href="https://github.com/jo20ow/Obsyd"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-3 text-[11px] tracking-wider border border-cyan-glow/40 text-cyan-glow hover:bg-cyan-glow/10 transition-colors text-center"
+          >
+            Self-host on GitHub
+          </a>
         </div>
 
         <p className="mt-6 text-[10px] text-neutral-600">
-          No card required for the trial. Cancel any time. EU-VAT-handled via Lemon Squeezy.
+          Cloud Free is forever-free; Cloud Pro is €15/month and pays for hosting + alerts. AGPL-3.0 source.
         </p>
       </section>
 
@@ -112,9 +119,7 @@ export default function Landing() {
       <section id="how" className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// HOW IT WORKS</div>
         <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-10 font-bold">
-          One dashboard, three layers,
-          <br />
-          zero black boxes.
+          Aggregate. Display. Stay honest.
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
@@ -138,10 +143,10 @@ export default function Landing() {
           {glanceOpen && (
             <ul className="space-y-1.5 mt-2">
               <li>· AISStream WebSocket + AISHub HTTP — live vessel positions</li>
-              <li>· IMF PortWatch — chokepoint transits, disruptions</li>
+              <li>· IMF PortWatch — chokepoint transits (3–5 day publication lag)</li>
               <li>· EIA — weekly US inventories, refinery utilisation, SPR</li>
               <li>· FRED — daily WTI, Brent, DXY, yields, macro indicators</li>
-              <li>· GDELT — energy-keyword news volume + sentiment</li>
+              <li>· GDELT — energy-keyword news volume + tone</li>
               <li>· NOAA — Gulf weather alerts, marine forecasts</li>
               <li>· JODI, NASA FIRMS, Alpha Vantage, Finnhub, Open-Meteo</li>
             </ul>
@@ -155,28 +160,30 @@ export default function Landing() {
           <div>
             <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// WHY OBSYD</div>
             <h2 className="text-2xl text-neutral-100 mb-5 font-bold leading-snug">
-              Kpler is great. It also costs €30k/seat.
+              Public data, in one place,
+              <br />
+              without the terminal price tag.
             </h2>
             <p className="text-[13px] text-neutral-400 leading-relaxed">
-              OBSYD doesn't try to compete with institutional terminals on cargo-flow ML.
-              It gives independent analysts, smaller trading desks, and energy journalists
-              the 80/20 signal — built on the same public data sources, with the signal
-              code in the open so you can audit every alert before you act on it.
+              OBSYD doesn't try to match Kpler or Vortexa on proprietary cargo-flow data — it
+              can't, and it doesn't pretend to. What it does is aggregate the public feeds that
+              are already there (AIS, PortWatch, EIA, FRED, GDELT) into one auditable dashboard,
+              so you stop wiring up 13 APIs by hand.
             </p>
           </div>
           <div className="border border-border bg-[#06060a] p-5 text-[11px] text-neutral-500 leading-relaxed">
             <div className="text-cyan-glow text-[10px] tracking-wider mb-3">// NOT FOR</div>
             <ul className="space-y-2">
-              <li>· Tier-1 integrated oil companies with in-house AIS</li>
-              <li>· Day traders who need sub-second tick data</li>
+              <li>· Anyone needing real-time intraday trading signals</li>
+              <li>· Tier-1 trading desks already paying for Kpler / Vortexa</li>
               <li>· Anyone needing audited regulatory-grade pricing</li>
             </ul>
             <div className="text-cyan-glow text-[10px] tracking-wider mt-5 mb-3">// MADE FOR</div>
             <ul className="space-y-2">
-              <li>· Energy analysts at mid-size trading shops</li>
-              <li>· Commodity hedge-fund researchers</li>
-              <li>· Energy journalists and policy analysts</li>
-              <li>· Academic researchers in commodity markets</li>
+              <li>· Developers building energy-data tools (self-host the engine)</li>
+              <li>· Researchers and journalists needing one source for context</li>
+              <li>· Independent analysts and small funds without Bloomberg seats</li>
+              <li>· Anyone who wants to read the signal code, not trust it blindly</li>
             </ul>
           </div>
         </div>
@@ -186,32 +193,48 @@ export default function Landing() {
       <section id="pricing" className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// PRICING</div>
         <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-8 font-bold">
-          Free dashboard.{' '}
-          <span className="text-cyan-glow">€19,90/month</span> for the briefing & alerts.
+          Self-host free.{' '}
+          <span className="text-cyan-glow">Cloud €15/month</span> if you skip the setup.
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border max-w-3xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border max-w-4xl">
           <div className="bg-[#0a0a12] p-6">
-            <div className="text-[10px] tracking-widest text-neutral-500 mb-2">FREE</div>
+            <div className="text-[10px] tracking-widest text-neutral-500 mb-2">SELF-HOST</div>
             <div className="text-3xl text-neutral-200 mb-1">€0</div>
-            <div className="text-[10px] text-neutral-600 mb-5">forever — no card</div>
+            <div className="text-[10px] text-neutral-600 mb-5">AGPL-3.0 · your infra</div>
             <ul className="text-[11px] text-neutral-400 space-y-1.5">
-              <li>· Full live dashboard</li>
-              <li>· Chokepoint transit data</li>
-              <li>· Weekly market briefing</li>
+              <li>· Full feature set</li>
+              <li>· Bring your own API keys</li>
+              <li>· No usage limits</li>
+              <li>· You handle updates + ops</li>
             </ul>
           </div>
           <div className="bg-[#0a0a12] p-6">
-            <div className="text-[10px] tracking-widest text-cyan-glow mb-2">PRO</div>
-            <div className="text-3xl text-neutral-100 mb-1">
-              €19,90<span className="text-sm text-neutral-500">/Monat</span>
+            <div className="text-[10px] tracking-widest text-neutral-500 mb-2">CLOUD FREE</div>
+            <div className="text-3xl text-neutral-200 mb-1">€0</div>
+            <div className="text-[10px] text-neutral-600 mb-5">on obsyd.dev · no card</div>
+            <ul className="text-[11px] text-neutral-400 space-y-1.5">
+              <li>· Full live dashboard</li>
+              <li>· 30-day history window</li>
+              <li>· Up to 3 saved alerts</li>
+              <li>· No API access, no exports</li>
+            </ul>
+          </div>
+          <div className="bg-[#0a0a12] p-6 relative">
+            <div className="absolute top-3 right-3 text-[9px] tracking-[2px] text-cyan-glow bg-cyan-glow/10 px-2 py-0.5 border border-cyan-glow/30 rounded-sm">
+              RECOMMENDED
             </div>
-            <div className="text-[10px] text-neutral-600 mb-5">14-day trial, no card</div>
+            <div className="text-[10px] tracking-widest text-cyan-glow mb-2">CLOUD PRO</div>
+            <div className="text-3xl text-neutral-100 mb-1">
+              €15<span className="text-sm text-neutral-500">/month</span>
+            </div>
+            <div className="text-[10px] text-neutral-600 mb-5">or €149/year (−17%)</div>
             <ul className="text-[11px] text-neutral-300 space-y-1.5">
-              <li>+ Daily briefing email Mon–Fri</li>
-              <li>+ Floating storage & STS alerts</li>
-              <li>+ Crack spreads & equity overlay</li>
-              <li>+ Custom flow-anomaly alerts</li>
+              <li>+ Full history (back to 2019)</li>
+              <li>+ Unlimited saved alerts</li>
+              <li>+ API access (rate-limited)</li>
+              <li>+ CSV / JSON data export</li>
+              <li>+ Daily email brief (Mon–Fri)</li>
             </ul>
           </div>
         </div>
@@ -237,7 +260,7 @@ export default function Landing() {
       <footer className="border-t border-border bg-[#0a0a12]">
         <div className="max-w-5xl mx-auto px-4 py-8 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center text-[10px] text-neutral-600">
           <div>
-            OBSYD is open source under MIT. Source on{' '}
+            OBSYD is open source under AGPL-3.0. Source on{' '}
             <a
               href="https://github.com/jo20ow/Obsyd"
               target="_blank"
@@ -249,8 +272,8 @@ export default function Landing() {
             .
           </div>
           <div className="text-neutral-700 max-w-md leading-relaxed">
-            Market observation tool — not investment advice. Data aggregated from public
-            sources, provided as-is. Not regulated by BaFin or any financial authority.
+            Market observation tool — not investment advice, not a trading signal. Data aggregated
+            from public sources, provided as-is. Not regulated by BaFin or any financial authority.
           </div>
         </div>
       </footer>
