@@ -178,11 +178,15 @@ def _backwardation_component() -> float:
     try:
         from backend.signals.market_structure import _fetch_structure
 
-        data = _fetch_structure()
-        if not data or "BRENT" not in data.get("curves", {}):
+        # _fetch_structure() returns the curve dict directly: {"WTI": {...},
+        # "BRENT": {...}}. The "curves" wrapper is added only by
+        # get_market_structure(); reading data["curves"] here always missed and
+        # silently returned 0.0, suppressing a live backwardation signal.
+        curves = _fetch_structure()
+        if not curves or "BRENT" not in curves:
             return 0.0
 
-        brent = data["curves"]["BRENT"]
+        brent = curves["BRENT"]
         spread_pct = brent.get("spread_pct", 0)
 
         if spread_pct >= 0:
