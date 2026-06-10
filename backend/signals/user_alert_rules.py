@@ -62,7 +62,6 @@ def evaluate_chokepoint_anomaly(
     if direction not in ("above", "below", "either"):
         return None
 
-    today_str = now.strftime("%Y-%m-%d")
     latest = (
         db.query(GeofenceEvent)
         .filter(GeofenceEvent.zone == zone)

@@ -25,7 +25,6 @@ from backend.config import settings
 from backend.main import app
 from backend.models.subscription import Subscription
 
-
 WEBHOOK_SECRET = "test-lemonsqueezy-webhook-secret"
 WEBHOOK_PATH = "/api/webhooks/lemonsqueezy"
 

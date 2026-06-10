@@ -157,34 +157,41 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
     [weatherAlerts],
   )
 
-  const fetchVessels = useCallback(async () => {
+  const fetchVessels = useCallback(async (signal) => {
     try {
-      const fetches = [fetch(`${API}/vessels/positions?limit=2000`)]
-      if (mode === 'global') fetches.push(fetch(`${API}/vessels/global?limit=5000`))
+      const fetches = [fetch(`${API}/vessels/positions?limit=2000`, { signal })]
+      if (mode === 'global') fetches.push(fetch(`${API}/vessels/global?limit=5000`, { signal }))
       const results = await Promise.all(fetches)
       const posData = results[0].ok ? await results[0].json() : null
       const globalData = results.length > 1 && results[1]?.ok ? await results[1].json() : null
       if (Array.isArray(posData)) setVessels(posData)
       if (Array.isArray(globalData)) setGlobalVessels(globalData)
-    } catch {
-      // silent fail, will retry
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error('VesselMap vessels poll:', e)
+      // will retry on next interval
     }
   }, [mode])
 
   useEffect(() => {
     // VesselMap stays renderable even with partial-overlay failures; we log
     // each fetch failure so it's debuggable from the browser console.
-    fetch(`${API}/ports/summary`)
+    const controller = new AbortController()
+    const { signal } = controller
+    const logError = (label) => (e) => {
+      if (e.name !== 'AbortError') console.error(label, e)
+    }
+
+    fetch(`${API}/ports/summary`, { signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setPortwatch(d) })
-      .catch((e) => console.error('VesselMap ports/summary:', e))
+      .catch(logError('VesselMap ports/summary:'))
 
-    fetch(`${API}/weather/marine`)
+    fetch(`${API}/weather/marine`, { signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.zones) setMarine(d.zones) })
-      .catch((e) => console.error('VesselMap weather/marine:', e))
+      .catch(logError('VesselMap weather/marine:'))
 
-    fetch(`${API}/thermal/hotspots`)
+    fetch(`${API}/thermal/hotspots`, { signal })
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         if (Array.isArray(data)) {
@@ -192,18 +199,24 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
           if (data.length > 0) setThermalAvailable(true)
         }
       })
-      .catch((e) => console.error('VesselMap thermal/hotspots:', e))
+      .catch(logError('VesselMap thermal/hotspots:'))
 
-    fetch(`${API}/vessels/floating-storage`)
+    fetch(`${API}/vessels/floating-storage`, { signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.events) setFloatingStorage(d.events.filter((e) => e.status === 'active')) })
-      .catch((e) => console.error('VesselMap vessels/floating-storage:', e))
+      .catch(logError('VesselMap vessels/floating-storage:'))
+
+    return () => controller.abort()
   }, [])
 
   useEffect(() => {
-    fetchVessels()
-    const id = setInterval(fetchVessels, POLL_INTERVAL)
-    return () => clearInterval(id)
+    const controller = new AbortController()
+    fetchVessels(controller.signal)
+    const id = setInterval(() => fetchVessels(controller.signal), POLL_INTERVAL)
+    return () => {
+      clearInterval(id)
+      controller.abort()
+    }
   }, [fetchVessels])
 
   const isGlobal = mode === 'global'

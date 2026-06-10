@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
 import Panel from './Panel'
+import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -55,19 +55,14 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function DisruptionScorePanel() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const { data, loading, error } = useFetchWithError(`${API}/analytics/disruption-score?days=90`)
 
-  useEffect(() => {
-    fetch(`${API}/analytics/disruption-score?days=90`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        setData(d)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [])
-
+  if (error)
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">DISRUPTION INDEX // FETCH ERROR</div>
+      </div>
+    )
   if (!data?.available && !loading) return null
 
   const score = data?.current?.score ?? 0

@@ -35,7 +35,6 @@ from sqlalchemy.pool import StaticPool
 import backend.database as _db_module
 from backend.database import Base
 
-
 # Modules that did `from backend.database import SessionLocal` at import time
 # and therefore hold their own binding. Every test that hits the DB must
 # rebind `SessionLocal` in each of these namespaces too.

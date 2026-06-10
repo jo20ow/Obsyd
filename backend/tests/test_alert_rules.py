@@ -23,7 +23,6 @@ from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
 from backend.notifications import alert_runner
 from backend.signals import user_alert_rules
 
-
 NOW = datetime(2026, 5, 20, 12, 0, 0)
 
 
@@ -52,7 +51,9 @@ def _make_pro(db_session, email: str, *, trial: bool = False):
                 email=email,
                 status="trialing",
                 plan="pro",
-                trial_ends_at=NOW + timedelta(days=10),
+                # Relative to real now: require_pro re-checks the DB against
+                # wall-clock utcnow, so a fixed past NOW would read as expired.
+                trial_ends_at=datetime.utcnow() + timedelta(days=10),
             )
         )
     else:

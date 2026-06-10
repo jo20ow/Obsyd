@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, Float, DateTime, Integer
+from sqlalchemy import DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base

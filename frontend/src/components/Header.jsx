@@ -16,15 +16,21 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
+    const controller = new AbortController()
     function poll() {
-      fetch('/api/health/collectors')
+      fetch('/api/health/collectors', { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : null))
         .then(setHealth)
-        .catch((e) => console.error('Health poll:', e))
+        .catch((e) => {
+          if (e.name !== 'AbortError') console.error('Health poll:', e)
+        })
     }
     poll()
     const id = setInterval(poll, 60_000)
-    return () => clearInterval(id)
+    return () => {
+      clearInterval(id)
+      controller.abort()
+    }
   }, [])
 
   const eiaOk = health?.eia ?? false

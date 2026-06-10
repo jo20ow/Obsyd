@@ -121,9 +121,10 @@ export default function StatCards({ data, live: liveProp, liveSource: liveSource
 
   // StatCards fetches its own live prices — independent of App.jsx
   useEffect(() => {
+    const controller = new AbortController()
     let retryTimeout
     function fetchLive() {
-      fetch('/api/prices/live')
+      fetch('/api/prices/live', { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
           if (d?.available && d.prices && Object.keys(d.prices).length >= 3) {
@@ -134,13 +135,18 @@ export default function StatCards({ data, live: liveProp, liveSource: liveSource
             retryTimeout = setTimeout(fetchLive, 10_000)
           }
         })
-        .catch(() => {
+        .catch((e) => {
+          if (e.name === 'AbortError') return
           retryTimeout = setTimeout(fetchLive, 10_000)
         })
     }
     fetchLive()
     const interval = setInterval(fetchLive, 2 * 60 * 1000) // repoll every 2min
-    return () => { clearInterval(interval); clearTimeout(retryTimeout) }
+    return () => {
+      clearInterval(interval)
+      clearTimeout(retryTimeout)
+      controller.abort()
+    }
   }, [])
 
   // Use own fetched data, fall back to parent prop
@@ -148,10 +154,14 @@ export default function StatCards({ data, live: liveProp, liveSource: liveSource
   const liveSource = ownSource || liveSourceProp
 
   useEffect(() => {
-    fetch('/api/prices/commodities')
+    const controller = new AbortController()
+    fetch('/api/prices/commodities', { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then(setCommodities)
-      .catch((e) => console.error('Commodities fetch:', e))
+      .catch((e) => {
+        if (e.name !== 'AbortError') console.error('Commodities fetch:', e)
+      })
+    return () => controller.abort()
   }, [])
 
   const metals = commodities?.metals || {}

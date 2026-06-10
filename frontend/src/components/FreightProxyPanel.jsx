@@ -12,16 +12,23 @@ export default function FreightProxyPanel() {
   const containerRef = useRef(null)
 
   useEffect(() => {
+    const controller = new AbortController()
+    const { signal } = controller
     Promise.all([
-      fetch(`${API}/analytics/freight-proxy?days=90`).then((r) => (r.ok ? r.json() : null)),
-      fetch(`${API}/analytics/tonne-miles?days=90`).then((r) => (r.ok ? r.json() : null)),
+      fetch(`${API}/analytics/freight-proxy?days=90`, { signal }).then((r) => (r.ok ? r.json() : null)),
+      fetch(`${API}/analytics/tonne-miles?days=90`, { signal }).then((r) => (r.ok ? r.json() : null)),
     ])
       .then(([fp, tm]) => {
         setData(fp)
         setTmData(tm)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch((e) => {
+        if (e.name === 'AbortError') return
+        console.error('FreightProxyPanel fetch:', e)
+        setLoading(false)
+      })
+    return () => controller.abort()
   }, [])
 
   // Chart

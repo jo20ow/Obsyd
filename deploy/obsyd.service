@@ -1,6 +1,10 @@
 [Unit]
 Description=OBSYD Backend (uvicorn)
 After=network.target
+# Stop restart-looping after 5 failed starts within 5 minutes
+# (e.g. broken .env) instead of hammering every few seconds.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,8 +14,27 @@ WorkingDirectory=/home/obsyd/obsyd
 EnvironmentFile=/home/obsyd/obsyd/.env
 Environment="PATH=/home/obsyd/obsyd/.venv/bin"
 ExecStart=/home/obsyd/obsyd/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 1
-Restart=always
-RestartSec=5
+Restart=on-failure
+RestartSec=10
+
+# --- Hardening ---
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+# App dir needs write access (SQLite DBs: obsyd.db, data/portwatch.db)
+ReadWritePaths=/home/obsyd/obsyd
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+
+# --- Resource limits (caps runaway memory, generous for normal operation) ---
+MemoryHigh=1536M
+MemoryMax=2G
 
 [Install]
 WantedBy=multi-user.target

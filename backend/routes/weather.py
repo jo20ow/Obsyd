@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from backend.collectors.noaa import fetch_marine_conditions
 from backend.database import get_db
 from backend.models.weather import WeatherAlert
-from backend.collectors.noaa import fetch_marine_conditions
 
 router = APIRouter(prefix="/api/weather", tags=["weather"])
 

@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from backend.auth.subscription_check import is_pro
 from backend.models.subscription import Subscription
 
-
 NOW = datetime(2026, 5, 20, 12, 0, 0)
 
 

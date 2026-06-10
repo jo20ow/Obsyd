@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Panel from './Panel'
+import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -33,21 +34,15 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function TonneMilesPanel() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [days, setDays] = useState(90)
+  const { data, loading, error } = useFetchWithError(`${API}/analytics/tonne-miles?days=${days}`)
 
-  useEffect(() => {
-    setLoading(true)
-    fetch(`${API}/analytics/tonne-miles?days=${days}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        setData(d)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [days])
-
+  if (error)
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">TONNE-MILES // FETCH ERROR</div>
+      </div>
+    )
   if (!data?.available && !loading) return null
 
   const current = data?.current

@@ -15,7 +15,9 @@ export default function JODIPanel() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    fetch(`${API}/jodi/summary`)
+    const controller = new AbortController()
+    const { signal } = controller
+    fetch(`${API}/jodi/summary`, { signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         setSummary(d)
@@ -23,21 +25,27 @@ export default function JODIPanel() {
         if (d) {
           Promise.all(
             TOP5.map((c) =>
-              fetch(`${API}/jodi/production?country=${c}&limit=3`)
+              fetch(`${API}/jodi/production?country=${c}&limit=3`, { signal })
                 .then((r) => (r.ok ? r.json() : []))
                 .then((rows) => [c, rows])
             )
-          ).then((results) => {
-            const h = {}
-            for (const [c, rows] of results) h[c] = rows
-            setHistory(h)
-          })
+          )
+            .then((results) => {
+              const h = {}
+              for (const [c, rows] of results) h[c] = rows
+              setHistory(h)
+            })
+            .catch((e) => {
+              if (e.name !== 'AbortError') console.error('JODIPanel history fetch:', e)
+            })
         }
       })
       .catch((e) => {
+        if (e.name === 'AbortError') return
         console.error('JODIPanel fetch:', e)
         setError(e.message)
       })
+    return () => controller.abort()
   }, [])
 
   const changes = useMemo(() => {

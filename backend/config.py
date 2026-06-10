@@ -5,6 +5,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    # Deployment environment: "development" or "production".
+    # In production, default secrets cause a hard startup failure.
+    environment: str = "development"
+
     # Database
     database_url: str = "sqlite:///./obsyd.db"
 
