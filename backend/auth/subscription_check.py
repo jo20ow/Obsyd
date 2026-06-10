@@ -10,7 +10,6 @@ from datetime import datetime
 
 from backend.models.subscription import Subscription
 
-
 # Status values that grant Pro access immediately (no expiry check needed).
 PRO_STATUSES_UNCONDITIONAL: frozenset[str] = frozenset(
     {

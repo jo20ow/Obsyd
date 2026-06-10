@@ -24,7 +24,7 @@ so drip-stage advancement is bounded per run (DRIP_SEND_BUDGET).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 import httpx

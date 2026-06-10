@@ -173,14 +173,16 @@ function Dashboard() {
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
+    const { signal } = controller
     async function fetchData() {
       try {
         const [eiaRes, zonesRes, liveRes, aisRes, gdeltRes] = await Promise.all([
-          fetch(`${API}/prices/eia?limit=500`),
-          fetch(`${API}/vessels/zones`),
-          fetch(`${API}/prices/live`),
-          fetch(`${API}/vessels/positions?limit=1`),
-          fetch(`${API}/sentiment/status`),
+          fetch(`${API}/prices/eia?limit=500`, { signal }),
+          fetch(`${API}/vessels/zones`, { signal }),
+          fetch(`${API}/prices/live`, { signal }),
+          fetch(`${API}/vessels/positions?limit=1`, { signal }),
+          fetch(`${API}/sentiment/status`, { signal }),
         ])
         if (!eiaRes.ok) throw new Error(`EIA API: ${eiaRes.status}`)
         if (!zonesRes.ok) throw new Error(`Zones API: ${zonesRes.status}`)
@@ -207,25 +209,30 @@ function Dashboard() {
           setGdeltActive(gdelt.active)
         }
 
-        fetch(`${API}/weather/alerts`)
+        fetch(`${API}/weather/alerts`, { signal })
           .then((r) => (r.ok ? r.json() : []))
           .then(setWeatherAlerts)
-          .catch((e) => console.error('Weather alerts fetch:', e))
+          .catch((e) => {
+            if (e.name !== 'AbortError') console.error('Weather alerts fetch:', e)
+          })
 
-        fetch(`${API}/portwatch/summary`)
+        fetch(`${API}/portwatch/summary`, { signal })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { if (d?.disruptions) setDisruptions(d.disruptions) })
-          .catch(() => {})
+          .catch((e) => {
+            if (e.name !== 'AbortError') console.error('PortWatch summary fetch:', e)
+          })
       } catch (e) {
+        if (e.name === 'AbortError') return
         setError(e.message)
       } finally {
-        setLoading(false)
+        if (!signal.aborted) setLoading(false)
       }
     }
     fetchData()
 
     const interval = setInterval(() => {
-      fetch(`${API}/prices/live`)
+      fetch(`${API}/prices/live`, { signal })
         .then((r) => (r.ok ? r.json() : null))
         .then((live) => {
           if (live?.available) {
@@ -233,9 +240,14 @@ function Dashboard() {
             setLiveSource(live.source || null)
           }
         })
-        .catch(() => {})
+        .catch((e) => {
+          if (e.name !== 'AbortError') console.error('Live prices poll:', e)
+        })
     }, 15 * 60 * 1000)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      controller.abort()
+    }
   }, [])
 
   if (loading) {

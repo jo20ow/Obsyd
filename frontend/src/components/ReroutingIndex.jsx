@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
 import Panel from './Panel'
+import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer,
   AreaChart,
@@ -40,15 +40,14 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function ReroutingIndex() {
-  const [data, setData] = useState(null)
+  const { data, error } = useFetchWithError(`${API}/signals/rerouting-index?days=365`)
 
-  useEffect(() => {
-    fetch(`${API}/signals/rerouting-index?days=365`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
-      .catch((e) => console.error('ReroutingIndex fetch:', e))
-  }, [])
-
+  if (error)
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">REROUTING INDEX // FETCH ERROR</div>
+      </div>
+    )
   if (!data?.available) return null
 
   const { current, history, events } = data

@@ -18,7 +18,7 @@ async def get_hotspots(
     query = db.query(ThermalHotspot)
     if area:
         query = query.filter(ThermalHotspot.area_name == area)
-    rows = query.all()
+    rows = query.limit(2000).all()
     return [
         {
             "lat": r.latitude,
@@ -37,7 +37,7 @@ async def get_hotspots(
 @router.get("/refineries")
 async def get_refinery_status(db: Session = Depends(get_db)):
     """Get refinery thermal status: active/inactive based on nearby hotspots."""
-    hotspots = db.query(ThermalHotspot).all()
+    hotspots = db.query(ThermalHotspot).limit(5000).all()
 
     result = []
     for ref in REFINERIES:

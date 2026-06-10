@@ -42,13 +42,14 @@ def require_auth(request: Request, obsyd_token: str | None = Cookie(None)) -> di
 
 
 def require_pro(request: Request, obsyd_token: str | None = Cookie(None)) -> dict:
-    """Require Pro subscription (paid or in-trial). Raises 401/403 otherwise."""
-    user = require_auth(request, obsyd_token)
+    """Require Pro subscription (paid or in-trial). Raises 401/403 otherwise.
 
-    # JWT sub_status is a fast-path. It can become stale (subscription changes
-    # between token-issue and now), so a "free" claim still triggers a DB read.
-    if user.get("sub_status") == "pro":
-        return user
+    The JWT's sub_status claim is deliberately NOT trusted: a token lives up to
+    jwt_expiry_days, so a refunded/downgraded user would otherwise keep Pro
+    access until expiry. Every Pro request verifies against the DB (cheap on
+    SQLite, single indexed lookup).
+    """
+    user = require_auth(request, obsyd_token)
 
     db = SessionLocal()
     try:

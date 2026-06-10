@@ -21,6 +21,7 @@ from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.database import init_db
 from backend.migrations import run_migrations
 from backend.observability import TraceIDMiddleware, setup_logging
+from backend.routes import alert_rules as alert_rules_routes
 from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import analytics as analytics_routes
 from backend.routes import auth as auth_routes
@@ -32,12 +33,31 @@ from backend.routes import settings as settings_routes
 from backend.routes import signals as signals_routes
 from backend.routes import thermal as thermal_routes
 from backend.routes import waitlist as waitlist_routes
-from backend.routes import alert_rules as alert_rules_routes
 from backend.routes import webhooks as webhooks_routes
 from backend.signals.sentiment_scorer import compute_sentiment_score
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# Strong references to fire-and-forget tasks (asyncio only keeps weak ones).
+_background_tasks: set = set()
+
+
+def _create_task_logged(coro, name: str) -> asyncio.Task:
+    """Spawn a background task whose crash is logged instead of silently dropped."""
+    task = asyncio.create_task(coro, name=name)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task) -> None:
+        _background_tasks.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc:
+            logger.error("Background task %r failed: %s", name, exc, exc_info=exc)
+
+    task.add_done_callback(_on_done)
+    return task
 
 
 @asynccontextmanager
@@ -53,6 +73,11 @@ async def lifespan(app: FastAPI):
         val = getattr(settings, name)
         raw = val.get_secret_value() if hasattr(val, "get_secret_value") else val
         if "change-me" in raw:
+            if settings.environment == "production":
+                raise RuntimeError(
+                    f"SECURITY: {name} uses the default value — refusing to start. "
+                    "Set it in .env (e.g. `openssl rand -hex 32`)."
+                )
             logger.warning("SECURITY: %s uses default value — set it in .env before production!", name)
 
     start_scheduler()
@@ -66,19 +91,19 @@ async def lifespan(app: FastAPI):
 
     # Phase 3: Background data collection (staggered, non-blocking)
     await asyncio.sleep(3)
-    asyncio.create_task(collect_portwatch())
-    asyncio.create_task(collect_jodi())
+    _create_task_logged(collect_portwatch(), "portwatch")
+    _create_task_logged(collect_jodi(), "jodi")
     logger.info("Startup: PortWatch + JODI collection started (background)")
 
     await asyncio.sleep(3)
-    asyncio.create_task(collect_gdelt_volume())
-    asyncio.create_task(collect_gdelt_sentiment())
-    asyncio.create_task(compute_sentiment_score())
-    asyncio.create_task(collect_finnhub_news())
+    _create_task_logged(collect_gdelt_volume(), "gdelt_volume")
+    _create_task_logged(collect_gdelt_sentiment(), "gdelt_sentiment")
+    _create_task_logged(compute_sentiment_score(), "sentiment_score")
+    _create_task_logged(collect_finnhub_news(), "finnhub_news")
     logger.info("Startup: GDELT + Finnhub + Sentiment started (background)")
 
     await asyncio.sleep(3)
-    asyncio.create_task(backfill_geofence_events())
+    _create_task_logged(backfill_geofence_events(), "geofence_backfill")
     logger.info("Startup: Geofence backfill started (background)")
 
     # FRED backfill (one-time: extends WTI/Brent back to 2019)
@@ -96,29 +121,29 @@ async def lifespan(app: FastAPI):
         db_session.close()
 
     # Initial fleet summary for today
-    asyncio.create_task(create_daily_fleet_summary())
+    _create_task_logged(create_daily_fleet_summary(), "fleet_summary")
     logger.info("Startup: Fleet summary scheduled")
 
     # Pro features: backfill crack spreads + equities if empty
     from backend.collectors.crack_spreads import collect_crack_spreads
     from backend.collectors.equities import collect_equities
 
-    asyncio.create_task(collect_crack_spreads())
-    asyncio.create_task(collect_equities())
+    _create_task_logged(collect_crack_spreads(), "crack_spreads")
+    _create_task_logged(collect_equities(), "equities")
     logger.info("Startup: Crack spreads + equities collection started (background)")
 
     # STS detection initial run
     from backend.collectors.sts_collector import collect_sts_events
 
-    asyncio.create_task(collect_sts_events())
+    _create_task_logged(collect_sts_events(), "sts_events")
     logger.info("Startup: STS detection started (background)")
 
     # Analytics: initial computation
     from backend.analytics.disruption_score import compute_disruption_score
     from backend.analytics.tonne_miles import compute_tonne_miles
 
-    asyncio.create_task(compute_tonne_miles())
-    asyncio.create_task(compute_disruption_score())
+    _create_task_logged(compute_tonne_miles(), "tonne_miles")
+    _create_task_logged(compute_disruption_score(), "disruption_score")
     logger.info("Startup: Analytics (tonne-miles, disruption score) started (background)")
 
     # Daily Briefing Email status

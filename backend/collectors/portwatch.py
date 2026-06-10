@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 import httpx
 
 from backend.database import SessionLocal
-from backend.models.ports import PortActivity, Disruption
+from backend.models.ports import Disruption, PortActivity
 
 logger = logging.getLogger(__name__)
 

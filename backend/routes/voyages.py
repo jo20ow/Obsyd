@@ -26,10 +26,16 @@ async def get_recent_voyages(
         .all()
     )
 
+    # Batch-fetch registry data for all MMSIs (avoids one query per voyage)
+    mmsi_list = list({r.mmsi for r in rows})
+    registry_map = {}
+    if mmsi_list:
+        regs = db.query(VesselRegistry).filter(VesselRegistry.mmsi.in_(mmsi_list)).all()
+        registry_map = {reg.mmsi: reg for reg in regs}
+
     result = []
     for r in rows:
-        # Try to get ship_class from registry
-        reg = db.query(VesselRegistry).filter(VesselRegistry.mmsi == r.mmsi).first()
+        reg = registry_map.get(r.mmsi)
         result.append(
             {
                 "mmsi": r.mmsi,

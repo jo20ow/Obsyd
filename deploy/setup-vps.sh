@@ -50,9 +50,15 @@ systemctl reload nginx
 echo "nginx configured and reloaded"
 
 # 6. Health-check cron
-echo "[6/6] Installing health-check cron..."
+echo "[6/7] Installing health-check cron..."
 (crontab -l 2>/dev/null | grep -v obsyd; echo "*/5 * * * * curl -sf http://127.0.0.1:8000/health > /dev/null || systemctl restart obsyd") | crontab -
 echo "Cron health-check installed"
+
+# 7. Daily DB backup cron (as obsyd user; offsite target via OBSYD_BACKUP_REMOTE)
+echo "[7/7] Installing daily backup cron..."
+chmod +x /home/obsyd/obsyd/deploy/backup-db.sh
+sudo -u obsyd bash -c '(crontab -l 2>/dev/null | grep -v backup-db.sh; echo "30 3 * * * /home/obsyd/obsyd/deploy/backup-db.sh >> /home/obsyd/backups/backup.log 2>&1") | crontab -'
+echo "Daily backup cron installed (03:30, retention 14 days)"
 
 echo ""
 echo "=== VPS base setup complete ==="

@@ -21,7 +21,6 @@ from backend.signals.correlation import (
     _pearson,
 )
 
-
 # ----------------------------- _pearson -----------------------------
 
 
