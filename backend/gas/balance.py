@@ -68,7 +68,9 @@ def _export_ua_by_day(db: Session, date_from: str, date_to: str) -> dict[str, fl
 
 def compute_balance(db: Session, date_from: str, date_to: str) -> list[dict]:
     """Build the daily balance + residual + z-score + flag series."""
-    supply_rows = {r["date"]: r for r in validation.compute_daily_supply(db, date_from, date_to)}
+    # The balance's Supply_in includes EU domestic production (unlike the
+    # Bruegel imports validation).
+    supply_rows = {r["date"]: r for r in validation.compute_daily_supply(db, date_from, date_to, include_production=True)}
     export_ua = _export_ua_by_day(db, date_from, date_to)
 
     demand_h = {r.date: r for r in db.query(GasDemandModel).filter(GasDemandModel.date >= date_from, GasDemandModel.date <= date_to).all()}

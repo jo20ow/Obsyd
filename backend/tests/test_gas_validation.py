@@ -50,7 +50,7 @@ def test_net_uk_export_does_not_subtract_from_supply(db_session):
     assert r["supply_gwh"] == 1000.0  # export not counted as supply
 
 
-def test_production_and_export_excluded(db_session):
+def test_production_excluded_by_default_included_for_balance(db_session):
     db = db_session
     _seed_point(db, "IMP", "import_pipeline")
     _seed_point(db, "PROD", "production_entry")
@@ -59,8 +59,14 @@ def test_production_and_export_excluded(db_session):
     _flow(db, "2026-06-01", "PROD", "entry", 300.0)
     _flow(db, "2026-06-01", "UA", "exit", 200.0)
     db.commit()
-    r = validation.compute_daily_supply(db, "2026-06-01", "2026-06-01")[0]
-    assert r["supply_gwh"] == 1000.0  # only imports
+    # Bruegel imports view: production + exports excluded.
+    imports_only = validation.compute_daily_supply(db, "2026-06-01", "2026-06-01")[0]
+    assert imports_only["supply_gwh"] == 1000.0
+    assert imports_only["production_gwh"] == 0.0
+    # Balance view: domestic production added.
+    with_prod = validation.compute_daily_supply(db, "2026-06-01", "2026-06-01", include_production=True)[0]
+    assert with_prod["production_gwh"] == 300.0
+    assert with_prod["supply_gwh"] == 1300.0
 
 
 def test_multi_operator_physical_point_takes_max_not_sum(db_session):
