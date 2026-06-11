@@ -1,0 +1,77 @@
+{
+ "last_page": 1,
+ "total": 3,
+ "dataset": "",
+ "gas_day": "2026-06-09",
+ "data": [
+  {
+   "name": "EU",
+   "code": "eu",
+   "url": "eu",
+   "updatedAt": "2026-06-08 18:09:53",
+   "gasDayStart": "2026-06-05",
+   "gasDayEnd": "2026-06-06",
+   "inventory": {
+    "lng": "5093.22",
+    "gwh": "34137.98"
+   },
+   "sendOut": "3519.5",
+   "dtmi": {
+    "lng": "9321.97",
+    "gwh": "62481.74"
+   },
+   "dtrs": "7934.6",
+   "contractedCapacity": "4663.4149",
+   "availableCapacity": "764.1656",
+   "coveredCapacity": "100",
+   "info": [],
+   "status": "C"
+  },
+  {
+   "name": "Non-EU",
+   "code": "ne",
+   "url": "ne",
+   "updatedAt": "2026-06-10 22:01:31",
+   "gasDayStart": "2026-06-05",
+   "gasDayEnd": "2026-06-06",
+   "inventory": {
+    "lng": "-",
+    "gwh": "-"
+   },
+   "sendOut": "-",
+   "dtmi": {
+    "lng": "-",
+    "gwh": "-"
+   },
+   "dtrs": "-",
+   "contractedCapacity": "-",
+   "availableCapacity": "-",
+   "coveredCapacity": "-",
+   "info": [],
+   "status": "N"
+  },
+  {
+   "name": "Additional Information",
+   "code": "ai",
+   "url": "ai",
+   "updatedAt": "2026-06-06 18:30:08",
+   "gasDayStart": "2026-06-05",
+   "gasDayEnd": "2026-06-06",
+   "inventory": {
+    "lng": "2218.7",
+    "gwh": "15096.06"
+   },
+   "sendOut": "462.9",
+   "dtmi": {
+    "lng": "3316.5",
+    "gwh": "22565.5"
+   },
+   "dtrs": "1940.4",
+   "contractedCapacity": "480.4062",
+   "availableCapacity": "1460.0028",
+   "coveredCapacity": "100",
+   "info": [],
+   "status": "C"
+  }
+ ]
+}

@@ -14,3 +14,8 @@ ignore = ["E501"]
 # conftest deliberately sets os.environ before importing backend modules
 # so pydantic_settings picks up test values — imports cannot move to the top.
 "backend/tests/conftest.py" = ["E402"]
+
+[tool.pytest.ini_options]
+# Run `async def` tests without per-test markers (gas ingestion is async).
+# Only affects coroutine tests; existing sync tests are unchanged.
+asyncio_mode = "auto"
