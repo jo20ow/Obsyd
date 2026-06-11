@@ -34,8 +34,13 @@ def _physical(name: str) -> str:
     return re.sub(r"\s*\([^)]*\)\s*$", "", name or "").strip()
 
 
-def compute_daily_supply(db: Session, date_from: str, date_to: str) -> list[dict]:
-    """Per-day supply (GWh/d) = pipeline imports + LNG send-out + max(0, net UK).
+def compute_daily_supply(db: Session, date_from: str, date_to: str, *, include_production: bool = False) -> list[dict]:
+    """Per-day supply (GWh/d) = pipeline imports + LNG + max(0, net UK)
+    [+ domestic production, for the balance].
+
+    `include_production=False` (default) matches Bruegel's *imports* definition
+    for the validation milestone; the balance passes True to add EU domestic
+    production (the spec's Supply_in).
 
     Multi-operator double-reporting: several TSOs report the SAME physical entry
     (e.g. Emden EPT1) under different pointKeys, often with near-identical
@@ -43,11 +48,14 @@ def compute_daily_supply(db: Session, date_from: str, date_to: str) -> list[dict
     point is the SINGLE LARGEST operator report (sub-reports are ≤ the total),
     so we take the max per (physical point, direction, day), then sum.
     """
+    classes = ["import_pipeline", "interconnector_uk"]
+    if include_production:
+        classes.append("production_entry")
     rows = (
         db.query(GasPoint.name, GasPoint.point_class, GasFlow.date, GasFlow.direction, GasFlow.value_gwh)
         .join(GasFlow, GasFlow.point_id == GasPoint.point_id)
         .filter(GasFlow.date >= date_from, GasFlow.date <= date_to, GasPoint.active == 1)
-        .filter(GasPoint.point_class.in_(["import_pipeline", "interconnector_uk"]))
+        .filter(GasPoint.point_class.in_(classes))
         .all()
     )
 
@@ -61,9 +69,11 @@ def compute_daily_supply(db: Session, date_from: str, date_to: str) -> list[dict
 
     by_day: dict[str, dict] = {}
     for (d, _phys, direction), (pclass, value) in best.items():
-        agg = by_day.setdefault(d, {"pipeline": 0.0, "uk_entry": 0.0, "uk_exit": 0.0})
+        agg = by_day.setdefault(d, {"pipeline": 0.0, "production": 0.0, "uk_entry": 0.0, "uk_exit": 0.0})
         if pclass == "import_pipeline":
             agg["pipeline"] += value
+        elif pclass == "production_entry":
+            agg["production"] += value
         elif pclass == "interconnector_uk":
             agg["uk_entry" if direction == "entry" else "uk_exit"] += value
 
@@ -74,15 +84,17 @@ def compute_daily_supply(db: Session, date_from: str, date_to: str) -> list[dict
 
     out = []
     for d in sorted(set(by_day) | set(lng)):
-        agg = by_day.get(d, {"pipeline": 0.0, "uk_entry": 0.0, "uk_exit": 0.0})
+        agg = by_day.get(d, {"pipeline": 0.0, "production": 0.0, "uk_entry": 0.0, "uk_exit": 0.0})
         uk_net = agg["uk_entry"] - agg["uk_exit"]
         pipeline = agg["pipeline"]
+        production = agg["production"]
         lng_gwh = lng.get(d, 0.0)
-        supply = pipeline + lng_gwh + max(0.0, uk_net)
+        supply = pipeline + production + lng_gwh + max(0.0, uk_net)
         out.append(
             {
                 "date": d,
                 "pipeline_gwh": round(pipeline, 1),
+                "production_gwh": round(production, 1),
                 "lng_gwh": round(lng_gwh, 1),
                 "uk_net_gwh": round(uk_net, 1),
                 "supply_gwh": round(supply, 1),

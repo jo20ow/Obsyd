@@ -102,10 +102,15 @@ def classify_point(row: dict) -> PointClass | None:
     if "lng" in label_l and direction == "entry":
         return PointClass("lng_entry", "LNG terminal")
 
-    # 5. Pipeline imports: EU entry from a non-EU supplier on a Non-EU border.
+    # 5. Domestic production: ENTSOG has a dedicated point type for it
+    #    ("Aggregated production point - TP"; the ExtEU variant is already
+    #    excluded by the EU-side guard above).
+    if direction == "entry" and (row.get("pointType") or "").startswith("Aggregated production point"):
+        return PointClass("production_entry", f"Domestic {tso}")
+
+    # 6. Pipeline imports: EU entry from a non-EU supplier on a Non-EU border.
     if direction == "entry" and "Non-EU" in xb and adj in SUPPLIER_LABELS:
         return PointClass("import_pipeline", SUPPLIER_LABELS[adj])
 
-    # 6. Out of scope (in-country transit, EU-EU interconnectors, production
-    #    handled as a documented gap in Phase 1 — not on the Bruegel-imports path).
+    # 7. Out of scope (in-country transit, EU-EU interconnectors).
     return None

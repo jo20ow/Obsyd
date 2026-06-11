@@ -74,6 +74,17 @@ def test_lng_terminal_entry_is_lng_class():
     assert c and c.point_class == "lng_entry"
 
 
+def test_domestic_production_via_point_type():
+    c = classify_point(_row(pointLabel="Production (NL)", tSOCountry="NL", adjacentCountry="NL", crossBorderPointType="In-country EU", directionKey="entry", pointType="Aggregated production point - TP"))
+    assert c and c.point_class == "production_entry" and c.counterparty == "Domestic NL"
+
+
+def test_ext_eu_production_is_out_of_scope():
+    # Non-EU production (ExtEU) must not be classified as EU domestic.
+    c = classify_point(_row(pointLabel="Production (RS)", tSOCountry="RS", adjacentCountry="RS", crossBorderPointType="In-country Non-EU", directionKey="entry", pointType="Aggregated production point - TP ExtEU"))
+    assert c is None
+
+
 def test_in_country_transit_is_out_of_scope():
     c = classify_point(_row(pointLabel="Some VTP", tSOCountry="DE", adjacentCountry="DE", crossBorderPointType="In-country EU", directionKey="entry"))
     assert c is None
