@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createChart, ColorType } from 'lightweight-charts'
 import Panel from './Panel'
+import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
 
@@ -186,6 +187,7 @@ export default function FreightProxyPanel() {
           {data?.history?.length > 1 && <div ref={containerRef} className="px-2 pb-2" />}
         </>
       )}
+      <TrackRecordBadge signal="freight_proxy" />
     </Panel>
   )
 }

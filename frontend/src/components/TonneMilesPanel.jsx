@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Panel from './Panel'
+import TrackRecordBadge from './TrackRecordBadge'
 import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer,
@@ -153,6 +154,7 @@ export default function TonneMilesPanel() {
           )}
         </>
       )}
+      <TrackRecordBadge signal="tonne_miles" />
     </Panel>
   )
 }
