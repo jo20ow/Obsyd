@@ -18,6 +18,7 @@ import sys
 from datetime import date, datetime
 
 from backend.database import SessionLocal
+from backend.gas.balance import compute_and_persist
 from backend.gas.demand import compute_demand_model
 from backend.gas.entsoe import ingest_power_burn
 from backend.gas.entsog import ingest_flows, sync_points
@@ -29,7 +30,7 @@ logger = logging.getLogger("gas_backfill")
 BACKFILL_START = date(2023, 1, 1)
 # entsoe skips gracefully if no token is configured, so it's safe in the default
 # set. "demand" runs once after the loop (it calibrates over the whole period).
-ALL_SOURCES = ("entsog", "agsi", "alsi", "entsoe", "weather", "demand")
+ALL_SOURCES = ("entsog", "agsi", "alsi", "entsoe", "weather", "demand", "balance")
 
 
 async def _with_retry(coro_factory, label: str, attempts: int = 3, base: float = 1.0):
@@ -80,10 +81,13 @@ async def run_backfill(db, start: date, end: date, sources: set[str], overwrite:
             await _with_retry(lambda d=days: ingest_weather(db, d, overwrite=overwrite), f"weather {tag}")
         logger.info("backfill: %s done", tag)
 
-    # Demand model calibrates over the whole period, so it runs once at the end.
+    # Demand + balance calibrate/aggregate over the whole period → run once at end.
     if "demand" in sources:
         result = await compute_demand_model(db)
         logger.info("backfill: demand model %s", result)
+    if "balance" in sources:
+        result = compute_and_persist(db, date_from=start.isoformat(), date_to=end.isoformat())
+        logger.info("backfill: residual engine %s", result)
 
 
 def main(argv: list[str]) -> int:
