@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.gas import validation
-from backend.models.gas import GasLng, GasPowerBurn, GasStorage
+from backend.models.gas import GasDemandModel, GasLng, GasPowerBurn, GasStorage
 
 router = APIRouter(prefix="/api/gas", tags=["gas"])
 
@@ -89,6 +89,28 @@ async def get_power_burn(days: int = Query(90, ge=1, le=1500), db: Session = Dep
         "note": "implied_gas_gwh = gen_gwh_el / efficiency; efficiency ~0.50 carries ~±5% systematic error",
         "data": [
             {"date": r.date, "gen_gwh_el": r.gen_gwh_el, "implied_gas_gwh": r.implied_gas_gwh, "efficiency": r.efficiency}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/demand")
+async def get_demand(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+    """Modeled gas demand: HDD-driven heating + flat industrial baseline (Phase 3)."""
+    date_from, date_to = _window(days)
+    rows = (
+        db.query(GasDemandModel)
+        .filter(GasDemandModel.date >= date_from, GasDemandModel.date <= date_to)
+        .order_by(GasDemandModel.date.asc())
+        .all()
+    )
+    if not rows:
+        return {"available": False, "reason": "no demand model yet — run gas_backfill --sources weather,demand"}
+    return {
+        "available": True,
+        "note": "industrial baseline is flat/month and (without ENTSO-E power burn) absorbs power — see model_version",
+        "data": [
+            {"date": r.date, "heat_gwh": r.heat_gwh, "industrial_gwh": r.industrial_gwh, "model_version": r.model_version}
             for r in rows
         ],
     }

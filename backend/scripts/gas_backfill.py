@@ -18,15 +18,18 @@ import sys
 from datetime import date, datetime
 
 from backend.database import SessionLocal
+from backend.gas.demand import compute_demand_model
 from backend.gas.entsoe import ingest_power_burn
 from backend.gas.entsog import ingest_flows, sync_points
 from backend.gas.gie import daterange, ingest_lng, ingest_storage
+from backend.gas.weather import ingest_weather
 
 logger = logging.getLogger("gas_backfill")
 
 BACKFILL_START = date(2023, 1, 1)
-# entsoe skips gracefully if no token is configured, so it's safe in the default set.
-ALL_SOURCES = ("entsog", "agsi", "alsi", "entsoe")
+# entsoe skips gracefully if no token is configured, so it's safe in the default
+# set. "demand" runs once after the loop (it calibrates over the whole period).
+ALL_SOURCES = ("entsog", "agsi", "alsi", "entsoe", "weather", "demand")
 
 
 async def _with_retry(coro_factory, label: str, attempts: int = 3, base: float = 1.0):
@@ -73,7 +76,14 @@ async def run_backfill(db, start: date, end: date, sources: set[str], overwrite:
             await _with_retry(lambda d=days: ingest_lng(db, d, overwrite=overwrite), f"alsi {tag}")
         if "entsoe" in sources:
             await _with_retry(lambda d=days: ingest_power_burn(db, d, overwrite=overwrite), f"entsoe {tag}")
+        if "weather" in sources:
+            await _with_retry(lambda d=days: ingest_weather(db, d, overwrite=overwrite), f"weather {tag}")
         logger.info("backfill: %s done", tag)
+
+    # Demand model calibrates over the whole period, so it runs once at the end.
+    if "demand" in sources:
+        result = await compute_demand_model(db)
+        logger.info("backfill: demand model %s", result)
 
 
 def main(argv: list[str]) -> int:
@@ -81,7 +91,7 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description="EU gas balance backfill")
     p.add_argument("--start", default=BACKFILL_START.isoformat())
     p.add_argument("--end", default=date.today().isoformat())
-    p.add_argument("--sources", default=",".join(ALL_SOURCES), help="comma list: entsog,agsi,alsi")
+    p.add_argument("--sources", default=",".join(ALL_SOURCES), help="comma list: entsog,agsi,alsi,entsoe,weather,demand")
     p.add_argument("--overwrite", action="store_true", help="re-fetch cached days (provisional→confirmed)")
     args = p.parse_args(argv[1:])
 
