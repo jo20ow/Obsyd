@@ -96,6 +96,62 @@ async def _run_portwatch_daily():
         logger.error(f"PortWatch daily backfill failed: {e}")
 
 
+def _gas_recent_days(n: int = 7) -> list[str]:
+    """The last n days ending yesterday (ENTSOG/GIE confirm with a 1-2d lag)."""
+    from datetime import datetime, timedelta, timezone
+
+    end = datetime.now(timezone.utc).date() - timedelta(days=1)
+    return [(end - timedelta(days=i)).isoformat() for i in range(n)][::-1]
+
+
+async def _run_gas_daily():
+    """Daily EU gas balance: refresh the last week (provisional→confirmed),
+    recompute demand + the residual engine. ENTSO-E skips without a token."""
+    from backend.gas.balance import compute_and_persist
+    from backend.gas.demand import compute_demand_model
+    from backend.gas.entsoe import ingest_power_burn
+    from backend.gas.entsog import ingest_flows
+    from backend.gas.gie import ingest_lng, ingest_storage
+    from backend.gas.weather import ingest_weather
+
+    db = SessionLocal()
+    try:
+        days = _gas_recent_days(7)
+        # overwrite=True re-fetches the recent window so provisional data is
+        # replaced once confirmed.
+        for step, coro in (
+            ("entsog", ingest_flows(db, days, overwrite=True)),
+            ("agsi", ingest_storage(db, days, overwrite=True)),
+            ("alsi", ingest_lng(db, days, overwrite=True)),
+            ("weather", ingest_weather(db, days, overwrite=True)),
+            ("entsoe", ingest_power_burn(db, days, overwrite=True)),
+        ):
+            try:
+                await coro
+            except Exception as e:
+                logger.error("gas daily %s failed: %s", step, e)
+        await compute_demand_model(db)
+        compute_and_persist(db)
+        logger.info("gas daily: refreshed %s..%s + recomputed demand/balance", days[0], days[-1])
+    except Exception as e:
+        logger.error("gas daily failed: %s", e)
+    finally:
+        db.close()
+
+
+async def _run_gas_registry_weekly():
+    """Re-sync the ENTSOG point registry (operators rename/reclassify points)."""
+    from backend.gas.entsog import sync_points
+
+    db = SessionLocal()
+    try:
+        await sync_points(db, overwrite=True)
+    except Exception as e:
+        logger.error("gas registry sync failed: %s", e)
+    finally:
+        db.close()
+
+
 def start_scheduler():
     """Register jobs and start the scheduler."""
     # EIA WPSR: published Wednesdays ~10:30 ET, collect at 11:00 ET (15:00 UTC)
@@ -387,6 +443,23 @@ def start_scheduler():
         recompute_scorecards_job,
         CronTrigger(day_of_week="mon", hour=5, minute=0),
         id="signal_scorecards_weekly",
+        **JOB_DEFAULTS,
+    )
+
+    # EU gas balance: daily 10:00 UTC — refresh the last week of ENTSOG/GIE/
+    # weather (catches provisional→confirmed) + recompute demand + residual.
+    scheduler.add_job(
+        _run_gas_daily,
+        CronTrigger(hour=10, minute=0),
+        id="gas_balance_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # ENTSOG point registry re-sync: weekly Monday 03:30 UTC.
+    scheduler.add_job(
+        _run_gas_registry_weekly,
+        CronTrigger(day_of_week="mon", hour=3, minute=30),
+        id="gas_registry_weekly",
         **JOB_DEFAULTS,
     )
 
