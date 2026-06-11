@@ -25,6 +25,7 @@ from backend.analytics.eia_prediction import compute_eia_prediction
 from backend.analytics.freight_proxy import compute_freight_proxy
 from backend.analytics.supply_demand import compute_supply_demand
 from backend.analytics.tonne_miles import compute_tonne_miles
+from backend.analytics.validation.scorecards import recompute_scorecards_job
 from backend.collectors.crack_spreads import collect_crack_spreads
 from backend.collectors.eia import collect_eia
 from backend.collectors.equities import collect_equities
@@ -377,6 +378,15 @@ def start_scheduler():
         check_collectors,
         CronTrigger(hour=9, minute=0),
         id="collector_watchdog_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # Signal scorecards: weekly Monday 05:00 UTC — recompute each signal's
+    # forward-return track record (rank IC, HAC t, hit rate) vs Brent.
+    scheduler.add_job(
+        recompute_scorecards_job,
+        CronTrigger(day_of_week="mon", hour=5, minute=0),
+        id="signal_scorecards_weekly",
         **JOB_DEFAULTS,
     )
 
