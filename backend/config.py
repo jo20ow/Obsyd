@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     # GIE (AGSI gas storage + ALSI LNG) — one free key covers both
     gie_api_key: Optional[SecretStr] = None
 
+    # ENTSO-E Transparency Platform (gas power burn). Free, but the token is
+    # granted manually: register at transparency.entsoe.eu, then email
+    # transparency@entsoe.eu to request "Restful API" access.
+    entsoe_api_token: Optional[SecretStr] = None
+    # CCGT fleet-average electrical efficiency for power-burn → gas conversion.
+    # ~0.50 is the EU fleet average; ±5% systematic error. Configurable.
+    gas_ccgt_efficiency: float = 0.50
+
     # App secret (for HMAC tokens)
     secret_key: SecretStr = SecretStr("obsyd-change-me-in-production")
 

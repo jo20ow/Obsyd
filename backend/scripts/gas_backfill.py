@@ -18,13 +18,15 @@ import sys
 from datetime import date, datetime
 
 from backend.database import SessionLocal
+from backend.gas.entsoe import ingest_power_burn
 from backend.gas.entsog import ingest_flows, sync_points
 from backend.gas.gie import daterange, ingest_lng, ingest_storage
 
 logger = logging.getLogger("gas_backfill")
 
 BACKFILL_START = date(2023, 1, 1)
-ALL_SOURCES = ("entsog", "agsi", "alsi")
+# entsoe skips gracefully if no token is configured, so it's safe in the default set.
+ALL_SOURCES = ("entsog", "agsi", "alsi", "entsoe")
 
 
 async def _with_retry(coro_factory, label: str, attempts: int = 3, base: float = 1.0):
@@ -69,6 +71,8 @@ async def run_backfill(db, start: date, end: date, sources: set[str], overwrite:
             await _with_retry(lambda d=days: ingest_storage(db, d, overwrite=overwrite), f"agsi {tag}")
         if "alsi" in sources:
             await _with_retry(lambda d=days: ingest_lng(db, d, overwrite=overwrite), f"alsi {tag}")
+        if "entsoe" in sources:
+            await _with_retry(lambda d=days: ingest_power_burn(db, d, overwrite=overwrite), f"entsoe {tag}")
         logger.info("backfill: %s done", tag)
 
 

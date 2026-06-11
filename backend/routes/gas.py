@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.gas import validation
-from backend.models.gas import GasLng, GasStorage
+from backend.models.gas import GasLng, GasPowerBurn, GasStorage
 
 router = APIRouter(prefix="/api/gas", tags=["gas"])
 
@@ -70,6 +70,28 @@ async def get_lng(days: int = Query(90, ge=1, le=1500), db: Session = Depends(ge
     if not rows:
         return {"available": False, "reason": "no ALSI data yet"}
     return {"available": True, "data": [{"date": r.date, "send_out_gwh": r.send_out_gwh, "inventory_twh": r.inventory_twh} for r in rows]}
+
+
+@router.get("/power-burn")
+async def get_power_burn(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+    """Gas-fired power generation (measured) + implied gas demand (Phase 2)."""
+    date_from, date_to = _window(days)
+    rows = (
+        db.query(GasPowerBurn)
+        .filter(GasPowerBurn.date >= date_from, GasPowerBurn.date <= date_to)
+        .order_by(GasPowerBurn.date.asc())
+        .all()
+    )
+    if not rows:
+        return {"available": False, "reason": "no power-burn data yet (needs ENTSOE_API_TOKEN)"}
+    return {
+        "available": True,
+        "note": "implied_gas_gwh = gen_gwh_el / efficiency; efficiency ~0.50 carries ~±5% systematic error",
+        "data": [
+            {"date": r.date, "gen_gwh_el": r.gen_gwh_el, "implied_gas_gwh": r.implied_gas_gwh, "efficiency": r.efficiency}
+            for r in rows
+        ],
+    }
 
 
 @router.get("/validation")
