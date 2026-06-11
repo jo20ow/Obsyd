@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # NASA FIRMS (BYOK)
     firms_api_key: Optional[SecretStr] = None
 
+    # GIE (AGSI gas storage + ALSI LNG) — one free key covers both
+    gie_api_key: Optional[SecretStr] = None
+
     # App secret (for HMAC tokens)
     secret_key: SecretStr = SecretStr("obsyd-change-me-in-production")
 

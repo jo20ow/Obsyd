@@ -1,0 +1,89 @@
+"""EU gas balance read endpoints (Phase 1).
+
+GET /api/gas/supply      — daily supply decomposition (imports + LNG + net UK)
+GET /api/gas/storage     — AGSI storage series
+GET /api/gas/lng         — ALSI LNG series
+GET /api/gas/validation  — Bruegel ±5% comparison (the Phase-1 milestone)
+"""
+
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+
+from backend.database import get_db
+from backend.gas import validation
+from backend.models.gas import GasLng, GasStorage
+
+router = APIRouter(prefix="/api/gas", tags=["gas"])
+
+# The operator drops the refreshed Bruegel weekly CSV here (gitignored data/).
+BRUEGEL_CSV = Path("data/gas/bruegel_weekly.csv")
+
+
+def _window(days: int) -> tuple[str, str]:
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=days)
+    return start.isoformat(), end.isoformat()
+
+
+@router.get("/supply")
+async def get_supply(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+    """Daily supply (GWh/d) decomposed into pipeline imports, LNG, net UK."""
+    date_from, date_to = _window(days)
+    rows = validation.compute_daily_supply(db, date_from, date_to)
+    if not rows:
+        return {"available": False, "reason": "no flow/lng data yet — run gas_backfill"}
+    return {"available": True, "from": date_from, "to": date_to, "data": rows}
+
+
+@router.get("/storage")
+async def get_storage(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+    date_from, date_to = _window(days)
+    rows = (
+        db.query(GasStorage)
+        .filter(GasStorage.date >= date_from, GasStorage.date <= date_to)
+        .order_by(GasStorage.date.asc())
+        .all()
+    )
+    if not rows:
+        return {"available": False, "reason": "no AGSI data yet"}
+    return {
+        "available": True,
+        "data": [
+            {"date": r.date, "stock_twh": r.stock_twh, "injection_gwh": r.injection_gwh, "withdrawal_gwh": r.withdrawal_gwh, "fill_pct": r.fill_pct}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/lng")
+async def get_lng(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+    date_from, date_to = _window(days)
+    rows = (
+        db.query(GasLng)
+        .filter(GasLng.date >= date_from, GasLng.date <= date_to)
+        .order_by(GasLng.date.asc())
+        .all()
+    )
+    if not rows:
+        return {"available": False, "reason": "no ALSI data yet"}
+    return {"available": True, "data": [{"date": r.date, "send_out_gwh": r.send_out_gwh, "inventory_twh": r.inventory_twh} for r in rows]}
+
+
+@router.get("/validation")
+async def get_validation(
+    date_from: str = Query(None, description="YYYY-MM-DD; defaults to the Bruegel CSV's span"),
+    date_to: str = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Phase-1 milestone: modeled supply vs Bruegel weekly imports (±5%)."""
+    if not BRUEGEL_CSV.exists():
+        return {"available": False, "reason": f"drop the Bruegel weekly CSV at {BRUEGEL_CSV}"}
+    # Default the window wide enough to cover all model data; the comparison
+    # only scores weeks present in both the model and the Bruegel CSV.
+    date_from = date_from or "2023-01-01"
+    date_to = date_to or datetime.utcnow().date().isoformat()
+    result = validation.validate(db, date_from, date_to, BRUEGEL_CSV)
+    return {"available": True, **result}
