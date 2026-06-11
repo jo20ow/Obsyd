@@ -4,6 +4,10 @@
 > disruption weight backtest) + `backend/scripts/backtest_disruption_weights.py`,
 > 18 unit tests. P2–P4 (scorecard table, API, event-study generalization,
 > frontend badges) still open.
+>
+> **First run (2026-06-11):** found a dead component (backwardation bug, fixed
+> in #3) and showed no validated predictive edge yet. See
+> [findings/2026-06-11-disruption-score-backtest.md](findings/2026-06-11-disruption-score-backtest.md).
 
 ## Context & goal
 
