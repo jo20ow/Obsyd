@@ -65,13 +65,29 @@ async def sync_points(db: Session, *, overwrite: bool = False) -> dict:
     for row in rows:
         unique[make_point_id(row)] = row
 
+    # Pipe-in-pipe / multi-operator double-reporting: several operators report
+    # the SAME physical point (same pointKey + direction), e.g. 4 TSOs at Emden
+    # (EPT1) ITP-00501. Summing all of them over-counts supply (~9% vs Bruegel).
+    # Keep exactly one operator per (pointKey, direction); prefer one that has
+    # data, then a stable operatorKey order. Only the keeper stays active.
+    classified = {pid: classify_point(row) for pid, row in unique.items() if classify_point(row)}
+    keepers: set[str] = set()
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for pid in classified:
+        row = unique[pid]
+        groups.setdefault((row.get("pointKey", ""), row.get("directionKey", "")), []).append(row)
+    for phys, members in groups.items():
+        members.sort(key=lambda r: (not bool(r.get("hasData")), r.get("operatorKey", "")))
+        keepers.add(make_point_id(members[0]))
+
     by_class: dict[str, int] = {}
     for pid, row in unique.items():
         cls = classify_point(row)
         point_class = cls.point_class if cls else None
         counterparty = cls.counterparty if cls else None
-        active = 1 if cls else 0
-        if point_class:
+        # Active only if classified AND the chosen keeper for its physical point.
+        active = 1 if (cls and pid in keepers) else 0
+        if point_class and active:
             by_class[point_class] = by_class.get(point_class, 0) + 1
 
         existing = db.get(GasPoint, pid)

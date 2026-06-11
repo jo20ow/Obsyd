@@ -63,6 +63,31 @@ def test_production_and_export_excluded(db_session):
     assert r["supply_gwh"] == 1000.0  # only imports
 
 
+def test_multi_operator_physical_point_takes_max_not_sum(db_session):
+    db = db_session
+    # Same physical point "Emden (EPT1)" reported by two TSOs under different
+    # point_ids on the same day → supply takes the max (the total), not the sum
+    # of the redundant sub-reports.
+    db.add(GasPoint(point_id="OGE|P1|entry", name="Emden (EPT1) (OGE)", operator="OGE", point_class="import_pipeline", counterparty="Norway", active=1))
+    db.add(GasPoint(point_id="GUD|P2|entry", name="Emden (EPT1) (GUD)", operator="GUD", point_class="import_pipeline", counterparty="Norway", active=1))
+    _flow(db, "2026-06-01", "OGE|P1|entry", "entry", 22000.0)
+    _flow(db, "2026-06-01", "GUD|P2|entry", "entry", 10000.0)
+    db.commit()
+    r = validation.compute_daily_supply(db, "2026-06-01", "2026-06-01")[0]
+    assert r["pipeline_gwh"] == 22000.0  # max, not 32000
+
+
+def test_inactive_points_excluded_from_supply(db_session):
+    db = db_session
+    db.add(GasPoint(point_id="A|P|entry", name="X (A)", operator="A", point_class="import_pipeline", counterparty="N", active=1))
+    db.add(GasPoint(point_id="B|P2|entry", name="Y (B)", operator="B", point_class="import_pipeline", counterparty="N", active=0))
+    _flow(db, "2026-06-01", "A|P|entry", "entry", 100.0)
+    _flow(db, "2026-06-01", "B|P2|entry", "entry", 999.0)  # inactive → ignored
+    db.commit()
+    r = validation.compute_daily_supply(db, "2026-06-01", "2026-06-01")[0]
+    assert r["pipeline_gwh"] == 100.0
+
+
 def test_weekly_supply_aggregates_iso_weeks():
     daily = [
         {"date": "2026-06-01", "supply_gwh": 100.0},  # 2026-W23

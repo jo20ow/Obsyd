@@ -16,10 +16,10 @@ Bruegel "European natural gas imports" dataset.
 from __future__ import annotations
 
 import csv
+import re
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from backend.models.gas import GasFlow, GasLng, GasPoint
@@ -28,53 +28,66 @@ TOLERANCE_PCT = 5.0
 MILESTONE_PASS_FRACTION = 0.80
 
 
+def _physical(name: str) -> str:
+    """Strip the trailing operator suffix so the same physical point reported by
+    several TSOs collapses to one key, e.g. 'Emden (EPT1) (OGE)' → 'Emden (EPT1)'."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", name or "").strip()
+
+
 def compute_daily_supply(db: Session, date_from: str, date_to: str) -> list[dict]:
-    """Per-day supply (GWh/d) = pipeline imports + LNG send-out + max(0, net UK)."""
-    # Pipeline imports (entries) + UK entry/exit, grouped by day, via a flow⋈point join.
+    """Per-day supply (GWh/d) = pipeline imports + LNG send-out + max(0, net UK).
+
+    Multi-operator double-reporting: several TSOs report the SAME physical entry
+    (e.g. Emden EPT1) under different pointKeys, often with near-identical
+    values. Summing them over-counts (~9% vs Bruegel). The physical flow at a
+    point is the SINGLE LARGEST operator report (sub-reports are ≤ the total),
+    so we take the max per (physical point, direction, day), then sum.
+    """
     rows = (
-        db.query(
-            GasFlow.date.label("date"),
-            func.sum(
-                case((GasPoint.point_class == "import_pipeline", GasFlow.value_gwh), else_=0.0)
-            ).label("pipeline"),
-            func.sum(
-                case(
-                    ((GasPoint.point_class == "interconnector_uk") & (GasFlow.direction == "entry"), GasFlow.value_gwh),
-                    else_=0.0,
-                )
-            ).label("uk_entry"),
-            func.sum(
-                case(
-                    ((GasPoint.point_class == "interconnector_uk") & (GasFlow.direction == "exit"), GasFlow.value_gwh),
-                    else_=0.0,
-                )
-            ).label("uk_exit"),
-        )
-        .join(GasPoint, GasFlow.point_id == GasPoint.point_id)
-        .filter(GasFlow.date >= date_from, GasFlow.date <= date_to)
-        .group_by(GasFlow.date)
+        db.query(GasPoint.name, GasPoint.point_class, GasFlow.date, GasFlow.direction, GasFlow.value_gwh)
+        .join(GasFlow, GasFlow.point_id == GasPoint.point_id)
+        .filter(GasFlow.date >= date_from, GasFlow.date <= date_to, GasPoint.active == 1)
+        .filter(GasPoint.point_class.in_(["import_pipeline", "interconnector_uk"]))
         .all()
     )
+
+    # max value per (date, physical point, direction)
+    best: dict[tuple[str, str, str], float] = {}
+    for name, pclass, d, direction, value in rows:
+        key = (d, _physical(name), direction)
+        tagged = (pclass, value if value is not None else 0.0)
+        if key not in best or abs(tagged[1]) > abs(best[key][1]):
+            best[key] = tagged
+
+    by_day: dict[str, dict] = {}
+    for (d, _phys, direction), (pclass, value) in best.items():
+        agg = by_day.setdefault(d, {"pipeline": 0.0, "uk_entry": 0.0, "uk_exit": 0.0})
+        if pclass == "import_pipeline":
+            agg["pipeline"] += value
+        elif pclass == "interconnector_uk":
+            agg["uk_entry" if direction == "entry" else "uk_exit"] += value
+
     lng = {
         r.date: (r.send_out_gwh or 0.0)
         for r in db.query(GasLng).filter(GasLng.date >= date_from, GasLng.date <= date_to).all()
     }
+
     out = []
-    for r in rows:
-        uk_net = (r.uk_entry or 0.0) - (r.uk_exit or 0.0)
-        pipeline = r.pipeline or 0.0
-        lng_gwh = lng.get(r.date, 0.0)
+    for d in sorted(set(by_day) | set(lng)):
+        agg = by_day.get(d, {"pipeline": 0.0, "uk_entry": 0.0, "uk_exit": 0.0})
+        uk_net = agg["uk_entry"] - agg["uk_exit"]
+        pipeline = agg["pipeline"]
+        lng_gwh = lng.get(d, 0.0)
         supply = pipeline + lng_gwh + max(0.0, uk_net)
         out.append(
             {
-                "date": r.date,
+                "date": d,
                 "pipeline_gwh": round(pipeline, 1),
                 "lng_gwh": round(lng_gwh, 1),
                 "uk_net_gwh": round(uk_net, 1),
                 "supply_gwh": round(supply, 1),
             }
         )
-    out.sort(key=lambda x: x["date"])
     return out
 
 
