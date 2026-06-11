@@ -980,9 +980,13 @@ class MarketReportGenerator:
         try:
             from backend.signals.market_structure import _fetch_structure
 
+            # _fetch_structure() returns the curve dict directly (no "curves"
+            # wrapper — that's get_market_structure's shape). Reading
+            # structure["curves"] always missed and dropped market structure
+            # from the report.
             structure = _fetch_structure()
-            if structure and "BRENT" in structure.get("curves", {}):
-                brent_curve = structure["curves"]["BRENT"]
+            if structure and "BRENT" in structure:
+                brent_curve = structure["BRENT"]
                 data["market_structure"] = {
                     "spread_pct": brent_curve.get("spread_pct", 0),
                     "structure": brent_curve.get("structure", "flat"),
