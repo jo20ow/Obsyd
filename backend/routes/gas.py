@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.gas import validation
-from backend.models.gas import GasDemandModel, GasLng, GasPowerBurn, GasStorage
+from backend.models.gas import GasBalance, GasDemandModel, GasLng, GasPowerBurn, GasStorage
 
 router = APIRouter(prefix="/api/gas", tags=["gas"])
 
@@ -111,6 +111,43 @@ async def get_demand(days: int = Query(90, ge=1, le=1500), db: Session = Depends
         "note": "industrial baseline is flat/month and (without ENTSO-E power burn) absorbs power — see model_version",
         "data": [
             {"date": r.date, "heat_gwh": r.heat_gwh, "industrial_gwh": r.industrial_gwh, "model_version": r.model_version}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/balance")
+async def get_balance(days: int = Query(120, ge=1, le=1500), db: Session = Depends(get_db)):
+    """The residual signal (Phase 4): implied vs actual ΔStorage, 7d-smoothed,
+    z-scored, flagged. The residual is the product — persistent deviation =
+    demand destruction / unexpected flows the market hasn't priced."""
+    date_from, date_to = _window(days)
+    rows = (
+        db.query(GasBalance)
+        .filter(GasBalance.date >= date_from, GasBalance.date <= date_to)
+        .order_by(GasBalance.date.asc())
+        .all()
+    )
+    if not rows:
+        return {"available": False, "reason": "no balance yet — run gas_backfill"}
+    latest = rows[-1]
+    return {
+        "available": True,
+        "latest": {"date": latest.date, "residual_7d": latest.residual_7d, "z_score": latest.z_score, "flag": latest.flag},
+        "active_flags": [{"date": r.date, "z_score": r.z_score, "flag": r.flag} for r in rows if r.flag],
+        "data": [
+            {
+                "date": r.date,
+                "supply_gwh": r.supply_gwh,
+                "demand_gwh": r.demand_gwh,
+                "exports_gwh": r.exports_gwh,
+                "implied_delta": r.implied_delta,
+                "actual_delta": r.actual_delta,
+                "residual": r.residual,
+                "residual_7d": r.residual_7d,
+                "z_score": r.z_score,
+                "flag": r.flag,
+            }
             for r in rows
         ],
     }
