@@ -6,6 +6,7 @@ import {
   XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
 import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
 
@@ -132,6 +133,7 @@ export default function GasBalancePanel() {
           </div>
         </>
       )}
+      <TrackRecordBadge signal="gas_residual" targetLabel="TTF" />
     </Panel>
   )
 }

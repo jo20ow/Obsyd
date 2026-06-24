@@ -5,10 +5,11 @@ const API = '/api'
 
 // Honest-by-design: this never shows a green "edge" unless the forward-return
 // relationship is statistically significant. Sufficient data with no signal
-// reads as "no measured edge", not a win.
-const METHOD =
-  'Track record: rank correlation (IC) between this signal and the forward ' +
-  'Brent return, with Newey-West HAC significance for overlapping windows. ' +
+// reads as "no measured edge", not a win. `targetLabel` names the forward-return
+// target (Brent for oil/maritime signals, TTF for the gas residual).
+const method = (targetLabel) =>
+  `Track record: rank correlation (IC) between this signal and the forward ` +
+  `${targetLabel} return, with Newey-West HAC significance for overlapping windows. ` +
   '"No measured edge" means enough data but not statistically significant ' +
   '(p > 0.05). Single-regime sample — informational, not a forecast.'
 
@@ -17,7 +18,7 @@ const METHOD =
  * Reads /api/validation/scorecards (shared SWR cache, fetched once) and renders
  * the card for `signal` at `horizon`. Renders nothing until scorecards exist.
  */
-export default function TrackRecordBadge({ signal, horizon = 7 }) {
+export default function TrackRecordBadge({ signal, horizon = 7, targetLabel = 'Brent' }) {
   const { data } = useFetchWithError(`${API}/validation/scorecards`)
   if (!data?.available) return null
 
@@ -48,7 +49,7 @@ export default function TrackRecordBadge({ signal, horizon = 7 }) {
   return (
     <div className="px-4 py-1.5 border-t border-border/30 flex items-center gap-1.5">
       <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded border ${tone}`}>{label}</span>
-      <InfoPopover text={METHOD} />
+      <InfoPopover text={method(targetLabel)} />
     </div>
   )
 }

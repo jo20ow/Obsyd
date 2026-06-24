@@ -14,10 +14,12 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
+from backend.models.energy import EnergyPrice
 from backend.models.prices import FREDSeries
 
 BRENT_SERIES = "DCOILBRENTEU"
 WTI_SERIES = "DCOILWTICO"
+TTF_SYMBOL = "TTF"  # forward-return target for gas-side signals (EnergyPrice)
 
 
 def load_price_map(db, series_id: str = BRENT_SERIES) -> dict[str, float]:
@@ -29,6 +31,17 @@ def load_price_map(db, series_id: str = BRENT_SERIES) -> dict[str, float]:
         .all()
     )
     return {r.date: float(r.value) for r in rows if r.value is not None}
+
+
+def load_energy_price_map(db, symbol: str = TTF_SYMBOL) -> dict[str, float]:
+    """date(YYYY-MM-DD) -> close for an EnergyPrice symbol (e.g. TTF), ascending."""
+    rows = (
+        db.query(EnergyPrice.date, EnergyPrice.close)
+        .filter(EnergyPrice.symbol == symbol)
+        .order_by(EnergyPrice.date.asc())
+        .all()
+    )
+    return {r.date: float(r.close) for r in rows if r.close is not None}
 
 
 def _on_or_before(sorted_dates: list[str], price_map: dict[str, float], target: str) -> float | None:
