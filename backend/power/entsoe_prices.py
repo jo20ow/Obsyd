@@ -88,6 +88,65 @@ def parse_day_ahead_prices(xml_text: str) -> dict[str, float]:
     return {day: sum(prices) / len(prices) for day, prices in by_day.items() if prices}
 
 
+def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
+    """Parse an A44 document into {YYYY-MM-DD: {mean, min, max, negative_hours}}.
+
+    Same Period/Point walk as parse_day_ahead_prices, but collects ALL hourly
+    prices per UTC day and computes:
+      mean          — daily mean EUR/MWh (identical to parse_day_ahead_prices output)
+      min           — lowest hourly price (can be negative)
+      max           — highest hourly price
+      negative_hours — count of hours where price < 0 (renewable-oversupply signal)
+
+    Namespace-agnostic (matches local tag names only).
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"ENTSO-E A44 XML parse error: {exc}") from exc
+
+    by_day: dict[str, list[float]] = {}
+
+    for ts in root.iter():
+        if _localname(ts.tag) != "TimeSeries":
+            continue
+        for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
+            start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
+            res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
+            if start_el is None or res_el is None:
+                continue
+            start = _parse_utc(start_el.text)
+            res_hours = _RESOLUTION_HOURS.get((res_el.text or "").strip())
+            if start is None or res_hours is None:
+                continue
+            for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
+                pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
+                price_str = next(
+                    (e.text for e in point if _localname(e.tag) == "price.amount"), None
+                )
+                if pos is None or price_str is None:
+                    continue
+                try:
+                    ts_time = start + timedelta(hours=res_hours * (int(pos) - 1))
+                    price = float(price_str)
+                except (ValueError, TypeError):
+                    continue
+                day = ts_time.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                by_day.setdefault(day, []).append(price)
+
+    result: dict[str, dict] = {}
+    for day, prices in by_day.items():
+        if not prices:
+            continue
+        result[day] = {
+            "mean": sum(prices) / len(prices),
+            "min": min(prices),
+            "max": max(prices),
+            "negative_hours": sum(1 for p in prices if p < 0),
+        }
+    return result
+
+
 # ─── fetch ────────────────────────────────────────────────────────────────────
 
 
