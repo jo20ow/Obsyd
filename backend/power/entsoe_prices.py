@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
-from backend.models.energy import EnergyPrice
+from backend.models.energy import EnergyPrice, PowerPriceDaily
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,10 @@ async def ingest_day_ahead(
         {datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days}
     )
 
-    prices_by_day: dict[str, float] = {}
+    # Zone label for PowerPriceDaily (readable key matching PowerGrid convention)
+    zone = "DE_LU"
+
+    stats_by_day: dict[str, dict] = {}
     for month_start in months:
         try:
             xml = await _fetch_zone_month(eic, month_start, overwrite=overwrite)
@@ -218,13 +221,17 @@ async def ingest_day_ahead(
             continue
         if not xml:
             continue
-        for day, mean_price in parse_day_ahead_prices(xml).items():
+        for day, stats in parse_day_ahead_stats(xml).items():
             if day in wanted:
-                prices_by_day[day] = mean_price
+                stats_by_day[day] = stats
 
     written = 0
-    for day, mean_price in prices_by_day.items():
-        _upsert(db, day, symbol, mean_price)
+    for day, stats in stats_by_day.items():
+        mean = stats["mean"]
+        # Keep EnergyPrice(POWER_DE) identical — scorecard + spark-spread use it.
+        _upsert(db, day, symbol, mean)
+        # Upsert the richer per-day stats row.
+        _upsert_daily(db, day, zone, stats)
         written += 1
     db.commit()
     logger.info(
@@ -246,3 +253,28 @@ def _upsert(db: Session, day: str, symbol: str, close: float) -> None:
         existing.close = close
     else:
         db.add(EnergyPrice(date=day, symbol=symbol, close=close))
+
+
+def _upsert_daily(db: Session, day: str, zone: str, stats: dict) -> None:
+    """Upsert one PowerPriceDaily row from a stats dict (mean/min/max/negative_hours)."""
+    existing = (
+        db.query(PowerPriceDaily)
+        .filter(PowerPriceDaily.date == day, PowerPriceDaily.zone == zone)
+        .first()
+    )
+    if existing:
+        existing.mean_price = stats["mean"]
+        existing.min_price = stats["min"]
+        existing.max_price = stats["max"]
+        existing.negative_hours = stats["negative_hours"]
+    else:
+        db.add(
+            PowerPriceDaily(
+                date=day,
+                zone=zone,
+                mean_price=stats["mean"],
+                min_price=stats["min"],
+                max_price=stats["max"],
+                negative_hours=stats["negative_hours"],
+            )
+        )
