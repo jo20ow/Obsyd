@@ -14,8 +14,9 @@ function NegativeDot({ cx, cy, payload }) {
   return <circle cx={cx} cy={cy} r={3} fill="#f87171" stroke="none" />
 }
 
-export default function PowerDayAheadPanel() {
-  const { data, loading, error } = useFetchWithError(`${API}/power/day-ahead?days=120`)
+export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
+  const url = `${API}/power/day-ahead?days=120&zone=${zone}`
+  const { data, loading, error } = useFetchWithError(url, { deps: [zone] })
 
   if (error)
     return (
@@ -29,12 +30,14 @@ export default function PowerDayAheadPanel() {
   const latest = data?.latest ?? rows[rows.length - 1]
   const close = latest?.close
   const negativeDays = data?.negative_days ?? 0
+  // Readable label: prefer what the API returns, fall back to the zone prop
+  const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
 
   return (
     <Panel
       id="power-day-ahead"
-      title="POWER DAY-AHEAD · DE-LU"
-      info="ENTSO-E day-ahead electricity prices for the DE-LU bidding zone (EUR/MWh). Each point is the daily mean of 24 hourly auction results from the ENTSO-E Transparency Platform (A44). Red markers indicate days with at least one negative-price hour (renewable oversupply). Free, official redistributable data."
+      title={`POWER DAY-AHEAD · ${zoneLabel}`}
+      info="ENTSO-E day-ahead electricity prices for the selected bidding zone (EUR/MWh). Each point is the daily mean of 24 hourly auction results from the ENTSO-E Transparency Platform (A44). Red markers indicate days with at least one negative-price hour (renewable oversupply). Free, official redistributable data."
       collapsible
       headerRight={
         close != null && (
@@ -60,7 +63,7 @@ export default function PowerDayAheadPanel() {
               <span className="font-mono text-[10px] text-neutral-600">{latest.date}</span>
             </div>
             <div className="font-mono text-[10px] text-neutral-600 mt-1">
-              ENTSO-E A44 · DE-LU bidding zone · daily mean of hourly prices
+              ENTSO-E A44 · {zoneLabel} bidding zone · daily mean of hourly prices
               {negativeDays > 0 && (
                 <span className="ml-2 text-red-400">
                   · {negativeDays} negative-price {negativeDays === 1 ? 'day' : 'days'}

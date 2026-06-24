@@ -20,8 +20,9 @@ function DunkelDot({ cx, cy, payload }) {
   return <circle cx={cx} cy={cy} r={3} fill={COLOR_DUNKEL} stroke="none" />
 }
 
-export default function PowerGridPanel() {
-  const { data, loading, error } = useFetchWithError(`${API}/power/grid?days=120`)
+export default function PowerGridPanel({ zone = 'DE_LU' }) {
+  const url = `${API}/power/grid?days=120&zone=${zone}`
+  const { data, loading, error } = useFetchWithError(url, { deps: [zone] })
 
   if (error)
     return (
@@ -46,10 +47,13 @@ export default function PowerGridPanel() {
   const isDunkel = latest?.dunkelflaute === true
   const headerColor = isDunkel ? COLOR_DUNKEL : '#22d3ee'
 
+  // Readable label: prefer what the API returns, fall back to zone prop
+  const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
+
   return (
     <Panel
       id="power-grid"
-      title="RESIDUAL LOAD · DE-LU"
+      title={`RESIDUAL LOAD · ${zoneLabel}`}
       info="Residual load = total electricity demand − wind − solar (MW daily mean). This is the demand that dispatchable plants (gas, coal, nuclear, hydro) must cover. Dunkelflaute = day when renewable share < 15% of total load — a physical stress signal, not a price forecast."
       collapsible
       headerRight={
@@ -89,7 +93,7 @@ export default function PowerGridPanel() {
               )}
             </div>
             <div className="font-mono text-[10px] text-neutral-600 mt-1">
-              {dunkelflaute_days} Dunkelflaute days / {rows.length} · ENTSO-E A65 + A75 · {latest.date}
+              {dunkelflaute_days} Dunkelflaute days / {rows.length} · ENTSO-E A65 + A75 · {zoneLabel} · {latest.date}
             </div>
           </div>
 
