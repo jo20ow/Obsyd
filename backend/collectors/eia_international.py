@@ -22,10 +22,15 @@ logger = logging.getLogger(__name__)
 
 BASE = "https://api.eia.gov/v2/international/data/"
 
-# (product label, EIA productId, pinned unit). Petroleum first; gas/coal/electricity
-# live in sibling EIA international datasets and are added as later nodes.
-PRODUCTS = [("petroleum", "53", "TBPD")]  # 53 = Total petroleum and other liquids
-ACTIVITIES = [("production", "1"), ("consumption", "2")]
+# (product label, activity label, EIA productId, EIA activityId, pinned unit).
+# NOTE: EIA's productId depends on the activity — production lives under 53 ("Total
+# petroleum and other liquids"), but consumption is only under 5 ("Petroleum and other
+# liquids"); product 53 has no consumption rows. Both are petroleum liquids in TBPD, so
+# they're comparable on the map. Gas/coal/electricity are sibling datasets (later nodes).
+SERIES = [
+    ("petroleum", "production", "53", "1", "TBPD"),
+    ("petroleum", "consumption", "5", "2", "TBPD"),
+]
 
 
 def _api_key() -> str:
@@ -96,21 +101,20 @@ async def ingest_eia_international(db: Session, start_year: int = 2010) -> dict:
 
     written = 0
     async with httpx.AsyncClient() as client:
-        for product, product_id, unit in PRODUCTS:
-            for activity, activity_id in ACTIVITIES:
-                try:
-                    rows = await _fetch(client, product_id, activity_id, unit, start_year)
-                except Exception as e:
-                    logger.warning("EIA International fetch failed (%s/%s): %s", product, activity, e)
+        for product, activity, product_id, activity_id, unit in SERIES:
+            try:
+                rows = await _fetch(client, product_id, activity_id, unit, start_year)
+            except Exception as e:
+                logger.warning("EIA International fetch failed (%s/%s): %s", product, activity, e)
+                continue
+            kept = 0
+            for row in rows:
+                rec = _normalize_row(row, product, activity, unit)
+                if rec is None:
                     continue
-                kept = 0
-                for row in rows:
-                    rec = _normalize_row(row, product, activity, unit)
-                    if rec is None:
-                        continue
-                    _upsert(db, rec)
-                    kept += 1
-                db.commit()
-                written += kept
-                logger.info("EIA International: %s/%s → %d country-rows (of %d)", product, activity, kept, len(rows))
+                _upsert(db, rec)
+                kept += 1
+            db.commit()
+            written += kept
+            logger.info("EIA International: %s/%s → %d country-rows (of %d)", product, activity, kept, len(rows))
     return {"status": "ok", "written": written}
