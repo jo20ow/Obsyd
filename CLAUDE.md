@@ -155,9 +155,12 @@ tägliche **TTF-Preisserie** (`EnergyPrice` + `energy_prices`-Collector, yfinanc
 - **Generation-Mix** (voller A75-Mix → `PowerGenMix`); `/api/power/generation-mix` (frei).
 - **Track-Record:** `power_residual` + `spark_spread` im Scorecard gegen **Strompreis** gescort
   (target-aware), Badges auf den Panels.
-- **Zurückgestellt (Slice 4):** Clean-Spark (− CO₂) + Dark-Spread (Kohle) — **keine freie,
-  redistributierbare EUA-/Kohle-Tagesquelle** (yfinance leer, EEX webshop-/lizenzgesperrt);
-  `co2_price`/`clean_spark_spread`-Spalten existieren, bleiben leer bis Quelle geklärt.
+- **Zurückgestellt (Slice 4) — A0-Spike abgeschlossen 2026-06-24:** Clean-Spark (− CO₂) +
+  Dark-Spread (Kohle) bleiben geparkt. **Entscheidung:** keine bestätigte freie, programmatisch
+  abrufbare, redistributierbare Tages-EUA-/Kohle-Quelle (yfinance leer, EEX lizenzgesperrt, ICAP
+  Terms-restricted, Energy-Charts CO₂ via API unbestätigt). Voller Befund + Unblock-Pfade:
+  `docs/findings/2026-06-24-eua-coal-data-source.md`. `co2_price`/`clean_spark_spread` bleiben null.
+  Bester Unblock-Pfad: Energy-Charts-CO₂-Code pinnen (CC BY 4.0) oder CSV-Stopgap (Bruegel-Muster).
 
 **Fehlt noch:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS-Feed + Clean-/Dark-Spread,
 Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl- und Gas/Energy-Vertikale siliert),
@@ -181,8 +184,10 @@ Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
    Scorecard, Gas-Residual gegen TTF, `TrackRecordBadge` am Balance-Panel.
 3. ~~**Gas→Energy: ENERGY-Vertikal**~~ — **erledigt (PRs #16–#22), live in Prod:** Day-Ahead-Preis
    + Negativpreise, Spark-Spread, Residuallast/Dunkelflaute, Generation-Mix, Energy-Track-Record.
-   **Offen (Slice 4, blockiert):** EUA/Clean-Spark + Dark-Spread — wartet auf freie EUA-/Kohle-Quelle.
-   **Weiter offen:** Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion.
+   **A1 erledigt (PRs #24/#25):** Multi-Zone (DE-LU/FR/NL) + Cross-Border-Flows.
+   **Slice 4 geparkt (A0-Spike abgeschlossen 2026-06-24):** EUA/Clean-Spark + Dark-Spread — keine
+   bestätigte freie Datenquelle, siehe `docs/findings/2026-06-24-eua-coal-data-source.md`.
+   **Weiter offen:** Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion, Exposure-Mapping.
 4. **Exposure-Mapping v1** (Premium-Kern) — strukturierte Signal→Ticker→Richtung-Tabelle statt
    statischer Liste + Prosa; als Hypothese durch die Validierungs-Schicht, **bevor** als Edge
    verkauft. Erst dann Preis-Diskussion 20–30 €.
