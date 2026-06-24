@@ -166,8 +166,7 @@ def _seed_power(db, n_days=80, seed=13):
     """Plant PowerGrid rows with residual_mw that predicts the 7d-forward
     POWER_DE move, plus a matching EnergyPrice POWER_DE series.
 
-    PowerGrid has one row per (date, zone) — no created_at — mirroring the
-    GasBalance seeding pattern.
+    PowerGrid has one row per (date, zone), so the loader reads it directly.
 
     A positive planted relationship (high residual → gas/coal plants must run
     → tighter supply → higher power price next week) is used to assert IC sign.
