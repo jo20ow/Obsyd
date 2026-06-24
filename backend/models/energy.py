@@ -56,3 +56,29 @@ class SparkSpreadHistory(Base):
     co2_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)          # EUR/tCO₂
     clean_spark_spread: Mapped[Optional[float]] = mapped_column(Float, nullable=True) # EUR/MWh
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PowerGrid(Base):
+    """Daily-mean electricity grid metrics for residual-load analysis.
+
+    One row per (date, zone). load_mw, wind_mw, solar_mw are daily means
+    in MW (not totals); residual_load = load − wind − solar is derived on
+    read, never stored.
+
+    Sources:
+      load_mw  — ENTSO-E A65 (Actual Total Load), processType A16
+      wind_mw  — ENTSO-E A75 (Actual Generation), psrType B18+B19
+      solar_mw — ENTSO-E A75 (Actual Generation), psrType B16
+    """
+
+    __tablename__ = "power_grid"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)   # YYYY-MM-DD
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)   # e.g. "DE_LU"
+    load_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # daily mean MW
+    wind_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # daily mean MW (B18+B19)
+    solar_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # daily mean MW (B16)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("date", "zone", name="uq_power_grid_date_zone"),)
