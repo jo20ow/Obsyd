@@ -22,3 +22,4 @@ frontend/dist/
 data/
 .DS_Store
 STATUS_REPORT.md
+.superpowers/

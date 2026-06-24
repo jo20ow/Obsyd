@@ -106,9 +106,16 @@ async def get_demand(days: int = Query(90, ge=1, le=1500), db: Session = Depends
     )
     if not rows:
         return {"available": False, "reason": "no demand model yet — run gas_backfill --sources weather,demand"}
+    has_power = "power" in (rows[-1].model_version or "")
+    note = (
+        "demand = HDD-driven heating + flat industrial baseline; power burn is modeled "
+        "separately (see /power-burn) — see model_version"
+        if has_power
+        else "industrial baseline is flat/month and (without ENTSO-E power burn) absorbs power — see model_version"
+    )
     return {
         "available": True,
-        "note": "industrial baseline is flat/month and (without ENTSO-E power burn) absorbs power — see model_version",
+        "note": note,
         "data": [
             {"date": r.date, "heat_gwh": r.heat_gwh, "industrial_gwh": r.industrial_gwh, "model_version": r.model_version}
             for r in rows
