@@ -31,6 +31,10 @@ import MarketReportPanel from './components/MarketReportPanel'
 import EIAPredictionPanel, { EIAPredictionMini } from './components/EIAPredictionPanel'
 import FreightProxyPanel from './components/FreightProxyPanel'
 import AlertRulesPanel from './components/AlertRulesPanel'
+import GasBalancePanel from './components/GasBalancePanel'
+import GasStoragePanel from './components/GasStoragePanel'
+import GasSupplyPanel from './components/GasSupplyPanel'
+import GasDemandPanel from './components/GasDemandPanel'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
 
@@ -40,6 +44,7 @@ const TABS = [
   { key: 'overview', label: 'OVERVIEW' },
   { key: 'market', label: 'MARKET' },
   { key: 'signals', label: 'SIGNALS' },
+  { key: 'gas', label: 'GAS' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
 ]
@@ -468,6 +473,31 @@ function Dashboard() {
                 <ProGate feature="Crack Spread">
                   <CrackSpreadPanel />
                 </ProGate>
+              </ErrorBoundary>
+            </div>
+          </>
+        )}
+
+        {/* GAS TAB */}
+        {activeTab === 'gas' && (
+          <>
+            {/* Row 1: Residual balance hero (Pro) */}
+            <ErrorBoundary name="gas-balance">
+              <ProGate feature="EU Gas Balance">
+                <GasBalancePanel />
+              </ProGate>
+            </ErrorBoundary>
+
+            {/* Row 2: Free driver panels */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
+              <ErrorBoundary name="gas-storage">
+                <GasStoragePanel />
+              </ErrorBoundary>
+              <ErrorBoundary name="gas-supply">
+                <GasSupplyPanel />
+              </ErrorBoundary>
+              <ErrorBoundary name="gas-demand">
+                <GasDemandPanel />
               </ErrorBoundary>
             </div>
           </>
