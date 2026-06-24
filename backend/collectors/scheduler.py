@@ -28,6 +28,7 @@ from backend.analytics.tonne_miles import compute_tonne_miles
 from backend.analytics.validation.scorecards import recompute_scorecards_job
 from backend.collectors.crack_spreads import collect_crack_spreads
 from backend.collectors.eia import collect_eia
+from backend.collectors.eia_international import ingest_eia_international
 from backend.collectors.energy_prices import collect_energy_prices
 from backend.collectors.equities import collect_equities
 from backend.collectors.finnhub_news import collect_finnhub_news
@@ -231,6 +232,18 @@ async def _run_metals_monthly():
         logger.info("metals monthly: %s", result)
     except Exception as e:
         logger.error("metals monthly ingest failed: %s", e)
+    finally:
+        db.close()
+
+
+async def _run_eia_international():
+    """Monthly ingest of EIA International per-country energy (ATLAS data layer)."""
+    db = SessionLocal()
+    try:
+        result = await ingest_eia_international(db)
+        logger.info("eia international: %s", result)
+    except Exception as e:
+        logger.error("eia international ingest failed: %s", e)
     finally:
         db.close()
 
@@ -560,6 +573,14 @@ def start_scheduler():
         _run_metals_monthly,
         CronTrigger(day=5, hour=6, minute=0),
         id="metals_monthly",
+        **JOB_DEFAULTS,
+    )
+
+    # ATLAS — EIA International per-country energy (annual data, lagging): monthly on the 6th.
+    scheduler.add_job(
+        _run_eia_international,
+        CronTrigger(day=6, hour=6, minute=0),
+        id="eia_international",
         **JOB_DEFAULTS,
     )
 
