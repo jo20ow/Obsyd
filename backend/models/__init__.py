@@ -3,6 +3,7 @@ from backend.models.alert_rules import UserAlertEvent as UserAlertEvent
 from backend.models.alerts import Alert as Alert
 from backend.models.fleet import DailyFleetSummary as DailyFleetSummary
 from backend.models.jodi import JODIProduction as JODIProduction
+from backend.models.metals import CopperSupply as CopperSupply
 from backend.models.ports import Disruption as Disruption
 from backend.models.ports import PortActivity as PortActivity
 from backend.models.prices import EIAPrice as EIAPrice

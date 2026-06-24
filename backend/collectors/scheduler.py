@@ -44,6 +44,7 @@ from backend.collectors.retention import run_retention
 from backend.collectors.spark_spreads import collect_spark_spreads
 from backend.collectors.sts_collector import collect_sts_events
 from backend.database import SessionLocal
+from backend.metals.usgs_copper import ingest_copper_supply
 from backend.notifications.alert_runner import process_alert_rules
 from backend.notifications.collector_watchdog import check_collectors
 from backend.notifications.daily_email import send_daily_email
@@ -218,6 +219,18 @@ async def _run_gas_registry_weekly():
         await sync_points(db, overwrite=True)
     except Exception as e:
         logger.error("gas registry sync failed: %s", e)
+    finally:
+        db.close()
+
+
+async def _run_metals_monthly():
+    """Monthly ingest of USGS copper supply data (MIS spreadsheets)."""
+    db = SessionLocal()
+    try:
+        result = await ingest_copper_supply(db, months_back=18)
+        logger.info("metals monthly: %s", result)
+    except Exception as e:
+        logger.error("metals monthly ingest failed: %s", e)
     finally:
         db.close()
 
@@ -538,6 +551,15 @@ def start_scheduler():
         _run_gas_registry_weekly,
         CronTrigger(day_of_week="mon", hour=3, minute=30),
         id="gas_registry_weekly",
+        **JOB_DEFAULTS,
+    )
+
+    # Metals — USGS copper supply: monthly on the 5th at 06:00 UTC
+    # (MIS files are typically released mid-to-late in the following month).
+    scheduler.add_job(
+        _run_metals_monthly,
+        CronTrigger(day=5, hour=6, minute=0),
+        id="metals_monthly",
         **JOB_DEFAULTS,
     )
 

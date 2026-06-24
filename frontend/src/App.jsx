@@ -40,6 +40,7 @@ import PowerGridPanel from './components/PowerGridPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
+import CopperPanel from './components/CopperPanel'
 import ZoneSelector from './components/ZoneSelector'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
@@ -52,6 +53,7 @@ const TABS = [
   { key: 'signals', label: 'SIGNALS' },
   { key: 'gas', label: 'GAS' },
   { key: 'energy', label: 'ENERGY' },
+  { key: 'metals', label: 'METALS' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
 ]
@@ -557,6 +559,16 @@ function Dashboard() {
                 <CrossBorderFlowPanel />
               </ErrorBoundary>
             </div>
+          </>
+        )}
+
+        {/* METALS TAB */}
+        {activeTab === 'metals' && (
+          <>
+            {/* U.S. Copper Supply — USGS MIS (public domain, free) */}
+            <ErrorBoundary name="copper">
+              <CopperPanel />
+            </ErrorBoundary>
           </>
         )}
 
