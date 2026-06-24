@@ -24,6 +24,7 @@ from backend.observability import TraceIDMiddleware, setup_logging
 from backend.routes import alert_rules as alert_rules_routes
 from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import analytics as analytics_routes
+from backend.routes import atlas as atlas_routes
 from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
 from backend.routes import email as email_routes
@@ -214,4 +215,5 @@ app.include_router(analytics_routes.router)
 app.include_router(validation_routes.router)
 app.include_router(gas_routes.router)
 app.include_router(metals_routes.router)
+app.include_router(atlas_routes.router)
 app.include_router(power_routes.router)
