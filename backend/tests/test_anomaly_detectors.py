@@ -316,6 +316,21 @@ def test_api_group_by_vertical_severity_sorted(client, db_session):
     assert oil_sev == ["critical", "info"]
 
 
+def test_api_excludes_stale_alerts(client, db_session):
+    # The radar feed shows only current anomalies: a re-fired alert stays fresh, a resolved
+    # one ages out of the default 48h window so weeks of history don't pile up.
+    db_session.add(Alert(rule="gas_balance", zone="EU", vertical="gas", severity="critical", title="fresh", detail=""))
+    db_session.add(Alert(rule="flow_anomaly", zone="houston", vertical="oil", severity="warning", title="stale",
+                         detail="", created_at=datetime.utcnow() - timedelta(days=3)))
+    db_session.commit()
+
+    titles = [a["title"] for a in client.get("/api/alerts").json()]
+    assert "fresh" in titles and "stale" not in titles
+    # An explicit wider window can still reach it.
+    titles_wide = [a["title"] for a in client.get("/api/alerts?max_age_hours=168").json()]
+    assert "stale" in titles_wide
+
+
 # ─── Migration ────────────────────────────────────────────────────────────────
 
 

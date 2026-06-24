@@ -42,8 +42,22 @@ async def run_retention():
         """))
         deleted = r2.rowcount
 
+        # Phase 3: Prune old anomaly alerts so the table stays bounded. 45 days is past the
+        # 30-day AlertOutcome research horizon, so outcome capture is unaffected. Drop the
+        # linked outcomes first (FK), then the alerts. (The radar feed itself only shows the
+        # last ~48h via /api/alerts; this is pure housekeeping for DB size.)
+        db.execute(text("""
+            DELETE FROM alert_outcomes
+            WHERE alert_id IN (SELECT id FROM alerts WHERE created_at < datetime('now', '-45 days'))
+        """))
+        r3 = db.execute(text("DELETE FROM alerts WHERE created_at < datetime('now', '-45 days')"))
+        pruned_alerts = r3.rowcount
+
         db.commit()
-        logger.info(f"Retention: thinned {thinned} rows (7-30d), deleted {deleted} rows (>30d)")
+        logger.info(
+            f"Retention: thinned {thinned} rows (7-30d), deleted {deleted} positions (>30d), "
+            f"pruned {pruned_alerts} alerts (>45d)"
+        )
 
     except Exception as e:
         db.rollback()
