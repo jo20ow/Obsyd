@@ -5,9 +5,11 @@
 > (Abschnitt „Build-Stand") ist zum Datum unten verifiziert und veraltet schneller — bei Konflikt
 > gewinnt der Code.
 >
-> **Stand: 2026-06-24** · Gas-Vertikal (UI #14, Track-Record #15) + **ENERGY-Vertikal komplett**
-> (Spark #16, Residuallast/Dunkelflaute #17/#18, Energy-Track-Record #20, Generation-Mix #21,
-> Negativpreise #22); **alles in Production live**. Offen: Slice 4 (Clean-/Dark-Spread) blockiert an freier EUA-/Kohle-Quelle.
+> **Stand: 2026-06-24** · Gas-Vertikal (UI #14, Track-Record #15) + **ENERGY-Vertikal** (Spark #16,
+> Residuallast/Dunkelflaute #17/#18, Track-Record #20, Generation-Mix #21, Negativpreise #22,
+> Multi-Zone DE-LU/FR/NL #24, Cross-Border via Energy-Charts #27) + **METALS/Kupfer-Knoten** (#28–#30:
+> Preis, USGS-Angebot, Bestände-Track-Record); **alles in Production live**, 7 Scorecard-Signale.
+> Offen: Slice 4 (Clean-/Dark-Spread) blockiert an freier EUA-/Kohle-Quelle; Payment (LS) ungesetzt.
 
 ---
 
@@ -89,9 +91,9 @@ und der schon existierenden Validierungs-Engine.
   über Zeit. Rigor: n immer mitzeigen (`n<30 → nie „confident"`); RELATIV zu Index/Sektor messen;
   Overfitting meiden (walk-forward, FDR); muss ehrlich zeigen können, dass ein Mapping NICHT
   funktioniert. Das ist die Glaubwürdigkeits-Engine. *Ist heute:* **target-aware** Scorecard scort
-  6 Signale gegen ihr jeweiliges Forward-Target — Öl/Maritim (disruption_score/tonne_miles/
+  **7 Signale** gegen ihr jeweiliges Forward-Target — Öl/Maritim (disruption_score/tonne_miles/
   freight_proxy gegen Brent), Gas (gas_residual gegen TTF), Energy (power_residual/spark_spread
-  gegen Strompreis); Badges live auf den Panels.
+  gegen Strompreis), Metall (copper_stocks gegen Kupferpreis); Badges live auf den Panels.
 
 ## Gratis / Premium & Preis (Ist-Stand)
 - **Self-Host €0** (AGPL-3.0, eigene Infra) · **Cloud-Free €0** (obsyd.dev, 30-Tage-Historie,
@@ -153,6 +155,11 @@ tägliche **TTF-Preisserie** (`EnergyPrice` + `energy_prices`-Collector, yfinanc
 - **Residuallast + Dunkelflaute** (A65 Last + A75 Wind/Solar → `PowerGrid`, residual_mw gespeichert;
   Flag bei Renewable-Share < 15%); `/api/power/grid` (frei).
 - **Generation-Mix** (voller A75-Mix → `PowerGenMix`); `/api/power/generation-mix` (frei).
+- **Multi-Zone (PR #24):** Day-Ahead/Last/Mix/Residuallast für **DE-LU/FR/NL** mit Zone-Selector
+  (`?zone=`); `POWER_ZONES`. (Spark + Scorecard-Signale bleiben vorerst DE-only — A1-Follow-on.)
+- **Cross-Border-Flows (PR #27):** **20 reale Borders** via **Fraunhofer Energy-Charts `/cbpf`**
+  (frei, **CC BY 4.0**) → `PowerFlow`; `/api/power/flows` (frei). Ersetzt den ENTSO-E-A11-Versuch;
+  FR↔NL existiert physisch nicht (kein Interconnector) → bewusst draußen.
 - **Track-Record:** `power_residual` + `spark_spread` im Scorecard gegen **Strompreis** gescort
   (target-aware), Badges auf den Panels.
 - **Zurückgestellt (Slice 4) — A0-Spike abgeschlossen 2026-06-24:** Clean-Spark (− CO₂) +
@@ -162,9 +169,16 @@ tägliche **TTF-Preisserie** (`EnergyPrice` + `energy_prices`-Collector, yfinanc
   `docs/findings/2026-06-24-eua-coal-data-source.md`. `co2_price`/`clean_spark_spread` bleiben null.
   Bester Unblock-Pfad: Energy-Charts-CO₂-Code pinnen (CC BY 4.0) oder CSV-Stopgap (Bruegel-Muster).
 
+**METALS-Vertikal — Kupfer-Knoten live (PRs #28–#30, A4):** `backend/metals/usgs_copper.py` +
+`backend/models/metals.py`. Monatliches **Angebots-Signal** aus **USGS Mineral Industry Surveys**
+(Public Domain, XLSX: Minen-Produktion/Raffinade/Bestände → `CopperSupply`) + **Kupfer-Preis**
+(`EnergyPrice("COPPER")`, yfinance `HG=F`); `/api/metals/copper` (frei) + **METALS-Tab** mit
+`CopperPanel`. Track-Record: `copper_stocks` (USGS-Bestände) gegen Kupferpreis gescort (JODI-Monats-
+muster; aktuell „building n<30"). Quelle: USGS public domain.
+
 **Fehlt noch:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS-Feed + Clean-/Dark-Spread,
-Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl- und Gas/Energy-Vertikale siliert),
-Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
+Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl-/Gas-/Energy-/Metall-Vertikale
+siliert), weitere Knoten (Solar). Spark/Energy-Scorecard multi-zone (A1-Follow-on).
 
 ### Single Source of Truth (vor Fehlern bewahren)
 - **Preis** lebt nur im Frontend (`frontend/src/components/PricingModal.jsx`: `PRO_PRICE='€15'`,
@@ -184,14 +198,21 @@ Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
    Scorecard, Gas-Residual gegen TTF, `TrackRecordBadge` am Balance-Panel.
 3. ~~**Gas→Energy: ENERGY-Vertikal**~~ — **erledigt (PRs #16–#22), live in Prod:** Day-Ahead-Preis
    + Negativpreise, Spark-Spread, Residuallast/Dunkelflaute, Generation-Mix, Energy-Track-Record.
-   **A1 erledigt (PRs #24/#25):** Multi-Zone (DE-LU/FR/NL) + Cross-Border-Flows.
+   **A1 erledigt:** Multi-Zone DE-LU/FR/NL (#24) + Cross-Border-Flows (#27, **20 reale Borders via
+   Energy-Charts CC BY 4.0**; ersetzte den ENTSO-E-A11-Versuch, FR↔NL existiert physisch nicht).
    **Slice 4 geparkt (A0-Spike abgeschlossen 2026-06-24):** EUA/Clean-Spark + Dark-Spread — keine
    bestätigte freie Datenquelle, siehe `docs/findings/2026-06-24-eua-coal-data-source.md`.
-   **Weiter offen:** Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion, Exposure-Mapping.
+   **Weiter offen:** Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion, Exposure-Mapping;
+   Spark/Energy-Scorecard multi-zone (A1-Follow-on).
 4. **Exposure-Mapping v1** (Premium-Kern) — strukturierte Signal→Ticker→Richtung-Tabelle statt
    statischer Liste + Prosa; als Hypothese durch die Validierungs-Schicht, **bevor** als Edge
    verkauft. Erst dann Preis-Diskussion 20–30 €.
-5. **Danach** weitere Rohstoff-Knoten — Metall/Kupfer, Solar; jeder als fokussierter Zusatz.
+5. ~~**Metall/Kupfer-Knoten (A4)**~~ — **erledigt (PRs #28–#30), live:** METALS-Tab, USGS-Angebot
+   (Public Domain) + Preis (HG=F) + `copper_stocks`-Track-Record. **Danach** weitere Knoten (Solar …),
+   jeder als fokussierter Zusatz.
+6. **Track B / Launch & Payment (parallel, Umsatz-Engpass):** Lemon-Squeezy-Checkout-URL +
+   Webhook-Secret in Prod setzen (heute ungesetzt → niemand kann zahlen); Track-Record auf
+   Landing/Pricing sichtbar machen; Impressum/Datenschutz/AGB; Plausible/Mail-Erfassung.
 
 ---
 
