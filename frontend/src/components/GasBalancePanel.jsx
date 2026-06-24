@@ -73,7 +73,7 @@ export default function GasBalancePanel() {
           <div className="px-4 py-3 border-b border-border/30">
             <div className="flex items-baseline gap-3 flex-wrap">
               <span className="font-mono text-3xl font-bold" style={{ color: flagColor }}>
-                {latest.residual_7d >= 0 ? '+' : ''}{Math.round(latest.residual_7d).toLocaleString()}
+                {latest.residual_7d == null ? '—' : `${latest.residual_7d >= 0 ? '+' : ''}${Math.round(latest.residual_7d).toLocaleString()}`}
               </span>
               <span className="font-mono text-[10px] text-neutral-600">GWh/7d residual</span>
               <span className="font-mono text-[10px] text-yellow-400 border border-yellow-400/30 rounded px-1.5 py-0.5">
@@ -81,7 +81,7 @@ export default function GasBalancePanel() {
               </span>
             </div>
             <div className="font-mono text-[10px] text-neutral-600 mt-1">
-              {flaggedCount} flagged days / 120 · supply {Math.round(latest.supply_gwh).toLocaleString()} − demand {Math.round(latest.demand_gwh).toLocaleString()} GWh
+              {flaggedCount} flagged days / 120 · supply {latest.supply_gwh == null ? '—' : Math.round(latest.supply_gwh).toLocaleString()} − demand {latest.demand_gwh == null ? '—' : Math.round(latest.demand_gwh).toLocaleString()} GWh
             </div>
           </div>
 
