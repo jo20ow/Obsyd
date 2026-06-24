@@ -23,13 +23,22 @@ logger = logging.getLogger(__name__)
 BASE = "https://api.eia.gov/v2/international/data/"
 
 # (product label, activity label, EIA productId, EIA activityId, pinned unit).
-# NOTE: EIA's productId depends on the activity — production lives under 53 ("Total
-# petroleum and other liquids"), but consumption is only under 5 ("Petroleum and other
-# liquids"); product 53 has no consumption rows. Both are petroleum liquids in TBPD, so
-# they're comparable on the map. Gas/coal/electricity are sibling datasets (later nodes).
+# Gotchas baked in (all verified against the live API):
+#   - EIA returns the same figure in MANY units (e.g. gas in BCF/BCM/MTOE/QBTU/TJ), so we
+#     pin ONE unit per series via the `unit` facet for comparability.
+#   - productId can depend on activity: petroleum production is under 53 ("Total petroleum
+#     and other liquids") while consumption is only under 5; gas (26 "Dry natural gas") and
+#     electricity (2) use one productId across activities. Electricity uses activity 12
+#     (Generation), not Production.
+#   - Coal is fragmented in EIA (by type: anthracite/bituminous/metallurgical, no clean
+#     total prod+cons) → deliberately omitted (data-honesty: no misleading partial total).
 SERIES = [
     ("petroleum", "production", "53", "1", "TBPD"),
     ("petroleum", "consumption", "5", "2", "TBPD"),
+    ("natural_gas", "production", "26", "1", "BCM"),   # 26 = Dry natural gas
+    ("natural_gas", "consumption", "26", "2", "BCM"),
+    ("electricity", "generation", "2", "12", "BKWH"),  # 2 = Electricity
+    ("electricity", "consumption", "2", "2", "BKWH"),
 ]
 
 
