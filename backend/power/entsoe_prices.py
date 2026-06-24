@@ -15,6 +15,7 @@ The key difference from the A75/power-burn parser:
 from __future__ import annotations
 
 import logging
+import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -23,9 +24,6 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
-
-import xml.etree.ElementTree as ET
-
 from backend.models.energy import EnergyPrice
 
 logger = logging.getLogger(__name__)

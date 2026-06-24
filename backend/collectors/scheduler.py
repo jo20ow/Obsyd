@@ -29,7 +29,6 @@ from backend.analytics.validation.scorecards import recompute_scorecards_job
 from backend.collectors.crack_spreads import collect_crack_spreads
 from backend.collectors.eia import collect_eia
 from backend.collectors.energy_prices import collect_energy_prices
-from backend.collectors.spark_spreads import collect_spark_spreads
 from backend.collectors.equities import collect_equities
 from backend.collectors.finnhub_news import collect_finnhub_news
 from backend.collectors.firms import collect_firms
@@ -42,6 +41,7 @@ from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.collectors.retention import run_retention
+from backend.collectors.spark_spreads import collect_spark_spreads
 from backend.collectors.sts_collector import collect_sts_events
 from backend.database import SessionLocal
 from backend.notifications.alert_runner import process_alert_rules

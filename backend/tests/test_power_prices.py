@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.power.entsoe_prices import parse_day_ahead_prices
 from backend.models.energy import EnergyPrice
-
+from backend.power.entsoe_prices import parse_day_ahead_prices
 
 # ─── XML helpers ─────────────────────────────────────────────────────────────
 
@@ -86,11 +85,11 @@ def test_parse_two_days_in_one_period():
 def test_parse_no_price_amount_returns_empty():
     """A Point that uses <quantity> (A75-style) instead of <price.amount> is skipped."""
     xml = _a44(
-        f"<TimeSeries><Period>"
-        f"<timeInterval><start>2026-05-01T00:00Z</start><end>2026-05-02T00:00Z</end></timeInterval>"
-        f"<resolution>PT60M</resolution>"
-        f"<Point><position>1</position><quantity>5000</quantity></Point>"
-        f"</Period></TimeSeries>"
+        "<TimeSeries><Period>"
+        "<timeInterval><start>2026-05-01T00:00Z</start><end>2026-05-02T00:00Z</end></timeInterval>"
+        "<resolution>PT60M</resolution>"
+        "<Point><position>1</position><quantity>5000</quantity></Point>"
+        "</Period></TimeSeries>"
     )
     result = parse_day_ahead_prices(xml)
     assert result == {}
@@ -127,8 +126,9 @@ def test_parse_namespace_agnostic():
 
 async def test_ingest_upserts_daily_mean(db_session, monkeypatch):
     """ingest_day_ahead writes a POWER_DE row for each requested day."""
-    from backend.power import entsoe_prices
     from pydantic import SecretStr
+
+    from backend.power import entsoe_prices
 
     prices = [100.0] * 24
     xml = _a44(_ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", prices))
@@ -162,8 +162,9 @@ async def test_ingest_skips_when_no_token(db_session, monkeypatch):
 
 async def test_ingest_idempotent_upsert(db_session, monkeypatch):
     """Running ingest twice doesn't duplicate rows; close is updated."""
-    from backend.power import entsoe_prices
     from pydantic import SecretStr
+
+    from backend.power import entsoe_prices
 
     xml_v1 = _a44(_ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [100.0] * 24))
     xml_v2 = _a44(_ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [120.0] * 24))
@@ -189,8 +190,9 @@ async def test_ingest_idempotent_upsert(db_session, monkeypatch):
 
 async def test_ingest_filters_to_requested_days(db_session, monkeypatch):
     """Days outside `days` list are not written even if present in the XML."""
-    from backend.power import entsoe_prices
     from pydantic import SecretStr
+
+    from backend.power import entsoe_prices
 
     xml = _a44(
         _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [100.0] * 24)

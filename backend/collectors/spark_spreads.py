@@ -20,7 +20,6 @@ Scheduled as part of `_run_power_daily` in backend/collectors/scheduler.py.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 

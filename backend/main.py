@@ -28,9 +28,9 @@ from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
 from backend.routes import email as email_routes
 from backend.routes import gas as gas_routes
-from backend.routes import power as power_routes
 from backend.routes import jodi as jodi_routes
 from backend.routes import portwatch as portwatch_routes
+from backend.routes import power as power_routes
 from backend.routes import settings as settings_routes
 from backend.routes import signals as signals_routes
 from backend.routes import thermal as thermal_routes

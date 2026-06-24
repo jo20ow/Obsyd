@@ -15,7 +15,6 @@ import pytest
 
 from backend.models.energy import EnergyPrice, SparkSpreadHistory
 
-
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 
