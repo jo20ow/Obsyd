@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
-from backend.models.energy import PowerGrid
+from backend.models.energy import PowerGenMix, PowerGrid
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,26 @@ DE_LU_EIC = "10Y1001A1001A82H"
 PSR_SOLAR = "B16"
 PSR_WIND_OFFSHORE = "B18"
 PSR_WIND_ONSHORE = "B19"
+
+# ENTSO-E psrType code → readable label (A75 generation types)
+PSR_LABELS: dict[str, str] = {
+    "B01": "Biomass",
+    "B02": "Lignite",
+    "B04": "Fossil Gas",
+    "B05": "Hard Coal",
+    "B06": "Oil",
+    "B09": "Geothermal",
+    "B10": "Hydro Pumped Storage",
+    "B11": "Hydro Run-of-river",
+    "B12": "Hydro Reservoir",
+    "B14": "Nuclear",
+    "B15": "Other Renewable",
+    "B16": "Solar",
+    "B17": "Waste",
+    "B18": "Wind Offshore",
+    "B19": "Wind Onshore",
+    "B20": "Other",
+}
 
 _RESOLUTION_HOURS = {"PT60M": 1.0, "PT30M": 0.5, "PT15M": 0.25}
 
@@ -292,7 +312,7 @@ async def ingest_grid(
                 if day in wanted:
                     gen_by_day[day] = psr_map
 
-    # ── Upsert ─────────────────────────────────────────────────────────────
+    # ── Upsert PowerGrid ───────────────────────────────────────────────────
     all_days = wanted & (load_by_day.keys() | gen_by_day.keys())
     written = 0
     for day in sorted(all_days):
@@ -311,6 +331,9 @@ async def ingest_grid(
         _upsert_grid(db, day, zone, load_mw, wind_mw or None, solar_mw or None, residual_mw)
         written += 1
 
+    # ── Upsert PowerGenMix (full A75 breakdown) ────────────────────────────
+    _upsert_generation_mix(db, gen_by_day, zone)
+
     db.commit()
     logger.info(
         "entsoe_grid.ingest_grid: %d/%d days written (zone=%s)",
@@ -319,6 +342,46 @@ async def ingest_grid(
         zone,
     )
     return {"days": len(days), "written": written}
+
+
+def _upsert_generation_mix(
+    db: Session,
+    gen_by_day: dict[str, dict[str, float]],
+    zone: str,
+) -> None:
+    """Upsert the full generation mix (all psrTypes) from a parsed A75 result.
+
+    `gen_by_day` maps {date_str: {psrType_code: mean_mw}}.  Each (date, zone,
+    label) triple is upserted idempotently — existing rows are updated in-place,
+    new rows are inserted. Readable labels from PSR_LABELS are used; unknown
+    codes fall back to the raw code string.
+
+    Note: does NOT call db.commit() — the caller (ingest_grid) commits once
+    after both _upsert_grid and _upsert_generation_mix complete.
+    """
+    for day, psr_map in gen_by_day.items():
+        for code, mean_mw in psr_map.items():
+            label = PSR_LABELS.get(code, code)
+            existing = (
+                db.query(PowerGenMix)
+                .filter(
+                    PowerGenMix.date == day,
+                    PowerGenMix.zone == zone,
+                    PowerGenMix.psr_type == label,
+                )
+                .first()
+            )
+            if existing:
+                existing.gen_mw = mean_mw
+            else:
+                db.add(
+                    PowerGenMix(
+                        date=day,
+                        zone=zone,
+                        psr_type=label,
+                        gen_mw=mean_mw,
+                    )
+                )
 
 
 def _upsert_grid(

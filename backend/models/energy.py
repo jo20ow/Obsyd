@@ -83,3 +83,28 @@ class PowerGrid(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("date", "zone", name="uq_power_grid_date_zone"),)
+
+
+class PowerGenMix(Base):
+    """Full ENTSO-E A75 generation mix in long format.
+
+    One row per (date, zone, psr_type). gen_mw is the daily-mean MW for that
+    production type. psr_type uses readable labels (e.g. "Nuclear", "Solar")
+    mapped from raw ENTSO-E psrType codes (B01–B20).
+
+    Source: ENTSO-E A75 (Actual Generation per Production Type), processType A16.
+    Idempotent upsert by (date, zone, psr_type).
+    """
+
+    __tablename__ = "power_gen_mix"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)     # YYYY-MM-DD
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)     # e.g. "DE_LU"
+    psr_type: Mapped[str] = mapped_column(String, nullable=False, index=True) # readable label or raw code
+    gen_mw: Mapped[float] = mapped_column(Float, nullable=False)              # daily mean MW
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("date", "zone", "psr_type", name="uq_power_gen_mix_date_zone_psr"),
+    )

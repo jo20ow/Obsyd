@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import require_pro
 from backend.database import get_db
-from backend.models.energy import EnergyPrice, PowerGrid, SparkSpreadHistory
+from backend.models.energy import EnergyPrice, PowerGenMix, PowerGrid, SparkSpreadHistory
 
 router = APIRouter(prefix="/api/power", tags=["power"])
 
@@ -199,6 +199,70 @@ async def get_grid(
         "threshold_note": f"dunkelflaute = renewable_share < {DUNKELFLAUTE_THRESHOLD:.0%}",
         "latest": latest,
         "dunkelflaute_days": dunkelflaute_days,
+        "from": date_from,
+        "to": date_to,
+        "data": data,
+    }
+
+
+# ─── Generation mix (free) ────────────────────────────────────────────────────
+
+
+@router.get("/generation-mix")
+async def get_generation_mix(
+    days: int = Query(30, ge=1, le=1500),
+    db: Session = Depends(get_db),
+):
+    """Full ENTSO-E A75 generation mix for DE-LU (daily mean MW). Free tier.
+
+    Returns data in wide/pivoted format: each row is one date with one key per
+    production type (readable labels like "Solar", "Nuclear", "Wind Onshore").
+    `types` lists all distinct production types present in the window.
+    `latest` is the most recent date's breakdown plus a `total_mw` sum.
+    """
+    date_from, date_to = _window(days)
+    rows = (
+        db.query(PowerGenMix)
+        .filter(
+            PowerGenMix.zone == "DE_LU",
+            PowerGenMix.date >= date_from,
+            PowerGenMix.date <= date_to,
+        )
+        .order_by(PowerGenMix.date.asc(), PowerGenMix.psr_type.asc())
+        .all()
+    )
+    if not rows:
+        return {
+            "available": False,
+            "reason": "no generation-mix data yet — run power grid backfill (ingest_grid)",
+        }
+
+    # Pivot: {date -> {psr_type -> gen_mw}}
+    pivot: dict[str, dict[str, float]] = {}
+    for r in rows:
+        pivot.setdefault(r.date, {})[r.psr_type] = r.gen_mw
+
+    # Collect all distinct types (sorted for stable output)
+    all_types: list[str] = sorted({r.psr_type for r in rows})
+
+    # Build wide-format data list
+    data = []
+    for date_str in sorted(pivot.keys()):
+        row_dict: dict = {"date": date_str}
+        row_dict.update(pivot[date_str])
+        data.append(row_dict)
+
+    # Latest: most recent date + total
+    latest_date = sorted(pivot.keys())[-1]
+    latest_vals = pivot[latest_date]
+    latest = {"date": latest_date, **latest_vals, "total_mw": round(sum(latest_vals.values()), 2)}
+
+    return {
+        "available": True,
+        "zone": "DE_LU",
+        "unit": "MW",
+        "types": all_types,
+        "latest": latest,
         "from": date_from,
         "to": date_to,
         "data": data,

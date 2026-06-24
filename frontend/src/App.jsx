@@ -38,6 +38,7 @@ import GasDemandPanel from './components/GasDemandPanel'
 import PowerDayAheadPanel from './components/PowerDayAheadPanel'
 import PowerGridPanel from './components/PowerGridPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
+import GenerationMixPanel from './components/GenerationMixPanel'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
 
@@ -528,6 +529,13 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="power-grid">
                 <PowerGridPanel />
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 4: Generation Mix (free) */}
+            <div className="mt-3">
+              <ErrorBoundary name="generation-mix">
+                <GenerationMixPanel />
               </ErrorBoundary>
             </div>
           </>
