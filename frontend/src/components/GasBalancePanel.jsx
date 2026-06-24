@@ -25,12 +25,12 @@ function ToggleBtn({ id, label, view, setView }) {
   )
 }
 
-// Custom dot: render a colored marker only on flagged days, empty group otherwise.
-function FlagDot(props) {
-  const { cx, cy, payload } = props
+// Custom dot: render a colored marker only on flagged days; return null
+// otherwise so recharts emits no element for the ~110 unflagged points.
+function FlagDot({ cx, cy, payload }) {
   const color = payload?.flag ? FLAG_COLOR[payload.flag] : null
-  if (!color || cx == null || cy == null) return <g key={payload?.date} />
-  return <circle key={payload.date} cx={cx} cy={cy} r={3} fill={color} stroke="none" />
+  if (!color || cx == null || cy == null) return null
+  return <circle cx={cx} cy={cy} r={3} fill={color} stroke="none" />
 }
 
 export default function GasBalancePanel() {
