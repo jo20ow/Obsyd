@@ -27,6 +27,7 @@ from backend.analytics.supply_demand import compute_supply_demand
 from backend.analytics.tonne_miles import compute_tonne_miles
 from backend.analytics.validation.scorecards import recompute_scorecards_job
 from backend.collectors.crack_spreads import collect_crack_spreads
+from backend.collectors.energy_prices import collect_energy_prices
 from backend.collectors.eia import collect_eia
 from backend.collectors.equities import collect_equities
 from backend.collectors.finnhub_news import collect_finnhub_news
@@ -299,6 +300,14 @@ def start_scheduler():
         collect_crack_spreads,
         CronTrigger(hour=22, minute=0),
         id="crack_spreads_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # Energy prices (TTF, later EUA/power): daily 22:15 UTC
+    scheduler.add_job(
+        collect_energy_prices,
+        CronTrigger(hour=22, minute=15),
+        id="energy_prices_daily",
         **JOB_DEFAULTS,
     )
 
