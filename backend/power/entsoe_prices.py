@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
-from backend.models.energy import EnergyPrice
+from backend.models.energy import EnergyPrice, PowerPriceDaily
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,68 @@ def parse_day_ahead_prices(xml_text: str) -> dict[str, float]:
 
     # Daily mean of all hourly prices (in-day hours, not across days)
     return {day: sum(prices) / len(prices) for day, prices in by_day.items() if prices}
+
+
+def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
+    """Parse an A44 document into {YYYY-MM-DD: {mean, min, max, negative_hours}}.
+
+    Same Period/Point walk as parse_day_ahead_prices, but collects ALL hourly
+    prices per UTC day and computes:
+      mean          — daily mean EUR/MWh (identical to parse_day_ahead_prices output)
+      min           — lowest hourly price (can be negative)
+      max           — highest hourly price
+      negative_hours — hours where price < 0, resolution-weighted (renewable-oversupply signal)
+
+    Namespace-agnostic (matches local tag names only).
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"ENTSO-E A44 XML parse error: {exc}") from exc
+
+    by_day: dict[str, list[tuple[float, float]]] = {}  # day -> [(price, res_hours)]
+
+    for ts in root.iter():
+        if _localname(ts.tag) != "TimeSeries":
+            continue
+        for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
+            start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
+            res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
+            if start_el is None or res_el is None:
+                continue
+            start = _parse_utc(start_el.text)
+            res_hours = _RESOLUTION_HOURS.get((res_el.text or "").strip())
+            if start is None or res_hours is None:
+                continue
+            for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
+                pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
+                price_str = next(
+                    (e.text for e in point if _localname(e.tag) == "price.amount"), None
+                )
+                if pos is None or price_str is None:
+                    continue
+                try:
+                    ts_time = start + timedelta(hours=res_hours * (int(pos) - 1))
+                    price = float(price_str)
+                except (ValueError, TypeError):
+                    continue
+                day = ts_time.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                by_day.setdefault(day, []).append((price, res_hours))
+
+    result: dict[str, dict] = {}
+    for day, pairs in by_day.items():
+        if not pairs:
+            continue
+        prices = [p for p, _ in pairs]
+        result[day] = {
+            "mean": sum(prices) / len(prices),
+            "min": min(prices),
+            "max": max(prices),
+            # True hours: weight each negative slot by its resolution so PT15M
+            # (96 slots/day) yields real hours (0.25 each), not raw interval counts.
+            "negative_hours": round(sum(res for p, res in pairs if p < 0), 2),
+        }
+    return result
 
 
 # ─── fetch ────────────────────────────────────────────────────────────────────
@@ -150,7 +212,10 @@ async def ingest_day_ahead(
         {datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days}
     )
 
-    prices_by_day: dict[str, float] = {}
+    # Zone label for PowerPriceDaily (readable key matching PowerGrid convention)
+    zone = "DE_LU"
+
+    stats_by_day: dict[str, dict] = {}
     for month_start in months:
         try:
             xml = await _fetch_zone_month(eic, month_start, overwrite=overwrite)
@@ -159,13 +224,17 @@ async def ingest_day_ahead(
             continue
         if not xml:
             continue
-        for day, mean_price in parse_day_ahead_prices(xml).items():
+        for day, stats in parse_day_ahead_stats(xml).items():
             if day in wanted:
-                prices_by_day[day] = mean_price
+                stats_by_day[day] = stats
 
     written = 0
-    for day, mean_price in prices_by_day.items():
-        _upsert(db, day, symbol, mean_price)
+    for day, stats in stats_by_day.items():
+        mean = stats["mean"]
+        # Keep EnergyPrice(POWER_DE) identical — scorecard + spark-spread use it.
+        _upsert(db, day, symbol, mean)
+        # Upsert the richer per-day stats row.
+        _upsert_daily(db, day, zone, stats)
         written += 1
     db.commit()
     logger.info(
@@ -187,3 +256,28 @@ def _upsert(db: Session, day: str, symbol: str, close: float) -> None:
         existing.close = close
     else:
         db.add(EnergyPrice(date=day, symbol=symbol, close=close))
+
+
+def _upsert_daily(db: Session, day: str, zone: str, stats: dict) -> None:
+    """Upsert one PowerPriceDaily row from a stats dict (mean/min/max/negative_hours)."""
+    existing = (
+        db.query(PowerPriceDaily)
+        .filter(PowerPriceDaily.date == day, PowerPriceDaily.zone == zone)
+        .first()
+    )
+    if existing:
+        existing.mean_price = stats["mean"]
+        existing.min_price = stats["min"]
+        existing.max_price = stats["max"]
+        existing.negative_hours = stats["negative_hours"]
+    else:
+        db.add(
+            PowerPriceDaily(
+                date=day,
+                zone=zone,
+                mean_price=stats["mean"],
+                min_price=stats["min"],
+                max_price=stats["max"],
+                negative_hours=stats["negative_hours"],
+            )
+        )

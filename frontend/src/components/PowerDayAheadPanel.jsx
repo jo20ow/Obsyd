@@ -7,6 +7,13 @@ import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
 
+// Render a red marker on days where negative_hours > 0; invisible otherwise.
+// Mirrors the FlagDot pattern from GasBalancePanel.
+function NegativeDot({ cx, cy, payload }) {
+  if (!payload?.negative || cx == null || cy == null) return null
+  return <circle cx={cx} cy={cy} r={3} fill="#f87171" stroke="none" />
+}
+
 export default function PowerDayAheadPanel() {
   const { data, loading, error } = useFetchWithError(`${API}/power/day-ahead?days=120`)
 
@@ -19,14 +26,15 @@ export default function PowerDayAheadPanel() {
   if (!data?.available && !loading) return null
 
   const rows = data?.data ?? []
-  const latest = rows[rows.length - 1]
+  const latest = data?.latest ?? rows[rows.length - 1]
   const close = latest?.close
+  const negativeDays = data?.negative_days ?? 0
 
   return (
     <Panel
       id="power-day-ahead"
       title="POWER DAY-AHEAD · DE-LU"
-      info="ENTSO-E day-ahead electricity prices for the DE-LU bidding zone (EUR/MWh). Each point is the daily mean of 24 hourly auction results from the ENTSO-E Transparency Platform (A44). Free, official redistributable data."
+      info="ENTSO-E day-ahead electricity prices for the DE-LU bidding zone (EUR/MWh). Each point is the daily mean of 24 hourly auction results from the ENTSO-E Transparency Platform (A44). Red markers indicate days with at least one negative-price hour (renewable oversupply). Free, official redistributable data."
       collapsible
       headerRight={
         close != null && (
@@ -53,6 +61,11 @@ export default function PowerDayAheadPanel() {
             </div>
             <div className="font-mono text-[10px] text-neutral-600 mt-1">
               ENTSO-E A44 · DE-LU bidding zone · daily mean of hourly prices
+              {negativeDays > 0 && (
+                <span className="ml-2 text-red-400">
+                  · {negativeDays} negative-price {negativeDays === 1 ? 'day' : 'days'}
+                </span>
+              )}
             </div>
           </div>
           {rows.length > 1 && (
@@ -83,7 +96,8 @@ export default function PowerDayAheadPanel() {
                     fill="#22d3ee"
                     fillOpacity={0.06}
                     strokeWidth={1.5}
-                    dot={false}
+                    dot={<NegativeDot />}
+                    activeDot={{ r: 3, fill: '#22d3ee' }}
                   />
                 </AreaChart>
               </ResponsiveContainer>

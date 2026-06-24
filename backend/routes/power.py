@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import require_pro
 from backend.database import get_db
-from backend.models.energy import EnergyPrice, PowerGenMix, PowerGrid, SparkSpreadHistory
+from backend.models.energy import EnergyPrice, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
 
 router = APIRouter(prefix="/api/power", tags=["power"])
 
@@ -43,8 +43,59 @@ async def get_day_ahead(
     days: int = Query(120, ge=1, le=1500),
     db: Session = Depends(get_db),
 ):
-    """ENTSO-E day-ahead electricity prices for DE-LU (EUR/MWh). Free tier."""
+    """ENTSO-E day-ahead electricity prices for DE-LU (EUR/MWh). Free tier.
+
+    When PowerPriceDaily rows are available, each data point includes:
+      close         — daily mean EUR/MWh (identical to EnergyPrice.close)
+      min_price     — daily minimum EUR/MWh (can be negative)
+      max_price     — daily maximum EUR/MWh
+      negative_hours — hours where the auction price was < 0
+      negative      — true if negative_hours > 0
+    negative_days counts how many days in the window had at least one negative hour.
+    latest contains the most recent row's fields.
+
+    Falls back to EnergyPrice-only behaviour if PowerPriceDaily is empty.
+    """
     date_from, date_to = _window(days)
+
+    # Primary path: richer PowerPriceDaily table
+    daily_rows = (
+        db.query(PowerPriceDaily)
+        .filter(
+            PowerPriceDaily.zone == "DE_LU",
+            PowerPriceDaily.date >= date_from,
+            PowerPriceDaily.date <= date_to,
+        )
+        .order_by(PowerPriceDaily.date.asc())
+        .all()
+    )
+
+    if daily_rows:
+        def _daily_dict(r: PowerPriceDaily) -> dict:
+            return {
+                "date": r.date,
+                "close": r.mean_price,
+                "min_price": r.min_price,
+                "max_price": r.max_price,
+                "negative_hours": r.negative_hours,
+                "negative": r.negative_hours > 0,
+            }
+
+        data = [_daily_dict(r) for r in daily_rows]
+        latest = data[-1]
+        negative_days = sum(1 for d in data if d["negative"])
+        return {
+            "available": True,
+            "symbol": "POWER_DE",
+            "unit": "EUR/MWh",
+            "from": date_from,
+            "to": date_to,
+            "negative_days": negative_days,
+            "latest": latest,
+            "data": data,
+        }
+
+    # Fallback: legacy EnergyPrice rows (no min/negative_hours available)
     rows = (
         db.query(EnergyPrice)
         .filter(
@@ -60,13 +111,16 @@ async def get_day_ahead(
             "available": False,
             "reason": "no POWER_DE data yet — run power backfill (ingest_day_ahead)",
         }
+    data = [{"date": r.date, "close": r.close} for r in rows]
     return {
         "available": True,
         "symbol": "POWER_DE",
         "unit": "EUR/MWh",
         "from": date_from,
         "to": date_to,
-        "data": [{"date": r.date, "close": r.close} for r in rows],
+        "negative_days": 0,
+        "latest": data[-1],
+        "data": data,
     }
 
 

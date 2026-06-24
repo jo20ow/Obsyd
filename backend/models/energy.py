@@ -16,7 +16,7 @@ is deferred until a reliable free source is confirmed.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, String, UniqueConstraint
+from sqlalchemy import DateTime, Float, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -107,4 +107,34 @@ class PowerGenMix(Base):
 
     __table_args__ = (
         UniqueConstraint("date", "zone", "psr_type", name="uq_power_gen_mix_date_zone_psr"),
+    )
+
+
+class PowerPriceDaily(Base):
+    """Rich per-day electricity price stats for negative-price detection.
+
+    One row per (date, zone). Stores mean/min/max price and a count of hours
+    where the auction price was negative (EUR/MWh < 0) — a renewable-oversupply
+    signature common in DE spring/summer.
+
+    `mean_price` mirrors EnergyPrice(symbol="POWER_DE").close so the scorecard
+    and spark-spread paths never need to touch this table.
+
+    Source: ENTSO-E A44 (Day-Ahead Prices), DE-LU bidding zone.
+    Idempotent upsert by (date, zone).
+    """
+
+    __tablename__ = "power_price_daily"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)   # YYYY-MM-DD
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)   # e.g. "DE_LU"
+    mean_price: Mapped[float] = mapped_column(Float, nullable=False)        # EUR/MWh daily mean
+    min_price: Mapped[float] = mapped_column(Float, nullable=False)         # EUR/MWh daily min
+    max_price: Mapped[float] = mapped_column(Float, nullable=False)         # EUR/MWh daily max
+    negative_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # count of hours < 0 EUR/MWh
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("date", "zone", name="uq_power_price_daily_date_zone"),
     )
