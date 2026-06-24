@@ -5,30 +5,42 @@
 > (Abschnitt „Build-Stand") ist zum Datum unten verifiziert und veraltet schneller — bei Konflikt
 > gewinnt der Code.
 >
-> **Stand: 2026-06-24** · Gas-Vertikal (UI #14, Track-Record #15) + **ENERGY-Vertikal** (Spark #16,
+> **Stand: 2026-06-24** · **Posture-Entscheidung 2026-06-24: Obsyd ist ein deskriptiver,
+> kuratierter ANOMALIE-RADAR (Posture B) — kein Prognose-Anspruch. Exposure-Mapping (Signal→Ticker→
+> Richtung) ist verworfen.** Vertikale live in Production: Gas (#14/#15), ENERGY (Spark #16,
 > Residuallast/Dunkelflaute #17/#18, Track-Record #20, Generation-Mix #21, Negativpreise #22,
-> Multi-Zone DE-LU/FR/NL #24, Cross-Border via Energy-Charts #27) + **METALS/Kupfer-Knoten** (#28–#30:
-> Preis, USGS-Angebot, Bestände-Track-Record); **alles in Production live**, 7 Scorecard-Signale.
-> Offen: Slice 4 (Clean-/Dark-Spread) blockiert an freier EUA-/Kohle-Quelle; Payment (LS) ungesetzt.
+> Multi-Zone DE-LU/FR/NL #24, Cross-Border via Energy-Charts #27), METALS/Kupfer (#28–#30).
+> **Anomalie-Radar Phase 1 live (#32):** 7 kuratierte Detektoren über die Vertikal-Flags →
+> Cross-Vertical-Feed auf obsyd.dev.
+> Offen: Radar Phase 2 (Dunkelflaute/Rerouting/PortWatch persistieren), Slice 4 (Clean-/Dark-Spread)
+> blockiert an freier EUA-/Kohle-Quelle; Payment (LS) ungesetzt.
 
 ---
 
-## Leitentscheidung: Hybrid-Posture
+## Leitentscheidung: Posture B — deskriptiver Anomalie-Radar
 
-Es gibt eine bewusst aufgelöste Spannung zwischen zwei Strategien:
+Die früher offene „Hybrid-Posture" ist **am 2026-06-24 zugunsten von Posture B entschieden**. Die
+zwei historischen Optionen waren:
 
-- **Mai-Pivot** (`c929043`, 2026-05-23, *gelieferter Code*): „freie öffentliche Daten liefern
-  keinen Trading-Edge" → Reposition zu **ehrlicher Open-Source-Aggregation + Convenience-Tier**.
-  Konkret: AGPL-3.0, Preise Self-Host €0 / Cloud-Free €0 / Cloud-Pro €15, prädiktive Claims aus
-  dem UI entfernt, Disruption-Score **deskriptiv, nicht prädiktiv**.
-- **Edge-These** (dieser Doc): Premium = **Exposure-Mapping (Signal→Ticker→Richtung) +
-  validierter Track Record** als echter, belegbarer Vorteil; Zielpreis 20–30 €.
+- **Mai-Pivot** (`c929043`, 2026-05-23): „freie öffentliche Daten liefern keinen Trading-Edge" →
+  ehrliche Open-Source-Aggregation, AGPL-3.0, prädiktive Claims raus, deskriptiv.
+- **Edge-These** (verworfen): Premium = Exposure-Mapping (Signal→Ticker→Richtung) + Track Record
+  als belegbarer Vorteil, Zielpreis 20–30 €.
 
-**Verbindlich = Hybrid:** *Heute* gilt die Pivot-Posture (Open-Source/AGPL, deskriptive Framing,
-€15). Exposure-Mapping und Track Record sind die verbindliche **Premium-Roadmap** — der Edge wird
-**belegt, nicht behauptet**, über die bereits gebaute Signal-Validierungs-Schicht. Preiserhöhung
-Richtung 20–30 € **erst**, wenn der Edge messbar ist. Das ist konsistent mit „Knoten für Knoten"
-und der schon existierenden Validierungs-Engine.
+**Verbindlich = B (deskriptiv).** Begründung des Owners: ein Prognose-Anspruch wäre **nicht
+zuverlässig** — die Validierung zeigt z. B. Gas-Residual IC −0,17 (signifikant, aber *kein*
+positiver Edge). Daraus folgt:
+
+- **Obsyd ist ein deskriptiver, kuratierter ANOMALIE-RADAR.** Eine Engine erkennt automatisch, was
+  *ungewöhnlich gegenüber der Historie* ist (statistische Abweichung — eine deskriptive Aussage,
+  kein Preis-Call), und stellt es als „was ist gerade auffällig"-Feed dar. Primärmodus =
+  **Hintergrund-Radar**; die Charts sind die **Drill-Down-/Beweis-Ebene**, nicht zum Draufstarren.
+- **Exposure-Mapping (Signal→Ticker→Richtung) ist gestrichen.** Kein Aktien-Richtungs-Call, kein
+  „Ticker + Richtung". Aktien bleiben höchstens deskriptiver Kontext (siehe Tier 3).
+- **Glaubwürdigkeit = Vollständigkeit + Transparenz + Tempo**, NICHT Trefferquote. Die
+  Validierungs-Engine bleibt erhalten, wird aber als *historische Ko-Bewegung (Kontext, keine
+  Prognose)* dargestellt, nicht als „Edge". Kein LLM (Texte template-/regelbasiert).
+- **Preis** bleibt €15; **keine** edge-abhängige Preiserhöhung mehr (die 20–30 €-These ist tot).
 
 ---
 
@@ -38,7 +50,8 @@ und der schon existierenden Validierungs-Engine.
 - Aufbau Knoten für Knoten. Die „Breite" lebt in einer wiederverwendbaren Engine im Hintergrund —
   dem Kunden wird immer EIN fokussiertes Produkt gezeigt, nie „wir machen alles".
 - Brand-frontiert / anonym betrieben. Kein öffentliches Gesicht. Glaubwürdigkeit kommt aus
-  nachweisbarem Track Record, nicht aus Ruf.
+  **Vollständigkeit + Transparenz + Tempo** (vollständige offizielle Daten, ehrlich über Abdeckung,
+  schneller als 6 Tabs selbst), nicht aus Ruf — und nicht aus einem behaupteten Trading-Edge.
 
 ## Kunde (WER)
 - Primär: der „Trader ohne Bloomberg-Terminal" — ernsthafte Retail-/Semi-Pro-Trader und kleine
@@ -55,21 +68,21 @@ und der schon existierenden Validierungs-Engine.
 - **Tier 1 (Wissen):** physisches Signal → Rohstoff-/Strompreis. Direkt, rational, validierbar.
   HIER führen.
 - **Tier 2 (noch Wissen):** → Spreads/Beziehungen (z. B. Spark Spread).
-- **Tier 3 (Glück):** → Aktien. Konfundiert, niedrige Konfidenz. Immer ausdrücklich als
-  Spekulation kennzeichnen.
+- **Tier 3 (Glück):** → Aktien. Konfundiert, niedrige Konfidenz. Unter Posture B **kein
+  Richtungs-Call** — Aktien sind höchstens deskriptiver Kontext, nie ein Signal→Ticker→Richtung.
 
 ## Datenprinzipien (nicht verhandelbar)
 - Sichtbarer Gratis-Kern = freie, redistributierbare, VOLLSTÄNDIGE offizielle Daten: AGSI
   (Gasspeicher), ALSI (LNG-Terminal-Flüsse), ENTSO-E/SMARD (Strom), EU-ETS (CO₂). Bei diesen
   Rohdaten Parität mit den teuren Anbietern — der Edge ist Aufbereitung & Verbindung.
 - Aktien-/Börsen-KURSDATEN NICHT weiterverbreiten. Persönlich ~20–100 €/Monat; kommerzielle
-  Display-Lizenz ~300–2500+ €/Monat. Premium = die Verbindungs-/Exposure-Schicht (eigenes IP),
-  nicht rohe Feeds. OBSYD nennt **Ticker + Richtung**; den Kurs schaut der Nutzer selbst.
+  Display-Lizenz ~300–2500+ €/Monat. Unter Posture B nennt OBSYD **keine Ticker + Richtung** mehr
+  (Exposure-Mapping gestrichen) — der Wert ist das physische Lagebild + die Anomalie-Erkennung.
 - NIE Absolutwerte zeigen, die nicht vollständig erfassbar sind. Stattdessen relative
   Veränderung/Trend/Index aus einer KONSISTENTEN Teilmenge — der Delta bleibt wahr, auch bei
   unvollständiger Abdeckung, solange diese stabil ist.
-- Transparenz über Abdeckung/Konfidenz ist ein GLAUBWÜRDIGKEITS-FEATURE (gegen Kplers Blackbox)
-  und trägt die Track-Record-These.
+- Transparenz über Abdeckung/Konfidenz ist ein GLAUBWÜRDIGKEITS-FEATURE (gegen Kplers Blackbox) —
+  der Kern der deskriptiven Posture.
 - Proxys gegen offizielle Totale kalibrieren, sobald diese erscheinen (Eurostat, Zoll, GIE).
 
 ## Stärken vs. Schwächen
@@ -81,27 +94,35 @@ und der schon existierenden Validierungs-Engine.
   eigenes AIS; Echtzeit-Decision-Grade-Tickdaten; deckende globale Abdeckung. Über offizielle
   Quellen lösen oder weglassen.
 
-## Premium-Kern: Exposure-Mapping + Signal-Validierung
-- **Exposure-Mapping (eigenes IP, ROADMAP — noch nicht gebaut):** physisches Signal → welche
-  börsennotierten Namen → welche Richtung. Kein Kursfeed nötig. *Ist heute:* nur statische
-  15-Ticker-Liste mit Korrelationen + Prosa im Market-Report — **keine** strukturierte
-  Signal→Ticker→Richtung-Tabelle.
-- **Signal-Validierungs-/Backtest-Schicht (GEBAUT):** jedes Mapping/Signal ist eine Hypothese;
-  bei Auslösung Zeitstempel + tatsächliche Bewegung über Fenster (1T/1W/1M) loggen; Trefferquote
-  über Zeit. Rigor: n immer mitzeigen (`n<30 → nie „confident"`); RELATIV zu Index/Sektor messen;
-  Overfitting meiden (walk-forward, FDR); muss ehrlich zeigen können, dass ein Mapping NICHT
-  funktioniert. Das ist die Glaubwürdigkeits-Engine. *Ist heute:* **target-aware** Scorecard scort
-  **7 Signale** gegen ihr jeweiliges Forward-Target — Öl/Maritim (disruption_score/tonne_miles/
-  freight_proxy gegen Brent), Gas (gas_residual gegen TTF), Energy (power_residual/spark_spread
-  gegen Strompreis), Metall (copper_stocks gegen Kupferpreis); Badges live auf den Panels.
+## Produkt-Kern: Anomalie-Radar + deskriptive Validierung
+- **Anomalie-Radar (GEBAUT, Phase 1 live #32):** kuratierte Detektoren über die persistierten
+  Vertikal-Flags erkennen, was *abnormal vs. Historie* ist, und schreiben in den anonymen
+  `Alert`-Backbone → Cross-Vertical-Feed („ANOMALY RADAR") auf obsyd.dev, nach Vertikal gruppiert,
+  severity-sortiert, Drill-Down zum Evidenz-Chart. Detektoren in `backend/signals/detectors/`
+  (gas_balance, days_of_supply, supply_demand_divergence, freight_divergence, floating_storage,
+  negative_prices, sentiment_risk), gefahren vom 5-Min-`evaluate_signals`-Job; reine DB-Reads,
+  deskriptiv, template-basiert (kein LLM), fehler-isoliert. **NICHT** zu verwechseln mit dem
+  Pro-Regel-Baukasten (`AlertRule`/`user_alert_rules`/ALERTS-Tab) — der bleibt unangetastet.
+  *Phase 2 offen:* Dunkelflaute/Rerouting/PortWatch erst persistieren, dann verdrahten.
+- **Deskriptive Validierungs-Schicht (GEBAUT, umgedeutet):** jedes Signal ist eine Hypothese;
+  forward-Bewegung über Fenster (1T/1W/1M) loggen. Rigor: n immer mitzeigen (`n<30 → nie
+  „confident"`); RELATIV messen; Overfitting meiden (walk-forward); muss ehrlich zeigen können,
+  dass ein Signal NICHT zusammenhängt. Unter Posture B wird das als **historische Ko-Bewegung
+  (Kontext, keine Prognose)** dargestellt, nicht als „Edge" (`TrackRecordBadge` entsprechend
+  umformuliert). *Ist heute:* **target-aware** Scorecard scort **7 Signale** — Öl/Maritim
+  (disruption_score/tonne_miles/freight_proxy gegen Brent), Gas (gas_residual gegen TTF), Energy
+  (power_residual/spark_spread gegen Strompreis), Metall (copper_stocks gegen Kupferpreis).
 
 ## Gratis / Premium & Preis (Ist-Stand)
 - **Self-Host €0** (AGPL-3.0, eigene Infra) · **Cloud-Free €0** (obsyd.dev, 30-Tage-Historie,
   bis 3 Alerts) · **Cloud-Pro €15/Monat (€149/Jahr, −17 %)** — volle Historie ab 2019, unlimited
   Alerts, API (rate-limited), CSV/JSON-Export, Daily Brief (Mo–Fr 07:00 UTC), Custom-Geofences.
   14-Tage-Trial ohne Karte. Zahlung via **Lemon Squeezy**.
-- **Gratis-Logik:** physische Charts (Lagebild) = Distributionsmagnet, SEO, teilbar.
-- **Preis-Roadmap:** Ziel 20–30 € erst nach belegtem Edge (Exposure-Mapping + Track Record live).
+- **Gratis-Logik:** physische Charts (Lagebild) + Anomalie-Radar-Feed = Distributionsmagnet, SEO,
+  teilbar. Der on-site Radar-Feed ist bewusst ungated (anonymer `Alert`-Backbone).
+- **Preis:** bleibt €15. Die alte „20–30 € nach belegtem Edge"-Roadmap ist mit Posture B **tot**
+  (kein Edge-Anspruch). Künftige Preis-/Tier-Entscheidungen orientieren sich an Tiefe/Historie/
+  Alert-Zustellung (E-Mail/Push), nicht an Prognose-Qualität.
 - **Lizenz:** AGPL-3.0 — §13 zwingt Netzwerk-Anbieter zur Quelloffenlegung; schützt das Cloud-Tier
   vor Closed-Source-Forks.
 
@@ -126,9 +147,10 @@ Crack-Spreads, 15-Ticker-Equity-Universe. 47 Scheduler-Jobs (`backend/collectors
   alle 2 h), Tonne-Miles-Index, Freight-Proxy, Supply-Demand-Balance, Days-of-Supply,
   EIA-Prediction, Market-Report-Narrativ.
 - **Signal-Validierung — stark gebaut** (`backend/analytics/validation/`): Rank-IC,
-  Newey-West-HAC-t, Scorecards (`scorecards.py`, `SIGNAL_SPECS` = 3 Signale: disruption_score,
-  tonne_miles, freight_proxy), OOS-Weight-Backtest (`weights.py`), Weekly-Job
-  (`signal_scorecards_weekly`), `routes/validation.py`, `TrackRecordBadge.jsx` in 3 Panels.
+  Newey-West-HAC-t, Scorecards (`scorecards.py`, `SIGNAL_SPECS` jetzt **7 Signale**, target-aware),
+  OOS-Weight-Backtest (`weights.py`), Weekly-Job (`signal_scorecards_weekly`),
+  `routes/validation.py`. `TrackRecordBadge.jsx` unter Posture B **deskriptiv umformuliert**
+  („historical co-movement … context, not a forecast"), Engine selbst bleibt.
 
 **EU-Gas-Balance-Vertikal — jetzt mit UI** (`backend/gas/`: ENTSOG, AGSI/GIE, ALSI,
 ENTSO-E-Power-Burn, Open-Meteo-HDD, Eurostat; Residual-Engine in `balance.py` = *„this is the
@@ -176,9 +198,20 @@ tägliche **TTF-Preisserie** (`EnergyPrice` + `energy_prices`-Collector, yfinanc
 `CopperPanel`. Track-Record: `copper_stocks` (USGS-Bestände) gegen Kupferpreis gescort (JODI-Monats-
 muster; aktuell „building n<30"). Quelle: USGS public domain.
 
-**Fehlt noch:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS-Feed + Clean-/Dark-Spread,
-Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl-/Gas-/Energy-/Metall-Vertikale
-siliert), weitere Knoten (Solar). Spark/Energy-Scorecard multi-zone (A1-Follow-on).
+**ANOMALIE-RADAR — Phase 1 live (#32):** `Alert.vertical`-Spalte + Migration; `_upsert_alert`
+um `vertical=` erweitert; `GET /api/alerts` um `vertical`-Filter + `group_by_vertical`
+(severity-sortiert, ungated); `backend/signals/detectors/` (base + 7 Detektoren), eingehängt in
+den 5-Min-`evaluate_signals`-Job via `run_all_detectors`; `AlertsPanel.jsx` → Cross-Vertical
+„ANOMALY RADAR"-Feed mit Drill-Down. Prod zeigt reale Anomalien (floating_storage, days_of_supply,
+supply_demand_divergence). Detektoren werten den NEUESTEN Tag (kein Stale-Flag), deskriptiv, kein
+LLM. **Phase 2 offen:** Dunkelflaute/renewable_share, Rerouting-State, PortWatch-Chokepoint erst
+persistieren, dann Detektoren ergänzen; bestehende `_check_rerouting`/`/alerts/portwatch`
+konsolidieren.
+
+**Fehlt noch:** CO₂/EU-ETS-Feed + Clean-/Dark-Spread, Merit-Order, gas→power→CO₂-Synthese,
+Cross-Commodity-Fusion (Vertikale siliert), weitere Knoten (Solar). Spark/Energy-Scorecard
+multi-zone (A1-Follow-on). (Exposure-Mapping ist **nicht** „fehlt" — bewusst gestrichen, siehe
+Leitentscheidung.)
 
 ### Single Source of Truth (vor Fehlern bewahren)
 - **Preis** lebt nur im Frontend (`frontend/src/components/PricingModal.jsx`: `PRO_PRICE='€15'`,
@@ -202,17 +235,21 @@ siliert), weitere Knoten (Solar). Spark/Energy-Scorecard multi-zone (A1-Follow-o
    Energy-Charts CC BY 4.0**; ersetzte den ENTSO-E-A11-Versuch, FR↔NL existiert physisch nicht).
    **Slice 4 geparkt (A0-Spike abgeschlossen 2026-06-24):** EUA/Clean-Spark + Dark-Spread — keine
    bestätigte freie Datenquelle, siehe `docs/findings/2026-06-24-eua-coal-data-source.md`.
-   **Weiter offen:** Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion, Exposure-Mapping;
+   **Weiter offen:** Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion;
    Spark/Energy-Scorecard multi-zone (A1-Follow-on).
-4. **Exposure-Mapping v1** (Premium-Kern) — strukturierte Signal→Ticker→Richtung-Tabelle statt
-   statischer Liste + Prosa; als Hypothese durch die Validierungs-Schicht, **bevor** als Edge
-   verkauft. Erst dann Preis-Diskussion 20–30 €.
+4. **Anomalie-Radar** (Produkt-Kern unter Posture B) — ~~Phase 1~~ **erledigt (#32, live):**
+   7 kuratierte Detektoren über die Vertikal-Flags → Cross-Vertical-Feed. **Phase 2 (nächster
+   Radar-Schritt):** compute-on-read-Signale persistieren (Dunkelflaute/renewable_share,
+   Rerouting-State, PortWatch-Chokepoint), dann Detektoren ergänzen + `_check_rerouting`/
+   `/alerts/portwatch` konsolidieren. **Phase 3 (später):** Zustellung über on-site hinaus
+   (E-Mail via Resend ist verdrahtet / Push). Exposure-Mapping ist **gestrichen**, nicht geplant.
 5. ~~**Metall/Kupfer-Knoten (A4)**~~ — **erledigt (PRs #28–#30), live:** METALS-Tab, USGS-Angebot
    (Public Domain) + Preis (HG=F) + `copper_stocks`-Track-Record. **Danach** weitere Knoten (Solar …),
    jeder als fokussierter Zusatz.
 6. **Track B / Launch & Payment (parallel, Umsatz-Engpass):** Lemon-Squeezy-Checkout-URL +
-   Webhook-Secret in Prod setzen (heute ungesetzt → niemand kann zahlen); Track-Record auf
-   Landing/Pricing sichtbar machen; Impressum/Datenschutz/AGB; Plausible/Mail-Erfassung.
+   Webhook-Secret in Prod setzen (heute ungesetzt → niemand kann zahlen); den **Anomalie-Radar +
+   das physische Lagebild** auf Landing/Pricing als Wert zeigen (deskriptiv, kein Edge-Claim);
+   Impressum/Datenschutz/AGB; Plausible/Mail-Erfassung.
 
 ---
 
@@ -228,6 +265,9 @@ siliert), weitere Knoten (Solar). Spark/Energy-Scorecard multi-zone (A1-Follow-o
 - **Deploy-Docs widersprüchlich:** README „Tech Stack" nennt nginx/systemd/Let's-Encrypt, die
   `deploy/`-Skripte sind Caddy-zentriert (obsyd.dev teilt Caddy mit ValueKick).
 - **`docs/signal-validation.md` Status-Banner** (P1 shipped) hinkt dem Ist nach — Scorecards sind
-  persistiert, Routes live (faktisch P2/P3-Teile gebaut).
+  persistiert, Routes live (faktisch P2/P3-Teile gebaut). Zudem noch prädiktiv geframt — sollte
+  unter Posture B deskriptiv umformuliert werden (wie `TrackRecordBadge`).
+- **README** spiegelt evtl. noch Pre-Posture-B-Framing (Edge/Exposure) — bei Gelegenheit auf
+  „deskriptiver Anomalie-Radar" angleichen (analog zu dieser CLAUDE.md-Aktualisierung 2026-06-24).
 - **`PROJECT_STATUS.md`** war ein vor-Pivot-Statusdoc (2026-03-06) und wurde durch diesen Abschnitt
   ersetzt (siehe Git-Historie für das Archiv).
