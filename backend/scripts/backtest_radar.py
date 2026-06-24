@@ -25,7 +25,7 @@ from backend.models.energy import PowerGrid, PowerPriceDaily
 from backend.models.gas import GasBalance
 from backend.models.sentiment import SentimentScore
 from backend.models.thermal import ThermalHotspot
-from backend.models.vessels import FloatingStorageEvent
+from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
 
 
 def _month(d: str) -> str:
@@ -189,6 +189,30 @@ def recall_ground_truth(db):
         print(f"    {d}  z={z:+.2f}  {f}")
 
 
+def flow_anomaly_old_vs_new(db):
+    hr("FLOW_ANOMALY — old 7d-zscore (every anomalous day) vs new 30d-baseline + onset")
+    zones = [z for (z,) in db.query(GeofenceEvent.zone).distinct().all()]
+    tot_old = tot_new = 0
+    for zone in zones:
+        rows = db.query(GeofenceEvent.tanker_count).filter(GeofenceEvent.zone == zone).order_by(GeofenceEvent.date).all()
+        counts = [r[0] for r in rows]  # oldest first
+        old = new = 0
+        anom = []
+        for i in range(len(counts)):
+            zo = _zscore(counts[i], counts[max(0, i - 7) : i], min_n=7)
+            if zo and abs(zo[0]) >= 2.0:
+                old += 1
+            zn = _zscore(counts[i], counts[max(0, i - 30) : i], min_n=16)
+            a = bool(zn and abs(zn[0]) >= 2.0)
+            anom.append(a)
+            if a and (i == 0 or not anom[i - 1]):  # onset only
+                new += 1
+        tot_old += old
+        tot_new += new
+        print(f"  {zone:9} old={old:4}  new(onset)={new:4}   (of {len(counts)} days)")
+    print(f"  TOTAL     old={tot_old:4}  new={tot_new:4}")
+
+
 def sharpening_onset_check(db):
     hr("SHARPENING — persistent fire-days vs onset events (the 3 chatty detectors)")
 
@@ -215,6 +239,7 @@ def main():
     db = SessionLocal()
     try:
         precision_old_vs_new(db)
+        flow_anomaly_old_vs_new(db)
         sharpening_onset_check(db)
         calibration(db)
         recall_ground_truth(db)

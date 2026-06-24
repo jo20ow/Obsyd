@@ -21,7 +21,7 @@ from backend.models.analytics import (
 from backend.models.energy import PowerGrid, PowerPriceDaily
 from backend.models.gas import GasBalance
 from backend.models.sentiment import SentimentScore
-from backend.models.vessels import FloatingStorageEvent
+from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
 from backend.signals.detectors import DETECTORS, run_all_detectors
 from backend.signals.detectors.gas import detect_gas_balance
 from backend.signals.detectors.oil import (
@@ -34,6 +34,7 @@ from backend.signals.detectors.oil import (
 )
 from backend.signals.detectors.power import detect_dunkelflaute, detect_negative_prices
 from backend.signals.detectors.sentiment import detect_sentiment_risk
+from backend.signals.rules import check_flow_anomaly
 
 
 @pytest.fixture
@@ -265,6 +266,50 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
 
 def test_detector_registry_count(db_session):
     assert len(DETECTORS) == 10
+
+
+# ─── flow_anomaly (legacy maritime check) — baseline + onset cure ─────────────
+
+
+def _seed_geofence(db, zone, counts_newest_first):
+    """counts_newest_first[0] is the latest day; one GeofenceEvent per descending date."""
+    base = date(2026, 6, 24)
+    for i, c in enumerate(counts_newest_first):
+        db.add(GeofenceEvent(zone=zone, date=(base - timedelta(days=i)).isoformat(), tanker_count=c))
+    db.commit()
+
+
+def _flow_alert_count(db):
+    return db.query(Alert).filter(Alert.rule == "flow_anomaly").count()
+
+
+def test_flow_anomaly_onset_fires(db_session):
+    # ~30 days of stable ~10 tankers, today spikes to 40, yesterday was normal → onset → fire.
+    counts = [40] + [10 + (i % 3) for i in range(31)]
+    _seed_geofence(db_session, "hormuz", counts)
+    check_flow_anomaly(db_session, "hormuz", counts[0])
+    assert _flow_alert_count(db_session) == 1
+
+
+def test_flow_anomaly_persistence_suppressed(db_session):
+    # Spike sustained two days (today AND yesterday anomalous) → persistence → no fire.
+    counts = [41, 40] + [10 + (i % 3) for i in range(30)]
+    _seed_geofence(db_session, "hormuz", counts)
+    check_flow_anomaly(db_session, "hormuz", counts[0])
+    assert _flow_alert_count(db_session) == 0
+
+
+def test_flow_anomaly_normal_no_fire(db_session):
+    counts = [11] + [10 + (i % 3) for i in range(31)]
+    _seed_geofence(db_session, "hormuz", counts)
+    check_flow_anomaly(db_session, "hormuz", counts[0])
+    assert _flow_alert_count(db_session) == 0
+
+
+def test_flow_anomaly_insufficient_history_no_fire(db_session):
+    _seed_geofence(db_session, "hormuz", [40, 10, 10])  # < FLOW_MIN_HISTORY
+    check_flow_anomaly(db_session, "hormuz", 40)
+    assert _flow_alert_count(db_session) == 0
 
 
 # ─── Phase B: dunkelflaute / rerouting / chokepoint ───────────────────────────

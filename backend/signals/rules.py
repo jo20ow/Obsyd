@@ -17,9 +17,9 @@ from backend.models.vessels import GeofenceEvent
 logger = logging.getLogger(__name__)
 
 # Thresholds
-FLOW_ANOMALY_STD_DEVS = 2.0
-FLOW_ANOMALY_PCT_FALLBACK = 0.30  # 30% deviation when <7 days of data
-FLOW_ANOMALY_MIN_DAYS = 3  # minimum days for percentage-based fallback
+FLOW_ANOMALY_STD_DEVS = 2.0       # z-score threshold vs the zone's own trailing baseline
+FLOW_BASELINE_DAYS = 30           # trailing window (longer than the old 7d → stabler "normal")
+FLOW_MIN_HISTORY = 16             # enough history for a trustworthy baseline + onset check
 CUSHING_DRAWDOWN_THRESHOLD = -3000  # thousand barrels (= -3M barrels)
 
 # Regional anchor baselines — zone-specific thresholds for anchored vessel alerts.
@@ -124,65 +124,48 @@ def check_anchored_vessels(db: Session, zone: str, slow_movers: int, total_tanke
 
 
 def check_flow_anomaly(db: Session, zone: str, current_count: int):
-    """
-    Chokepoint Flow Anomaly.
+    """Chokepoint Flow Anomaly — baseline-aware + onset-only.
 
-    With 7+ days: trigger when daily tanker count deviates > 2σ from rolling average.
-    With 3-6 days: trigger when count deviates > 30% from average (percentage fallback).
-    With <3 days: suppress (insufficient data).
+    Fires when the latest daily tanker count deviates > FLOW_ANOMALY_STD_DEVS from the zone's
+    OWN trailing baseline (FLOW_BASELINE_DAYS, longer/stabler than the old 7d), and ONLY on the
+    onset: if the prior day was already anomalous, it's persistence, not a new event → suppress.
     """
-    recent = (
+    # Lazy import avoids a circular import (detectors package imports _upsert_alert from here).
+    from backend.signals.detectors.base import trailing_zscore
+
+    rows = (
         db.query(GeofenceEvent.tanker_count)
         .filter(GeofenceEvent.zone == zone)
         .order_by(GeofenceEvent.date.desc())
-        .limit(7)
+        .limit(FLOW_BASELINE_DAYS + 2)
         .all()
     )
+    counts = [r.tanker_count for r in rows]  # newest first; counts[0] is the current day
+    if len(counts) < FLOW_MIN_HISTORY:
+        return  # not enough history for a trustworthy baseline yet
 
-    n_days = len(recent)
-    if n_days < FLOW_ANOMALY_MIN_DAYS:
+    today = trailing_zscore(counts[0], counts[1 : 1 + FLOW_BASELINE_DAYS])
+    if today is None or abs(today[0]) < FLOW_ANOMALY_STD_DEVS:
+        return
+    # Onset: suppress if the prior day was already anomalous (sustained deviation, not new).
+    yest = trailing_zscore(counts[1], counts[2 : 2 + FLOW_BASELINE_DAYS])
+    if yest is not None and abs(yest[0]) >= FLOW_ANOMALY_STD_DEVS:
         return
 
-    counts = [r.tanker_count for r in recent]
-    mean = sum(counts) / len(counts)
-
-    if mean == 0:
-        return
-
-    if n_days >= 7:
-        # Standard deviation method
-        variance = sum((c - mean) ** 2 for c in counts) / (len(counts) - 1)
-        std_dev = variance**0.5
-        if std_dev == 0:
-            return
-        z_score = abs(current_count - mean) / std_dev
-        if z_score <= FLOW_ANOMALY_STD_DEVS:
-            return
-        direction = "increase" if current_count > mean else "decrease"
-        detail = (
-            f"Current: {current_count} tankers, 7-day avg: {mean:.1f}, "
-            f"z-score: {z_score:.2f} (threshold: {FLOW_ANOMALY_STD_DEVS})"
-        )
-    else:
-        # Percentage fallback for bootstrap period (3-6 days)
-        pct_deviation = abs(current_count - mean) / mean
-        if pct_deviation <= FLOW_ANOMALY_PCT_FALLBACK:
-            return
-        direction = "increase" if current_count > mean else "decrease"
-        detail = (
-            f"Current: {current_count} tankers, {n_days}-day avg: {mean:.1f}, "
-            f"deviation: {pct_deviation * 100:.0f}% (threshold: {FLOW_ANOMALY_PCT_FALLBACK * 100:.0f}%)"
-        )
-
+    z, mean, _, n = today
+    direction = "increase" if counts[0] > mean else "decrease"
     _upsert_alert(
         db,
         rule="flow_anomaly",
         zone=zone,
         severity="warning",
-        title=f"Anomalous {direction} in {zone} transit",
-        detail=detail,
+        title=f"Anomalous {direction} in {zone} transit ({z:+.1f}σ)",
+        detail=(
+            f"Current {counts[0]} tankers vs ~{mean:.0f} normal over {n}d "
+            f"(z {z:+.2f}, threshold ±{FLOW_ANOMALY_STD_DEVS}σ)."
+        ),
     )
-    logger.info(f"Alert: flow_anomaly in {zone} ({direction})")
+    logger.info(f"Alert: flow_anomaly in {zone} ({direction}, z={z:+.2f})")
 
 
 def check_cushing_drawdown(db: Session):
