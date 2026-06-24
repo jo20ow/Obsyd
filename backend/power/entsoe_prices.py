@@ -96,7 +96,7 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
       mean          — daily mean EUR/MWh (identical to parse_day_ahead_prices output)
       min           — lowest hourly price (can be negative)
       max           — highest hourly price
-      negative_hours — count of hours where price < 0 (renewable-oversupply signal)
+      negative_hours — hours where price < 0, resolution-weighted (renewable-oversupply signal)
 
     Namespace-agnostic (matches local tag names only).
     """
@@ -105,7 +105,7 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
     except ET.ParseError as exc:
         raise ValueError(f"ENTSO-E A44 XML parse error: {exc}") from exc
 
-    by_day: dict[str, list[float]] = {}
+    by_day: dict[str, list[tuple[float, float]]] = {}  # day -> [(price, res_hours)]
 
     for ts in root.iter():
         if _localname(ts.tag) != "TimeSeries":
@@ -132,17 +132,20 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
                 except (ValueError, TypeError):
                     continue
                 day = ts_time.astimezone(timezone.utc).strftime("%Y-%m-%d")
-                by_day.setdefault(day, []).append(price)
+                by_day.setdefault(day, []).append((price, res_hours))
 
     result: dict[str, dict] = {}
-    for day, prices in by_day.items():
-        if not prices:
+    for day, pairs in by_day.items():
+        if not pairs:
             continue
+        prices = [p for p, _ in pairs]
         result[day] = {
             "mean": sum(prices) / len(prices),
             "min": min(prices),
             "max": max(prices),
-            "negative_hours": sum(1 for p in prices if p < 0),
+            # True hours: weight each negative slot by its resolution so PT15M
+            # (96 slots/day) yields real hours (0.25 each), not raw interval counts.
+            "negative_hours": round(sum(res for p, res in pairs if p < 0), 2),
         }
     return result
 
