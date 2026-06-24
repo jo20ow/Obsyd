@@ -5,7 +5,9 @@
 > (Abschnitt „Build-Stand") ist zum Datum unten verifiziert und veraltet schneller — bei Konflikt
 > gewinnt der Code.
 >
-> **Stand: 2026-06-24** · Gas-UI (#14) + Track-Record/TTF (#15) + ENERGY-Tab/Spark (#16) + Residuallast/Dunkelflaute (#17/#18); **alles in Production deployed** (Keys auf VPS, Backfill gelaufen)
+> **Stand: 2026-06-24** · Gas-Vertikal (UI #14, Track-Record #15) + **ENERGY-Vertikal komplett**
+> (Spark #16, Residuallast/Dunkelflaute #17/#18, Energy-Track-Record #20, Generation-Mix #21,
+> Negativpreise #22); **alles in Production live**. Offen: Slice 4 (Clean-/Dark-Spread) blockiert an freier EUA-/Kohle-Quelle.
 
 ---
 
@@ -86,8 +88,10 @@ und der schon existierenden Validierungs-Engine.
   bei Auslösung Zeitstempel + tatsächliche Bewegung über Fenster (1T/1W/1M) loggen; Trefferquote
   über Zeit. Rigor: n immer mitzeigen (`n<30 → nie „confident"`); RELATIV zu Index/Sektor messen;
   Overfitting meiden (walk-forward, FDR); muss ehrlich zeigen können, dass ein Mapping NICHT
-  funktioniert. Das ist die Glaubwürdigkeits-Engine. *Ist heute:* `backend/analytics/validation/`
-  scort 3 Öl/Maritim-Signale; Gas-Residual noch nicht erfasst (siehe Roadmap).
+  funktioniert. Das ist die Glaubwürdigkeits-Engine. *Ist heute:* **target-aware** Scorecard scort
+  6 Signale gegen ihr jeweiliges Forward-Target — Öl/Maritim (disruption_score/tonne_miles/
+  freight_proxy gegen Brent), Gas (gas_residual gegen TTF), Energy (power_residual/spark_spread
+  gegen Strompreis); Badges live auf den Panels.
 
 ## Gratis / Premium & Preis (Ist-Stand)
 - **Self-Host €0** (AGPL-3.0, eigene Infra) · **Cloud-Free €0** (obsyd.dev, 30-Tage-Historie,
@@ -140,18 +144,24 @@ gescort (nicht Brent — der Scorecard ist jetzt target-aware, `SIGNAL_SPECS` 4-
 tägliche **TTF-Preisserie** (`EnergyPrice` + `energy_prices`-Collector, yfinance `TTF=F`).
 `TrackRecordBadge` am Balance-Hero. Gemessen: IC −0,17 @ 7d, p=0,001, n=1226 (signifikant).
 
-**ENERGY-Vertikal — erste Slice live (PR #16, Gas→Energy-Brücke):** neues `backend/power/`
-mit ENTSO-E **A44 Day-Ahead-Strompreis** (DE-LU) → `EnergyPrice(POWER_DE)`; **Spark-Spread**
-(`spark = power − gas·heat_rate`, heat_rate=1/`gas_ccgt_efficiency`) in `SparkSpreadHistory`;
-`/api/power/{day-ahead(frei),spark-spread(Pro)}`; **ENERGY-Tab** (PowerDayAhead frei +
-SparkSpread Pro). **Clean-Spark (− CO₂) zurückgestellt** — kein verlässlicher EUA-Ticker;
-`co2_price`/`clean_spark_spread`-Spalten existieren, bleiben leer.
+**ENERGY-Vertikal — live in Prod (PRs #16–#22), Module `backend/power/`:**
+- **Day-Ahead-Strompreis** (ENTSO-E A44, DE-LU) → `EnergyPrice(POWER_DE)`; `/api/power/day-ahead`
+  (frei) inkl. **Negativpreis-Erkennung** (`PowerPriceDaily`: min/max + resolution-gewichtete
+  negative Stunden; rote Marker im Panel).
+- **Spark-Spread** (`power − gas·heat_rate`, heat_rate=1/`gas_ccgt_efficiency`) in
+  `SparkSpreadHistory`; `/api/power/spark-spread` (Pro).
+- **Residuallast + Dunkelflaute** (A65 Last + A75 Wind/Solar → `PowerGrid`, residual_mw gespeichert;
+  Flag bei Renewable-Share < 15%); `/api/power/grid` (frei).
+- **Generation-Mix** (voller A75-Mix → `PowerGenMix`); `/api/power/generation-mix` (frei).
+- **Track-Record:** `power_residual` + `spark_spread` im Scorecard gegen **Strompreis** gescort
+  (target-aware), Badges auf den Panels.
+- **Zurückgestellt (Slice 4):** Clean-Spark (− CO₂) + Dark-Spread (Kohle) — **keine freie,
+  redistributierbare EUA-/Kohle-Tagesquelle** (yfinance leer, EEX webshop-/lizenzgesperrt);
+  `co2_price`/`clean_spark_spread`-Spalten existieren, bleiben leer bis Quelle geklärt.
 
-**Fehlt komplett:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS (kein EUA-Feed),
-Dark/Clean-Spread, Merit-Order/Residuallast/Dunkelflaute, Strom-Last/Generation-Mix,
-gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl- und
-Gas-Vertikal siliert; Gas-Residual **nicht** in den Scorecards → kein Track Record fürs
-Gas-Vertikal), Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
+**Fehlt noch:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS-Feed + Clean-/Dark-Spread,
+Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl- und Gas/Energy-Vertikale siliert),
+Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
 
 ### Single Source of Truth (vor Fehlern bewahren)
 - **Preis** lebt nur im Frontend (`frontend/src/components/PricingModal.jsx`: `PRO_PRICE='€15'`,
@@ -169,10 +179,10 @@ Gas-Vertikal), Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
    2023→heute. Rest-Aufgabe: Keys + Backfill in **Prod** (siehe Build-Stand-Caveat).
 2. ~~**Gas-Residual in die Validierungs-Schicht**~~ — **erledigt (PR #15):** target-aware
    Scorecard, Gas-Residual gegen TTF, `TrackRecordBadge` am Balance-Panel.
-3. ~~**Gas→Energy erste Slice (Spark-Spread)**~~ — **erledigt (PR #16):** ENERGY-Tab,
-   Strompreis (A44) + Spark-Spread. **Energy-Fortsetzung (Phase 2, ← nächster Schritt):**
-   Strom-Last (A65) + Generation-Mix (A75) → Residuallast/Merit-Order/Dunkelflaute/Negativpreise;
-   EUA/Clean-Spark + Dark-Spread; Energy-Signale in den Track-Record; gas→power→CO₂-Synthese.
+3. ~~**Gas→Energy: ENERGY-Vertikal**~~ — **erledigt (PRs #16–#22), live in Prod:** Day-Ahead-Preis
+   + Negativpreise, Spark-Spread, Residuallast/Dunkelflaute, Generation-Mix, Energy-Track-Record.
+   **Offen (Slice 4, blockiert):** EUA/Clean-Spark + Dark-Spread — wartet auf freie EUA-/Kohle-Quelle.
+   **Weiter offen:** Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion.
 4. **Exposure-Mapping v1** (Premium-Kern) — strukturierte Signal→Ticker→Richtung-Tabelle statt
    statischer Liste + Prosa; als Hypothese durch die Validierungs-Schicht, **bevor** als Edge
    verkauft. Erst dann Preis-Diskussion 20–30 €.
