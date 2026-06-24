@@ -8,7 +8,11 @@ GET /api/power/spark-spread?days=120  — PRO
     Historical spark spread (power − gas × heat_rate).
     Returns SparkSpreadHistory rows with a `latest` summary object.
 
-Both endpoints follow the `{"available": bool, "data": [...]}` envelope used
+GET /api/power/grid?days=120  — FREE
+    ENTSO-E A65 (load) + A75 (wind + solar) for DE-LU.
+    Returns PowerGrid rows with residual_mw, renewable_share, dunkelflaute flag.
+
+All endpoints follow the `{"available": bool, "data": [...]}` envelope used
 throughout the gas vertical (see backend/routes/gas.py).
 """
 
@@ -19,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import require_pro
 from backend.database import get_db
-from backend.models.energy import EnergyPrice, SparkSpreadHistory
+from backend.models.energy import EnergyPrice, PowerGrid, SparkSpreadHistory
 
 router = APIRouter(prefix="/api/power", tags=["power"])
 
@@ -122,4 +126,80 @@ async def get_spark_spread(
         "from": date_from,
         "to": date_to,
         "data": [_row_dict(r) for r in rows],
+    }
+
+
+# ─── Grid load + renewables (free) ───────────────────────────────────────────
+
+#: Renewable share threshold below which a day is flagged as Dunkelflaute.
+DUNKELFLAUTE_THRESHOLD = 0.15
+
+
+def _compute_grid_row(r: PowerGrid) -> dict:
+    """Derive residual_mw, renewable_share, and dunkelflaute flag for one row.
+
+    None wind_mw / solar_mw are treated as 0 (they can be stored None when
+    genuinely near-zero during ingest failures).
+    """
+    wind = r.wind_mw or 0.0
+    solar = r.solar_mw or 0.0
+    load = r.load_mw or 0.0
+
+    residual_mw = load - wind - solar
+    renewable_share = (wind + solar) / load if load > 0 else 0.0
+    dunkelflaute = renewable_share < DUNKELFLAUTE_THRESHOLD
+
+    return {
+        "date": r.date,
+        "load_mw": r.load_mw,
+        "wind_mw": r.wind_mw,
+        "solar_mw": r.solar_mw,
+        "residual_mw": round(residual_mw, 2),
+        "renewable_share": round(renewable_share, 4),
+        "dunkelflaute": dunkelflaute,
+    }
+
+
+@router.get("/grid")
+async def get_grid(
+    days: int = Query(120, ge=1, le=1500),
+    db: Session = Depends(get_db),
+):
+    """ENTSO-E grid load + wind + solar for DE-LU (daily mean MW). Free tier.
+
+    Returns residual_mw (load − wind − solar), renewable_share, and a
+    Dunkelflaute flag (renewable_share < 15%) per day.  `latest` contains
+    the most recent row; `dunkelflaute_days` is the count within the window.
+    """
+    date_from, date_to = _window(days)
+    rows = (
+        db.query(PowerGrid)
+        .filter(
+            PowerGrid.zone == "DE_LU",
+            PowerGrid.date >= date_from,
+            PowerGrid.date <= date_to,
+        )
+        .order_by(PowerGrid.date.asc())
+        .all()
+    )
+    if not rows:
+        return {
+            "available": False,
+            "reason": "no grid data yet — run power grid backfill (ingest_grid)",
+        }
+
+    data = [_compute_grid_row(r) for r in rows]
+    latest = data[-1]
+    dunkelflaute_days = sum(1 for d in data if d["dunkelflaute"])
+
+    return {
+        "available": True,
+        "zone": "DE_LU",
+        "unit": "MW",
+        "threshold_note": f"dunkelflaute = renewable_share < {DUNKELFLAUTE_THRESHOLD:.0%}",
+        "latest": latest,
+        "dunkelflaute_days": dunkelflaute_days,
+        "from": date_from,
+        "to": date_to,
+        "data": data,
     }

@@ -36,6 +36,7 @@ import GasStoragePanel from './components/GasStoragePanel'
 import GasSupplyPanel from './components/GasSupplyPanel'
 import GasDemandPanel from './components/GasDemandPanel'
 import PowerDayAheadPanel from './components/PowerDayAheadPanel'
+import PowerGridPanel from './components/PowerGridPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
@@ -520,6 +521,13 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="power-dayahead">
                 <PowerDayAheadPanel />
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 3: Residual Load + Dunkelflaute (free) */}
+            <div className="mt-3">
+              <ErrorBoundary name="power-grid">
+                <PowerGridPanel />
               </ErrorBoundary>
             </div>
           </>
