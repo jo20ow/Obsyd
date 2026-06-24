@@ -29,6 +29,12 @@ METRICS = [
     ("trade_pct_gdp", "NE.TRD.GNFS.ZS", "Trade (% of GDP)"),
     ("population", "SP.POP.TOTL", "Population, total"),
     ("inflation", "FP.CPI.TOTL.ZG", "Inflation, consumer prices (annual %)"),
+    ("co2_per_capita", "EN.GHG.CO2.PC.CE.AR5", "CO2 emissions excl. LULUCF per capita (t)"),
+    ("renewable_energy_pct", "EG.FEC.RNEW.ZS", "Renewable energy (% of final energy consumption)"),
+    ("energy_imports_pct", "EG.IMP.CONS.ZS", "Energy imports, net (% of energy use)"),
+    ("unemployment_pct", "SL.UEM.TOTL.ZS", "Unemployment (% of total labor force, ILO)"),
+    ("current_account_pct_gdp", "BN.CAB.XOKA.GD.ZS", "Current account balance (% of GDP)"),
+    ("electricity_access_pct", "EG.ELC.ACCS.ZS", "Access to electricity (% of population)"),
 ]
 
 
