@@ -36,6 +36,7 @@ const RULE_ICONS = {
   freight_divergence: 'FRGT',
   negative_prices: 'NEGP',
   sentiment_risk: 'SENT',
+  dunkelflaute: 'DUNKL',
 }
 
 // Which dashboard tab holds the evidence chart for each vertical (drill-down).
@@ -76,41 +77,21 @@ function goToVertical(vertical) {
 
 export default function AlertsPanel({ weatherAlerts = [] }) {
   const [alerts, setAlerts] = useState([])
-  const [chokeAlerts, setChokeAlerts] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Wait until both alert sources have responded (or failed) before
-    // hiding the loading state — otherwise the panel briefly renders an
-    // incomplete merge and re-shuffles a second later.
-    Promise.allSettled([
-      fetch(`${API}/alerts?limit=50`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then(setAlerts)
-        .catch((e) => console.error('AlertsPanel alerts:', e)),
-      fetch(`${API}/alerts/portwatch`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (data?.alerts) setChokeAlerts(data.alerts)
-        })
-        .catch((e) => console.error('AlertsPanel portwatch:', e)),
-    ]).finally(() => setLoading(false))
+    // Chokepoint anomalies now flow through /api/alerts (the detect_chokepoint
+    // detector), so a single fetch covers the whole cross-vertical radar.
+    fetch(`${API}/alerts?limit=50`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setAlerts)
+      .catch((e) => console.error('AlertsPanel alerts:', e))
+      .finally(() => setLoading(false))
   }, [])
 
-  // Merge signal alerts (carry their own `vertical`), weather + chokepoint
-  // (oil/maritime). Everything without an explicit vertical defaults to "oil".
+  // Merge radar alerts (carry their own `vertical`) with weather (oil/maritime).
+  // Everything without an explicit vertical defaults to "oil".
   const combined = useMemo(() => [
-    ...chokeAlerts.map((c) => ({
-      id: `choke-${c.portid}`,
-      rule: 'chokepoint_anomaly',
-      vertical: 'oil',
-      severity: c.alert_level,
-      title: `${c.chokepoint || '?'}: ${c.anomaly_pct > 0 ? '+' : ''}${c.anomaly_pct ?? 0}% ${c.direction || ''}`,
-      detail: `${c.n_total ?? '?'} vessels (${c.baseline_type === 'yoy' ? 'YoY' : '30d'}: ${c.baseline_avg ?? '?'})${c.disruption_name ? ` // ${c.disruption_name}` : ''}`,
-      zone: (c.chokepoint || '').toLowerCase().split(' ').pop() || '',
-      created_at: `${c.date}T00:00:00Z`,
-      isChoke: true,
-    })),
     ...weatherAlerts.map((w) => ({
       id: `wx-${w.id}`,
       rule: 'weather',
@@ -123,7 +104,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
       isWeather: true,
     })),
     ...alerts.map((a) => ({ ...a, vertical: a.vertical || 'oil', isWeather: false })),
-  ], [alerts, chokeAlerts, weatherAlerts])
+  ], [alerts, weatherAlerts])
 
   const totalCount = combined.length
 

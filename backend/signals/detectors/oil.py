@@ -134,3 +134,68 @@ def detect_floating_storage(db) -> list[DetectorResult]:
             )
         )
     return results
+
+
+def detect_rerouting(db) -> list[DetectorResult]:
+    """Suez→Cape rerouting index above its normal state (consolidates the legacy evaluator check).
+
+    `compute_rerouting_index` is already baseline-aware (current vs 30d/365d) and a pure local
+    DB read, so we just surface its state descriptively.
+    """
+    from backend.signals.tonnage_proxy import compute_rerouting_index
+
+    data = compute_rerouting_index(days=365)
+    if not data.get("available"):
+        return []
+    cur = data.get("current", {})
+    severity = cur.get("severity")  # high_rerouting→warning, elevated→info, normal→None
+    if not severity:
+        return []
+    ratio_pct = cur.get("ratio_pct") or 0.0
+    base_30d = (cur.get("baseline_30d") or 0.0) * 100
+    return [
+        DetectorResult(
+            rule="rerouting_high",
+            zone="global",
+            vertical="oil",
+            severity=severity,
+            title=f"Rerouting index at {ratio_pct:.0f}% — {cur.get('state', '').replace('_', ' ').upper()}",
+            detail=(
+                f"Cape share {ratio_pct:.0f}% vs ~{base_30d:.0f}% 30d-norm; elevated Cape routing "
+                f"typically signals Suez/Red Sea avoidance (longer voyages, higher tanker demand)."
+            ),
+        )
+    ]
+
+
+def _chokepoint_zone(name: str) -> str:
+    skip = {"strait", "of", "the", "canal"}
+    words = [w for w in (name or "").lower().split() if w not in skip]
+    return words[0] if words else (name or "global").lower()
+
+
+def detect_chokepoint(db) -> list[DetectorResult]:
+    """PortWatch chokepoint transit anomalies (consolidates the live /api/alerts/portwatch route).
+
+    `check_chokepoint_anomalies` is already YoY-baseline-aware with seasonal-low suppression and a
+    ±30% threshold — a pure local DB read.
+    """
+    from backend.signals.portwatch_alerts import check_chokepoint_anomalies
+
+    results: list[DetectorResult] = []
+    for a in check_chokepoint_anomalies():
+        disruption = f" // {a['disruption_name']}" if a.get("disruption_name") else ""
+        results.append(
+            DetectorResult(
+                rule="chokepoint_anomaly",
+                zone=_chokepoint_zone(a.get("chokepoint", "")),
+                vertical="oil",
+                severity="critical" if a.get("alert_level") == "critical" else "warning",
+                title=f"{a['chokepoint']}: {a['anomaly_pct']:+.0f}% {a['direction']}",
+                detail=(
+                    f"{a['n_total']} vessels vs {a['baseline_avg']} ({a['baseline_type']} baseline)"
+                    f"{disruption}."
+                ),
+            )
+        )
+    return results
