@@ -5,7 +5,7 @@
 > (Abschnitt „Build-Stand") ist zum Datum unten verifiziert und veraltet schneller — bei Konflikt
 > gewinnt der Code.
 >
-> **Stand: 2026-06-24** · Gas-UI (PR #14) + Gas-Track-Record/TTF (PR #15) + ENERGY-Tab/Spark-Spread (PR #16); Keys lokal, Prod-Deploy offen
+> **Stand: 2026-06-24** · Gas-UI (#14) + Track-Record/TTF (#15) + ENERGY-Tab/Spark (#16) + Residuallast/Dunkelflaute (#17/#18); **alles in Production deployed** (Keys auf VPS, Backfill gelaufen)
 
 ---
 
@@ -131,9 +131,9 @@ product"*). Seit 2026-06-24 (PR #14): **GAS-Tab im Frontend** — Pro-Residual-H
 `GasStoragePanel`/`GasSupplyPanel`/`GasDemandPanel`; shared `frontend/src/utils/chart.js`.
 Gating: **Rohdaten frei, Residual Pro**. ENTSO-E-Token + GIE-Key sind **lokal eingebaut &
 validiert**, voller Backfill 2023→heute gelaufen → Power-Burn/Demand/Balance laufen **real,
-nicht mehr PRELIMINARY** (`/api/gas/*` liefert ~121 Zeilen @ days=120). ⚠️ **Prod-Caveat:**
-beide Keys (ENTSO-E + GIE) müssen noch in die Prod-`.env` auf dem VPS + dort ein Backfill,
-sonst sind Gas **und** Energy in Production leer.
+nicht mehr PRELIMINARY** (`/api/gas/*` liefert ~121 Zeilen @ days=120). **Prod (2026-06-24):**
+ENTSO-E-Token + GIE-Key sind auf dem VPS gesetzt, Gas+Energy-Backfill gelaufen, Vertikale
+live auf obsyd.dev; der tägliche Scheduler hält alles aktuell.
 
 **Gas-Track-Record (PR #15):** der Gas-Residual ist im Validierungs-Scorecard, **gegen TTF**
 gescort (nicht Brent — der Scorecard ist jetzt target-aware, `SIGNAL_SPECS` 4-Tupel). Neue
@@ -184,7 +184,8 @@ Gas-Vertikal), Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
 - ~~Preis-Leiche in Trial-Mails (`trial_drip.py`): Pre-Pivot **€19,90/199 €**~~ — **behoben
   2026-06-24**, auf €15/€149 angeglichen. (Lehre: Preis-Strings leben verstreut; bei künftigen
   Preisänderungen `trial_drip.py`, `PricingModal.jsx` und README zusammen anfassen.)
-- ~~**ENTSO-E-Token in Prod** unbestätigt~~ — **lokal gelöst 2026-06-24:** `ENTSOE_API_TOKEN`
+- ~~**ENTSO-E-Token in Prod** unbestätigt~~ — **erledigt 2026-06-24:** Keys auf dem VPS gesetzt,
+  Prod-Backfill gelaufen, Gas+Energy live. (Historie:) `ENTSOE_API_TOKEN`
   + `GIE_API_KEY` (letzterer aus `commodity-signal` übernommen) eingebaut & validiert, Backfill
   lief. **Offen für Prod:** beide Keys in die VPS-Prod-`.env` + dortiger Backfill — sonst Gas-Tab
   in Production leer. (Entscheidung „kein LLM in Obsyd / keine commodity-signal-Fusion" siehe Memory.)
