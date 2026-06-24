@@ -10,13 +10,17 @@ const API = '/api'
 export default function SparkSpreadPanel() {
   const { data, loading, error } = useFetchWithError(`${API}/power/spark-spread?days=120`)
 
-  if (error)
+  // This panel is Pro-gated at the call site (ProGate). The route is also
+  // require_pro, so an anon/free fetch returns 401/403 — treat that as "not
+  // available" (ProGate shows its upgrade overlay) rather than a red error box.
+  const authError = !!error && (error.includes('401') || error.includes('403'))
+  if (error && !authError)
     return (
       <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
         <div className="font-mono text-[10px] text-red-400">SPARK SPREAD // FETCH ERROR</div>
       </div>
     )
-  if (!data?.available && !loading) return null
+  if (authError || (!data?.available && !loading)) return null
 
   const rows = data?.data ?? []
   const latest = data?.latest
