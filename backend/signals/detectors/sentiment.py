@@ -9,14 +9,27 @@ from __future__ import annotations
 import json
 
 from backend.models.sentiment import SentimentScore
-from backend.signals.detectors.base import DetectorResult
+from backend.signals.detectors.base import DetectorResult, trailing_zscore
+
+SENT_WINDOW = 30          # trailing days of risk-score history
+SENT_ABS_EXTREME = 8.0    # absolute ceiling: always notable regardless of baseline
+SENT_REL_FLOOR = 6.0      # for a relative "unusual jump", require at least moderate risk
+SENT_REL_Z = 2.0
 
 
 def detect_sentiment_risk(db) -> list[DetectorResult]:
-    row = db.query(SentimentScore).order_by(SentimentScore.date.desc()).first()
-    if row is None or row.risk_score < 6:
+    rows = db.query(SentimentScore).order_by(SentimentScore.date.desc()).limit(SENT_WINDOW + 1).all()
+    if not rows:
         return []
-    severity = "warning" if row.risk_score >= 8 else "info"
+    row = rows[0]
+
+    # Two ways to be notable: an absolute extreme, OR an unusual jump vs the recent norm.
+    elevated_abs = row.risk_score >= SENT_ABS_EXTREME
+    stat = trailing_zscore(row.risk_score, [r.risk_score for r in rows[1:]])
+    elevated_rel = stat is not None and stat[0] >= SENT_REL_Z and row.risk_score >= SENT_REL_FLOOR
+    if not (elevated_abs or elevated_rel):
+        return []
+    severity = "warning" if elevated_abs else "info"
 
     top_factor = ""
     if row.risk_factors:
