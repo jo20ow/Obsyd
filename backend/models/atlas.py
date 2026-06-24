@@ -52,3 +52,25 @@ class CountryMacro(Base):
     period: Mapped[str] = mapped_column(String)                    # year "YYYY" (WB is annual)
     value: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CountryResource(Base):
+    """Per-country mineral/metal mine production from USGS Mineral Commodity Summaries.
+
+    Public domain. ISO-3 keyed (USGS country names mapped via usgs_country_map; aggregates
+    excluded). `commodity` is a friendly key (e.g. "lithium", "rare_earths").
+    """
+
+    __tablename__ = "country_resource"
+    __table_args__ = (
+        UniqueConstraint("iso3", "commodity", "period", name="uq_country_resource"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    iso3: Mapped[str] = mapped_column(String, index=True)
+    country_name: Mapped[str] = mapped_column(String, default="")
+    commodity: Mapped[str] = mapped_column(String, index=True)     # e.g. "lithium", "cobalt"
+    period: Mapped[str] = mapped_column(String)                    # year "YYYY"
+    value: Mapped[float] = mapped_column(Float)
+    unit: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

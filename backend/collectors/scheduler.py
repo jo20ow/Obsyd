@@ -44,6 +44,7 @@ from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chok
 from backend.collectors.retention import run_retention
 from backend.collectors.spark_spreads import collect_spark_spreads
 from backend.collectors.sts_collector import collect_sts_events
+from backend.collectors.usgs_minerals import ingest_usgs_minerals
 from backend.collectors.worldbank import ingest_worldbank
 from backend.database import SessionLocal
 from backend.metals.usgs_copper import ingest_copper_supply
@@ -257,6 +258,18 @@ async def _run_worldbank():
         logger.info("worldbank macro: %s", result)
     except Exception as e:
         logger.error("worldbank macro ingest failed: %s", e)
+    finally:
+        db.close()
+
+
+async def _run_usgs_minerals():
+    """Monthly ingest of USGS per-country mineral production (ATLAS resources layer)."""
+    db = SessionLocal()
+    try:
+        result = await ingest_usgs_minerals(db)
+        logger.info("usgs minerals: %s", result)
+    except Exception as e:
+        logger.error("usgs minerals ingest failed: %s", e)
     finally:
         db.close()
 
@@ -602,6 +615,14 @@ def start_scheduler():
         _run_worldbank,
         CronTrigger(day=7, hour=6, minute=0),
         id="worldbank_macro",
+        **JOB_DEFAULTS,
+    )
+
+    # ATLAS — USGS per-country mineral production (annual MCS release): monthly on the 8th.
+    scheduler.add_job(
+        _run_usgs_minerals,
+        CronTrigger(day=8, hour=6, minute=0),
+        id="usgs_minerals",
         **JOB_DEFAULTS,
     )
 
