@@ -11,6 +11,17 @@ from sqlalchemy.orm import Session
 from backend.models.energy import PowerGrid
 from backend.routes.power import DUNKELFLAUTE_THRESHOLD, _compute_grid_row
 
+
+@pytest.fixture(autouse=True)
+def _clear_dependency_overrides():
+    """_make_client installs an app.dependency_overrides[get_db]; clear it after
+    every test so the override never leaks into other test files' TestClients."""
+    yield
+    from backend.main import app
+
+    app.dependency_overrides.clear()
+
+
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 # Dates well within the last 120 days so route window tests find them.
