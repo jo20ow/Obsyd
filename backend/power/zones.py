@@ -40,3 +40,12 @@ POWER_ZONES: dict[str, dict] = {
 }
 
 DEFAULT_ZONE = "DE_LU"
+
+# Cross-border pairs for A11 physical flow ingestion.
+# Convention: net_mw is positive when flow goes from_zone → to_zone.
+# net_mw = dir(out=from_zone, in=to_zone) − dir(out=to_zone, in=from_zone)
+POWER_BORDERS: list[tuple[str, str]] = [
+    ("DE_LU", "FR"),
+    ("DE_LU", "NL"),
+    ("FR", "NL"),
+]

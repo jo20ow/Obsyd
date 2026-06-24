@@ -188,6 +188,15 @@ async def _run_power_daily():
             except Exception as exc:
                 logger.error("power daily ingest_grid [%s] failed: %s", zone_key, exc)
 
+        # Cross-border physical flows (A11) — all POWER_BORDERS.
+        try:
+            from backend.power.entsoe_flows import ingest_flows as ingest_border_flows
+
+            result = await ingest_border_flows(db, days, overwrite=True)
+            logger.info("power daily cross-border flows: %s", result)
+        except Exception as exc:
+            logger.error("power daily ingest_flows (A11) failed: %s", exc)
+
         # Spark spread uses POWER_DE (DE-LU) only — SparkSpreadHistory has no zone column.
         try:
             result = await collect_spark_spreads()

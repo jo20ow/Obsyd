@@ -39,6 +39,7 @@ import PowerDayAheadPanel from './components/PowerDayAheadPanel'
 import PowerGridPanel from './components/PowerGridPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
+import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import ZoneSelector from './components/ZoneSelector'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
@@ -547,6 +548,13 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="generation-mix">
                 <GenerationMixPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 5: Cross-Border Physical Flows (free) */}
+            <div className="mt-3">
+              <ErrorBoundary name="cross-border-flows">
+                <CrossBorderFlowPanel />
               </ErrorBoundary>
             </div>
           </>

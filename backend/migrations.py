@@ -67,6 +67,10 @@ def run_migrations() -> None:
             ))
         logger.info("migrations: backfilled power_grid.residual_mw from load_mw/wind_mw/solar_mw")
 
+    # 2026-06-24: cross-border physical flows (A11) table
+    # Base.metadata.create_all handles new tables, so no ALTER needed here.
+    # This note documents the addition for the audit trail.
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:
