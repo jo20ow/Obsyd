@@ -12,6 +12,18 @@ Out of scope (left DE-only, intentional):
   SparkSpreadHistory — no zone column; always uses POWER_DE (DE-LU) price.
   Scorecard signals (power_residual, spark_spread) — target-aware but zoned
     at DE-LU only; extending them is a future sprint.
+
+Cross-border flows:
+  Previously sourced from ENTSO-E A11 (entsoe_flows.py) with a hardcoded
+  POWER_BORDERS list.  Since 2026-06-24 the source is Fraunhofer Energy-Charts
+  /cbpf (energy_charts_flows.py, CC BY 4.0).  The border set is now derived
+  from the live API response — POWER_BORDERS is kept only for the /flows route
+  summary query and now reflects the real borders of DE-LU/FR/NL.  The
+  fictitious FR↔NL border (no real interconnector exists) has been removed.
+
+  Zones for neighbouring countries (BE, CH, AT, etc.) are not in POWER_ZONES
+  because we don't collect their day-ahead prices or grid data; they appear
+  only as flow endpoints in PowerFlow rows.
 """
 
 from __future__ import annotations
@@ -41,11 +53,21 @@ POWER_ZONES: dict[str, dict] = {
 
 DEFAULT_ZONE = "DE_LU"
 
-# Cross-border pairs for A11 physical flow ingestion.
-# Convention: net_mw is positive when flow goes from_zone → to_zone.
-# net_mw = dir(out=from_zone, in=to_zone) − dir(out=to_zone, in=from_zone)
+# Real cross-border pairs for the /flows route summary.
+# Source: Energy-Charts /cbpf (CC BY 4.0).  Borders are all REAL interconnectors
+# of DE-LU, FR, and NL — the fictitious FR↔NL border (no physical interconnector)
+# has been removed.
+#
+# Note: many more borders are stored in the PowerFlow table (e.g. DE_LU↔BE,
+# DE_LU↔AT, FR↔ES, etc.) — this list is only used by the /flows route to
+# enumerate the "primary" borders for the borders[] summary.  All borders
+# present in the PowerFlow table are also returned in the data/latest fields.
 POWER_BORDERS: list[tuple[str, str]] = [
+    ("BE", "DE_LU"),
+    ("BE", "NL"),
+    ("CH", "DE_LU"),
+    ("CH", "FR"),
     ("DE_LU", "FR"),
     ("DE_LU", "NL"),
-    ("FR", "NL"),
+    ("FR", "GB"),
 ]

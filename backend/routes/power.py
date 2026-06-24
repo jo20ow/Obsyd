@@ -17,6 +17,11 @@ GET /api/power/grid?days=120&zone=DE_LU  — FREE
 GET /api/power/generation-mix?days=30&zone=DE_LU  — FREE
     Full ENTSO-E A75 generation mix for the requested bidding zone.
 
+GET /api/power/flows?days=30  — FREE
+    Energy-Charts CBPF cross-border physical flows (CC BY 4.0).
+    All real borders of DE-LU, FR, NL and their neighbours.
+    net_mw > 0 = net export from from_zone to to_zone.
+
 All endpoints follow the `{"available": bool, "data": [...]}` envelope used
 throughout the gas vertical (see backend/routes/gas.py).
 """
@@ -29,7 +34,8 @@ from sqlalchemy.orm import Session
 from backend.auth.dependencies import require_pro
 from backend.database import get_db
 from backend.models.energy import EnergyPrice, PowerFlow, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
-from backend.power.zones import DEFAULT_ZONE, POWER_BORDERS, POWER_ZONES
+from backend.power.energy_charts_flows import ATTRIBUTION
+from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
 
 router = APIRouter(prefix="/api/power", tags=["power"])
 
@@ -303,11 +309,19 @@ async def get_grid(
 # ─── Cross-border physical flows (free) ──────────────────────────────────────
 
 
+def _zone_label(zone: str) -> str:
+    """Human-readable label for a zone code.
+
+    Zones not in POWER_ZONES (e.g. BE, CH, GB) use their code directly;
+    zones in POWER_ZONES use their registered label (e.g. DE-LU).
+    """
+    cfg = POWER_ZONES.get(zone)
+    return cfg["label"] if cfg else zone
+
+
 def _border_label(from_zone: str, to_zone: str) -> str:
-    """Human-readable border label, e.g. "DE-LU↔FR"."""
-    a = POWER_ZONES[from_zone]["label"]
-    b = POWER_ZONES[to_zone]["label"]
-    return f"{a}↔{b}"
+    """Human-readable border label, e.g. "DE-LU↔FR" or "BE↔DE-LU"."""
+    return f"{_zone_label(from_zone)}↔{_zone_label(to_zone)}"
 
 
 def _flow_direction(from_zone: str, to_zone: str, net_mw: float) -> str:
@@ -316,8 +330,8 @@ def _flow_direction(from_zone: str, to_zone: str, net_mw: float) -> str:
     Positive net_mw = from_zone → to_zone.
     Negative net_mw = to_zone → from_zone.
     """
-    a = POWER_ZONES[from_zone]["label"]
-    b = POWER_ZONES[to_zone]["label"]
+    a = _zone_label(from_zone)
+    b = _zone_label(to_zone)
     return f"{a}→{b}" if net_mw >= 0 else f"{b}→{a}"
 
 
@@ -326,15 +340,18 @@ async def get_flows(
     days: int = Query(30, ge=1, le=1500),
     db: Session = Depends(get_db),
 ):
-    """ENTSO-E A11 cross-border physical flows for all supported borders. Free tier.
+    """Energy-Charts CBPF cross-border physical flows for all real borders. Free tier.
+
+    Source: Fraunhofer ISE Energy-Charts /cbpf API (CC BY 4.0).
+    Covers all real interconnectors of DE-LU, FR, and NL with their neighbours.
+    The fictitious FR↔NL border (no physical interconnector) is excluded.
 
     Returns net daily mean MW per border (positive = from_zone→to_zone).
-    `borders` — latest snapshot per border with direction label.
+    `borders` — all distinct borders in the window, sorted by |net_mw| desc,
+                 with the latest net_mw and direction label.
     `data`    — wide format: one row per date with one key per border arrow.
     `latest`  — most recent date values keyed by border arrow.
-
-    Border convention: from_zone → to_zone as defined in POWER_BORDERS.
-    net_mw > 0 = net physical export from_zone to to_zone.
+    `source`  — attribution string (CC BY 4.0 attribution required).
     """
     date_from, date_to = _window(days)
 
@@ -351,23 +368,33 @@ async def get_flows(
     if not rows:
         return {
             "available": False,
-            "reason": "no cross-border flow data yet — run power backfill (ingest_flows)",
+            "reason": "no cross-border flow data yet — run power backfill (ingest_cbpf)",
         }
 
     # Build wide format {date -> {border_arrow: net_mw}}
     pivot: dict[str, dict[str, float]] = {}
     for r in rows:
-        arrow = f"{POWER_ZONES[r.from_zone]['label']}→{POWER_ZONES[r.to_zone]['label']}"
+        arrow = f"{_zone_label(r.from_zone)}→{_zone_label(r.to_zone)}"
         pivot.setdefault(r.date, {})[arrow] = round(r.net_mw, 2)
 
     data = [{"date": d, **pivot[d]} for d in sorted(pivot.keys())]
     latest_date = sorted(pivot.keys())[-1]
     latest = {"date": latest_date, **pivot[latest_date]}
 
-    # Per-border summary using the latest available row per (from_zone, to_zone)
+    # Per-border summary: discover all distinct borders in the window dynamically.
+    # Get distinct (from_zone, to_zone) pairs that have data in the window
+    pairs = (
+        db.query(PowerFlow.from_zone, PowerFlow.to_zone)
+        .filter(
+            PowerFlow.date >= date_from,
+            PowerFlow.date <= date_to,
+        )
+        .distinct()
+        .all()
+    )
+
     borders: list[dict] = []
-    for from_zone, to_zone in POWER_BORDERS:
-        # Latest row for this border pair
+    for from_zone, to_zone in pairs:
         border_row = (
             db.query(PowerFlow)
             .filter(
@@ -390,10 +417,14 @@ async def get_flows(
             "direction": _flow_direction(from_zone, to_zone, net),
         })
 
+    # Sort by absolute net_mw descending (largest flows first)
+    borders.sort(key=lambda b: abs(b["net_mw"]), reverse=True)
+
     return {
         "available": True,
         "unit": "MW",
-        "note": "net_mw > 0 = net physical flow from_zone→to_zone (ENTSO-E A11 daily mean)",
+        "source": ATTRIBUTION,
+        "note": "net_mw > 0 = net physical flow from_zone→to_zone; Energy-Charts CBPF daily mean",
         "borders": borders,
         "latest": latest,
         "from": date_from,

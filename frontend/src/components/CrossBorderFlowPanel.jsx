@@ -25,17 +25,18 @@ function borderColor(netMw) {
   return COLOR_ZERO
 }
 
+// Derive the arrow key for the wide-format data lookup.
+// The API builds arrows from _zone_label(from_zone) + "→" + _zone_label(to_zone).
+// DE_LU → "DE-LU", everything else → the zone code as-is.
+function zoneLabel(zone) {
+  return zone === 'DE_LU' ? 'DE-LU' : zone
+}
+
 // Each border = one sparkline + headline bar
 function BorderRow({ border, data }) {
   const { label, net_mw: netMw, direction, from_zone, to_zone } = border
 
-  // Pick the column key for this border: "DE-LU→FR" or similar
-  // The API builds arrows like "DE-LU→FR" from zone labels.
-  // `direction` is the ACTUAL direction for the latest day.
-  // For the sparkline we want the signed net_mw values.
-  const fromLabel = from_zone === 'DE_LU' ? 'DE-LU' : from_zone
-  const toLabel   = to_zone   === 'DE_LU' ? 'DE-LU' : to_zone
-  const arrowKey  = `${fromLabel}→${toLabel}`
+  const arrowKey = `${zoneLabel(from_zone)}→${zoneLabel(to_zone)}`
 
   const sparkData = data
     .filter((d) => d[arrowKey] != null)
@@ -44,8 +45,8 @@ function BorderRow({ border, data }) {
   const absGW = netMw != null ? Math.abs(netMw / 1000).toFixed(2) : '—'
   const color = borderColor(netMw)
 
-  // Bar width: scale relative to ±5 GW max visible
-  const MAX_BAR_GW = 5
+  // Bar width: scale relative to ±10 GW max visible (more borders → larger range)
+  const MAX_BAR_GW = 10
   const barPct = netMw != null
     ? Math.min(Math.abs(netMw) / (MAX_BAR_GW * 1000), 1) * 100
     : 0
@@ -140,12 +141,12 @@ export default function CrossBorderFlowPanel() {
     <Panel
       id="cross-border-flows"
       title="CROSS-BORDER FLOWS"
-      info="Net physical electricity flows between bidding zones (ENTSO-E A11, Actual Cross-Border Physical Flow). Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the last 30 days signed."
+      info="Net physical electricity flows between bidding zones. All real interconnectors of DE-LU, FR, and NL — sorted by magnitude. Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the last 30 days signed. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0)."
       collapsible
       headerRight={
         borders.length > 0 && (
           <span className="font-mono text-[9px] text-neutral-600">
-            {borders.length} borders · A11
+            {borders.length} borders · CBPF
           </span>
         )
       }
@@ -166,7 +167,19 @@ export default function CrossBorderFlowPanel() {
             />
           ))}
           <div className="px-4 py-2 font-mono text-[9px] text-neutral-700">
-            ENTSO-E A11 · daily mean MW · latest {data?.latest?.date}
+            daily mean MW · latest {data?.latest?.date}
+          </div>
+          <div className="px-4 pb-2 font-mono text-[9px] text-neutral-700">
+            Source:{' '}
+            <a
+              href="https://www.energy-charts.info"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-neutral-500"
+            >
+              Energy-Charts
+            </a>
+            {' '}(CC BY 4.0)
           </div>
         </>
       )}
