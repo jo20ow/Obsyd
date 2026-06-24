@@ -18,6 +18,7 @@ single numeric transform: each vertical keeps its own validated thresholds.
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass
 
 
@@ -61,3 +62,25 @@ def severity_from_enum(value: str | None, mapping: dict[str, str], default: str 
     if value is None:
         return default
     return mapping.get(value, default)
+
+
+# Minimum history points before a trailing baseline is trustworthy.
+MIN_BASELINE_N = 14
+
+
+def trailing_zscore(current: float, history: list[float], *, min_n: int = MIN_BASELINE_N):
+    """z-score of `current` against a trailing `history` — "abnormal vs THIS series' own past".
+
+    This is the core of the descriptive radar: an anomaly is a statistical deviation from a
+    series' own recent norm, not a flat threshold (which misfires on structurally-high series
+    like a permanent anchorage). Returns (z, mean, std, n), or None if history is too short or
+    has zero variance (→ no trustworthy baseline → no alert).
+    """
+    n = len(history)
+    if n < min_n:
+        return None
+    mean = statistics.fmean(history)
+    std = statistics.pstdev(history)
+    if std == 0:
+        return None
+    return (current - mean) / std, mean, std, n

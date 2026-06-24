@@ -5,6 +5,8 @@ exposure/grouping. This is a different subsystem from test_alert_rules.py
 (which covers the Pro user rule-builder) — keep them separate.
 """
 
+from datetime import date, datetime, time, timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect
@@ -109,36 +111,68 @@ def test_freight_divergence_info(db_session):
     assert r.severity == "info" and r.vertical == "oil"
 
 
-def test_floating_storage_threshold(db_session):
-    # 2 active in a zone → below threshold (suppress); add a 3rd → info.
-    for i in range(2):
-        db_session.add(_fs_event(f"20000000{i}", "hormuz"))
-    db_session.commit()
+_FS_ANCHOR = date(2026, 6, 24)
+
+
+def _seed_fs_daily(db, zone, counts_by_offset):
+    """Create events so active_on(anchor - offset) == count for each offset (anchor = _FS_ANCHOR)."""
+    for off, c in counts_by_offset.items():
+        dt = datetime.combine(_FS_ANCHOR - timedelta(days=off), time(12, 0))
+        for i in range(c):
+            db.add(FloatingStorageEvent(
+                mmsi=f"{zone}-{off}-{i}", zone=zone,
+                first_seen=dt, last_seen=dt, duration_days=8.0, status="active",
+            ))
+    db.commit()
+
+
+def test_floating_storage_structural_high_no_alert(db_session):
+    # Malacca-like: structurally ~10 tankers every day, today 11 → normal vs its own history → no alert.
+    counts = {0: 11}
+    for o in range(1, 90):
+        counts[o] = 9 + (o % 3)  # 9/10/11 → mean ~10
+    _seed_fs_daily(db_session, "malacca", counts)
     assert detect_floating_storage(db_session) == []
 
-    db_session.add(_fs_event("200000099", "hormuz"))
-    db_session.commit()
-    r = detect_floating_storage(db_session)[0]
-    assert r.severity == "info" and r.zone == "hormuz"
+
+def test_floating_storage_spike_alerts(db_session):
+    # Normally ~2-3 tankers, today 22 → unusual buildup → critical.
+    counts = {0: 22}
+    for o in range(1, 90):
+        counts[o] = 2 + (o % 2)  # 2/3 → mean ~2.5
+    _seed_fs_daily(db_session, "suez", counts)
+    res = detect_floating_storage(db_session)
+    assert len(res) == 1 and res[0].zone == "suez" and res[0].severity == "critical"
 
 
-def _fs_event(mmsi: str, zone: str) -> FloatingStorageEvent:
-    from datetime import datetime
-
-    return FloatingStorageEvent(
-        mmsi=mmsi, zone=zone, first_seen=datetime.utcnow(), last_seen=datetime.utcnow(),
-        duration_days=9.0, status="active",
-    )
+def test_floating_storage_sparse_zone_no_alert(db_session):
+    # A zone that normally holds ~0 tankers must not alert on a small absolute count.
+    _seed_fs_daily(db_session, "hormuz", {0: 10, 1: 1, 2: 1})
+    assert detect_floating_storage(db_session) == []
 
 
 # ─── Power ────────────────────────────────────────────────────────────────────
 
 
 def test_negative_prices_warns(db_session):
-    db_session.add(PowerPriceDaily(date="2026-06-24", zone="DE_LU", mean_price=20, min_price=-30, max_price=80, negative_hours=8))
+    anchor = date(2026, 6, 24)
+    for o in range(1, 21):  # 20 prior days of low negative-hours (0/1/2)
+        d = (anchor - timedelta(days=o)).isoformat()
+        db_session.add(PowerPriceDaily(date=d, zone="DE_LU", mean_price=40, min_price=-5, max_price=80, negative_hours=o % 3))
+    db_session.add(PowerPriceDaily(date=anchor.isoformat(), zone="DE_LU", mean_price=10, min_price=-40, max_price=60, negative_hours=12))
     db_session.commit()
     r = detect_negative_prices(db_session)[0]
-    assert r.vertical == "power" and r.severity == "warning" and r.zone == "DE_LU"
+    assert r.vertical == "power" and r.zone == "DE_LU" and r.severity in ("warning", "critical")
+
+
+def test_negative_prices_normal_for_zone_suppressed(db_session):
+    # Zone routinely has ~8 negative hours; today 8 → normal vs its own history → no alert.
+    anchor = date(2026, 6, 24)
+    for o in range(0, 20):
+        d = (anchor - timedelta(days=o)).isoformat()
+        db_session.add(PowerPriceDaily(date=d, zone="DE_LU", mean_price=20, min_price=-20, max_price=70, negative_hours=7 + (o % 3)))
+    db_session.commit()
+    assert detect_negative_prices(db_session) == []
 
 
 def test_negative_prices_zero_suppressed(db_session):
@@ -162,6 +196,17 @@ def test_sentiment_low_risk_suppressed(db_session):
     db_session.add(SentimentScore(date="2026-06-24", risk_score=4.0, risk_factors="[]"))
     db_session.commit()
     assert detect_sentiment_risk(db_session) == []
+
+
+def test_sentiment_relative_jump_info(db_session):
+    # Calm baseline (~3), today jumps to 7 → unusual vs own norm (but below absolute 8) → info.
+    anchor = date(2026, 6, 24)
+    for o in range(1, 20):
+        db_session.add(SentimentScore(date=(anchor - timedelta(days=o)).isoformat(), risk_score=3.0 + (o % 2) * 0.5, risk_factors="[]"))
+    db_session.add(SentimentScore(date=anchor.isoformat(), risk_score=7.0, risk_factors="[]"))
+    db_session.commit()
+    r = detect_sentiment_risk(db_session)[0]
+    assert r.severity == "info" and r.vertical == "sentiment"
 
 
 # ─── Runner (loop) ────────────────────────────────────────────────────────────
