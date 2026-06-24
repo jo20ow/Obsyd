@@ -18,7 +18,13 @@ import math
 import numpy as np
 
 from backend.analytics.validation import metrics
-from backend.analytics.validation.prices import BRENT_SERIES, forward_log_returns, load_price_map
+from backend.analytics.validation.prices import (
+    BRENT_SERIES,
+    TTF_SYMBOL,
+    forward_log_returns,
+    load_energy_price_map,
+    load_price_map,
+)
 from backend.analytics.validation.weights import MIN_CONFIDENT_N
 
 logger = logging.getLogger(__name__)
@@ -26,13 +32,23 @@ logger = logging.getLogger(__name__)
 HORIZONS = (1, 7, 30)
 TOP_TERCILE_Q = 2 / 3  # "signal high" = top third of its own distribution
 
-# Continuous signals: a history table + the scalar column to evaluate.
-# Imported lazily inside the loader to avoid import cycles at module load.
+# Continuous signals: (name, history-table, scalar column, forward-return target).
+# target ∈ {"brent" (FRED oil), "ttf" (EnergyPrice gas)}. Models are resolved
+# lazily inside the loader to avoid import cycles at module load.
 SIGNAL_SPECS = (
-    ("disruption_score", "DisruptionScoreHistory", "composite_score"),
-    ("tonne_miles", "TonneMilesHistory", "tonne_miles_index"),
-    ("freight_proxy", "FreightProxyHistory", "proxy_index"),
+    ("disruption_score", "DisruptionScoreHistory", "composite_score", "brent"),
+    ("tonne_miles", "TonneMilesHistory", "tonne_miles_index", "brent"),
+    ("freight_proxy", "FreightProxyHistory", "proxy_index", "brent"),
+    # Gas residual predicts European GAS prices, not Brent → scored against TTF.
+    ("gas_residual", "GasBalance", "z_score", "ttf"),
 )
+
+
+def _load_target_map(db, target: str) -> dict[str, float]:
+    """Resolve a signal's forward-return target to a date→price map."""
+    if target == "ttf":
+        return load_energy_price_map(db, TTF_SYMBOL)
+    return load_price_map(db, BRENT_SERIES)  # default / "brent"
 
 
 def _two_sided_p(t_stat: float) -> float | None:
@@ -43,19 +59,36 @@ def _two_sided_p(t_stat: float) -> float | None:
     return float(2.0 * (1.0 - 0.5 * (1.0 + math.erf(abs(t_stat) / math.sqrt(2.0)))))
 
 
-def load_signal_series(db, table_name: str, value_col: str) -> tuple[list[str], np.ndarray]:
-    """Return (dates, values) for a signal, one observation per day (last row
-    of each day — dedupes sub-daily cadences like the 2-hourly disruption score)."""
+def _resolve_model(table_name: str):
+    """Find a history model class by name across the analytics + gas modules."""
     from backend.models import analytics as analytics_models
 
-    model = getattr(analytics_models, table_name)
-    rows = (
-        db.query(model.date, getattr(model, value_col), model.created_at)
-        .order_by(model.date.asc(), model.created_at.asc())
-        .all()
-    )
+    if hasattr(analytics_models, table_name):
+        return getattr(analytics_models, table_name)
+    from backend.models import gas as gas_models
+
+    return getattr(gas_models, table_name)
+
+
+def load_signal_series(db, table_name: str, value_col: str) -> tuple[list[str], np.ndarray]:
+    """Return (dates, values) for a signal, one observation per day (last row
+    of each day — dedupes sub-daily cadences like the 2-hourly disruption score).
+
+    Tables with a `created_at` (the analytics history tables) are ordered by it
+    so the last write per day wins; tables keyed one-row-per-day (GasBalance,
+    whose `date` is the PK) are read directly."""
+    model = _resolve_model(table_name)
+    has_created = hasattr(model, "created_at")
+    cols = [model.date, getattr(model, value_col)]
+    order = [model.date.asc()]
+    if has_created:
+        cols.append(model.created_at)
+        order.append(model.created_at.asc())
+    rows = db.query(*cols).order_by(*order).all()
+
     by_day: dict[str, float] = {}
-    for date_str, value, _created in rows:
+    for row in rows:
+        date_str, value = row[0], row[1]
         if value is not None:
             by_day[date_str] = float(value)  # last write per day wins
     dates = sorted(by_day)
@@ -117,10 +150,11 @@ def recompute_scorecards(db, as_of: str) -> list[dict]:
     `as_of` (YYYY-MM-DD). Returns the computed cards."""
     from backend.models.validation import SignalScorecard
 
-    price_map = load_price_map(db, BRENT_SERIES)
+    # Build one price map per distinct target (Brent via FRED, TTF via EnergyPrice).
+    price_maps = {target: _load_target_map(db, target) for target in {s[3] for s in SIGNAL_SPECS}}
     cards: list[dict] = []
 
-    for name, table_name, value_col in SIGNAL_SPECS:
+    for name, table_name, value_col, target in SIGNAL_SPECS:
         try:
             dates, values = load_signal_series(db, table_name, value_col)
         except Exception as e:
@@ -128,6 +162,7 @@ def recompute_scorecards(db, as_of: str) -> list[dict]:
             continue
         if len(dates) == 0:
             continue
+        price_map = price_maps[target]
         for horizon in HORIZONS:
             card = score_signal(name, dates, values, price_map, horizon)
             cards.append(card)
