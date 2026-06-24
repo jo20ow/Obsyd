@@ -3,15 +3,18 @@ import useFetchWithError from '../hooks/useFetchWithError'
 
 const API = '/api'
 
-// Honest-by-design: this never shows a green "edge" unless the forward-return
-// relationship is statistically significant. Sufficient data with no signal
-// reads as "no measured edge", not a win. `targetLabel` names the forward-return
-// target (Brent for oil/maritime signals, TTF for the gas residual).
+// Descriptive-by-design: OBSYD is an anomaly radar, not a predictor. This badge
+// reports the HISTORICAL co-movement between a signal and a market series as
+// transparency/context — never as a forecast or trade edge. A significant
+// relationship is shown for honesty (including negative/inverse ones), not as a
+// recommendation. `targetLabel` names the reference series (Brent for
+// oil/maritime, TTF for the gas residual).
 const method = (targetLabel) =>
-  `Track record: rank correlation (IC) between this signal and the forward ` +
-  `${targetLabel} return, with Newey-West HAC significance for overlapping windows. ` +
-  '"No measured edge" means enough data but not statistically significant ' +
-  '(p > 0.05). Single-regime sample — informational, not a forecast.'
+  `Historical co-movement: rank correlation between this signal and the ` +
+  `subsequent ${targetLabel} move, with Newey-West HAC significance for overlapping ` +
+  'windows. "No historical association" means enough data but no statistically ' +
+  'significant relationship (p > 0.05). This is descriptive context from a single ' +
+  'historical regime — NOT a forecast, signal, or recommendation.'
 
 /**
  * Compact, honest track-record strip for a signal panel.
@@ -32,16 +35,16 @@ export default function TrackRecordBadge({ signal, horizon = 7, targetLabel = 'B
   let tone
 
   if (!card.confident) {
-    label = `Track record: building — n=${card.n}/${minN}`
+    label = `Historical context: building — n=${card.n}/${minN}`
     tone = 'text-neutral-600 border-neutral-700/50'
   } else {
     const significant = card.p_value != null && card.p_value <= 0.05
     if (significant && card.ic != null) {
       const sign = card.ic >= 0 ? '+' : ''
-      label = `Track record: IC ${sign}${card.ic.toFixed(2)} · ${horizon}d · n=${card.n} · p=${card.p_value.toFixed(2)}`
+      label = `Historical co-movement ${sign}${card.ic.toFixed(2)} · ${horizon}d · n=${card.n} · context, not a forecast`
       tone = card.ic >= 0 ? 'text-green-glow border-green-glow/30' : 'text-orange-400 border-orange-400/30'
     } else {
-      label = `No measured edge · ${horizon}d · n=${card.n}`
+      label = `No historical association · ${horizon}d · n=${card.n}`
       tone = 'text-neutral-500 border-neutral-700/50'
     }
   }

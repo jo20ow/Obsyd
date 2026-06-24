@@ -19,7 +19,7 @@ class GDELTVolume(Base):
 
 
 class SentimentScore(Base):
-    """AI-generated sentiment risk score (BYOK LLM)."""
+    """Rule-based news-risk score (1-10), derived from GDELT tone — no LLM."""
     __tablename__ = "sentiment_scores"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

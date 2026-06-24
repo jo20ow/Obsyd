@@ -12,7 +12,12 @@ const SEVERITY_STYLES = {
   Minor: { dot: 'bg-green-glow', text: 'text-green-glow', border: 'border-green-500/30' },
 }
 
+// Sort order: most urgent first. Unknown severities sink to the bottom.
+const SEVERITY_RANK = { critical: 0, Extreme: 0, Severe: 0, warning: 1, Moderate: 1, info: 2, Minor: 2 }
+const sevRank = (s) => SEVERITY_RANK[s] ?? 3
+
 const RULE_ICONS = {
+  // legacy oil/maritime
   anchored_vessels: 'ANCHR',
   floating_storage: 'ANCHR',
   flow_anomaly: 'FLOW',
@@ -24,7 +29,19 @@ const RULE_ICONS = {
   rerouting_high: 'ROUTE',
   convergence: 'CONV',
   weather: 'WX',
+  // cross-vertical radar detectors
+  gas_balance: 'GASBAL',
+  days_of_supply: 'DOS',
+  supply_demand_divergence: 'DIVRG',
+  freight_divergence: 'FRGT',
+  negative_prices: 'NEGP',
+  sentiment_risk: 'SENT',
 }
+
+// Which dashboard tab holds the evidence chart for each vertical (drill-down).
+const VERTICAL_TAB = { gas: 'gas', power: 'energy', metals: 'metals', sentiment: 'sentiment', oil: 'overview' }
+const VERTICAL_LABELS = { gas: 'GAS', power: 'POWER', oil: 'OIL / MARITIME', metals: 'METALS', sentiment: 'SENTIMENT' }
+const VERTICAL_ORDER = ['gas', 'power', 'oil', 'metals', 'sentiment']
 
 const CONVERGENCE_STYLE = { dot: 'bg-amber-400', text: 'text-amber-400', border: 'border-amber-500/30' }
 
@@ -35,6 +52,7 @@ const RULE_GROUP_LABELS = {
   floating_storage: 'floating storage alerts',
   weather: 'weather alerts',
   refinery_thermal: 'thermal alerts',
+  negative_prices: 'zones with negative prices',
 }
 
 function timeAgo(isoStr) {
@@ -50,6 +68,12 @@ function timeAgo(isoStr) {
   } catch { return '' }
 }
 
+// Drill-down: jump to the vertical's evidence tab via the existing hash router.
+function goToVertical(vertical) {
+  const tab = VERTICAL_TAB[vertical] || 'overview'
+  window.location.hash = tab
+}
+
 export default function AlertsPanel({ weatherAlerts = [] }) {
   const [alerts, setAlerts] = useState([])
   const [chokeAlerts, setChokeAlerts] = useState([])
@@ -60,7 +84,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
     // hiding the loading state — otherwise the panel briefly renders an
     // incomplete merge and re-shuffles a second later.
     Promise.allSettled([
-      fetch(`${API}/alerts?limit=20`)
+      fetch(`${API}/alerts?limit=50`)
         .then((r) => (r.ok ? r.json() : []))
         .then(setAlerts)
         .catch((e) => console.error('AlertsPanel alerts:', e)),
@@ -73,11 +97,13 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
     ]).finally(() => setLoading(false))
   }, [])
 
-  // Merge signal alerts, weather alerts, and chokepoint alerts
-  const combined = [
+  // Merge signal alerts (carry their own `vertical`), weather + chokepoint
+  // (oil/maritime). Everything without an explicit vertical defaults to "oil".
+  const combined = useMemo(() => [
     ...chokeAlerts.map((c) => ({
       id: `choke-${c.portid}`,
       rule: 'chokepoint_anomaly',
+      vertical: 'oil',
       severity: c.alert_level,
       title: `${c.chokepoint || '?'}: ${c.anomaly_pct > 0 ? '+' : ''}${c.anomaly_pct ?? 0}% ${c.direction || ''}`,
       detail: `${c.n_total ?? '?'} vessels (${c.baseline_type === 'yoy' ? 'YoY' : '30d'}: ${c.baseline_avg ?? '?'})${c.disruption_name ? ` // ${c.disruption_name}` : ''}`,
@@ -88,6 +114,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
     ...weatherAlerts.map((w) => ({
       id: `wx-${w.id}`,
       rule: 'weather',
+      vertical: 'oil',
       severity: w.severity,
       title: w.headline || w.event,
       detail: w.area,
@@ -95,40 +122,60 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
       created_at: w.onset || new Date().toISOString(),
       isWeather: true,
     })),
-    ...alerts.map((a) => ({ ...a, isWeather: false })),
-  ]
+    ...alerts.map((a) => ({ ...a, vertical: a.vertical || 'oil', isWeather: false })),
+  ], [alerts, chokeAlerts, weatherAlerts])
 
   const totalCount = combined.length
 
-  // Group alerts by rule — collapse >2 of the same type into one expandable row
-  const displayItems = useMemo(() => {
-    const groups = {}
+  // Group by vertical → within each vertical, severity-sort and collapse >2 of
+  // the same rule into one expandable row.
+  const verticalSections = useMemo(() => {
+    const byVertical = {}
     for (const a of combined) {
-      if (!groups[a.rule]) groups[a.rule] = []
-      groups[a.rule].push(a)
+      const v = a.vertical || 'oil'
+      if (!byVertical[v]) byVertical[v] = []
+      byVertical[v].push(a)
     }
-    const items = []
-    for (const [rule, ruleAlerts] of Object.entries(groups)) {
-      if (ruleAlerts.length > 2) {
-        const zones = ruleAlerts.map((a) => (a.zone || '').toUpperCase()).filter(Boolean)
-        const label = RULE_GROUP_LABELS[rule] || rule
-        const summary = zones.length > 0
-          ? `${ruleAlerts.length} ${label}: ${zones.join(', ')}`
-          : `${ruleAlerts.length} ${label}`
-        items.push({ type: 'group', rule, id: `group-${rule}`, severity: ruleAlerts[0].severity, summary, alerts: ruleAlerts })
-      } else {
-        items.push(...ruleAlerts.map((a) => ({ type: 'single', ...a })))
+
+    const sections = []
+    for (const vertical of VERTICAL_ORDER) {
+      const vAlerts = byVertical[vertical]
+      if (!vAlerts || vAlerts.length === 0) continue
+
+      // collapse >2 same-rule
+      const groups = {}
+      for (const a of vAlerts) {
+        if (!groups[a.rule]) groups[a.rule] = []
+        groups[a.rule].push(a)
       }
+      const items = []
+      for (const [rule, ruleAlerts] of Object.entries(groups)) {
+        if (ruleAlerts.length > 2) {
+          const zones = ruleAlerts.map((a) => (a.zone || '').toUpperCase()).filter(Boolean)
+          const label = RULE_GROUP_LABELS[rule] || rule
+          const summary = zones.length > 0
+            ? `${ruleAlerts.length} ${label}: ${zones.join(', ')}`
+            : `${ruleAlerts.length} ${label}`
+          items.push({ type: 'group', rule, vertical, id: `group-${vertical}-${rule}`, severity: ruleAlerts[0].severity, summary, alerts: ruleAlerts })
+        } else {
+          items.push(...ruleAlerts.map((a) => ({ type: 'single', ...a })))
+        }
+      }
+      items.sort((a, b) => sevRank(a.severity) - sevRank(b.severity))
+      const topRank = Math.min(...items.map((i) => sevRank(i.severity)))
+      sections.push({ vertical, items, count: vAlerts.length, topRank })
     }
-    return items
+    // Verticals with the most urgent anomaly bubble up.
+    sections.sort((a, b) => a.topRank - b.topRank)
+    return sections
   }, [combined])
 
   const [expandedGroups, setExpandedGroups] = useState(new Set())
 
-  const toggleGroup = (rule) => {
+  const toggleGroup = (id) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev)
-      next.has(rule) ? next.delete(rule) : next.add(rule)
+      next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
   }
@@ -138,9 +185,12 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
     const icon = RULE_ICONS[a.rule] || 'SIG'
     const isWx = a.isWeather
     return (
-      <div
+      <button
         key={a.id}
-        className={`px-4 py-3 border-b border-border last:border-b-0 ${sev.border}`}
+        type="button"
+        onClick={() => goToVertical(a.vertical)}
+        title="Open evidence"
+        className={`w-full text-left px-4 py-3 border-b border-border last:border-b-0 hover:bg-white/[0.02] transition-colors ${sev.border}`}
       >
         <div className="flex items-start gap-2.5">
           <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${a.isChoke ? 'text-cyan-glow border-cyan-glow/30' : (isWx || a.rule === 'refinery_thermal') ? 'text-orange-400 border-orange-500/30' : `${sev.text} ${sev.border}`}`}>
@@ -168,7 +218,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
             )}
           </div>
         </div>
-      </div>
+      </button>
     )
   }
 
@@ -176,7 +226,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
     return (
       <div className="border border-border bg-surface rounded">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-          <span className="font-mono text-xs text-neutral-500">SIGNAL ALERTS</span>
+          <span className="font-mono text-xs text-neutral-500">ANOMALY RADAR</span>
           <span className="font-mono text-[10px] text-neutral-600 animate-pulse">LOADING ...</span>
         </div>
         <div className="px-4 py-4 space-y-3 animate-pulse">
@@ -198,7 +248,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
     <div className="border border-border bg-surface rounded">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
         <span className="font-mono text-xs text-neutral-500">
-          SIGNAL ALERTS
+          ANOMALY RADAR
         </span>
         <span className="font-mono text-[10px] text-neutral-600">
           {totalCount} active
@@ -206,44 +256,54 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
       </div>
 
       <div className="max-h-[300px] md:max-h-[400px] overflow-y-auto scrollbar-hidden">
-        {displayItems.length === 0 ? (
+        {verticalSections.length === 0 ? (
           <div className="px-4 py-6 text-center font-mono text-xs text-neutral-600">
-            No alerts generated yet
+            Nothing abnormal right now
           </div>
         ) : (
-          displayItems.map((item) => {
-            if (item.type === 'group') {
-              const sev = SEVERITY_STYLES[item.severity] || SEVERITY_STYLES.info
-              const icon = RULE_ICONS[item.rule] || 'SIG'
-              const isExpanded = expandedGroups.has(item.rule)
-              return (
-                <div key={item.id}>
-                  <button
-                    onClick={() => toggleGroup(item.rule)}
-                    className={`w-full text-left px-4 py-3 border-b border-border ${sev.border} hover:bg-white/[0.02] transition-colors`}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${sev.text} ${sev.border}`}>
-                        {icon}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-xs text-neutral-300">
-                            {item.summary}
-                          </span>
-                          <span className="font-mono text-[10px] text-neutral-600 shrink-0">
-                            {isExpanded ? '▾' : '▸'} {item.alerts.length}
-                          </span>
+          verticalSections.map((section) => (
+            <div key={section.vertical}>
+              <div className="flex items-center justify-between px-4 py-1.5 bg-white/[0.02] border-b border-border">
+                <span className="font-mono text-[10px] tracking-wider text-neutral-500">
+                  {VERTICAL_LABELS[section.vertical] || section.vertical.toUpperCase()}
+                </span>
+                <span className="font-mono text-[9px] text-neutral-600">{section.count}</span>
+              </div>
+              {section.items.map((item) => {
+                if (item.type === 'group') {
+                  const sev = SEVERITY_STYLES[item.severity] || SEVERITY_STYLES.info
+                  const icon = RULE_ICONS[item.rule] || 'SIG'
+                  const isExpanded = expandedGroups.has(item.id)
+                  return (
+                    <div key={item.id}>
+                      <button
+                        onClick={() => toggleGroup(item.id)}
+                        className={`w-full text-left px-4 py-3 border-b border-border ${sev.border} hover:bg-white/[0.02] transition-colors`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div className={`font-mono text-[10px] font-bold mt-0.5 px-1.5 py-0.5 border rounded ${sev.text} ${sev.border}`}>
+                            {icon}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs text-neutral-300">
+                                {item.summary}
+                              </span>
+                              <span className="font-mono text-[10px] text-neutral-600 shrink-0">
+                                {isExpanded ? '▾' : '▸'} {item.alerts.length}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      </button>
+                      {isExpanded && item.alerts.map(renderAlert)}
                     </div>
-                  </button>
-                  {isExpanded && item.alerts.map(renderAlert)}
-                </div>
-              )
-            }
-            return renderAlert(item)
-          })
+                  )
+                }
+                return renderAlert(item)
+              })}
+            </div>
+          ))
         )}
       </div>
     </div>
