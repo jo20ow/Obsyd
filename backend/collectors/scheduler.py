@@ -150,32 +150,45 @@ def _power_recent_days(n: int = 7) -> list[str]:
 
 
 async def _run_power_daily():
-    """Daily electricity + spark spread refresh.
+    """Daily electricity + spark spread refresh for all supported bidding zones.
 
-    (a) Ingest ENTSO-E A44 day-ahead prices for the last 7 days into
-        EnergyPrice(symbol="POWER_DE") — re-fetches to catch any revisions.
-    (b) Ingest ENTSO-E A65 load + A75 wind/solar for the last 7 days into
-        PowerGrid (keeps the residual-load / Dunkelflaute view current).
-    (c) Recompute SparkSpreadHistory for all aligned POWER_DE + TTF dates.
+    For each zone in POWER_ZONES (DE_LU, FR, NL):
+      (a) Ingest ENTSO-E A44 day-ahead prices for the last 7 days into
+          EnergyPrice(symbol=zone_cfg["price_symbol"]) + PowerPriceDaily(zone=zone).
+      (b) Ingest ENTSO-E A65 load + A75 wind/solar for the last 7 days into
+          PowerGrid + PowerGenMix keyed by zone.
+
+    Then:
+      (c) Recompute SparkSpreadHistory — DE-LU only (no zone column; intentional).
     """
     from backend.power.entsoe_grid import ingest_grid
     from backend.power.entsoe_prices import ingest_day_ahead
+    from backend.power.zones import POWER_ZONES
 
     db = SessionLocal()
     try:
         days = _power_recent_days(7)
-        try:
-            result = await ingest_day_ahead(db, days, overwrite=True)
-            logger.info("power daily ingest: %s", result)
-        except Exception as exc:
-            logger.error("power daily ingest_day_ahead failed: %s", exc)
 
-        try:
-            result = await ingest_grid(db, days, overwrite=True)
-            logger.info("power daily grid ingest: %s", result)
-        except Exception as exc:
-            logger.error("power daily ingest_grid failed: %s", exc)
+        for zone_key, zone_cfg in POWER_ZONES.items():
+            try:
+                result = await ingest_day_ahead(
+                    db, days,
+                    eic=zone_cfg["eic"],
+                    symbol=zone_cfg["price_symbol"],
+                    zone=zone_key,
+                    overwrite=True,
+                )
+                logger.info("power daily ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_day_ahead [%s] failed: %s", zone_key, exc)
 
+            try:
+                result = await ingest_grid(db, days, eic=zone_cfg["eic"], zone=zone_key, overwrite=True)
+                logger.info("power daily grid ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_grid [%s] failed: %s", zone_key, exc)
+
+        # Spark spread uses POWER_DE (DE-LU) only — SparkSpreadHistory has no zone column.
         try:
             result = await collect_spark_spreads()
             logger.info("power daily spark spreads: %s", result)

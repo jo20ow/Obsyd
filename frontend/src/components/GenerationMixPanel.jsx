@@ -29,8 +29,9 @@ const TYPE_COLORS = {
 
 const DEFAULT_COLOR = '#64748b'
 
-export default function GenerationMixPanel() {
-  const { data, loading, error } = useFetchWithError(`${API}/power/generation-mix?days=30`)
+export default function GenerationMixPanel({ zone = 'DE_LU' }) {
+  const url = `${API}/power/generation-mix?days=30&zone=${zone}`
+  const { data, loading, error } = useFetchWithError(url, { deps: [zone] })
 
   if (error)
     return (
@@ -55,10 +56,13 @@ export default function GenerationMixPanel() {
     ? (latest.total_mw / 1000).toFixed(1)
     : null
 
+  // Readable label: prefer what the API returns, fall back to zone prop
+  const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
+
   return (
     <Panel
       id="generation-mix"
-      title="GENERATION MIX · DE-LU"
+      title={`GENERATION MIX · ${zoneLabel}`}
       info="Full ENTSO-E A75 generation breakdown by production type (daily mean MW). Covers nuclear, coal, gas, hydro, biomass, wind, solar and more. Source: ENTSO-E Transparency Platform, processType A16."
       collapsible
       headerRight={
@@ -93,7 +97,7 @@ export default function GenerationMixPanel() {
               )}
             </div>
             <div className="font-mono text-[10px] text-neutral-600 mt-1">
-              {types.length} types · ENTSO-E A75 · {latest.date}
+              {types.length} types · ENTSO-E A75 · {zoneLabel} · {latest.date}
             </div>
           </div>
 

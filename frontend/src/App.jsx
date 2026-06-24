@@ -39,6 +39,7 @@ import PowerDayAheadPanel from './components/PowerDayAheadPanel'
 import PowerGridPanel from './components/PowerGridPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
+import ZoneSelector from './components/ZoneSelector'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
 
@@ -167,6 +168,10 @@ function Dashboard() {
     const hash = window.location.hash.replace('#', '')
     return TABS.find((t) => t.key === hash) ? hash : 'overview'
   })
+
+  // Selected bidding zone for the ENERGY tab (DE_LU / FR / NL).
+  // SparkSpreadHistory has no zone column and stays DE-LU only (intentional).
+  const [energyZone, setEnergyZone] = useState('DE_LU')
 
   // URL hash sync
   useEffect(() => {
@@ -511,7 +516,13 @@ function Dashboard() {
         {/* ENERGY TAB */}
         {activeTab === 'energy' && (
           <>
-            {/* Row 1: Spark Spread hero (Pro) */}
+            {/* Zone selector — applies to DayAhead, Grid, GenerationMix panels.
+                SparkSpreadHistory has no zone column → stays DE-LU only. */}
+            <div className="flex items-center justify-end mb-2">
+              <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
+            </div>
+
+            {/* Row 1: Spark Spread hero (Pro) — DE-LU only, no zone param */}
             <ErrorBoundary name="power-spark">
               <ProGate feature="Spark Spread">
                 <SparkSpreadPanel />
@@ -521,21 +532,21 @@ function Dashboard() {
             {/* Row 2: Day-Ahead price (free) */}
             <div className="mt-3">
               <ErrorBoundary name="power-dayahead">
-                <PowerDayAheadPanel />
+                <PowerDayAheadPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
 
             {/* Row 3: Residual Load + Dunkelflaute (free) */}
             <div className="mt-3">
               <ErrorBoundary name="power-grid">
-                <PowerGridPanel />
+                <PowerGridPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
 
             {/* Row 4: Generation Mix (free) */}
             <div className="mt-3">
               <ErrorBoundary name="generation-mix">
-                <GenerationMixPanel />
+                <GenerationMixPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
           </>

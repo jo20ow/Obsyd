@@ -190,10 +190,11 @@ async def ingest_day_ahead(
     *,
     eic: str = DE_LU_EIC,
     symbol: str = POWER_DE_SYMBOL,
+    zone: str = "DE_LU",
     overwrite: bool = False,
 ) -> dict:
     """Fetch A44 day-ahead prices for the month(s) spanning `days`, parse, and
-    upsert daily means into EnergyPrice(symbol=symbol).
+    upsert daily means into EnergyPrice(symbol=symbol) and PowerPriceDaily(zone=zone).
 
     Returns {"days": n, "written": n} on success, or {"skipped": "no token"}
     if ENTSOE_API_TOKEN is not configured.
@@ -211,9 +212,6 @@ async def ingest_day_ahead(
     months = sorted(
         {datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days}
     )
-
-    # Zone label for PowerPriceDaily (readable key matching PowerGrid convention)
-    zone = "DE_LU"
 
     stats_by_day: dict[str, dict] = {}
     for month_start in months:

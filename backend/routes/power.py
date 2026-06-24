@@ -1,16 +1,21 @@
 """Electricity + spark spread read endpoints.
 
-GET /api/power/day-ahead?days=120  — FREE
-    ENTSO-E A44 daily mean EUR/MWh series for DE-LU bidding zone.
-    Returns EnergyPrice(symbol="POWER_DE") rows, newest first, then reversed.
+GET /api/power/day-ahead?days=120&zone=DE_LU  — FREE
+    ENTSO-E A44 daily mean EUR/MWh series for the requested bidding zone.
+    Supported zones: DE_LU (default), FR, NL.
+    Returns EnergyPrice rows + richer PowerPriceDaily stats (negative prices etc.)
+    Each response includes `zone` (resolved) and `zones` (all supported zone keys).
 
 GET /api/power/spark-spread?days=120  — PRO
     Historical spark spread (power − gas × heat_rate).
-    Returns SparkSpreadHistory rows with a `latest` summary object.
+    DE-LU only (SparkSpreadHistory has no zone column); stays DE-only intentionally.
 
-GET /api/power/grid?days=120  — FREE
-    ENTSO-E A65 (load) + A75 (wind + solar) for DE-LU.
+GET /api/power/grid?days=120&zone=DE_LU  — FREE
+    ENTSO-E A65 (load) + A75 (wind + solar) for the requested bidding zone.
     Returns PowerGrid rows with residual_mw, renewable_share, dunkelflaute flag.
+
+GET /api/power/generation-mix?days=30&zone=DE_LU  — FREE
+    Full ENTSO-E A75 generation mix for the requested bidding zone.
 
 All endpoints follow the `{"available": bool, "data": [...]}` envelope used
 throughout the gas vertical (see backend/routes/gas.py).
@@ -24,8 +29,23 @@ from sqlalchemy.orm import Session
 from backend.auth.dependencies import require_pro
 from backend.database import get_db
 from backend.models.energy import EnergyPrice, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
+from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
 
 router = APIRouter(prefix="/api/power", tags=["power"])
+
+_ZONE_KEYS = list(POWER_ZONES.keys())
+
+
+def _resolve_zone(zone: str) -> str:
+    """Validate zone against POWER_ZONES; fall back to DEFAULT_ZONE with a note.
+
+    Returns the resolved (canonical) zone key string.
+    """
+    if zone in POWER_ZONES:
+        return zone
+    # Unknown zone: fall back silently to default (400 is too loud for a
+    # missing backfill; the response `zones` list tells the caller what's valid).
+    return DEFAULT_ZONE
 
 
 def _window(days: int) -> tuple[str, str]:
@@ -41,28 +61,35 @@ def _window(days: int) -> tuple[str, str]:
 @router.get("/day-ahead")
 async def get_day_ahead(
     days: int = Query(120, ge=1, le=1500),
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),
 ):
-    """ENTSO-E day-ahead electricity prices for DE-LU (EUR/MWh). Free tier.
+    """ENTSO-E day-ahead electricity prices for a bidding zone (EUR/MWh). Free tier.
+
+    `zone` defaults to DE_LU. Unknown zones fall back to DE_LU.
+    Each response includes `zone` (resolved) and `zones` (all supported zone keys).
 
     When PowerPriceDaily rows are available, each data point includes:
-      close         — daily mean EUR/MWh (identical to EnergyPrice.close)
-      min_price     — daily minimum EUR/MWh (can be negative)
-      max_price     — daily maximum EUR/MWh
+      close          — daily mean EUR/MWh (identical to EnergyPrice.close)
+      min_price      — daily minimum EUR/MWh (can be negative)
+      max_price      — daily maximum EUR/MWh
       negative_hours — hours where the auction price was < 0
-      negative      — true if negative_hours > 0
+      negative       — true if negative_hours > 0
     negative_days counts how many days in the window had at least one negative hour.
     latest contains the most recent row's fields.
 
     Falls back to EnergyPrice-only behaviour if PowerPriceDaily is empty.
     """
+    resolved_zone = _resolve_zone(zone)
+    zone_cfg = POWER_ZONES[resolved_zone]
+    symbol = zone_cfg["price_symbol"]
     date_from, date_to = _window(days)
 
     # Primary path: richer PowerPriceDaily table
     daily_rows = (
         db.query(PowerPriceDaily)
         .filter(
-            PowerPriceDaily.zone == "DE_LU",
+            PowerPriceDaily.zone == resolved_zone,
             PowerPriceDaily.date >= date_from,
             PowerPriceDaily.date <= date_to,
         )
@@ -86,7 +113,9 @@ async def get_day_ahead(
         negative_days = sum(1 for d in data if d["negative"])
         return {
             "available": True,
-            "symbol": "POWER_DE",
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "symbol": symbol,
             "unit": "EUR/MWh",
             "from": date_from,
             "to": date_to,
@@ -99,7 +128,7 @@ async def get_day_ahead(
     rows = (
         db.query(EnergyPrice)
         .filter(
-            EnergyPrice.symbol == "POWER_DE",
+            EnergyPrice.symbol == symbol,
             EnergyPrice.date >= date_from,
             EnergyPrice.date <= date_to,
         )
@@ -109,12 +138,16 @@ async def get_day_ahead(
     if not rows:
         return {
             "available": False,
-            "reason": "no POWER_DE data yet — run power backfill (ingest_day_ahead)",
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"no {symbol} data yet — run power backfill (ingest_day_ahead)",
         }
     data = [{"date": r.date, "close": r.close} for r in rows]
     return {
         "available": True,
-        "symbol": "POWER_DE",
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "symbol": symbol,
         "unit": "EUR/MWh",
         "from": date_from,
         "to": date_to,
@@ -217,19 +250,24 @@ def _compute_grid_row(r: PowerGrid) -> dict:
 @router.get("/grid")
 async def get_grid(
     days: int = Query(120, ge=1, le=1500),
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),
 ):
-    """ENTSO-E grid load + wind + solar for DE-LU (daily mean MW). Free tier.
+    """ENTSO-E grid load + wind + solar for a bidding zone (daily mean MW). Free tier.
+
+    `zone` defaults to DE_LU. Unknown zones fall back to DE_LU.
+    Each response includes `zone` (resolved) and `zones` (all supported zone keys).
 
     Returns residual_mw (load − wind − solar), renewable_share, and a
     Dunkelflaute flag (renewable_share < 15%) per day.  `latest` contains
     the most recent row; `dunkelflaute_days` is the count within the window.
     """
+    resolved_zone = _resolve_zone(zone)
     date_from, date_to = _window(days)
     rows = (
         db.query(PowerGrid)
         .filter(
-            PowerGrid.zone == "DE_LU",
+            PowerGrid.zone == resolved_zone,
             PowerGrid.date >= date_from,
             PowerGrid.date <= date_to,
         )
@@ -239,7 +277,9 @@ async def get_grid(
     if not rows:
         return {
             "available": False,
-            "reason": "no grid data yet — run power grid backfill (ingest_grid)",
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"no grid data for zone {resolved_zone} — run power grid backfill (ingest_grid)",
         }
 
     data = [_compute_grid_row(r) for r in rows]
@@ -248,7 +288,8 @@ async def get_grid(
 
     return {
         "available": True,
-        "zone": "DE_LU",
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
         "unit": "MW",
         "threshold_note": f"dunkelflaute = renewable_share < {DUNKELFLAUTE_THRESHOLD:.0%}",
         "latest": latest,
@@ -265,20 +306,25 @@ async def get_grid(
 @router.get("/generation-mix")
 async def get_generation_mix(
     days: int = Query(30, ge=1, le=1500),
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),
 ):
-    """Full ENTSO-E A75 generation mix for DE-LU (daily mean MW). Free tier.
+    """Full ENTSO-E A75 generation mix for a bidding zone (daily mean MW). Free tier.
+
+    `zone` defaults to DE_LU. Unknown zones fall back to DE_LU.
+    Each response includes `zone` (resolved) and `zones` (all supported zone keys).
 
     Returns data in wide/pivoted format: each row is one date with one key per
     production type (readable labels like "Solar", "Nuclear", "Wind Onshore").
     `types` lists all distinct production types present in the window.
     `latest` is the most recent date's breakdown plus a `total_mw` sum.
     """
+    resolved_zone = _resolve_zone(zone)
     date_from, date_to = _window(days)
     rows = (
         db.query(PowerGenMix)
         .filter(
-            PowerGenMix.zone == "DE_LU",
+            PowerGenMix.zone == resolved_zone,
             PowerGenMix.date >= date_from,
             PowerGenMix.date <= date_to,
         )
@@ -288,7 +334,9 @@ async def get_generation_mix(
     if not rows:
         return {
             "available": False,
-            "reason": "no generation-mix data yet — run power grid backfill (ingest_grid)",
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"no generation-mix data for zone {resolved_zone} — run power grid backfill (ingest_grid)",
         }
 
     # Pivot: {date -> {psr_type -> gen_mw}}
@@ -313,7 +361,8 @@ async def get_generation_mix(
 
     return {
         "available": True,
-        "zone": "DE_LU",
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
         "unit": "MW",
         "types": all_types,
         "latest": latest,
