@@ -13,6 +13,10 @@ class Alert(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     rule: Mapped[str] = mapped_column(String, index=True)  # e.g. "floating_storage"
     zone: Mapped[str] = mapped_column(String, default="")
+    # Which data vertical the alert belongs to, for the cross-vertical anomaly
+    # radar feed: "oil" | "gas" | "power" | "metals" | "sentiment". Defaults to
+    # "oil" so all pre-existing rows + the legacy maritime detectors stay valid.
+    vertical: Mapped[str] = mapped_column(String, default="oil", index=True)
     severity: Mapped[str] = mapped_column(String)  # "info", "warning", "critical"
     title: Mapped[str] = mapped_column(String)
     detail: Mapped[str] = mapped_column(Text, default="")

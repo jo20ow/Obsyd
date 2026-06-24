@@ -38,11 +38,22 @@ ZONE_ANCHOR_BASELINES = {
 DEDUP_HOURS = 24  # suppress duplicate alerts within this window
 
 
-def _upsert_alert(db: Session, rule: str, zone: str, severity: str, title: str, detail: str):
+def _upsert_alert(
+    db: Session,
+    rule: str,
+    zone: str,
+    severity: str,
+    title: str,
+    detail: str,
+    vertical: str = "oil",
+):
     """Create a new alert or update the most recent existing one within the dedup window.
 
     If multiple duplicates exist (same rule + zone within DEDUP_HOURS), keeps only the
     most recent and deletes the rest to prevent duplicate buildup.
+
+    `vertical` tags the alert for the cross-vertical radar feed and defaults to
+    "oil" so the legacy maritime call sites stay correct without changes.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=DEDUP_HOURS)
     existing = (
@@ -59,13 +70,14 @@ def _upsert_alert(db: Session, rule: str, zone: str, severity: str, title: str, 
         latest.title = title
         latest.detail = detail
         latest.severity = severity
+        latest.vertical = vertical
         # Delete any older duplicates
         for old in existing[1:]:
             db.delete(old)
         db.commit()
         return
 
-    db.add(Alert(rule=rule, zone=zone, severity=severity, title=title, detail=detail))
+    db.add(Alert(rule=rule, zone=zone, severity=severity, title=title, detail=detail, vertical=vertical))
     db.commit()
 
 

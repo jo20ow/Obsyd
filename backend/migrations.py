@@ -71,6 +71,12 @@ def run_migrations() -> None:
     # Base.metadata.create_all handles new tables, so no ALTER needed here.
     # This note documents the addition for the audit trail.
 
+    # 2026-06-24: cross-vertical anomaly radar — tag each Alert with its data
+    # vertical. SQLite ADD COLUMN ... DEFAULT 'oil' backfills existing rows, all
+    # of which are oil/maritime detectors, so no separate UPDATE is needed.
+    if _add_column_if_missing("alerts", "vertical", "VARCHAR DEFAULT 'oil'"):
+        applied.append("alerts.vertical")
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:
@@ -87,4 +93,6 @@ def list_pending() -> Iterable[str]:
         pending.append("subscriptions.drip_stage")
     if "residual_mw" not in _existing_columns("power_grid"):
         pending.append("power_grid.residual_mw")
+    if "vertical" not in _existing_columns("alerts"):
+        pending.append("alerts.vertical")
     return pending

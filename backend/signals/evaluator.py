@@ -104,6 +104,17 @@ async def evaluate_signals():
         except Exception as e:
             logger.warning(f"Convergence alert check failed: {e}")
 
+        # 7. Cross-vertical anomaly radar — curated detectors over the
+        #    gas/power/oil-analytics/sentiment persisted flags. Each detector is
+        #    isolated inside run_all_detectors, so a vertical failing is contained.
+        try:
+            from backend.signals.detectors import run_all_detectors
+
+            n = run_all_detectors(db)
+            logger.info("Anomaly radar: %d alerts upserted", n)
+        except Exception as e:
+            logger.warning(f"Anomaly radar detectors failed: {e}")
+
         logger.info("Signal evaluation complete")
     except Exception as e:
         logger.error(f"Signal evaluation failed: {e}")
