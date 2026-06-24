@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
 import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
 
@@ -125,6 +126,7 @@ export default function SparkSpreadPanel() {
           )}
         </>
       )}
+      <TrackRecordBadge signal="spark_spread" targetLabel="Power" />
     </Panel>
   )
 }

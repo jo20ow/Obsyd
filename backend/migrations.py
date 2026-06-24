@@ -54,6 +54,19 @@ def run_migrations() -> None:
     if _add_column_if_missing("subscriptions", "drip_stage", "INTEGER"):
         applied.append("subscriptions.drip_stage")
 
+    # 2026-06-24: store residual_mw on PowerGrid for signal-scorecard use
+    if _add_column_if_missing("power_grid", "residual_mw", "REAL"):
+        applied.append("power_grid.residual_mw")
+        # One-time idempotent backfill: compute residual for all existing rows
+        # where load_mw is known but residual_mw is still NULL.
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE power_grid "
+                "SET residual_mw = load_mw - COALESCE(wind_mw, 0) - COALESCE(solar_mw, 0) "
+                "WHERE residual_mw IS NULL AND load_mw IS NOT NULL"
+            ))
+        logger.info("migrations: backfilled power_grid.residual_mw from load_mw/wind_mw/solar_mw")
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:
@@ -68,4 +81,6 @@ def list_pending() -> Iterable[str]:
         pending.append("subscriptions.trial_ends_at")
     if "drip_stage" not in cols:
         pending.append("subscriptions.drip_stage")
+    if "residual_mw" not in _existing_columns("power_grid"):
+        pending.append("power_grid.residual_mw")
     return pending

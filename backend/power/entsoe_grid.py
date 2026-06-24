@@ -301,7 +301,14 @@ async def ingest_grid(
         solar_mw = psr_map.get(PSR_SOLAR, 0.0)
         load_mw = load_by_day.get(day)
 
-        _upsert_grid(db, day, zone, load_mw, wind_mw or None, solar_mw or None)
+        # Residual = dispatchable demand (load − renewables). Only when generation
+        # was actually fetched for this day — otherwise wind/solar default to 0 and
+        # we'd store load−0−0 (inflated), clobbering a previously-correct residual.
+        residual_mw: float | None = None
+        if load_mw is not None and day in gen_by_day:
+            residual_mw = load_mw - wind_mw - solar_mw
+
+        _upsert_grid(db, day, zone, load_mw, wind_mw or None, solar_mw or None, residual_mw)
         written += 1
 
     db.commit()
@@ -321,6 +328,7 @@ def _upsert_grid(
     load_mw: float | None,
     wind_mw: float | None,
     solar_mw: float | None,
+    residual_mw: float | None = None,
 ) -> None:
     existing = (
         db.query(PowerGrid)
@@ -334,6 +342,8 @@ def _upsert_grid(
             existing.wind_mw = wind_mw
         if solar_mw is not None:
             existing.solar_mw = solar_mw
+        if residual_mw is not None:
+            existing.residual_mw = residual_mw
     else:
         db.add(
             PowerGrid(
@@ -342,5 +352,6 @@ def _upsert_grid(
                 load_mw=load_mw,
                 wind_mw=wind_mw,
                 solar_mw=solar_mw,
+                residual_mw=residual_mw,
             )
         )

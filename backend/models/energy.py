@@ -62,8 +62,8 @@ class PowerGrid(Base):
     """Daily-mean electricity grid metrics for residual-load analysis.
 
     One row per (date, zone). load_mw, wind_mw, solar_mw are daily means
-    in MW (not totals); residual_load = load − wind − solar is derived on
-    read, never stored.
+    in MW (not totals); residual_mw = load − wind − solar is stored for
+    direct use in signal scorecards (scored against POWER_DE forward price).
 
     Sources:
       load_mw  — ENTSO-E A65 (Actual Total Load), processType A16
@@ -79,6 +79,7 @@ class PowerGrid(Base):
     load_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # daily mean MW
     wind_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # daily mean MW (B18+B19)
     solar_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # daily mean MW (B16)
+    residual_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # load − wind − solar (MW)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("date", "zone", name="uq_power_grid_date_zone"),)
