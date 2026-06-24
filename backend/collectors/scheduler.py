@@ -154,8 +154,11 @@ async def _run_power_daily():
 
     (a) Ingest ENTSO-E A44 day-ahead prices for the last 7 days into
         EnergyPrice(symbol="POWER_DE") — re-fetches to catch any revisions.
-    (b) Recompute SparkSpreadHistory for all aligned POWER_DE + TTF dates.
+    (b) Ingest ENTSO-E A65 load + A75 wind/solar for the last 7 days into
+        PowerGrid (keeps the residual-load / Dunkelflaute view current).
+    (c) Recompute SparkSpreadHistory for all aligned POWER_DE + TTF dates.
     """
+    from backend.power.entsoe_grid import ingest_grid
     from backend.power.entsoe_prices import ingest_day_ahead
 
     db = SessionLocal()
@@ -166,6 +169,12 @@ async def _run_power_daily():
             logger.info("power daily ingest: %s", result)
         except Exception as exc:
             logger.error("power daily ingest_day_ahead failed: %s", exc)
+
+        try:
+            result = await ingest_grid(db, days, overwrite=True)
+            logger.info("power daily grid ingest: %s", result)
+        except Exception as exc:
+            logger.error("power daily ingest_grid failed: %s", exc)
 
         try:
             result = await collect_spark_spreads()
