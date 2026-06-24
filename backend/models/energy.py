@@ -110,6 +110,36 @@ class PowerGenMix(Base):
     )
 
 
+class PowerFlow(Base):
+    """Daily net cross-border physical electricity flow (ENTSO-E A11).
+
+    One row per (date, from_zone, to_zone). net_mw is the daily-mean MW
+    averaged over all hourly quantities in the A11 document.
+
+    Sign convention: net_mw > 0 means net physical flow goes from_zone → to_zone;
+    net_mw < 0 means the reverse net direction.
+
+    Computed as:
+        net_mw = mean(A11 where out_Domain=from_zone, in_Domain=to_zone)
+               − mean(A11 where out_Domain=to_zone,   in_Domain=from_zone)
+
+    Source: ENTSO-E A11 (Actual Cross-Border Physical Flows).
+    """
+
+    __tablename__ = "power_flow"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)        # YYYY-MM-DD
+    from_zone: Mapped[str] = mapped_column(String, nullable=False, index=True)   # e.g. "DE_LU"
+    to_zone: Mapped[str] = mapped_column(String, nullable=False, index=True)     # e.g. "FR"
+    net_mw: Mapped[float] = mapped_column(Float, nullable=False)                 # daily mean MW (signed)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("date", "from_zone", "to_zone", name="uq_power_flow_date_from_to"),
+    )
+
+
 class PowerPriceDaily(Base):
     """Rich per-day electricity price stats for negative-price detection.
 

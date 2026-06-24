@@ -28,8 +28,8 @@ from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import require_pro
 from backend.database import get_db
-from backend.models.energy import EnergyPrice, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
-from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
+from backend.models.energy import EnergyPrice, PowerFlow, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
+from backend.power.zones import DEFAULT_ZONE, POWER_BORDERS, POWER_ZONES
 
 router = APIRouter(prefix="/api/power", tags=["power"])
 
@@ -294,6 +294,108 @@ async def get_grid(
         "threshold_note": f"dunkelflaute = renewable_share < {DUNKELFLAUTE_THRESHOLD:.0%}",
         "latest": latest,
         "dunkelflaute_days": dunkelflaute_days,
+        "from": date_from,
+        "to": date_to,
+        "data": data,
+    }
+
+
+# ─── Cross-border physical flows (free) ──────────────────────────────────────
+
+
+def _border_label(from_zone: str, to_zone: str) -> str:
+    """Human-readable border label, e.g. "DE-LU↔FR"."""
+    a = POWER_ZONES[from_zone]["label"]
+    b = POWER_ZONES[to_zone]["label"]
+    return f"{a}↔{b}"
+
+
+def _flow_direction(from_zone: str, to_zone: str, net_mw: float) -> str:
+    """Arrow label for current net direction.
+
+    Positive net_mw = from_zone → to_zone.
+    Negative net_mw = to_zone → from_zone.
+    """
+    a = POWER_ZONES[from_zone]["label"]
+    b = POWER_ZONES[to_zone]["label"]
+    return f"{a}→{b}" if net_mw >= 0 else f"{b}→{a}"
+
+
+@router.get("/flows")
+async def get_flows(
+    days: int = Query(30, ge=1, le=1500),
+    db: Session = Depends(get_db),
+):
+    """ENTSO-E A11 cross-border physical flows for all supported borders. Free tier.
+
+    Returns net daily mean MW per border (positive = from_zone→to_zone).
+    `borders` — latest snapshot per border with direction label.
+    `data`    — wide format: one row per date with one key per border arrow.
+    `latest`  — most recent date values keyed by border arrow.
+
+    Border convention: from_zone → to_zone as defined in POWER_BORDERS.
+    net_mw > 0 = net physical export from_zone to to_zone.
+    """
+    date_from, date_to = _window(days)
+
+    rows = (
+        db.query(PowerFlow)
+        .filter(
+            PowerFlow.date >= date_from,
+            PowerFlow.date <= date_to,
+        )
+        .order_by(PowerFlow.date.asc())
+        .all()
+    )
+
+    if not rows:
+        return {
+            "available": False,
+            "reason": "no cross-border flow data yet — run power backfill (ingest_flows)",
+        }
+
+    # Build wide format {date -> {border_arrow: net_mw}}
+    pivot: dict[str, dict[str, float]] = {}
+    for r in rows:
+        arrow = f"{POWER_ZONES[r.from_zone]['label']}→{POWER_ZONES[r.to_zone]['label']}"
+        pivot.setdefault(r.date, {})[arrow] = round(r.net_mw, 2)
+
+    data = [{"date": d, **pivot[d]} for d in sorted(pivot.keys())]
+    latest_date = sorted(pivot.keys())[-1]
+    latest = {"date": latest_date, **pivot[latest_date]}
+
+    # Per-border summary using the latest available row per (from_zone, to_zone)
+    borders: list[dict] = []
+    for from_zone, to_zone in POWER_BORDERS:
+        # Latest row for this border pair
+        border_row = (
+            db.query(PowerFlow)
+            .filter(
+                PowerFlow.from_zone == from_zone,
+                PowerFlow.to_zone == to_zone,
+                PowerFlow.date >= date_from,
+                PowerFlow.date <= date_to,
+            )
+            .order_by(PowerFlow.date.desc())
+            .first()
+        )
+        if border_row is None:
+            continue
+        net = round(border_row.net_mw, 2)
+        borders.append({
+            "from_zone": from_zone,
+            "to_zone": to_zone,
+            "label": _border_label(from_zone, to_zone),
+            "net_mw": net,
+            "direction": _flow_direction(from_zone, to_zone, net),
+        })
+
+    return {
+        "available": True,
+        "unit": "MW",
+        "note": "net_mw > 0 = net physical flow from_zone→to_zone (ENTSO-E A11 daily mean)",
+        "borders": borders,
+        "latest": latest,
         "from": date_from,
         "to": date_to,
         "data": data,
