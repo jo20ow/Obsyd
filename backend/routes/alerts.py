@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -31,11 +33,18 @@ async def get_alerts(
     vertical: str = Query(None, description="Filter by vertical (oil/gas/power/metals/sentiment)"),
     severity: str = Query(None, description="Filter by severity"),
     group_by_vertical: bool = Query(False, description="Return alerts grouped by vertical, severity-sorted"),
+    max_age_hours: int = Query(48, ge=1, le=720, description="Only alerts refreshed within this window (radar = what's abnormal NOW)"),
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    """Get generated alerts, newest first (or grouped by vertical, severity-sorted)."""
-    query = db.query(Alert).order_by(Alert.created_at.desc())
+    """Get current alerts, newest first (or grouped by vertical, severity-sorted).
+
+    Alerts are deduped on (rule, zone) within 24h and their timestamp is bumped on every
+    re-fire, so a still-active anomaly always falls inside `max_age_hours` while a resolved
+    one ages out — keeping the radar feed to what is currently abnormal, not weeks of history.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    query = db.query(Alert).filter(Alert.created_at > cutoff).order_by(Alert.created_at.desc())
     if rule:
         query = query.filter(Alert.rule == rule)
     if zone:
