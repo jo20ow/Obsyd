@@ -5,7 +5,7 @@
 > (Abschnitt „Build-Stand") ist zum Datum unten verifiziert und veraltet schneller — bei Konflikt
 > gewinnt der Code.
 >
-> **Stand: 2026-06-24** · HEAD `6aaaa3a` (EU-Gas-Balance-Modell, PRs #7–#12)
+> **Stand: 2026-06-24** · Gas-Vertikal-UI (PR #14) + ENTSO-E/GIE-Keys lokal eingebaut + Backfill 2023→heute
 
 ---
 
@@ -124,12 +124,16 @@ Crack-Spreads, 15-Ticker-Equity-Universe. 47 Scheduler-Jobs (`backend/collectors
   tonne_miles, freight_proxy), OOS-Weight-Backtest (`weights.py`), Weekly-Job
   (`signal_scorecards_weekly`), `routes/validation.py`, `TrackRecordBadge.jsx` in 3 Panels.
 
-**Backend-only / KEINE UI:** komplettes **EU-Gas-Balance-Vertikal** (`backend/gas/`: ENTSOG,
-AGSI/GIE, ALSI, ENTSO-E-Power-Burn, Open-Meteo-HDD, Eurostat; Residual-Engine in `balance.py` —
-im Code als *„this is the product"* markiert). Wird von **keinem** Frontend-Panel gefetcht
-(`/api/gas/*` ohne Consumer). Die wertvollen Layer (Power-Burn, kalibrierte Demand, damit auch der
-Residual) hängen an einem **manuell vergebenen ENTSO-E-Token** — ohne Token: `entsoe.py:170`
-liefert `{"skipped":"no token"}`, `demand.py:16` markiert Demand „PRELIMINARY".
+**EU-Gas-Balance-Vertikal — jetzt mit UI** (`backend/gas/`: ENTSOG, AGSI/GIE, ALSI,
+ENTSO-E-Power-Burn, Open-Meteo-HDD, Eurostat; Residual-Engine in `balance.py` = *„this is the
+product"*). Seit 2026-06-24 (PR #14): **GAS-Tab im Frontend** — Pro-Residual-Hero
+(`GasBalancePanel`, RESIDUAL⇄IMPLIED-Toggle, Flag-Marker) + freie Treiber-Panels
+`GasStoragePanel`/`GasSupplyPanel`/`GasDemandPanel`; shared `frontend/src/utils/chart.js`.
+Gating: **Rohdaten frei, Residual Pro**. ENTSO-E-Token + GIE-Key sind **lokal eingebaut &
+validiert**, voller Backfill 2023→heute gelaufen → Power-Burn/Demand/Balance laufen **real,
+nicht mehr PRELIMINARY** (`/api/gas/*` liefert ~121 Zeilen @ days=120). ⚠️ **Prod-Caveat:**
+beide Keys müssen noch in die Prod-`.env` auf dem VPS + dort ein Backfill, sonst ist das
+Vertikal in Production leer.
 
 **Fehlt komplett:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS (0 Treffer im Code),
 Spark/Dark-Spread, Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl- und
@@ -147,11 +151,12 @@ Gas-Vertikal), Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
 
 ## Roadmap (abgeleitet aus „zwei verbundene Knoten = Launch")
 
-1. **Gas-Vertikal sichtbar machen** — Frontend-Panel gegen `/api/gas/*` (Residual-Engine ist „the
-   product", aber UI-los). Voraussetzung: **ENTSO-E-Token in Prod setzen** (`ENTSOE_API_TOKEN`),
-   sonst Power-Burn/Demand/Balance leer oder „PRELIMINARY". → das zweite verbundene Vertikal.
+1. ~~**Gas-Vertikal sichtbar machen**~~ — **erledigt 2026-06-24 (PR #14):** GAS-Tab mit
+   Residual-Hero + freien Treiber-Panels; ENTSO-E-Token + GIE-Key live (lokal), Backfill
+   2023→heute. Rest-Aufgabe: Keys + Backfill in **Prod** (siehe Build-Stand-Caveat).
 2. **Gas-Residual in die Validierungs-Schicht** — `SIGNAL_SPECS` (`backend/analytics/validation/
-   scorecards.py:31`) um das Gas-Signal erweitern → Track Record fürs zweite Vertikal.
+   scorecards.py:31`) um das Gas-Signal erweitern → Track Record + `TrackRecordBadge` auf dem
+   Balance-Panel. **← nächster Schritt.**
 3. **Exposure-Mapping v1** (Premium-Kern) — strukturierte Signal→Ticker→Richtung-Tabelle statt
    statischer Liste + Prosa; als Hypothese durch die bestehende Validierungs-Schicht laufen
    lassen, **bevor** sie als Edge verkauft wird. Erst dann Preis-Diskussion 20–30 €.
@@ -164,7 +169,10 @@ Gas-Vertikal), Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
 - ~~Preis-Leiche in Trial-Mails (`trial_drip.py`): Pre-Pivot **€19,90/199 €**~~ — **behoben
   2026-06-24**, auf €15/€149 angeglichen. (Lehre: Preis-Strings leben verstreut; bei künftigen
   Preisänderungen `trial_drip.py`, `PricingModal.jsx` und README zusammen anfassen.)
-- **ENTSO-E-Token in Prod** unbestätigt — Gas-Vertikal evtl. still leer/PRELIMINARY.
+- ~~**ENTSO-E-Token in Prod** unbestätigt~~ — **lokal gelöst 2026-06-24:** `ENTSOE_API_TOKEN`
+  + `GIE_API_KEY` (letzterer aus `commodity-signal` übernommen) eingebaut & validiert, Backfill
+  lief. **Offen für Prod:** beide Keys in die VPS-Prod-`.env` + dortiger Backfill — sonst Gas-Tab
+  in Production leer. (Entscheidung „kein LLM in Obsyd / keine commodity-signal-Fusion" siehe Memory.)
 - **Deploy-Docs widersprüchlich:** README „Tech Stack" nennt nginx/systemd/Let's-Encrypt, die
   `deploy/`-Skripte sind Caddy-zentriert (obsyd.dev teilt Caddy mit ValueKick).
 - **`docs/signal-validation.md` Status-Banner** (P1 shipped) hinkt dem Ist nach — Scorecards sind
