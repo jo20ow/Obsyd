@@ -39,8 +39,24 @@ const RULE_ICONS = {
   dunkelflaute: 'DUNKL',
 }
 
-// Which dashboard tab holds the evidence chart for each vertical (drill-down).
+// Which dashboard tab holds the evidence chart for each vertical (drill-down fallback).
 const VERTICAL_TAB = { gas: 'gas', power: 'energy', metals: 'metals', sentiment: 'sentiment', oil: 'overview' }
+
+// Precise per-rule drill-down: which tab + which panel holds THE evidence for this anomaly,
+// so a click lands directly on the chart that explains it (not just somewhere on the tab).
+const RULE_TARGET = {
+  gas_balance: { tab: 'gas', panel: 'gas-balance' },
+  dunkelflaute: { tab: 'energy', panel: 'power-grid' },
+  negative_prices: { tab: 'energy', panel: 'power-day-ahead' },
+  sentiment_risk: { tab: 'sentiment', panel: 'sentiment' },
+  floating_storage: { tab: 'signals', panel: 'sts-detection' },
+  freight_divergence: { tab: 'signals', panel: 'freight-proxy' },
+  rerouting_high: { tab: 'overview', panel: 'rerouting' },
+  chokepoint_anomaly: { tab: 'overview', panel: 'chokepoint-monitor' },
+  flow_anomaly: { tab: 'overview', panel: 'chokepoint-monitor' },
+  days_of_supply: { tab: 'overview', panel: 'fundamentals' },
+  supply_demand_divergence: { tab: 'overview', panel: 'fundamentals' },
+}
 const VERTICAL_LABELS = { gas: 'GAS', power: 'POWER', oil: 'OIL / MARITIME', metals: 'METALS', sentiment: 'SENTIMENT' }
 const VERTICAL_ORDER = ['gas', 'power', 'oil', 'metals', 'sentiment']
 
@@ -69,10 +85,22 @@ function timeAgo(isoStr) {
   } catch { return '' }
 }
 
-// Drill-down: jump to the vertical's evidence tab via the existing hash router.
-function goToVertical(vertical) {
-  const tab = VERTICAL_TAB[vertical] || 'overview'
-  window.location.hash = tab
+// Drill-down: jump to the anomaly's evidence chart — switch tab, then scroll the specific
+// panel into view and briefly highlight it so it's obvious WHY this fired.
+function goToEvidence(rule, vertical) {
+  const target = RULE_TARGET[rule] || { tab: VERTICAL_TAB[vertical] || 'overview', panel: null }
+  window.location.hash = target.tab
+  if (!target.panel) return
+  // Wait for the tab content to mount, then locate the panel (Panel wraps id as `panel-<id>`;
+  // a couple of panels use a raw div id — try both).
+  setTimeout(() => {
+    const el = document.getElementById(`panel-${target.panel}`) || document.getElementById(target.panel)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.transition = 'box-shadow 0.3s ease'
+    el.style.boxShadow = '0 0 0 2px rgba(34, 211, 238, 0.8)'
+    setTimeout(() => { el.style.boxShadow = '' }, 1600)
+  }, 200)
 }
 
 export default function AlertsPanel({ weatherAlerts = [] }) {
@@ -169,7 +197,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
       <button
         key={a.id}
         type="button"
-        onClick={() => goToVertical(a.vertical)}
+        onClick={() => goToEvidence(a.rule, a.vertical)}
         title="Open evidence"
         className={`w-full text-left px-4 py-3 border-b border-border last:border-b-0 hover:bg-white/[0.02] transition-colors ${sev.border}`}
       >

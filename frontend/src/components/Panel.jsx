@@ -45,11 +45,11 @@ export default function Panel({ id, title, info, collapsible = false, headerRigh
     if (!collapsible) return
     try {
       localStorage.setItem(`obsyd-panel-${id}`, collapsed ? '1' : '0')
-    } catch {}
+    } catch { /* localStorage unavailable */ }
   }, [collapsed, id, collapsible])
 
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden">
+    <div id={id ? `panel-${id}` : undefined} className="border border-border bg-surface rounded overflow-hidden">
       <div
         className={`flex items-center justify-between px-4 py-2 ${
           !collapsed ? 'border-b border-border/50' : ''

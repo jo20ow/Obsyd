@@ -89,7 +89,7 @@ export default function SentimentPanel() {
   const maxVol = Math.max(...kwStats.map((k) => k.volume), 0.01)
 
   return (
-    <Panel id="sentiment" title={`${hasAI ? 'AI SENTIMENT' : 'NEWS VOLUME'} // GDELT`} info="News sentiment from GDELT tone analysis. Risk score 1-10 (1=very negative, 10=very positive)." collapsible headerRight={hasAI && <span className="font-mono text-[9px] text-purple-400 border border-purple-400/30 rounded px-1.5 py-0.5">AI</span>}>
+    <Panel id="sentiment" title={`${hasAI ? 'NEWS RISK' : 'NEWS VOLUME'} // GDELT`} info="News-risk score from GDELT tone analysis, 1-10 (HIGHER = more negative / risk-laden coverage). Descriptive context, not a forecast." collapsible headerRight={hasAI && riskData.score && <span className="font-mono text-[9px] text-neutral-500 border border-neutral-700/60 rounded px-1.5 py-0.5">GDELT</span>}>
       <div className="px-4 py-3">
 
       {hasAI && riskData.score && (
@@ -107,9 +107,22 @@ export default function SentimentPanel() {
               {riskData.score.risk_score}
             </div>
             <div>
-              <div className="font-mono text-[10px] text-neutral-500">RISK SCORE</div>
+              <div className="font-mono text-[10px] text-neutral-500">
+                NEWS RISK ·{' '}
+                <span
+                  className={
+                    riskData.score.risk_score >= 8
+                      ? 'text-red-400'
+                      : riskData.score.risk_score >= 6
+                      ? 'text-yellow-400'
+                      : 'text-green-glow'
+                  }
+                >
+                  {riskData.score.risk_score >= 8 ? 'ELEVATED' : riskData.score.risk_score >= 6 ? 'MODERATE' : 'LOW'}
+                </span>
+              </div>
               <div className="font-mono text-[9px] text-neutral-600">
-                {riskData.score.date} via {riskData.score.source}
+                {riskData.score.risk_score}/10 · {riskData.score.date}
               </div>
             </div>
           </div>
