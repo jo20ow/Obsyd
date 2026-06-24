@@ -44,6 +44,8 @@ SIGNAL_SPECS = (
     # Energy signals: residual load + spark spread both scored against day-ahead power price.
     ("power_residual", "PowerGrid", "residual_mw", "power"),
     ("spark_spread", "SparkSpreadHistory", "spark_spread", "power"),
+    # Copper refined stocks (USGS, monthly) vs forward copper price — low stocks = tight supply.
+    ("copper_stocks", "CopperSupply", "us_refined_stocks", "copper"),
 )
 
 
@@ -70,7 +72,7 @@ def _two_sided_p(t_stat: float) -> float | None:
 
 
 def _resolve_model(table_name: str):
-    """Find a history model class by name across the analytics, gas, and energy modules."""
+    """Find a history model class by name across analytics, gas, energy, and metals modules."""
     from backend.models import analytics as analytics_models
 
     if hasattr(analytics_models, table_name):
@@ -81,7 +83,11 @@ def _resolve_model(table_name: str):
         return getattr(gas_models, table_name)
     from backend.models import energy as energy_models
 
-    return getattr(energy_models, table_name)
+    if hasattr(energy_models, table_name):
+        return getattr(energy_models, table_name)
+    from backend.models import metals as metals_models
+
+    return getattr(metals_models, table_name)
 
 
 def load_signal_series(db, table_name: str, value_col: str) -> tuple[list[str], np.ndarray]:

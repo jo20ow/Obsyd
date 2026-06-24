@@ -11,6 +11,7 @@ import {
   Legend,
 } from 'recharts'
 import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
 
@@ -208,6 +209,7 @@ export default function CopperPanel() {
       <div className="px-4 pb-3 font-mono text-[8px] text-neutral-700">
         Source: USGS Mineral Industry Surveys (public domain) · Price: COMEX HG=F via yfinance
       </div>
+      <TrackRecordBadge signal="copper_stocks" targetLabel="Copper" />
     </Panel>
   )
 }

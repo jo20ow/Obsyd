@@ -13,6 +13,7 @@ from backend.main import app
 from backend.models.analytics import DisruptionScoreHistory
 from backend.models.energy import EnergyPrice, PowerGrid, SparkSpreadHistory
 from backend.models.gas import GasBalance
+from backend.models.metals import CopperSupply
 from backend.models.prices import FREDSeries
 from backend.models.validation import SignalScorecard
 
@@ -281,3 +282,25 @@ def test_copper_target_reads_energy_price(db_session):
     db_session.commit()
     pm = scorecards._load_target_map(db_session, "copper")
     assert pm == {"2026-06-01": 4.5, "2026-06-02": 4.6}
+
+
+def test_copper_stocks_signal_resolves_and_scores(db_session):
+    """A4.3: copper_stocks (CopperSupply) resolves via metals module + scores vs copper price."""
+    assert scorecards._resolve_model("CopperSupply") is CopperSupply
+    # 36 monthly stock obs + a daily copper price series covering them + the 30d horizon tail
+    months = [f"2023-{mm:02d}-01" for mm in range(1, 13)] + [f"2024-{mm:02d}-01" for mm in range(1, 13)] + [f"2025-{mm:02d}-01" for mm in range(1, 13)]
+    for i, mdate in enumerate(months):
+        db_session.add(CopperSupply(date=mdate, us_refined_stocks=100000.0 + i * 1000))
+    # daily copper price across the whole span + 30d horizon tail
+    d = date(2023, 1, 1)
+    px = 4.0
+    while d <= date(2026, 1, 31):
+        db_session.add(EnergyPrice(date=d.isoformat(), symbol="COPPER", close=px))
+        px += 0.001
+        d += timedelta(days=1)
+    db_session.commit()
+
+    cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
+    cs = [c for c in cards if c["signal"] == "copper_stocks"]
+    assert {c["horizon_days"] for c in cs} == set(scorecards.HORIZONS)
+    assert any(c["n"] > 0 for c in cs)  # scored against the COPPER price target
