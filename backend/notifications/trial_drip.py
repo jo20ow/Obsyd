@@ -95,7 +95,7 @@ def render_welcome(email: str) -> tuple[str, str]:
     body = """
 <div style="font-size:13px;color:#a3a3a3;margin-bottom:20px;line-height:1.6">
 Your Pro trial is active. No card, no commitment — you have 14 days to decide whether the
-daily briefing is worth your <span style="color:#22d3ee">€19,90/Monat</span>.
+daily briefing is worth your <span style="color:#22d3ee">€15/month</span>.
 </div>
 <div style="font-size:12px;color:#d4d4d4;line-height:1.7;margin-bottom:20px">
 <b style="color:#22d3ee">What's unlocked today</b><br>
@@ -155,7 +155,7 @@ stops and the deep-dive panels (crack spreads, related equities, STS detection,
 market report) lock back behind the paywall.
 </div>
 <div style="font-size:12px;color:#d4d4d4;line-height:1.7;margin-bottom:20px">
-<b style="color:#22d3ee">€19,90/Monat</b> · or 199 €/Jahr (−17 %)<br>
+<b style="color:#22d3ee">€15/month</b> · or €149/year (−17%)<br>
 Lemon Squeezy handles EU-VAT. Cancel any time from the customer portal.
 </div>
 <div style="font-size:12px;color:#a3a3a3;line-height:1.6;margin-bottom:20px">
