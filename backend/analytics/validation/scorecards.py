@@ -33,21 +33,29 @@ HORIZONS = (1, 7, 30)
 TOP_TERCILE_Q = 2 / 3  # "signal high" = top third of its own distribution
 
 # Continuous signals: (name, history-table, scalar column, forward-return target).
-# target ∈ {"brent" (FRED oil), "ttf" (EnergyPrice gas)}. Models are resolved
-# lazily inside the loader to avoid import cycles at module load.
+# target ∈ {"brent" (FRED oil), "ttf" (EnergyPrice gas), "power" (EnergyPrice POWER_DE)}.
+# Models are resolved lazily inside the loader to avoid import cycles at module load.
 SIGNAL_SPECS = (
     ("disruption_score", "DisruptionScoreHistory", "composite_score", "brent"),
     ("tonne_miles", "TonneMilesHistory", "tonne_miles_index", "brent"),
     ("freight_proxy", "FreightProxyHistory", "proxy_index", "brent"),
     # Gas residual predicts European GAS prices, not Brent → scored against TTF.
     ("gas_residual", "GasBalance", "z_score", "ttf"),
+    # Energy signals: residual load + spark spread both scored against day-ahead power price.
+    ("power_residual", "PowerGrid", "residual_mw", "power"),
+    ("spark_spread", "SparkSpreadHistory", "spark_spread", "power"),
 )
+
+
+POWER_DE_SYMBOL = "POWER_DE"
 
 
 def _load_target_map(db, target: str) -> dict[str, float]:
     """Resolve a signal's forward-return target to a date→price map."""
     if target == "ttf":
         return load_energy_price_map(db, TTF_SYMBOL)
+    if target == "power":
+        return load_energy_price_map(db, POWER_DE_SYMBOL)
     return load_price_map(db, BRENT_SERIES)  # default / "brent"
 
 
@@ -60,14 +68,18 @@ def _two_sided_p(t_stat: float) -> float | None:
 
 
 def _resolve_model(table_name: str):
-    """Find a history model class by name across the analytics + gas modules."""
+    """Find a history model class by name across the analytics, gas, and energy modules."""
     from backend.models import analytics as analytics_models
 
     if hasattr(analytics_models, table_name):
         return getattr(analytics_models, table_name)
     from backend.models import gas as gas_models
 
-    return getattr(gas_models, table_name)
+    if hasattr(gas_models, table_name):
+        return getattr(gas_models, table_name)
+    from backend.models import energy as energy_models
+
+    return getattr(energy_models, table_name)
 
 
 def load_signal_series(db, table_name: str, value_col: str) -> tuple[list[str], np.ndarray]:

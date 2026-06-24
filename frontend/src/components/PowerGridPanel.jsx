@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
 import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
 
@@ -164,6 +165,7 @@ export default function PowerGridPanel() {
           )}
         </>
       )}
+      <TrackRecordBadge signal="power_residual" targetLabel="Power" />
     </Panel>
   )
 }

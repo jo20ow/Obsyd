@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from backend.analytics.validation import scorecards
 from backend.main import app
 from backend.models.analytics import DisruptionScoreHistory
-from backend.models.energy import EnergyPrice
+from backend.models.energy import EnergyPrice, PowerGrid, SparkSpreadHistory
 from backend.models.gas import GasBalance
 from backend.models.prices import FREDSeries
 from backend.models.validation import SignalScorecard
@@ -157,3 +157,119 @@ def test_gas_residual_scores_against_ttf_not_brent(db_session):
     assert card_7d["n"] >= 30 and card_7d["confident"] == 1  # scored despite no Brent
     # Planted z->TTF relationship is positive → IC has the right sign.
     assert card_7d["ic"] is not None and card_7d["ic"] > 0
+
+
+# ── Energy signals: power_residual + spark_spread ────────────────────────────
+
+
+def _seed_power(db, n_days=80, seed=13):
+    """Plant PowerGrid rows with residual_mw that predicts the 7d-forward
+    POWER_DE move, plus a matching EnergyPrice POWER_DE series.
+
+    PowerGrid has one row per (date, zone) — no created_at — mirroring the
+    GasBalance seeding pattern.
+
+    A positive planted relationship (high residual → gas/coal plants must run
+    → tighter supply → higher power price next week) is used to assert IC sign.
+    """
+    rng = np.random.default_rng(seed)
+    start = date(2026, 1, 1)
+    residual = rng.uniform(20000, 50000, size=n_days)  # MW range realistic for DE-LU
+    price = [80.0]
+    for i in range(1, n_days + 12):
+        # High residual load → more thermal generation needed → upward price pressure
+        drift = 0.0002 * (residual[i - 7] - 35000) if 0 <= i - 7 < n_days else 0.0
+        price.append(price[-1] + drift + rng.normal(scale=0.5))
+    for i in range(n_days):
+        d = (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        db.add(
+            PowerGrid(
+                date=d,
+                zone="DE_LU",
+                load_mw=float(residual[i]) + 10000.0,  # load > residual
+                wind_mw=5000.0,
+                solar_mw=5000.0,
+                residual_mw=float(residual[i]),
+            )
+        )
+    for i in range(n_days + 12):
+        d = (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        db.add(EnergyPrice(date=d, symbol="POWER_DE", close=float(price[i])))
+    db.commit()
+
+
+def _seed_spark(db, n_days=80, seed=17):
+    """Plant SparkSpreadHistory rows where spark_spread predicts the 7d-forward
+    POWER_DE move, plus a matching EnergyPrice POWER_DE series.
+
+    Note on circularity: spark_spread = power − gas × heat_rate, so it is a
+    *linear function* of POWER_DE on the signal date. The IC measures whether
+    today's level predicts the *forward return* (7d-ahead log price change), not
+    whether high spark_spread correlates with a high absolute price — so there
+    is a meaningful (though partially circular) signal here. Tests simply assert
+    the mechanical plumbing (n≥30, IC not None), not a specific sign.
+    """
+    rng = np.random.default_rng(seed)
+    start = date(2026, 1, 1)
+    spark = rng.uniform(-10, 30, size=n_days)  # EUR/MWh realistic range
+    price = [80.0]
+    for i in range(1, n_days + 12):
+        drift = 0.05 * spark[i - 7] if 0 <= i - 7 < n_days else 0.0
+        price.append(price[-1] + drift + rng.normal(scale=0.5))
+    for i in range(n_days):
+        d = (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        db.add(
+            SparkSpreadHistory(
+                date=d,
+                power_price=float(price[i]),
+                gas_price=float(price[i]) - float(spark[i]) * 2.0,
+                heat_rate=2.0,
+                spark_spread=float(spark[i]),
+            )
+        )
+    for i in range(n_days + 12):
+        d = (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        db.add(EnergyPrice(date=d, symbol="POWER_DE", close=float(price[i])))
+    db.commit()
+
+
+def test_resolve_model_finds_energy_classes(db_session):
+    """_resolve_model must return the right classes for energy-vertical tables."""
+    assert scorecards._resolve_model("PowerGrid") is PowerGrid
+    assert scorecards._resolve_model("SparkSpreadHistory") is SparkSpreadHistory
+
+
+def test_power_residual_scores_against_power_price(db_session):
+    """power_residual is scored against POWER_DE (not Brent, not TTF)."""
+    _seed_power(db_session)
+    cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
+    pr = [c for c in cards if c["signal"] == "power_residual"]
+    assert {c["horizon_days"] for c in pr} == set(scorecards.HORIZONS)
+    card_7d = next(c for c in pr if c["horizon_days"] == 7)
+    assert card_7d["n"] >= 30 and card_7d["confident"] == 1
+    # Planted positive residual→power relationship: IC should be positive.
+    assert card_7d["ic"] is not None and card_7d["ic"] > 0
+
+
+def test_spark_spread_scores_against_power_price(db_session):
+    """spark_spread card exists with n≥30 and a non-None IC when seeded."""
+    _seed_spark(db_session)
+    cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
+    ss = [c for c in cards if c["signal"] == "spark_spread"]
+    assert {c["horizon_days"] for c in ss} == set(scorecards.HORIZONS)
+    card_7d = next(c for c in ss if c["horizon_days"] == 7)
+    assert card_7d["n"] >= 30 and card_7d["confident"] == 1
+    assert card_7d["ic"] is not None
+
+
+def test_existing_brent_ttf_signals_not_broken(db_session):
+    """Regression: adding energy targets must not break Brent or TTF signals."""
+    _seed(db_session)
+    _seed_gas(db_session)
+    cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
+    signals = {c["signal"] for c in cards}
+    assert "disruption_score" in signals
+    assert "gas_residual" in signals
+    # Both scored at all horizons
+    assert {c["horizon_days"] for c in cards if c["signal"] == "disruption_score"} == set(scorecards.HORIZONS)
+    assert {c["horizon_days"] for c in cards if c["signal"] == "gas_residual"} == set(scorecards.HORIZONS)
