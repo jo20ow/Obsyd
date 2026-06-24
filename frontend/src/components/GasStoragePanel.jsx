@@ -57,7 +57,7 @@ export default function GasStoragePanel() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
                   <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
                   <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={24} domain={[0, 100]} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${Number(v).toFixed(1)}%`, 'fill']} labelFormatter={fmtDate} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${Number(v).toFixed(1)}%`, 'Fill']} labelFormatter={fmtDate} />
                   <Area type="monotone" dataKey="fill_pct" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.06} strokeWidth={1.5} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
