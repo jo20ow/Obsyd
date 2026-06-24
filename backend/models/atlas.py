@@ -29,3 +29,26 @@ class CountryEnergy(Base):
     value: Mapped[float] = mapped_column(Float)
     unit: Mapped[str] = mapped_column(String, default="")          # pinned per product (e.g. "TBPD")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CountryMacro(Base):
+    """Per-country macro indicators from World Bank Open Data (CC BY 4.0, no key).
+
+    ISO-3 keyed (matches CountryEnergy → clean cross-source join). Only real countries are
+    stored; World Bank regional/income aggregates (region == 'Aggregates') are excluded at
+    ingest. `metric` is a friendly key (e.g. "gdp_usd"); `indicator_code` is the WB code.
+    """
+
+    __tablename__ = "country_macro"
+    __table_args__ = (
+        UniqueConstraint("iso3", "metric", "period", name="uq_country_macro"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    iso3: Mapped[str] = mapped_column(String, index=True)
+    country_name: Mapped[str] = mapped_column(String, default="")
+    metric: Mapped[str] = mapped_column(String, index=True)        # e.g. "gdp_usd", "trade_pct_gdp"
+    indicator_code: Mapped[str] = mapped_column(String, default="")  # World Bank indicator code
+    period: Mapped[str] = mapped_column(String)                    # year "YYYY" (WB is annual)
+    value: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
