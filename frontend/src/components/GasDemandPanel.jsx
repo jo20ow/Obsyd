@@ -19,13 +19,16 @@ function Stat({ label, value }) {
 // Merge demand + power-burn rows by date into [{date, power, heat, industrial, total}].
 function mergeRows(demand, power) {
   const byDate = new Map()
+  // Demand is the authoritative source — it defines which dates the modeled
+  // total exists for. Seed from demand only.
   for (const r of demand?.data ?? []) {
-    byDate.set(r.date, { date: r.date, heat: r.heat_gwh || 0, industrial: r.industrial_gwh || 0, power: 0 })
+    byDate.set(r.date, { date: r.date, heat: r.heat_gwh ?? 0, industrial: r.industrial_gwh ?? 0, power: 0 })
   }
+  // Annotate power burn onto demand-covered dates only; ignore power-only dates
+  // so the chart never shows a misleading power-only bar with heat/industrial=0.
   for (const r of power?.data ?? []) {
-    const row = byDate.get(r.date) || { date: r.date, heat: 0, industrial: 0, power: 0 }
-    row.power = r.implied_gas_gwh || 0
-    byDate.set(r.date, row)
+    const row = byDate.get(r.date)
+    if (row) row.power = r.implied_gas_gwh ?? 0
   }
   const rows = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
   for (const r of rows) r.total = r.power + r.heat + r.industrial
