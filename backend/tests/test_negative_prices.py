@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import pytest
 
+# Import models at module level so Base.metadata includes power_price_daily
+# before the db_session fixture calls create_all on its in-memory engine.
+from backend.models.energy import PowerPriceDaily  # noqa: F401
+
 # ─── XML helpers (same pattern as test_power_prices.py) ────────────────────
 
 _NS = "urn:iec62325.351:tc57wg16:451-6:publicationdocument:7:0"
