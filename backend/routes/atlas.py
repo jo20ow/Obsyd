@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models.atlas import CountryEnergy
+from backend.models.atlas import CountryEnergy, CountryMacro
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
 
@@ -41,6 +41,37 @@ def atlas_energy(
         "product": product,
         "activity": activity,
         "source": "EIA International Energy Statistics (public domain)",
+        "as_of": max((r["period"] for r in items), default=None),
+        "coverage": len(items),
+        "countries": items,
+    }
+
+
+@router.get("/macro")
+def atlas_macro(
+    metric: str = Query("gdp_usd", description="gdp_usd / gdp_per_capita / gdp_growth / industry_pct_gdp / manufacturing_pct_gdp / trade_pct_gdp / population / inflation"),
+    db: Session = Depends(get_db),
+):
+    """Latest-year value per country for a World Bank macro indicator.
+
+    Descriptive context (official reported annual figures, lagging — see `as_of`); only true
+    countries (aggregates excluded at ingest). Joins the energy layer on ISO-3.
+    """
+    rows = db.query(CountryMacro).filter(CountryMacro.metric == metric).all()
+    latest: dict[str, CountryMacro] = {}
+    for r in rows:
+        cur = latest.get(r.iso3)
+        if cur is None or r.period > cur.period:
+            latest[r.iso3] = r
+
+    items = [
+        {"iso3": r.iso3, "country_name": r.country_name, "value": r.value, "period": r.period}
+        for r in latest.values()
+    ]
+    items.sort(key=lambda x: x["value"], reverse=True)
+    return {
+        "metric": metric,
+        "source": "World Bank Open Data (CC BY 4.0)",
         "as_of": max((r["period"] for r in items), default=None),
         "coverage": len(items),
         "countries": items,

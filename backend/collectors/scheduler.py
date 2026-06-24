@@ -44,6 +44,7 @@ from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chok
 from backend.collectors.retention import run_retention
 from backend.collectors.spark_spreads import collect_spark_spreads
 from backend.collectors.sts_collector import collect_sts_events
+from backend.collectors.worldbank import ingest_worldbank
 from backend.database import SessionLocal
 from backend.metals.usgs_copper import ingest_copper_supply
 from backend.notifications.alert_runner import process_alert_rules
@@ -244,6 +245,18 @@ async def _run_eia_international():
         logger.info("eia international: %s", result)
     except Exception as e:
         logger.error("eia international ingest failed: %s", e)
+    finally:
+        db.close()
+
+
+async def _run_worldbank():
+    """Monthly ingest of World Bank per-country macro indicators (ATLAS data layer)."""
+    db = SessionLocal()
+    try:
+        result = await ingest_worldbank(db)
+        logger.info("worldbank macro: %s", result)
+    except Exception as e:
+        logger.error("worldbank macro ingest failed: %s", e)
     finally:
         db.close()
 
@@ -581,6 +594,14 @@ def start_scheduler():
         _run_eia_international,
         CronTrigger(day=6, hour=6, minute=0),
         id="eia_international",
+        **JOB_DEFAULTS,
+    )
+
+    # ATLAS — World Bank per-country macro (annual, lagging): monthly on the 7th.
+    scheduler.add_job(
+        _run_worldbank,
+        CronTrigger(day=7, hour=6, minute=0),
+        id="worldbank_macro",
         **JOB_DEFAULTS,
     )
 
