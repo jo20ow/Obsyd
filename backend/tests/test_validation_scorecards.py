@@ -272,3 +272,12 @@ def test_existing_brent_ttf_signals_not_broken(db_session):
     # Both scored at all horizons
     assert {c["horizon_days"] for c in cards if c["signal"] == "disruption_score"} == set(scorecards.HORIZONS)
     assert {c["horizon_days"] for c in cards if c["signal"] == "gas_residual"} == set(scorecards.HORIZONS)
+
+
+def test_copper_target_reads_energy_price(db_session):
+    """A4.1: the 'copper' scorecard target resolves to the EnergyPrice COPPER series."""
+    db_session.add(EnergyPrice(date="2026-06-01", symbol="COPPER", close=4.5))
+    db_session.add(EnergyPrice(date="2026-06-02", symbol="COPPER", close=4.6))
+    db_session.commit()
+    pm = scorecards._load_target_map(db_session, "copper")
+    assert pm == {"2026-06-01": 4.5, "2026-06-02": 4.6}

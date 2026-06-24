@@ -56,6 +56,8 @@ def _load_target_map(db, target: str) -> dict[str, float]:
         return load_energy_price_map(db, TTF_SYMBOL)
     if target == "power":
         return load_energy_price_map(db, POWER_DE_SYMBOL)
+    if target == "copper":
+        return load_energy_price_map(db, "COPPER")  # A4 metals node (yfinance HG=F)
     return load_price_map(db, BRENT_SERIES)  # default / "brent"
 
 

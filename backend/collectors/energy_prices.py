@@ -22,6 +22,7 @@ _executor = ThreadPoolExecutor(max_workers=1)
 # db_symbol -> yfinance ticker. Add "EUA"/"POWER_*" here as the energy vertical grows.
 SYMBOLS = {
     "TTF": "TTF=F",  # Dutch TTF natural gas front-month (EUR/MWh)
+    "COPPER": "HG=F",  # COMEX copper front-month (USD/lb) — A4 metals node price target
 }
 
 
