@@ -18,19 +18,21 @@ from backend.models.analytics import (
     FreightProxyHistory,
     SupplyDemandBalance,
 )
-from backend.models.energy import PowerPriceDaily
+from backend.models.energy import PowerGrid, PowerPriceDaily
 from backend.models.gas import GasBalance
 from backend.models.sentiment import SentimentScore
 from backend.models.vessels import FloatingStorageEvent
 from backend.signals.detectors import DETECTORS, run_all_detectors
 from backend.signals.detectors.gas import detect_gas_balance
 from backend.signals.detectors.oil import (
+    detect_chokepoint,
     detect_days_of_supply,
     detect_floating_storage,
     detect_freight_divergence,
+    detect_rerouting,
     detect_supply_demand_divergence,
 )
-from backend.signals.detectors.power import detect_negative_prices
+from backend.signals.detectors.power import detect_dunkelflaute, detect_negative_prices
 from backend.signals.detectors.sentiment import detect_sentiment_risk
 
 
@@ -218,9 +220,9 @@ def test_run_all_detectors_multi_vertical(db_session):
     db_session.commit()
 
     n = run_all_detectors(db_session)
-    assert n == 2
-    verticals = {a.vertical for a in db_session.query(Alert).all()}
-    assert verticals == {"gas", "sentiment"}
+    assert n >= 2  # >= because store-backed detectors (rerouting/chokepoint) may also fire
+    rules = {a.rule for a in db_session.query(Alert).all()}
+    assert {"gas_balance", "sentiment_risk"} <= rules
 
 
 def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
@@ -237,8 +239,55 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
     assert db_session.query(Alert).filter(Alert.vertical == "gas").count() == 1
 
 
-def test_detector_registry_has_seven(db_session):
-    assert len(DETECTORS) == 7
+def test_detector_registry_count(db_session):
+    assert len(DETECTORS) == 10
+
+
+# ─── Phase B: dunkelflaute / rerouting / chokepoint ───────────────────────────
+
+
+def test_dunkelflaute_warns(db_session):
+    db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000))  # ~8%
+    db_session.commit()
+    r = detect_dunkelflaute(db_session)[0]
+    assert r.vertical == "power" and r.rule == "dunkelflaute" and r.severity == "warning"
+
+
+def test_dunkelflaute_high_renewables_suppressed(db_session):
+    db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=30000, solar_mw=15000))  # 75%
+    db_session.commit()
+    assert detect_dunkelflaute(db_session) == []
+
+
+def test_rerouting_high_warns(db_session, monkeypatch):
+    monkeypatch.setattr(
+        "backend.signals.tonnage_proxy.compute_rerouting_index",
+        lambda days=365: {"available": True, "current": {"state": "high_rerouting", "severity": "warning", "ratio_pct": 58.0, "baseline_30d": 0.30}},
+    )
+    r = detect_rerouting(db_session)[0]
+    assert r.rule == "rerouting_high" and r.severity == "warning" and r.vertical == "oil"
+
+
+def test_rerouting_normal_suppressed(db_session, monkeypatch):
+    monkeypatch.setattr(
+        "backend.signals.tonnage_proxy.compute_rerouting_index",
+        lambda days=365: {"available": True, "current": {"state": "normal", "severity": None}},
+    )
+    assert detect_rerouting(db_session) == []
+
+
+def test_chokepoint_maps_alert(db_session, monkeypatch):
+    monkeypatch.setattr(
+        "backend.signals.portwatch_alerts.check_chokepoint_anomalies",
+        lambda: [{
+            "chokepoint": "Strait of Hormuz", "anomaly_pct": -42.0, "direction": "drop",
+            "n_total": 30, "baseline_avg": 52.0, "baseline_type": "yoy",
+            "alert_level": "critical", "disruption_name": "Red Sea crisis",
+        }],
+    )
+    r = detect_chokepoint(db_session)[0]
+    assert r.rule == "chokepoint_anomaly" and r.zone == "hormuz" and r.severity == "critical"
+    assert "Red Sea crisis" in r.detail
 
 
 # ─── API exposure + grouping ──────────────────────────────────────────────────

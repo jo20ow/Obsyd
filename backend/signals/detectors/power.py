@@ -6,8 +6,13 @@ hour count is persisted per (date, zone) in ``PowerPriceDaily.negative_hours``.
 
 from __future__ import annotations
 
-from backend.models.energy import PowerPriceDaily
+from backend.models.energy import PowerGrid, PowerPriceDaily
 from backend.signals.detectors.base import DetectorResult, trailing_zscore
+
+# Dunkelflaute = renewables carry an unusually small share of load (wind+solar < 15%),
+# so conventional generation must cover the residual. A fixed physical threshold is
+# meaningful here (it is a defined grid condition, not a structurally-always-true count).
+DUNKELFLAUTE_THRESHOLD = 0.15
 
 # Negative day-ahead hours happen routinely in solar/wind-heavy zones — so flag only when
 # TODAY is unusually high vs the zone's own recent norm (relative), not on a flat hour count.
@@ -51,6 +56,38 @@ def detect_negative_prices(db) -> list[DetectorResult]:
                 detail=(
                     f"{current}h below 0 EUR/MWh on {row.date} vs ~{mean:.0f}h normal for {zone} "
                     f"(z {z:+.2f}; renewable oversupply / inflexible generation)."
+                ),
+            )
+        )
+    return results
+
+
+def detect_dunkelflaute(db) -> list[DetectorResult]:
+    """Latest day where wind+solar cover an unusually small share of load, per zone."""
+    zones = [z for (z,) in db.query(PowerGrid.zone).distinct().all()]
+    results: list[DetectorResult] = []
+    for zone in zones:
+        row = (
+            db.query(PowerGrid)
+            .filter(PowerGrid.zone == zone)
+            .order_by(PowerGrid.date.desc())
+            .first()
+        )
+        if row is None or not row.load_mw or row.load_mw <= 0:
+            continue
+        share = ((row.wind_mw or 0.0) + (row.solar_mw or 0.0)) / row.load_mw
+        if share >= DUNKELFLAUTE_THRESHOLD:
+            continue
+        results.append(
+            DetectorResult(
+                rule="dunkelflaute",
+                zone=zone,
+                vertical="power",
+                severity="warning",
+                title=f"{zone}: Dunkelflaute — renewables {share * 100:.0f}% of load",
+                detail=(
+                    f"Wind+solar only {share * 100:.1f}% of load on {row.date} (<15% threshold); "
+                    f"residual load carried by conventional generation."
                 ),
             )
         )

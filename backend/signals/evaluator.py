@@ -92,11 +92,8 @@ async def evaluate_signals():
         except Exception as e:
             logger.warning(f"Crack spread alert check failed: {e}")
 
-        # 5. Rerouting alert
-        try:
-            _check_rerouting(db)
-        except Exception as e:
-            logger.warning(f"Rerouting alert check failed: {e}")
+        # 5. Rerouting alert — now handled by the anomaly radar (detect_rerouting),
+        #    see step 7. Legacy _check_rerouting removed to avoid duplicate alerts.
 
         # 6. Convergence alert — multi-signal
         try:
@@ -171,34 +168,6 @@ def _check_crack_spread(db: Session):
                 f"3:2:1 crack spread ${spread}/bbl is at the {pct}th percentile "
                 f"vs 1-year range. Low spread = weak refining margins = bearish crude demand. "
                 f"(data: {ts})"
-            ),
-        )
-
-
-def _check_rerouting(db: Session):
-    """Alert when rerouting index exceeds thresholds."""
-    from backend.signals.tonnage_proxy import compute_rerouting_index
-
-    data = compute_rerouting_index(days=365)
-    if not data.get("available"):
-        return
-
-    current = data.get("current", {})
-    state = current.get("state")
-    ratio_pct = current.get("ratio_pct")
-
-    if state == "high_rerouting" and ratio_pct is not None:
-        _upsert_alert(
-            db,
-            rule="rerouting_high",
-            zone="global",
-            severity="warning",
-            title=f"Rerouting index at {ratio_pct:.0f}% — HIGH",
-            detail=(
-                f"Cape share at {ratio_pct:.0f}%. "
-                f"High rerouting typically indicates Suez/Red Sea disruption. "
-                f"Tanker demand increases with longer voyages via Cape. "
-                f"(data: {datetime.now(timezone.utc).isoformat()})"
             ),
         )
 
