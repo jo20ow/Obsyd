@@ -5,7 +5,7 @@ import pytest
 
 # Import models at module level so Base.metadata includes power_price_daily
 # before the db_session fixture calls create_all on its in-memory engine.
-from backend.models.energy import PowerPriceDaily  # noqa: F401
+from backend.models.energy import PowerPriceDaily
 
 # ─── XML helpers (same pattern as test_power_prices.py) ────────────────────
 
@@ -122,7 +122,6 @@ async def test_ingest_writes_power_price_daily(db_session, monkeypatch):
     """ingest_day_ahead upserts a PowerPriceDaily row alongside EnergyPrice."""
     from pydantic import SecretStr
 
-    from backend.models.energy import PowerPriceDaily
     from backend.power import entsoe_prices
 
     # 3 hours: 2 positive, 1 negative
@@ -154,7 +153,6 @@ async def test_ingest_power_price_daily_idempotent(db_session, monkeypatch):
     """Re-running ingest updates the existing PowerPriceDaily row (no duplicate)."""
     from pydantic import SecretStr
 
-    from backend.models.energy import PowerPriceDaily
     from backend.power import entsoe_prices
 
     xml_v1 = _a44(_ts("2026-05-01T00:00Z", "2026-05-01T03:00Z", [-10.0, 20.0, 30.0]))
@@ -191,6 +189,7 @@ def _clear_dependency_overrides():
 
 def _make_client(db):
     from fastapi.testclient import TestClient
+
     from backend.database import get_db
     from backend.main import app
     app.dependency_overrides[get_db] = lambda: db
@@ -198,7 +197,6 @@ def _make_client(db):
 
 
 def _seed_daily(db, rows: list[dict]) -> None:
-    from backend.models.energy import PowerPriceDaily
     for r in rows:
         db.add(
             PowerPriceDaily(
