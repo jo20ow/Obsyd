@@ -39,6 +39,9 @@ SERIES = [
     ("natural_gas", "consumption", "26", "2", "BCM"),
     ("electricity", "generation", "2", "12", "BKWH"),  # 2 = Electricity
     ("electricity", "consumption", "2", "2", "BKWH"),
+    ("nuclear", "production", "4417", "1", "QBTU"),     # primary energy from nuclear
+    ("renewables", "production", "4418", "1", "QBTU"),  # primary energy from renewables & other
+    ("co2_emissions", "emissions", "4008", "8", "MMTCD"),  # total energy CO2 (million t CO2)
 ]
 
 
