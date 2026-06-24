@@ -3,14 +3,9 @@ import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
+import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
-
-function fmtDate(d) {
-  return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-const TOOLTIP_STYLE = { background: '#0a0a12', border: '1px solid #2a2a3a', fontFamily: 'monospace', fontSize: 10 }
 
 function Stat({ label, value }) {
   return (
@@ -66,7 +61,7 @@ export default function GasSupplyPanel() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
                   <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
                   <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={28} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${Math.round(v).toLocaleString()} GWh`, 'supply']} labelFormatter={fmtDate} />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v) => [`${Math.round(v).toLocaleString()} GWh`, 'supply']} labelFormatter={fmtDate} />
                   <Area type="monotone" dataKey="supply_gwh" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.06} strokeWidth={1.5} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
