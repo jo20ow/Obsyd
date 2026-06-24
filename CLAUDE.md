@@ -5,7 +5,7 @@
 > (Abschnitt „Build-Stand") ist zum Datum unten verifiziert und veraltet schneller — bei Konflikt
 > gewinnt der Code.
 >
-> **Stand: 2026-06-24** · Gas-Vertikal-UI (PR #14) + ENTSO-E/GIE-Keys lokal eingebaut + Backfill 2023→heute
+> **Stand: 2026-06-24** · Gas-UI (PR #14) + Gas-Track-Record/TTF (PR #15) + ENERGY-Tab/Spark-Spread (PR #16); Keys lokal, Prod-Deploy offen
 
 ---
 
@@ -132,11 +132,24 @@ product"*). Seit 2026-06-24 (PR #14): **GAS-Tab im Frontend** — Pro-Residual-H
 Gating: **Rohdaten frei, Residual Pro**. ENTSO-E-Token + GIE-Key sind **lokal eingebaut &
 validiert**, voller Backfill 2023→heute gelaufen → Power-Burn/Demand/Balance laufen **real,
 nicht mehr PRELIMINARY** (`/api/gas/*` liefert ~121 Zeilen @ days=120). ⚠️ **Prod-Caveat:**
-beide Keys müssen noch in die Prod-`.env` auf dem VPS + dort ein Backfill, sonst ist das
-Vertikal in Production leer.
+beide Keys (ENTSO-E + GIE) müssen noch in die Prod-`.env` auf dem VPS + dort ein Backfill,
+sonst sind Gas **und** Energy in Production leer.
 
-**Fehlt komplett:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS (0 Treffer im Code),
-Spark/Dark-Spread, Merit-Order, gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl- und
+**Gas-Track-Record (PR #15):** der Gas-Residual ist im Validierungs-Scorecard, **gegen TTF**
+gescort (nicht Brent — der Scorecard ist jetzt target-aware, `SIGNAL_SPECS` 4-Tupel). Neue
+tägliche **TTF-Preisserie** (`EnergyPrice` + `energy_prices`-Collector, yfinance `TTF=F`).
+`TrackRecordBadge` am Balance-Hero. Gemessen: IC −0,17 @ 7d, p=0,001, n=1226 (signifikant).
+
+**ENERGY-Vertikal — erste Slice live (PR #16, Gas→Energy-Brücke):** neues `backend/power/`
+mit ENTSO-E **A44 Day-Ahead-Strompreis** (DE-LU) → `EnergyPrice(POWER_DE)`; **Spark-Spread**
+(`spark = power − gas·heat_rate`, heat_rate=1/`gas_ccgt_efficiency`) in `SparkSpreadHistory`;
+`/api/power/{day-ahead(frei),spark-spread(Pro)}`; **ENERGY-Tab** (PowerDayAhead frei +
+SparkSpread Pro). **Clean-Spark (− CO₂) zurückgestellt** — kein verlässlicher EUA-Ticker;
+`co2_price`/`clean_spark_spread`-Spalten existieren, bleiben leer.
+
+**Fehlt komplett:** Exposure-Mapping (Signal→Ticker→Richtung), CO₂/EU-ETS (kein EUA-Feed),
+Dark/Clean-Spread, Merit-Order/Residuallast/Dunkelflaute, Strom-Last/Generation-Mix,
+gas→power→CO₂-Synthese, Cross-Commodity-Fusion (Öl- und
 Gas-Vertikal siliert; Gas-Residual **nicht** in den Scorecards → kein Track Record fürs
 Gas-Vertikal), Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
 
@@ -154,14 +167,16 @@ Gas-Vertikal), Metalle/Kupfer/Solar als Analytik-Knoten (nur Preis-Quotes).
 1. ~~**Gas-Vertikal sichtbar machen**~~ — **erledigt 2026-06-24 (PR #14):** GAS-Tab mit
    Residual-Hero + freien Treiber-Panels; ENTSO-E-Token + GIE-Key live (lokal), Backfill
    2023→heute. Rest-Aufgabe: Keys + Backfill in **Prod** (siehe Build-Stand-Caveat).
-2. **Gas-Residual in die Validierungs-Schicht** — `SIGNAL_SPECS` (`backend/analytics/validation/
-   scorecards.py:31`) um das Gas-Signal erweitern → Track Record + `TrackRecordBadge` auf dem
-   Balance-Panel. **← nächster Schritt.**
-3. **Exposure-Mapping v1** (Premium-Kern) — strukturierte Signal→Ticker→Richtung-Tabelle statt
-   statischer Liste + Prosa; als Hypothese durch die bestehende Validierungs-Schicht laufen
-   lassen, **bevor** sie als Edge verkauft wird. Erst dann Preis-Diskussion 20–30 €.
-4. **Danach** neue Knoten — CO₂/EU-ETS (vervollständigt die gas→power→CO₂-Kette), Metall/Kupfer,
-   Solar; jeder als fokussierter Zusatz, Engine wiederverwendet.
+2. ~~**Gas-Residual in die Validierungs-Schicht**~~ — **erledigt (PR #15):** target-aware
+   Scorecard, Gas-Residual gegen TTF, `TrackRecordBadge` am Balance-Panel.
+3. ~~**Gas→Energy erste Slice (Spark-Spread)**~~ — **erledigt (PR #16):** ENERGY-Tab,
+   Strompreis (A44) + Spark-Spread. **Energy-Fortsetzung (Phase 2, ← nächster Schritt):**
+   Strom-Last (A65) + Generation-Mix (A75) → Residuallast/Merit-Order/Dunkelflaute/Negativpreise;
+   EUA/Clean-Spark + Dark-Spread; Energy-Signale in den Track-Record; gas→power→CO₂-Synthese.
+4. **Exposure-Mapping v1** (Premium-Kern) — strukturierte Signal→Ticker→Richtung-Tabelle statt
+   statischer Liste + Prosa; als Hypothese durch die Validierungs-Schicht, **bevor** als Edge
+   verkauft. Erst dann Preis-Diskussion 20–30 €.
+5. **Danach** weitere Rohstoff-Knoten — Metall/Kupfer, Solar; jeder als fokussierter Zusatz.
 
 ---
 

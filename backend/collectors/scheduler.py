@@ -41,6 +41,7 @@ from backend.collectors.noaa import collect_noaa_alerts
 from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.portwatch_store import fetch_chokepoint_data, store_chokepoint_data
 from backend.collectors.retention import run_retention
+from backend.collectors.spark_spreads import collect_spark_spreads
 from backend.collectors.sts_collector import collect_sts_events
 from backend.database import SessionLocal
 from backend.notifications.alert_runner import process_alert_rules
@@ -136,6 +137,43 @@ async def _run_gas_daily():
         logger.info("gas daily: refreshed %s..%s + recomputed demand/balance", days[0], days[-1])
     except Exception as e:
         logger.error("gas daily failed: %s", e)
+    finally:
+        db.close()
+
+
+def _power_recent_days(n: int = 7) -> list[str]:
+    """The last n days ending yesterday for ENTSO-E A44 ingestion."""
+    from datetime import datetime, timedelta, timezone
+
+    end = datetime.now(timezone.utc).date() - timedelta(days=1)
+    return [(end - timedelta(days=i)).isoformat() for i in range(n)][::-1]
+
+
+async def _run_power_daily():
+    """Daily electricity + spark spread refresh.
+
+    (a) Ingest ENTSO-E A44 day-ahead prices for the last 7 days into
+        EnergyPrice(symbol="POWER_DE") — re-fetches to catch any revisions.
+    (b) Recompute SparkSpreadHistory for all aligned POWER_DE + TTF dates.
+    """
+    from backend.power.entsoe_prices import ingest_day_ahead
+
+    db = SessionLocal()
+    try:
+        days = _power_recent_days(7)
+        try:
+            result = await ingest_day_ahead(db, days, overwrite=True)
+            logger.info("power daily ingest: %s", result)
+        except Exception as exc:
+            logger.error("power daily ingest_day_ahead failed: %s", exc)
+
+        try:
+            result = await collect_spark_spreads()
+            logger.info("power daily spark spreads: %s", result)
+        except Exception as exc:
+            logger.error("power daily collect_spark_spreads failed: %s", exc)
+    except Exception as exc:
+        logger.error("_run_power_daily outer failed: %s", exc)
     finally:
         db.close()
 
@@ -469,6 +507,16 @@ def start_scheduler():
         _run_gas_registry_weekly,
         CronTrigger(day_of_week="mon", hour=3, minute=30),
         id="gas_registry_weekly",
+        **JOB_DEFAULTS,
+    )
+
+    # Power day-ahead + spark spread: daily 22:30 UTC.
+    # (a) Ingest ENTSO-E A44 for DE-LU last 7 days into POWER_DE.
+    # (b) Recompute SparkSpreadHistory for all aligned POWER_DE + TTF dates.
+    scheduler.add_job(
+        _run_power_daily,
+        CronTrigger(hour=22, minute=30),
+        id="power_spark_daily",
         **JOB_DEFAULTS,
     )
 
