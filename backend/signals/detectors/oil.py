@@ -19,7 +19,13 @@ from backend.models.vessels import FloatingStorageEvent
 from backend.signals.detectors.base import DetectorResult, trailing_zscore
 
 # Days-of-supply: both extremes are notable for a radar; tight is the urgent one.
-_DOS_SEVERITY = {"TIGHT": "warning", "COMFORTABLE": "info"}  # IN_LINE → suppress
+# These three read CATEGORICAL flags from the analytics layer, so they're sharpened by
+# ONSET-detection rather than a z-score: fire on the TRANSITION into the abnormal state, not
+# every day it persists. A radar pings on change; the steady state lives on the dashboard panel.
+
+
+def _latest_two(db, model):
+    return db.query(model).order_by(model.date.desc()).limit(2).all()
 
 # Floating storage: compare a zone's CURRENT count to its OWN trailing norm, not a flat
 # threshold — a permanent anchorage (Malacca/Singapore, Houston) is structurally high and a
@@ -31,57 +37,67 @@ FS_CRIT_Z = 3.0
 
 
 def detect_days_of_supply(db) -> list[DetectorResult]:
-    row = db.query(DaysOfSupplyHistory).order_by(DaysOfSupplyHistory.date.desc()).first()
-    if row is None:
+    """Fire when US crude inventories newly turn TIGHT (onset), not every day they stay tight."""
+    rows = _latest_two(db, DaysOfSupplyHistory)
+    if not rows or rows[0].assessment != "TIGHT":
         return []
-    severity = _DOS_SEVERITY.get(row.assessment or "")
-    if severity is None:
-        return []
-    dev = row.deviation if row.deviation is not None else 0.0
-    days = row.commercial_days if row.commercial_days is not None else 0.0
+    if len(rows) > 1 and rows[1].assessment == "TIGHT":
+        return []  # already tight last reading → persistence, not a new event
+    cur = rows[0]
+    dev = cur.deviation if cur.deviation is not None else 0.0
+    days = cur.commercial_days if cur.commercial_days is not None else 0.0
     return [
         DetectorResult(
             rule="days_of_supply",
             zone="us",
             vertical="oil",
-            severity=severity,
-            title=f"US crude days-of-supply {row.assessment.lower()}",
-            detail=f"{days:.1f} days cover, {dev:+.1f}d vs 5-year seasonal average (as of {row.date}).",
+            severity="warning",
+            title="US crude days-of-supply turned tight",
+            detail=f"{days:.1f} days cover, {dev:+.1f}d vs 5-year seasonal average (as of {cur.date}).",
         )
     ]
 
 
+def _has_divergence(row) -> bool:
+    return bool(row.divergence_type and "DIVERGENCE" in row.divergence_type)
+
+
 def detect_supply_demand_divergence(db) -> list[DetectorResult]:
-    row = db.query(SupplyDemandBalance).order_by(SupplyDemandBalance.date.desc()).first()
-    if row is None or not row.divergence_type:
+    """Fire when EIA-balance vs AIS newly diverges (onset); 'CONFIRMED' = sources agree → no alert."""
+    rows = _latest_two(db, SupplyDemandBalance)
+    if not rows or not _has_divergence(rows[0]):
         return []
-    # Only a genuine divergence is anomalous; "CONFIRMED" means the sources agree.
-    if "DIVERGENCE" not in row.divergence_type:
-        return []
+    if len(rows) > 1 and _has_divergence(rows[1]):
+        return []  # divergence already present last reading → persistence
+    cur = rows[0]
     return [
         DetectorResult(
             rule="supply_demand_divergence",
             zone="us",
             vertical="oil",
             severity="warning",
-            title="EIA balance vs AIS divergence",
-            detail=(row.divergence_detail or row.divergence_type) + f" (as of {row.date}).",
+            title="EIA balance vs AIS newly diverging",
+            detail=(cur.divergence_detail or cur.divergence_type) + f" (as of {cur.date}).",
         )
     ]
 
 
 def detect_freight_divergence(db) -> list[DetectorResult]:
-    row = db.query(FreightProxyHistory).order_by(FreightProxyHistory.date.desc()).first()
-    if row is None or not row.divergence_flag:
+    """Fire when the freight proxy newly diverges or changes regime (onset), not on persistence."""
+    rows = _latest_two(db, FreightProxyHistory)
+    if not rows or not rows[0].divergence_flag:
         return []
+    if len(rows) > 1 and rows[1].divergence_flag == rows[0].divergence_flag:
+        return []  # same divergence flag as last reading → persistence
+    cur = rows[0]
     return [
         DetectorResult(
             rule="freight_divergence",
             zone="tanker",
             vertical="oil",
             severity="info",
-            title=f"Freight proxy {row.divergence_flag.lower()}",
-            detail=f"Tanker-equity freight proxy diverging from rerouting / Brent (as of {row.date}).",
+            title=f"Freight proxy {cur.divergence_flag.lower()}",
+            detail=f"Tanker-equity freight proxy newly diverging from rerouting / Brent (as of {cur.date}).",
         )
     ]
 

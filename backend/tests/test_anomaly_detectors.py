@@ -113,6 +113,30 @@ def test_freight_divergence_info(db_session):
     assert r.severity == "info" and r.vertical == "oil"
 
 
+# Onset-detection: a persistent state (same as the prior reading) must NOT re-fire.
+
+
+def test_days_of_supply_persistence_suppressed(db_session):
+    db_session.add(DaysOfSupplyHistory(date="2026-06-23", assessment="TIGHT", deviation=-4.0, commercial_days=21.0))
+    db_session.add(DaysOfSupplyHistory(date="2026-06-24", assessment="TIGHT", deviation=-4.2, commercial_days=20.8))
+    db_session.commit()
+    assert detect_days_of_supply(db_session) == []
+
+
+def test_supply_demand_persistence_suppressed(db_session):
+    db_session.add(SupplyDemandBalance(date="2026-06-23", divergence_type="EIA_AIS_DIVERGENCE", divergence_detail="x"))
+    db_session.add(SupplyDemandBalance(date="2026-06-24", divergence_type="EIA_AIS_DIVERGENCE", divergence_detail="y"))
+    db_session.commit()
+    assert detect_supply_demand_divergence(db_session) == []
+
+
+def test_freight_persistence_suppressed(db_session):
+    db_session.add(FreightProxyHistory(date="2026-06-23", proxy_index=104.0, divergence_flag="FREIGHT_PROXY_DIVERGENCE"))
+    db_session.add(FreightProxyHistory(date="2026-06-24", proxy_index=103.0, divergence_flag="FREIGHT_PROXY_DIVERGENCE"))
+    db_session.commit()
+    assert detect_freight_divergence(db_session) == []
+
+
 _FS_ANCHOR = date(2026, 6, 24)
 
 
