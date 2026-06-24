@@ -35,6 +35,8 @@ import GasBalancePanel from './components/GasBalancePanel'
 import GasStoragePanel from './components/GasStoragePanel'
 import GasSupplyPanel from './components/GasSupplyPanel'
 import GasDemandPanel from './components/GasDemandPanel'
+import PowerDayAheadPanel from './components/PowerDayAheadPanel'
+import SparkSpreadPanel from './components/SparkSpreadPanel'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
 
@@ -45,6 +47,7 @@ const TABS = [
   { key: 'market', label: 'MARKET' },
   { key: 'signals', label: 'SIGNALS' },
   { key: 'gas', label: 'GAS' },
+  { key: 'energy', label: 'ENERGY' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
 ]
@@ -498,6 +501,25 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="gas-demand">
                 <GasDemandPanel />
+              </ErrorBoundary>
+            </div>
+          </>
+        )}
+
+        {/* ENERGY TAB */}
+        {activeTab === 'energy' && (
+          <>
+            {/* Row 1: Spark Spread hero (Pro) */}
+            <ErrorBoundary name="power-spark">
+              <ProGate feature="Spark Spread">
+                <SparkSpreadPanel />
+              </ProGate>
+            </ErrorBoundary>
+
+            {/* Row 2: Day-Ahead price (free) */}
+            <div className="mt-3">
+              <ErrorBoundary name="power-dayahead">
+                <PowerDayAheadPanel />
               </ErrorBoundary>
             </div>
           </>
