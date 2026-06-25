@@ -30,7 +30,7 @@ const STATS = [
 ]
 
 export default function Landing() {
-  const { openPricing, user } = useAuth()
+  const { user } = useAuth()
   const [glanceOpen, setGlanceOpen] = useState(false)
 
   return (
@@ -44,9 +44,6 @@ export default function Landing() {
           <nav className="flex items-center gap-4 text-[10px] tracking-wider text-neutral-500">
             <a href="#how" className="hover:text-neutral-200 hidden sm:inline">
               HOW IT WORKS
-            </a>
-            <a href="#pricing" className="hover:text-neutral-200">
-              PRICING
             </a>
             <a
               href="https://github.com/jo20ow/Obsyd"
@@ -98,7 +95,7 @@ export default function Landing() {
         </div>
 
         <p className="mt-6 text-[10px] text-neutral-600">
-          Cloud Free is the full live map, forever-free. Cloud Pro adds disruption alerts + a daily brief — €15/month. AGPL-3.0 source.
+          Free and open source (AGPL-3.0). Everything unlocked — no paywall, no account needed to explore.
         </p>
       </section>
 
@@ -195,12 +192,12 @@ export default function Landing() {
       <section className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// YOUR SUPPLY-WATCH</div>
         <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-5 font-bold">
-          The map is free. <span className="text-cyan-glow">Pro watches it for you.</span>
+          Don&apos;t watch the map. <span className="text-cyan-glow">Let it watch for you.</span>
         </h2>
         <p className="text-[13px] text-neutral-400 leading-relaxed max-w-2xl mb-10">
-          You shouldn&apos;t have to refresh six tabs to know when supply breaks. Pro turns the
-          radar into your inbox — set the alerts that matter, and OBSYD pings you with the evidence
-          the moment something deviates.
+          You shouldn&apos;t have to refresh six tabs to know when supply breaks. OBSYD turns the
+          radar into your inbox — set the alerts that matter, and it pings you with the evidence the
+          moment something deviates. Free, like the rest of it.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
@@ -231,69 +228,52 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* PRICING SNIPPET */}
+      {/* PRICING → it's all free */}
       <section id="pricing" className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// PRICING</div>
         <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-8 font-bold">
-          Self-host free.{' '}
-          <span className="text-cyan-glow">Cloud €15/month</span> if you skip the setup.
+          It&apos;s <span className="text-cyan-glow">free</span>. All of it.
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border max-w-4xl">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border max-w-3xl">
+          <div className="bg-[#0a0a12] p-6">
+            <div className="text-[10px] tracking-widest text-neutral-500 mb-2">CLOUD</div>
+            <div className="text-3xl text-neutral-200 mb-1">€0</div>
+            <div className="text-[10px] text-neutral-600 mb-5">on obsyd.dev · no card, no account needed</div>
+            <ul className="text-[11px] text-neutral-400 space-y-1.5">
+              <li>· Full live dashboard + anomaly radar</li>
+              <li>· Critical-materials concentration + disruptions</li>
+              <li>· Watchlist, custom alerts, daily brief</li>
+              <li>· Everything unlocked, no limits</li>
+            </ul>
+          </div>
           <div className="bg-[#0a0a12] p-6">
             <div className="text-[10px] tracking-widest text-neutral-500 mb-2">SELF-HOST</div>
             <div className="text-3xl text-neutral-200 mb-1">€0</div>
-            <div className="text-[10px] text-neutral-600 mb-5">AGPL-3.0 · your infra</div>
+            <div className="text-[10px] text-neutral-600 mb-5">AGPL-3.0 · your infra, your keys</div>
             <ul className="text-[11px] text-neutral-400 space-y-1.5">
-              <li>· Full feature set</li>
+              <li>· The exact same code, end to end</li>
               <li>· Bring your own API keys</li>
               <li>· No usage limits</li>
               <li>· You handle updates + ops</li>
             </ul>
           </div>
-          <div className="bg-[#0a0a12] p-6">
-            <div className="text-[10px] tracking-widest text-neutral-500 mb-2">CLOUD FREE</div>
-            <div className="text-3xl text-neutral-200 mb-1">€0</div>
-            <div className="text-[10px] text-neutral-600 mb-5">on obsyd.dev · no card</div>
-            <ul className="text-[11px] text-neutral-400 space-y-1.5">
-              <li>· Full live dashboard</li>
-              <li>· 30-day history window</li>
-              <li>· Up to 3 saved alerts</li>
-              <li>· No API access, no exports</li>
-            </ul>
-          </div>
-          <div className="bg-[#0a0a12] p-6 relative">
-            <div className="absolute top-3 right-3 text-[9px] tracking-[2px] text-cyan-glow bg-cyan-glow/10 px-2 py-0.5 border border-cyan-glow/30 rounded-sm">
-              RECOMMENDED
-            </div>
-            <div className="text-[10px] tracking-widest text-cyan-glow mb-2">CLOUD PRO</div>
-            <div className="text-3xl text-neutral-100 mb-1">
-              €15<span className="text-sm text-neutral-500">/month</span>
-            </div>
-            <div className="text-[10px] text-neutral-600 mb-5">or €149/year (−17%)</div>
-            <ul className="text-[11px] text-neutral-300 space-y-1.5">
-              <li>+ Full history (back to 2019)</li>
-              <li>+ Unlimited saved alerts</li>
-              <li>+ API access (rate-limited)</li>
-              <li>+ CSV / JSON data export</li>
-              <li>+ Daily email brief (Mon–Fri)</li>
-            </ul>
-          </div>
         </div>
 
         <div className="mt-8 flex flex-col sm:flex-row gap-3">
-          <button
-            type="button"
-            onClick={openPricing}
-            className="px-6 py-3 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold"
-          >
-            See full pricing →
-          </button>
           <a
             href="/app"
+            className="px-6 py-3 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold text-center"
+          >
+            Open the dashboard →
+          </a>
+          <a
+            href="https://github.com/jo20ow/Obsyd"
+            target="_blank"
+            rel="noopener noreferrer"
             className="px-6 py-3 text-[11px] tracking-wider border border-border text-neutral-400 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors text-center"
           >
-            Try the dashboard first
+            Self-host on GitHub
           </a>
         </div>
       </section>
