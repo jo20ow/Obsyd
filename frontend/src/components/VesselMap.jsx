@@ -151,7 +151,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
   const [floatingStorage, setFloatingStorage] = useState([])
   const [viewState, setViewState] = useState(INITIAL_VIEW)
   const [legendOpen, setLegendOpen] = useState(true)
-  const [fsOpen, setFsOpen] = useState(true)
+  const [fsOpen, setFsOpen] = useState(false)
 
   const hurricanes = useMemo(
     () => (Array.isArray(weatherAlerts) ? weatherAlerts : []).filter((a) => a && a.latitude && a.longitude),
