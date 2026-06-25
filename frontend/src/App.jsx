@@ -132,9 +132,14 @@ function Dashboard() {
   // SparkSpreadHistory has no zone column and stays DE-LU only (intentional).
   const [energyZone, setEnergyZone] = useState('DE_LU')
 
-  // URL hash sync
+  // URL hash sync — keep the default (CRITICAL) tab off the URL so the bare
+  // homepage stays clean (`/`); only non-default tabs get a shareable hash.
   useEffect(() => {
-    window.location.hash = activeTab
+    if (activeTab === 'critical') {
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+    } else {
+      window.location.hash = activeTab
+    }
   }, [activeTab])
 
   useEffect(() => {
