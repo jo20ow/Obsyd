@@ -5,6 +5,7 @@ import PriceChart from './components/PriceChart'
 import MacroPanel from './components/MacroPanel'
 import SentimentPanel from './components/SentimentPanel'
 import VesselMap from './components/VesselMap'
+import AtlasMap from './components/AtlasMap'
 import AlertsPanel from './components/AlertsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
@@ -54,6 +55,7 @@ const TABS = [
   { key: 'gas', label: 'GAS' },
   { key: 'energy', label: 'ENERGY' },
   { key: 'metals', label: 'METALS' },
+  { key: 'atlas', label: 'ATLAS' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
 ]
@@ -570,6 +572,13 @@ function Dashboard() {
               <CopperPanel />
             </ErrorBoundary>
           </>
+        )}
+
+        {/* ATLAS TAB — per-country world map (energy / macro / climate / resources) */}
+        {activeTab === 'atlas' && (
+          <ErrorBoundary name="atlas">
+            <AtlasMap />
+          </ErrorBoundary>
         )}
 
         {/* ALERTS TAB (Pro feature; panel itself handles the gate) */}
