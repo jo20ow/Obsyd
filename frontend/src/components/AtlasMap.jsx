@@ -1,14 +1,28 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Map as MapGL } from 'react-map-gl/maplibre'
 import DeckGL from '@deck.gl/react'
-import { GeoJsonLayer } from '@deck.gl/layers'
+import { _GlobeView as GlobeView } from '@deck.gl/core'
+import { GeoJsonLayer, SolidPolygonLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { InfoPopover } from './Panel'
 import { rampColor, NO_DATA_COLOR } from '../utils/chart'
 
 const API = '/api'
 
-const INITIAL_VIEW = { longitude: 10, latitude: 25, zoom: 1.2, pitch: 0, bearing: 0 }
+const INITIAL_VIEW_2D = { longitude: 10, latitude: 25, zoom: 1.2, pitch: 0, bearing: 0 }
+const INITIAL_VIEW_GLOBE = { longitude: 10, latitude: 25, zoom: 0, pitch: 0, bearing: 0 }
+
+// Ocean sphere for the globe: two hemisphere quads (each spans 180° lon, with intermediate
+// vertices so they tessellate smoothly onto the sphere). The raster basemap can't render
+// under _GlobeView, so this is the globe background.
+function _hemi(lonStart, lonEnd) {
+  const pts = []
+  const steps = 8
+  for (let i = 0; i <= steps; i++) pts.push([lonStart + ((lonEnd - lonStart) * i) / steps, -89])
+  for (let i = 0; i <= steps; i++) pts.push([lonEnd + ((lonStart - lonEnd) * i) / steps, 89])
+  return pts
+}
+const OCEAN = [{ polygon: _hemi(-180, 0) }, { polygon: _hemi(0, 180) }]
 
 const DARK_MAP_STYLE = {
   version: 8,
@@ -69,7 +83,15 @@ export default function AtlasMap() {
   const [geo, setGeo] = useState(null)
   const [metricKey, setMetricKey] = useState('gdp_usd')
   const [resp, setResp] = useState(null)
-  const [viewState, setViewState] = useState(INITIAL_VIEW)
+  const [globe, setGlobe] = useState(false)
+  const [viewState, setViewState] = useState(INITIAL_VIEW_2D)
+
+  const toggleGlobe = () => {
+    setGlobe((g) => {
+      setViewState(g ? INITIAL_VIEW_2D : INITIAL_VIEW_GLOBE)
+      return !g
+    })
+  }
 
   const metric = METRICS.find((m) => m.key === metricKey) || METRICS[0]
 
@@ -106,7 +128,11 @@ export default function AtlasMap() {
 
   const layers = useMemo(() => {
     if (!geo) return []
+    const ocean = globe
+      ? [new SolidPolygonLayer({ id: 'ocean', data: OCEAN, getPolygon: (d) => d.polygon, getFillColor: [11, 15, 26], stroked: false })]
+      : []
     return [
+      ...ocean,
       new GeoJsonLayer({
         id: 'atlas-choropleth',
         data: geo,
@@ -123,7 +149,9 @@ export default function AtlasMap() {
         updateTriggers: { getFillColor: [metricKey, resp] },
       }),
     ]
-  }, [geo, rankByIso, metricKey, resp])
+  }, [geo, rankByIso, metricKey, resp, globe])
+
+  const views = useMemo(() => (globe ? [new GlobeView({ id: 'globe', controller: true })] : undefined), [globe])
 
   const getTooltip = ({ object }) => {
     if (!object) return null
@@ -145,6 +173,14 @@ export default function AtlasMap() {
           <InfoPopover text="Per-country choropleth over free, official, redistributable data (EIA International / World Bank CC BY 4.0 / USGS — all public domain or CC BY). Countries are shaded by their rank for the selected metric; grey = no data (not zero). Annual figures, lagging — see 'as of'. Descriptive, not a forecast." />
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleGlobe}
+            className="font-mono text-[10px] tracking-wider border border-border rounded px-2 py-1 text-neutral-400 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+            title={globe ? 'Switch to flat map' : 'Switch to globe'}
+          >
+            {globe ? '◐ GLOBE' : '▦ 2D'}
+          </button>
           <select
             value={metricKey}
             onChange={(e) => setMetricKey(e.target.value)}
@@ -163,6 +199,7 @@ export default function AtlasMap() {
 
       <div className="relative h-[520px] w-full">
         <DeckGL
+          views={views}
           viewState={viewState}
           onViewStateChange={({ viewState: vs }) => setViewState(vs)}
           controller={true}
@@ -170,7 +207,7 @@ export default function AtlasMap() {
           getTooltip={getTooltip}
           onError={(e) => console.error('DeckGL error:', e)}
         >
-          <MapGL mapStyle={DARK_MAP_STYLE} />
+          {!globe && <MapGL mapStyle={DARK_MAP_STYLE} />}
         </DeckGL>
 
         {/* Legend + ranking overlay */}
