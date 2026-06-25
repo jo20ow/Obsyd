@@ -76,6 +76,7 @@ function fmtVal(v, unit) {
 
 export default function AtlasMap() {
   const [geo, setGeo] = useState(null)
+  const [borderGeo, setBorderGeo] = useState(null)
   const [metricKey, setMetricKey] = useState('gdp_usd')
   const [resp, setResp] = useState(null)
   const [globe, setGlobe] = useState(false)
@@ -91,10 +92,11 @@ export default function AtlasMap() {
   const metric = METRICS.find((m) => m.key === metricKey) || METRICS[0]
 
   useEffect(() => {
-    fetch('/geo/world-110m.geojson')
-      .then((r) => r.json())
-      .then(setGeo)
-      .catch((e) => console.error('AtlasMap geojson:', e))
+    // Fill geometry is grid-subdivided (small triangles hug the globe); borders are the
+    // real, undivided country outlines (densified) drawn as a separate stroke-only layer so
+    // the subdivision grid seams don't show.
+    fetch('/geo/world-110m.geojson').then((r) => r.json()).then(setGeo).catch((e) => console.error('AtlasMap fill geo:', e))
+    fetch('/geo/world-110m-borders.geojson').then((r) => r.json()).then(setBorderGeo).catch((e) => console.error('AtlasMap border geo:', e))
   }, [])
 
   useEffect(() => {
@@ -139,19 +141,27 @@ export default function AtlasMap() {
         id: 'atlas-choropleth',
         data: geo,
         pickable: true,
-        stroked: true,
+        stroked: false,
         filled: true,
         getFillColor: (f) => {
           const iso = f.properties.iso3
           if (!rankByIso.has(iso)) return [...NO_DATA_COLOR, 90]
           return [...rampColor(rankByIso.get(iso)), 205]
         },
-        getLineColor: [70, 75, 95, 180],
-        lineWidthMinPixels: 0.5,
         updateTriggers: { getFillColor: [metricKey, resp] },
       }),
+      ...(borderGeo
+        ? [new GeoJsonLayer({
+            id: 'atlas-borders',
+            data: borderGeo,
+            filled: false,
+            stroked: true,
+            getLineColor: [120, 128, 150, 150],
+            lineWidthMinPixels: 0.5,
+          })]
+        : []),
     ]
-  }, [geo, rankByIso, metricKey, resp, globe])
+  }, [geo, borderGeo, rankByIso, metricKey, resp, globe])
 
   const views = useMemo(() => (globe ? [new GlobeView({ id: 'globe', controller: true })] : undefined), [globe])
 
