@@ -24,7 +24,12 @@ from typing import Any, Callable
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.models.energy import PowerPriceDaily
+from backend.models.gas import GasBalance
 from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
+from backend.power.zones import POWER_ZONES
+from backend.signals.detectors.base import trailing_zscore
+from backend.signals.detectors.power import NP_CRIT_Z, NP_MIN_HOURS, NP_WARN_Z, NP_WINDOW
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +232,103 @@ def evaluate_crack_spread_breach(
 
 
 # ---------------------------------------------------------------------------
+# 4) negative_prices  (power vertical)
+#    params: {"zone": "DE_LU"|"FR"|"NL"}
+#    Triggers when a zone's latest negative day-ahead price-hour count is
+#    unusually high vs its own trailing norm. Ports detectors/power.py
+#    (detect_negative_prices) to the per-user single-zone evaluator shape,
+#    reusing the same window/threshold constants (kept in one place).
+# ---------------------------------------------------------------------------
+def evaluate_negative_prices(
+    db: Session,
+    params: dict,
+    *,
+    now: datetime,
+) -> EvaluatorResult | None:
+    zone = params.get("zone")
+    if zone not in POWER_ZONES:
+        return None
+
+    rows = (
+        db.query(PowerPriceDaily)
+        .filter(PowerPriceDaily.zone == zone)
+        .order_by(PowerPriceDaily.date.desc())
+        .limit(NP_WINDOW + 1)
+        .all()
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    current = row.negative_hours
+    if current is None or current < NP_MIN_HOURS:
+        return None
+    baseline = [r.negative_hours for r in rows[1:] if r.negative_hours is not None]
+    stat = trailing_zscore(current, baseline)
+    if stat is None:
+        return None  # too little history → no trustworthy "unusual" judgement
+    z, mean, _, _n = stat
+    if z < NP_WARN_Z:
+        return None
+
+    sev = "critical" if z >= NP_CRIT_Z else "warning"
+    return EvaluatorResult(
+        title=f"{zone}: unusually many negative-price hours ({current}h, {z:+.1f}σ)",
+        detail=(
+            f"{current}h below 0 EUR/MWh on {row.date} vs ~{mean:.0f}h normal for {zone} "
+            f"(z {z:+.2f}; renewable oversupply / inflexible generation)."
+        ),
+        payload={
+            "zone": zone,
+            "negative_hours": current,
+            "zscore": round(z, 2),
+            "baseline_mean": round(mean, 2),
+            "severity": sev,
+            "date": row.date,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5) gas_balance  (gas vertical, EU-wide — no params)
+#    Triggers when the latest EU gas-balance residual carries a WATCH/SIGNAL
+#    flag. Ports detectors/gas.py (detect_gas_balance) — surfaces the level +
+#    dominant-mover that backend/gas/balance.py already persisted.
+# ---------------------------------------------------------------------------
+_GAS_FLAG_LEVELS = {"SIGNAL", "WATCH"}
+
+
+def evaluate_gas_balance(
+    db: Session,
+    params: dict,
+    *,
+    now: datetime,
+) -> EvaluatorResult | None:
+    row = db.query(GasBalance).order_by(GasBalance.date.desc()).first()
+    if row is None or not row.flag:
+        return None
+    level, _, mover = row.flag.partition(":")
+    if level not in _GAS_FLAG_LEVELS:
+        return None
+
+    z = row.z_score if row.z_score is not None else 0.0
+    resid = row.residual_7d if row.residual_7d is not None else 0.0
+    mover_txt = f", dominant mover {mover}" if mover else ""
+    return EvaluatorResult(
+        title=f"EU gas balance {level.lower()}: residual {z:+.1f}σ vs 90d",
+        detail=(
+            f"7d residual {resid:+.0f} GWh/d, z-score {z:+.2f} vs trailing 90 days"
+            f"{mover_txt} (as of {row.date})."
+        ),
+        payload={
+            "level": level,
+            "zscore": round(z, 2),
+            "residual_7d": round(resid, 2),
+            "date": row.date,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Template registry — exposed to the route layer for client-side schema
 # discovery and for params validation.
 # ---------------------------------------------------------------------------
@@ -271,6 +373,20 @@ TEMPLATES: dict[str, dict] = {
             "threshold_usd": {"type": "number", "min": 0, "max": 100, "required": True},
         },
         "evaluator": evaluate_crack_spread_breach,
+    },
+    "negative_prices": {
+        "label": "Negative power prices (renewable oversupply)",
+        "summary": "Notify me when a power zone has unusually many negative day-ahead price hours vs its own norm.",
+        "params_schema": {
+            "zone": {"type": "enum", "options": list(POWER_ZONES), "required": True},
+        },
+        "evaluator": evaluate_negative_prices,
+    },
+    "gas_balance": {
+        "label": "EU gas balance signal",
+        "summary": "Notify me when the EU gas-balance residual flags a WATCH or SIGNAL deviation vs its 90d norm.",
+        "params_schema": {},
+        "evaluator": evaluate_gas_balance,
     },
 }
 

@@ -324,8 +324,16 @@ def test_templates_endpoint_public(client):
     resp = client.get("/api/alerts/templates")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == {"chokepoint_anomaly", "floating_storage_surge", "crack_spread_breach"}
+    assert set(body) == {
+        "chokepoint_anomaly",
+        "floating_storage_surge",
+        "crack_spread_breach",
+        "negative_prices",
+        "gas_balance",
+    }
     assert body["chokepoint_anomaly"]["params_schema"]["zone"]["type"] == "enum"
+    # gas_balance is a no-param template (whole-EU signal).
+    assert body["gas_balance"]["params_schema"] == {}
 
 
 # ---------- runner / cooldown ----------

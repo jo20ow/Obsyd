@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import WatchlistPanel from './WatchlistPanel'
 
 const API = '/api'
 
@@ -134,6 +135,9 @@ export default function AlertRulesPanel() {
 
   return (
     <div className="space-y-3">
+      {/* What you watch — drives the brief + feed, and the rules below */}
+      <WatchlistPanel />
+
       {error && (
         <div className="border border-red-500/30 bg-red-500/5 px-4 py-2 text-[11px] text-red-300 font-mono">
           {error}

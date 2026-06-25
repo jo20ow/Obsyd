@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useAuth } from '../context/AuthContext'
 
 const API = '/api'
 
@@ -22,18 +23,34 @@ function concLevel(hhi) {
   return { label: 'DIVERSIFIED', cls: 'text-green-glow', bar: '#34d399' }
 }
 
-function MaterialCard({ m }) {
+function MaterialCard({ m, watched, onWatch }) {
   const lvl = concLevel(m.hhi)
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => { window.location.hash = 'atlas' }}
-      className="text-left border border-border bg-surface rounded p-3 hover:border-cyan-glow/40 transition-colors"
+      onKeyDown={(e) => { if (e.key === 'Enter') window.location.hash = 'atlas' }}
+      className="text-left border border-border bg-surface rounded p-3 hover:border-cyan-glow/40 transition-colors cursor-pointer"
       title="Open on the world map"
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-xs text-neutral-300 tracking-wider">{m.label}</span>
-        <span className={`font-mono text-[9px] px-1.5 py-0.5 border rounded ${lvl.cls} border-current/30`}>{lvl.label}</span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onWatch(m) }}
+            className={`font-mono text-[9px] px-1.5 py-0.5 border rounded transition-colors ${
+              watched
+                ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10'
+                : 'text-neutral-500 border-border hover:border-cyan-glow/40 hover:text-cyan-glow'
+            }`}
+            title={watched ? 'Watching — click to remove' : 'Watch this material'}
+          >
+            {watched ? '✓ watching' : '+ watch'}
+          </button>
+          <span className={`font-mono text-[9px] px-1.5 py-0.5 border rounded ${lvl.cls} border-current/30`}>{lvl.label}</span>
+        </div>
       </div>
       <div className="flex items-baseline gap-1.5 mt-1.5">
         <span className="font-mono text-2xl font-bold text-cyan-glow">{Math.round(m.top_share * 100)}%</span>
@@ -51,18 +68,60 @@ function MaterialCard({ m }) {
           </div>
         ))}
       </div>
-    </button>
+    </div>
   )
 }
 
 export default function CriticalMaterialsView() {
+  const { isPro, openPricing } = useAuth()
   const [crit, setCrit] = useState(null)
   const [alerts, setAlerts] = useState([])
+  const [watched, setWatched] = useState([])
 
   useEffect(() => {
     fetch(`${API}/atlas/criticality`).then((r) => (r.ok ? r.json() : null)).then(setCrit).catch((e) => console.error('criticality:', e))
     fetch(`${API}/alerts?limit=80`).then((r) => (r.ok ? r.json() : [])).then(setAlerts).catch((e) => console.error('alerts:', e))
   }, [])
+
+  const refreshWatched = useCallback(() => {
+    fetch(`${API}/watchlist`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) => setWatched(d.items || []))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (isPro) refreshWatched()
+  }, [isPro, refreshWatched])
+
+  const watchedMaterials = useMemo(
+    () =>
+      isPro
+        ? new Set(watched.filter((i) => i.kind === 'material').map((i) => i.key))
+        : new Set(),
+    [watched, isPro]
+  )
+
+  // Pro → toggle the watchlist entry; free/anon → the honest upgrade gate.
+  const onWatch = async (m) => {
+    if (!isPro) { openPricing(); return }
+    const existing = watched.find((i) => i.kind === 'material' && i.key === m.key)
+    try {
+      if (existing) {
+        await fetch(`${API}/watchlist/${existing.id}`, { method: 'DELETE', credentials: 'include' })
+      } else {
+        await fetch(`${API}/watchlist`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'material', key: m.key }),
+        })
+      }
+      refreshWatched()
+    } catch (e) {
+      console.error('watch:', e)
+    }
+  }
 
   const disruptions = useMemo(() => {
     const rank = { critical: 0, warning: 1, info: 2 }
@@ -89,7 +148,9 @@ export default function CriticalMaterialsView() {
           <div className="font-mono text-[10px] text-neutral-600 px-1 animate-pulse">loading…</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {crit.materials.map((m) => <MaterialCard key={m.key} m={m} />)}
+            {crit.materials.map((m) => (
+              <MaterialCard key={m.key} m={m} watched={watchedMaterials.has(m.key)} onWatch={onWatch} />
+            ))}
           </div>
         )}
         {crit && <div className="font-mono text-[9px] text-neutral-700 mt-2 px-1">Source: {crit.source}. Sorted by concentration (most strategically fragile first).</div>}

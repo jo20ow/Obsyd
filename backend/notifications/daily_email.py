@@ -24,9 +24,11 @@ from backend.models.pro_features import (
     EmailSubscriber,
     EquitySnapshot,
 )
+from backend.models.alerts import Alert
 from backend.models.subscription import Subscription
 from backend.models.vessels import FloatingStorageEvent
-from backend.models.waitlist import Waitlist
+from backend.models.watchlist import WatchlistItem
+from backend.routes.atlas import CRITICAL_MATERIALS, _concentration, _material_rows
 from backend.routes.briefing import _build_briefing
 from backend.signals.crack_spread import get_crack_spread
 from backend.signals.tonnage_proxy import compute_rerouting_index
@@ -58,31 +60,22 @@ async def send_daily_email():
     try:
         _sync_pro_subscribers(db)
 
+        # Pro-only: the daily brief is a paid benefit, so it goes solely to
+        # active EmailSubscriber rows (Pro subs are synced in above). The legacy
+        # free Waitlist is deliberately NOT mailed the brief anymore.
         subscribers = (
             db.query(EmailSubscriber)
             .filter(EmailSubscriber.active == True)  # noqa: E712
             .all()
         )
-        waitlist_subs = (
-            db.query(Waitlist)
-            .filter(Waitlist.subscribed == True)  # noqa: E712
-            .all()
-        )
-        sub_emails = {s.email for s in subscribers}
-        legacy_only = [w for w in waitlist_subs if w.email not in sub_emails]
 
-        if not subscribers and not legacy_only:
-            logger.info("Daily email: no subscribers, skipping")
+        if not subscribers:
+            logger.info("Daily email: no Pro subscribers, skipping")
             return
 
         # --- Resend free tier safety check ---
-        total_recipients = len(subscribers) + len(legacy_only)
-        logger.info(
-            "Daily email: %d total recipients (%d subscribers + %d waitlist)",
-            total_recipients,
-            len(subscribers),
-            len(legacy_only),
-        )
+        total_recipients = len(subscribers)
+        logger.info("Daily email: %d Pro recipients", total_recipients)
 
         if total_recipients > DAILY_SEND_LIMIT:
             logger.warning(
@@ -123,22 +116,17 @@ async def send_daily_email():
         for sub in subscribers:
             if sent >= DAILY_SEND_LIMIT:
                 break
-            html = html_template.replace("{{email}}", sub.email).replace("{{token}}", sub.unsubscribe_token or "")
+            # Per-recipient personalisation: their watched materials/zones.
+            html = (
+                html_template.replace("{{email}}", sub.email)
+                .replace("{{token}}", sub.unsubscribe_token or "")
+                .replace("{{watch_block}}", _build_watch_block(db, sub.email))
+            )
             try:
                 await _send_via_resend(api_key, sub.email, subject, html, sub.unsubscribe_token or "")
                 sent += 1
             except Exception as e:
                 logger.error("Daily email failed for %s: %s", sub.email, e)
-
-        for w in legacy_only:
-            if sent >= DAILY_SEND_LIMIT:
-                break
-            html = html_template.replace("{{email}}", w.email).replace("{{token}}", w.unsubscribe_token or "")
-            try:
-                await _send_via_resend(api_key, w.email, subject, html, w.unsubscribe_token or "")
-                sent += 1
-            except Exception as e:
-                logger.error("Daily email failed for %s: %s", w.email, e)
 
         logger.info("Daily email: sent %d emails", sent)
     except Exception as e:
@@ -414,6 +402,70 @@ def _get_eia_prediction(db) -> dict | None:
     }
 
 
+# ─── Per-user "YOUR WATCH" block ─────────────────────────────────────────────
+
+# key → (label, kind, spec) for reusing the atlas concentration helpers.
+_MATERIAL_SPECS = {key: (label, kind, spec) for key, label, kind, spec in CRITICAL_MATERIALS}
+
+
+def _build_watch_block(db, email: str) -> str:
+    """Personalised 'YOUR WATCH' HTML fragment for the daily brief.
+
+    For each watched material: current supply concentration (top producer + HHI).
+    For each watched zone: the latest radar anomaly, or 'no anomaly'. Returns ''
+    when the user watches nothing, so the global brief is unchanged for them.
+    """
+    items = db.query(WatchlistItem).filter(WatchlistItem.email == email).all()
+    if not items:
+        return ""
+
+    lines: list[str] = []
+    for it in items:
+        if it.kind == "material":
+            spec_entry = _MATERIAL_SPECS.get(it.key)
+            if not spec_entry:
+                continue
+            _label, kind, spec = spec_entry
+            try:
+                conc = _concentration(_material_rows(db, kind, spec))
+            except Exception:  # noqa: BLE001 — brief must never fail on one item
+                conc = None
+            if conc:
+                lines.append(
+                    f"{it.label} &middot; top producer {conc['top_country']} "
+                    f"{round(conc['top_share'] * 100)}%, HHI {conc['hhi']:.2f}"
+                )
+            else:
+                lines.append(f"{it.label} &middot; no supply data")
+        elif it.kind == "zone":
+            alert = (
+                db.query(Alert)
+                .filter(Alert.zone == it.key)
+                .order_by(Alert.created_at.desc())
+                .first()
+            )
+            if alert:
+                lines.append(f"{it.label} &middot; {alert.title}")
+            else:
+                lines.append(f"{it.label} &middot; no anomaly flagged")
+
+    if not lines:
+        return ""
+
+    rows = "".join(
+        f'<div style="font-size:14px;color:{_TEXT};line-height:1.6;margin-bottom:4px">&bull; {ln}</div>'
+        for ln in lines
+    )
+    return (
+        _DIVIDER
+        + '<div style="margin-bottom:8px">'
+        f'<span style="display:inline-block;background:{_ACCENT};color:#0f1923;font-size:11px;'
+        "font-weight:600;letter-spacing:1px;text-transform:uppercase;"
+        'padding:3px 8px;border-radius:4px">YOUR WATCH</span></div>'
+        + rows
+    )
+
+
 # ─── HTML Template ───────────────────────────────────────────────────────────
 
 # Design tokens
@@ -678,6 +730,8 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
 {price_rows}
 </table>
 <div style="font-size:13px;color:{_MUTED};line-height:1.5">{futures_line}</div>
+
+{{{{watch_block}}}}
 
 {disruption_html}
 

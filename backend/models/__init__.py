@@ -23,4 +23,5 @@ from backend.models.vessels import VesselPosition as VesselPosition
 from backend.models.vessels import VesselRegistry as VesselRegistry
 from backend.models.vessels import VoyageEvent as VoyageEvent
 from backend.models.waitlist import Waitlist as Waitlist
+from backend.models.watchlist import WatchlistItem as WatchlistItem
 from backend.models.weather import WeatherAlert as WeatherAlert
