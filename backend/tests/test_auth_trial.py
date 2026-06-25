@@ -122,3 +122,15 @@ def test_me_anon_is_trial_eligible_false_but_has_checkout(client, db_session):
     assert data["tier"] == "free"
     # checkout_url is exposed even to anonymous visitors so the PricingModal works.
     assert data["checkout_url"]
+    # Anonymous → no email prefill (they pick one at checkout).
+    assert "checkout[email]=" not in data["checkout_url"]
+
+
+def test_me_authed_free_checkout_prefills_account_email(client, db_session):
+    resp = client.get("/api/auth/me", cookies=_login_cookie("dora@example.com"))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tier"] == "free"
+    # Signed-in free users get the LS checkout prefilled with their account email,
+    # so the subscription_created webhook attaches Pro to the right account.
+    assert "checkout[email]=dora%40example.com" in data["checkout_url"]

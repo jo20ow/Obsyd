@@ -10,6 +10,7 @@ Flow:
 
 import logging
 import re
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -28,6 +29,21 @@ TRIAL_DAYS = 14
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _checkout_url_for(email: str | None) -> str:
+    """Lemon Squeezy checkout URL, prefilled with the signed-in user's email.
+
+    Prefilling `checkout[email]` makes the LS purchase email default to the
+    account email, so the subscription_created webhook (which matches on
+    `user_email`) attaches Pro to the right account. Anonymous visitors get
+    the bare URL (they pick an email at checkout, then log in with it).
+    """
+    base = settings.lemonsqueezy_checkout_url
+    if not email:
+        return base
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}checkout[email]={quote(email)}"
 
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
@@ -158,7 +174,7 @@ async def get_me(user: dict | None = Depends(get_current_user)):
         return {
             "authenticated": False,
             "tier": "free",
-            "checkout_url": settings.lemonsqueezy_checkout_url,
+            "checkout_url": _checkout_url_for(None),
         }
 
     # Refresh subscription status from DB (paid OR in-trial both count as pro)
@@ -182,7 +198,7 @@ async def get_me(user: dict | None = Depends(get_current_user)):
         "tier": tier,
         "trial_ends_at": trial_ends_at,
         "trial_eligible": tier == "free" and not trial_used,
-        "checkout_url": settings.lemonsqueezy_checkout_url if tier == "free" else None,
+        "checkout_url": _checkout_url_for(user["email"]) if tier == "free" else None,
     }
 
 
