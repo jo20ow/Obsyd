@@ -4,33 +4,33 @@ import { useAuth } from '../context/AuthContext'
 const PILLARS = [
   {
     label: '01',
-    title: 'Six chokepoints on one map',
+    title: 'See who controls supply',
     body:
-      'Live AIS tanker positions through Hormuz, Suez, Malacca, Panama, Cape, and Houston — aggregated from public feeds you would otherwise have to wire up yourself.',
+      'Supply concentration (HHI) for seven strategic materials — rare earths, cobalt, lithium, nickel, copper, oil, gas. Top-producer share, top-3 breakdown, and a fragility tier from EXTREME to DIVERSIFIED. Rare earths and cobalt are dominated by a single country; the map shows exactly how much.',
   },
   {
     label: '02',
-    title: 'Read every rule on GitHub',
+    title: 'Catch disruptions as they happen',
     body:
-      'Every threshold, every anomaly check, every correlation runs in code you can audit. No black-box ML, no proprietary scoring, no "trust us" — just transparent rules over public data.',
+      'A live radar of ten descriptive detectors flags physical supply anomalies — chokepoint transit drops, Suez→Cape rerouting, floating-storage build-ups, gas/power imbalance — the moment they deviate from their own history. A deviation vs history, not a forecast.',
   },
   {
     label: '03',
-    title: 'Self-host or use the cloud',
+    title: 'Read every rule on GitHub',
     body:
-      'Run OBSYD on your own infra with your own API keys (AGPL-3.0), or skip setup and use obsyd.dev. Both paths give the same code; the cloud tier just saves you the ops work.',
+      'Every threshold, every anomaly check runs in code you can audit. No black-box ML, no proprietary scoring, no "trust us". Run OBSYD on your own infra (AGPL-3.0), or skip the ops and use obsyd.dev — same code either way.',
   },
 ]
 
 const STATS = [
-  { label: 'tanker positions tracked', value: '3.6M+' },
-  { label: 'zone-day events', value: '330+' },
-  { label: 'data sources aggregated', value: '13' },
+  { label: 'strategic materials tracked', value: '7' },
+  { label: 'live anomaly detectors', value: '10' },
+  { label: 'official public-domain data', value: '100%' },
   { label: 'license', value: 'AGPL-3.0' },
 ]
 
 export default function Landing() {
-  const { openPricing, user, isPro } = useAuth()
+  const { openPricing, user } = useAuth()
   const [glanceOpen, setGlanceOpen] = useState(false)
 
   return (
@@ -66,17 +66,18 @@ export default function Landing() {
       {/* HERO */}
       <section className="px-4 py-12 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[4px] text-cyan-glow mb-4">
-          OPEN · ENERGY · DATA
+          CRITICAL MATERIALS · ENERGY SECURITY
         </div>
         <h1 className="text-3xl sm:text-5xl lg:text-6xl text-neutral-100 leading-tight font-mono font-bold mb-6">
-          One dashboard for public
+          Who controls critical supply —
           <br />
-          <span className="text-cyan-glow">energy market data.</span>
+          <span className="text-cyan-glow">and when it breaks.</span>
         </h1>
         <p className="text-sm sm:text-base text-neutral-400 max-w-2xl leading-relaxed mb-8">
-          OBSYD aggregates live AIS, IMF chokepoint transits, EIA fundamentals, FRED macro, and
-          11 other public feeds into one auditable dashboard. Open source under AGPL-3.0 — run it
-          yourself, or use the hosted cloud version.
+          OBSYD tracks supply concentration for seven strategic materials from official
+          public-domain data (USGS · EIA · ENTSO-E), and flags physical supply disruptions the
+          moment they deviate from history. Descriptive, auditable, open source under AGPL-3.0 —
+          run it yourself, or use the hosted cloud.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3">
@@ -97,7 +98,7 @@ export default function Landing() {
         </div>
 
         <p className="mt-6 text-[10px] text-neutral-600">
-          Cloud Free is forever-free; Cloud Pro is €15/month and pays for hosting + alerts. AGPL-3.0 source.
+          Cloud Free is the full live map, forever-free. Cloud Pro adds disruption alerts + a daily brief — €15/month. AGPL-3.0 source.
         </p>
       </section>
 
@@ -119,7 +120,7 @@ export default function Landing() {
       <section id="how" className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// HOW IT WORKS</div>
         <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-10 font-bold">
-          Aggregate. Display. Stay honest.
+          Track concentration. Catch disruption. Stay honest.
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
@@ -142,13 +143,13 @@ export default function Landing() {
           </button>
           {glanceOpen && (
             <ul className="space-y-1.5 mt-2">
-              <li>· AISStream WebSocket + AISHub HTTP — live vessel positions</li>
+              <li>· USGS Mineral Commodity Summaries — mine production &amp; supply concentration (public domain)</li>
+              <li>· EIA International — per-country oil &amp; gas production (public domain)</li>
+              <li>· ENTSO-E / SMARD — European power: load, generation mix, day-ahead prices</li>
+              <li>· World Bank — macro context for 200+ countries (CC BY 4.0)</li>
               <li>· IMF PortWatch — chokepoint transits (3–5 day publication lag)</li>
-              <li>· EIA — weekly US inventories, refinery utilisation, SPR</li>
-              <li>· FRED — daily WTI, Brent, DXY, yields, macro indicators</li>
-              <li>· GDELT — energy-keyword news volume + tone</li>
-              <li>· NOAA — Gulf weather alerts, marine forecasts</li>
-              <li>· JODI, NASA FIRMS, Alpha Vantage, Finnhub, Open-Meteo</li>
+              <li>· AISStream + AISHub — live vessel positions through the six chokepoints</li>
+              <li>· GDELT, NOAA, JODI, NASA FIRMS, Open-Meteo — news tone, weather, balances</li>
             </ul>
           )}
         </div>
@@ -160,15 +161,16 @@ export default function Landing() {
           <div>
             <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// WHY OBSYD</div>
             <h2 className="text-2xl text-neutral-100 mb-5 font-bold leading-snug">
-              Public data, in one place,
+              The official public record,
               <br />
-              without the terminal price tag.
+              turned into a supply-risk desk.
             </h2>
             <p className="text-[13px] text-neutral-400 leading-relaxed">
-              OBSYD doesn't try to match Kpler or Vortexa on proprietary cargo-flow data — it
-              can't, and it doesn't pretend to. What it does is aggregate the public feeds that
-              are already there (AIS, PortWatch, EIA, FRED, GDELT) into one auditable dashboard,
-              so you stop wiring up 13 APIs by hand.
+              OBSYD doesn&apos;t match Kpler or a Bloomberg terminal on proprietary cargo data — it
+              can&apos;t, and it doesn&apos;t pretend to. What it does is turn the official public
+              record (USGS, EIA, ENTSO-E, World Bank) into a critical-materials &amp;
+              energy-security dashboard, and watch it for you — so you stop wiring up a dozen APIs
+              by hand.
             </p>
           </div>
           <div className="border border-border bg-[#06060a] p-5 text-[11px] text-neutral-500 leading-relaxed">
@@ -180,11 +182,51 @@ export default function Landing() {
             </ul>
             <div className="text-cyan-glow text-[10px] tracking-wider mt-5 mb-3">// MADE FOR</div>
             <ul className="space-y-2">
-              <li>· Developers building energy-data tools (self-host the engine)</li>
-              <li>· Researchers and journalists needing one source for context</li>
-              <li>· Independent analysts and small funds without Bloomberg seats</li>
+              <li>· Procurement &amp; supply-chain teams tracking critical-materials exposure</li>
+              <li>· Commodity- and energy-risk analysts without a Bloomberg seat</li>
+              <li>· Researchers and journalists needing one honest source for context</li>
               <li>· Anyone who wants to read the signal code, not trust it blindly</li>
             </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* YOUR SUPPLY-WATCH (the payable product, honest to what ships today) */}
+      <section className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
+        <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// YOUR SUPPLY-WATCH</div>
+        <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-5 font-bold">
+          The map is free. <span className="text-cyan-glow">Pro watches it for you.</span>
+        </h2>
+        <p className="text-[13px] text-neutral-400 leading-relaxed max-w-2xl mb-10">
+          You shouldn&apos;t have to refresh six tabs to know when supply breaks. Pro turns the
+          radar into your inbox — set the alerts that matter, and OBSYD pings you with the evidence
+          the moment something deviates.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
+          <div className="bg-[#0a0a12] p-6">
+            <div className="text-cyan-glow text-[11px] tracking-widest mb-3">01</div>
+            <div className="text-neutral-100 text-base mb-3 leading-snug">Set your alerts</div>
+            <div className="text-[12px] text-neutral-500 leading-relaxed">
+              Choose the supply disruptions that matter to you — chokepoint transit drops,
+              floating-storage build-ups, spread breaches — with your own thresholds.
+            </div>
+          </div>
+          <div className="bg-[#0a0a12] p-6">
+            <div className="text-cyan-glow text-[11px] tracking-widest mb-3">02</div>
+            <div className="text-neutral-100 text-base mb-3 leading-snug">We watch the radar</div>
+            <div className="text-[12px] text-neutral-500 leading-relaxed">
+              Every rule is re-checked against its own history around the clock. A cooldown keeps
+              it to real moves, not false-alarm spam.
+            </div>
+          </div>
+          <div className="bg-[#0a0a12] p-6">
+            <div className="text-cyan-glow text-[11px] tracking-widest mb-3">03</div>
+            <div className="text-neutral-100 text-base mb-3 leading-snug">You get the email</div>
+            <div className="text-[12px] text-neutral-500 leading-relaxed">
+              The trigger, the evidence, and a link straight to the chart — plus a Mon–Fri daily
+              brief so your morning starts with the lay of the land.
+            </div>
           </div>
         </div>
       </section>
