@@ -151,6 +151,7 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
   const [floatingStorage, setFloatingStorage] = useState([])
   const [viewState, setViewState] = useState(INITIAL_VIEW)
   const [legendOpen, setLegendOpen] = useState(true)
+  const [fsOpen, setFsOpen] = useState(true)
 
   const hurricanes = useMemo(
     () => (Array.isArray(weatherAlerts) ? weatherAlerts : []).filter((a) => a && a.latitude && a.longitude),
@@ -684,29 +685,37 @@ export default function VesselMap({ zones = [], weatherAlerts = [] }) {
             Source: IMF PortWatch{portwatch.date ? ` (${portwatch.date})` : ''} // AIS: AISHub + AISStream
           </div>
         )}
-        {/* Floating Storage Summary */}
+        {/* Floating Storage Summary (collapsible) */}
         {floatingStorage.length > 0 && (
           <div className="mt-3 pt-3 border-t border-border">
-            <div className="font-mono text-[10px] text-orange-400/80 tracking-wider mb-2">
-              FLOATING STORAGE — {floatingStorage.length} ACTIVE
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {floatingStorage.map((e) => (
-                <button
-                  key={e.mmsi}
-                  onClick={() => setViewState({ longitude: e.lon, latitude: e.lat, zoom: 10, pitch: 0, bearing: 0, transitionDuration: 800 })}
-                  className="text-left border border-orange-500/20 bg-orange-500/5 rounded px-3 py-2 hover:border-orange-500/40 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] text-orange-400 truncate">{e.ship_name}</span>
-                    <span className="font-mono text-[10px] text-orange-300 font-bold shrink-0 ml-2">{e.duration_days}d</span>
-                  </div>
-                  <div className="font-mono text-[9px] text-neutral-600 mt-0.5">
-                    {e.ship_class} // {e.zone?.toUpperCase() || '?'} // SOG {e.avg_sog?.toFixed(2)} kn{e.estimated_dwt ? ` // ~${Number(e.estimated_dwt).toLocaleString()}t` : ''}
-                  </div>
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => setFsOpen((v) => !v)}
+              aria-expanded={fsOpen}
+              className="w-full flex items-center justify-between font-mono text-[10px] text-orange-400/80 tracking-wider mb-2 hover:text-orange-400 transition-colors"
+            >
+              <span>FLOATING STORAGE — {floatingStorage.length} ACTIVE</span>
+              <span className="text-orange-400/60 ml-2">{fsOpen ? '▾' : '▸'}</span>
+            </button>
+            {fsOpen && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {floatingStorage.map((e) => (
+                  <button
+                    key={e.mmsi}
+                    onClick={() => setViewState({ longitude: e.lon, latitude: e.lat, zoom: 10, pitch: 0, bearing: 0, transitionDuration: 800 })}
+                    className="text-left border border-orange-500/20 bg-orange-500/5 rounded px-3 py-2 hover:border-orange-500/40 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[10px] text-orange-400 truncate">{e.ship_name}</span>
+                      <span className="font-mono text-[10px] text-orange-300 font-bold shrink-0 ml-2">{e.duration_days}d</span>
+                    </div>
+                    <div className="font-mono text-[9px] text-neutral-600 mt-0.5">
+                      {e.ship_class} // {e.zone?.toUpperCase() || '?'} // SOG {e.avg_sog?.toFixed(2)} kn{e.estimated_dwt ? ` // ~${Number(e.estimated_dwt).toLocaleString()}t` : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
