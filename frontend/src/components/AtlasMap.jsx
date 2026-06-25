@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Map as MapGL } from 'react-map-gl/maplibre'
 import DeckGL from '@deck.gl/react'
-import { _GlobeView as GlobeView } from '@deck.gl/core'
-import { GeoJsonLayer, SolidPolygonLayer } from '@deck.gl/layers'
+import { _GlobeView as GlobeView, COORDINATE_SYSTEM } from '@deck.gl/core'
+import { GeoJsonLayer } from '@deck.gl/layers'
+import { SimpleMeshLayer } from '@deck.gl/mesh-layers'
+import { SphereGeometry } from '@luma.gl/engine'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { InfoPopover } from './Panel'
 import { rampColor, NO_DATA_COLOR } from '../utils/chart'
@@ -12,17 +14,10 @@ const API = '/api'
 const INITIAL_VIEW_2D = { longitude: 10, latitude: 25, zoom: 1.2, pitch: 0, bearing: 0 }
 const INITIAL_VIEW_GLOBE = { longitude: 10, latitude: 25, zoom: 0, pitch: 0, bearing: 0 }
 
-// Ocean sphere for the globe: two hemisphere quads (each spans 180° lon, with intermediate
-// vertices so they tessellate smoothly onto the sphere). The raster basemap can't render
-// under _GlobeView, so this is the globe background.
-function _hemi(lonStart, lonEnd) {
-  const pts = []
-  const steps = 8
-  for (let i = 0; i <= steps; i++) pts.push([lonStart + ((lonEnd - lonStart) * i) / steps, -89])
-  for (let i = 0; i <= steps; i++) pts.push([lonEnd + ((lonStart - lonEnd) * i) / steps, 89])
-  return pts
-}
-const OCEAN = [{ polygon: _hemi(-180, 0) }, { polygon: _hemi(0, 180) }]
+// Ocean sphere for the globe: a real sphere mesh (the raster basemap can't render under
+// _GlobeView). Radius slightly under the geographic surface so country fills sit ON TOP and
+// their flat-triangulated interiors don't dip into / get occluded by the sphere.
+const _SPHERE = new SphereGeometry({ radius: 6.3e6, nlat: 36, nlong: 72 })
 
 const DARK_MAP_STYLE = {
   version: 8,
@@ -129,7 +124,14 @@ export default function AtlasMap() {
   const layers = useMemo(() => {
     if (!geo) return []
     const ocean = globe
-      ? [new SolidPolygonLayer({ id: 'ocean', data: OCEAN, getPolygon: (d) => d.polygon, getFillColor: [11, 15, 26], stroked: false })]
+      ? [new SimpleMeshLayer({
+          id: 'ocean-sphere',
+          data: [0],
+          mesh: _SPHERE,
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          getPosition: [0, 0, 0],
+          getColor: [11, 15, 26],
+        })]
       : []
     return [
       ...ocean,
