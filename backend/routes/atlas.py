@@ -9,6 +9,85 @@ from backend.models.atlas import CountryEnergy, CountryMacro, CountryResource
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
 
 
+# ─── Criticality (the product wedge: supply concentration of strategic materials) ────────────
+
+# (key, label, kind, spec). kind="resources" → CountryResource.commodity; kind="energy" →
+# (product, activity) on CountryEnergy. Concentration is computed over production only.
+CRITICAL_MATERIALS = [
+    ("rare_earths", "Rare earths", "resources", "rare_earths"),
+    ("cobalt", "Cobalt", "resources", "cobalt"),
+    ("lithium", "Lithium", "resources", "lithium"),
+    ("nickel", "Nickel", "resources", "nickel"),
+    ("copper", "Copper", "resources", "copper"),
+    ("oil", "Oil", "energy", ("petroleum", "production")),
+    ("natural_gas", "Natural gas", "energy", ("natural_gas", "production")),
+]
+
+
+def _latest_by_country(rows):
+    """rows: ORM objects with .iso3/.country_name/.value/.period/.unit → latest period per iso3."""
+    latest = {}
+    for r in rows:
+        cur = latest.get(r.iso3)
+        if cur is None or r.period > cur.period:
+            latest[r.iso3] = r
+    return list(latest.values())
+
+
+def _material_rows(db, kind, spec):
+    if kind == "resources":
+        q = db.query(CountryResource).filter(CountryResource.commodity == spec).all()
+    else:
+        product, activity = spec
+        q = db.query(CountryEnergy).filter(
+            CountryEnergy.product == product, CountryEnergy.activity == activity
+        ).all()
+    return _latest_by_country(q)
+
+
+def _concentration(rows):
+    """Supply concentration: top producer share, top-3, HHI (0–1, higher = more concentrated)."""
+    items = [r for r in rows if r.value and r.value > 0]
+    total = sum(r.value for r in items)
+    if not items or total <= 0:
+        return None
+    items.sort(key=lambda r: -r.value)
+    top3 = [
+        {"iso3": r.iso3, "country_name": r.country_name, "value": r.value, "share": round(r.value / total, 4)}
+        for r in items[:3]
+    ]
+    return {
+        "producers": len(items),
+        "top_country": items[0].iso3,
+        "top_country_name": items[0].country_name,
+        "top_share": round(items[0].value / total, 4),
+        "top3": top3,
+        "hhi": round(sum((r.value / total) ** 2 for r in items), 4),
+        "unit": items[0].unit,
+        "as_of": max(r.period for r in items),
+    }
+
+
+@router.get("/criticality")
+def atlas_criticality(db: Session = Depends(get_db)):
+    """Supply concentration of strategic materials — the product's dependency view.
+
+    For each material: who produces it, how concentrated supply is (top producer's world
+    share + HHI), most-concentrated first. Descriptive, from official public-domain data.
+    """
+    materials = []
+    for key, label, kind, spec in CRITICAL_MATERIALS:
+        conc = _concentration(_material_rows(db, kind, spec))
+        if conc is None:
+            continue
+        materials.append({"key": key, "label": label, "kind": kind, **conc})
+    materials.sort(key=lambda m: -m["hhi"])  # most concentrated (most strategically fragile) first
+    return {
+        "materials": materials,
+        "source": "USGS Mineral Commodity Summaries + EIA International (public domain)",
+    }
+
+
 @router.get("/energy")
 def atlas_energy(
     product: str = Query("petroleum"),
