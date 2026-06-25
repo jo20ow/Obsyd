@@ -6,6 +6,7 @@ import MacroPanel from './components/MacroPanel'
 import SentimentPanel from './components/SentimentPanel'
 import VesselMap from './components/VesselMap'
 import AtlasMap from './components/AtlasMap'
+import CriticalMaterialsView from './components/CriticalMaterialsView'
 import AlertsPanel from './components/AlertsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
@@ -49,6 +50,7 @@ import { useAuth } from './context/AuthContext'
 const API = '/api'
 
 const TABS = [
+  { key: 'critical', label: 'CRITICAL' },
   { key: 'overview', label: 'OVERVIEW' },
   { key: 'market', label: 'MARKET' },
   { key: 'signals', label: 'SIGNALS' },
@@ -171,7 +173,7 @@ function Dashboard() {
 
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    return TABS.find((t) => t.key === hash) ? hash : 'overview'
+    return TABS.find((t) => t.key === hash) ? hash : 'critical'
   })
 
   // Selected bidding zone for the ENERGY tab (DE_LU / FR / NL).
@@ -342,6 +344,13 @@ function Dashboard() {
 
       {/* ===== TAB CONTENT ===== */}
       <div className="mt-3">
+
+        {/* CRITICAL MATERIALS TAB — the product hero */}
+        {activeTab === 'critical' && (
+          <ErrorBoundary name="critical-materials">
+            <CriticalMaterialsView />
+          </ErrorBoundary>
+        )}
 
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
