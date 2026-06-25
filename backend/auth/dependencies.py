@@ -19,6 +19,7 @@ from fastapi import Cookie, HTTPException, Request
 
 from backend.auth.jwt import verify_token
 from backend.auth.subscription_check import is_pro
+from backend.config import settings
 from backend.database import SessionLocal
 from backend.models.subscription import Subscription
 
@@ -49,6 +50,12 @@ def require_pro(request: Request, obsyd_token: str | None = Cookie(None)) -> dic
     access until expiry. Every Pro request verifies against the DB (cheap on
     SQLite, single indexed lookup).
     """
+    # TEMP paywall kill-switch (see settings.disable_pro_gate). Bypasses both
+    # auth and the Pro check so anonymous visitors can reach Pro endpoints.
+    if settings.disable_pro_gate:
+        existing = get_current_user(request, obsyd_token)
+        return existing or {"email": "guest@obsyd.dev", "sub_status": "pro"}
+
     user = require_auth(request, obsyd_token)
 
     db = SessionLocal()

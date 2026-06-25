@@ -69,7 +69,9 @@ export function AuthProvider({ children }) {
       .catch(() => setUser(null))
   }, [])
 
-  const isPro = user?.tier === 'pro'
+  // TEMP paywall kill-switch: VITE_DISABLE_PROGATE=1 unlocks every gated panel
+  // for all visitors. Reversible — drop the env var to restore the paywall.
+  const isPro = import.meta.env.VITE_DISABLE_PROGATE === '1' || user?.tier === 'pro'
   const openPricing = useCallback(() => setPricingOpen(true), [])
   const closePricing = useCallback(() => setPricingOpen(false), [])
 
