@@ -113,18 +113,18 @@ positiver Edge). Daraus folgt:
   (disruption_score/tonne_miles/freight_proxy gegen Brent), Gas (gas_residual gegen TTF), Energy
   (power_residual/spark_spread gegen Strompreis), Metall (copper_stocks gegen Kupferpreis).
 
-## Gratis / Premium & Preis (Ist-Stand)
-- **Self-Host €0** (AGPL-3.0, eigene Infra) · **Cloud-Free €0** (obsyd.dev, 30-Tage-Historie,
-  bis 3 Alerts) · **Cloud-Pro €15/Monat (€149/Jahr, −17 %)** — volle Historie ab 2019, unlimited
-  Alerts, API (rate-limited), CSV/JSON-Export, Daily Brief (Mo–Fr 07:00 UTC), Custom-Geofences.
-  14-Tage-Trial ohne Karte. Zahlung via **Lemon Squeezy**.
-- **Gratis-Logik:** physische Charts (Lagebild) + Anomalie-Radar-Feed = Distributionsmagnet, SEO,
-  teilbar. Der on-site Radar-Feed ist bewusst ungated (anonymer `Alert`-Backbone).
-- **Preis:** bleibt €15. Die alte „20–30 € nach belegtem Edge"-Roadmap ist mit Posture B **tot**
-  (kein Edge-Anspruch). Künftige Preis-/Tier-Entscheidungen orientieren sich an Tiefe/Historie/
-  Alert-Zustellung (E-Mail/Push), nicht an Prognose-Qualität.
-- **Lizenz:** AGPL-3.0 — §13 zwingt Netzwerk-Anbieter zur Quelloffenlegung; schützt das Cloud-Tier
-  vor Closed-Source-Forks.
+## Gratis / Preis (Ist-Stand — Entscheidung 2026-06-25: KOMPLETT GRATIS, kein Premium)
+- **Obsyd ist fürs erste vollständig gratis — es gibt KEIN Pro-Tier mehr.** Lemon-Squeezy-Checkout
+  wurde verworfen. Gating-Modell: **Read-Daten public** (Dashboard, Radar, Critical-Materials,
+  Spark/Crack/Equities/STS/Validation); **persönliche Features login-gated** (Watchlist + Alert-Rules
+  via Free-Magic-Link, `require_auth`); **Admin-Collection-Trigger owner-only** (`require_pro`,
+  erfüllt durch das Comp-Subscription via `backend/scripts/grant_pro.py`).
+- Die alten Kill-Switch-Flags (`DISABLE_PRO_GATE`, `VITE_DISABLE_PROGATE`) + PricingModal/ProGate/
+  Trial/Drip sind **entfernt**; gratis ist der echte Default (kein Flag). Premium-Maschinerie
+  (`Subscription`/`webhooks`/`subscription_check`) bleibt dormant im Code (reversibel).
+- **Gratis-Logik:** physische Charts (Lagebild) + Anomalie-Radar = Distributionsmagnet. Persönliche
+  Features (Watchlist/Alerts/Brief) brauchen nur Login, kein Geld.
+- **Lizenz:** AGPL-3.0 — §13 zwingt Netzwerk-Anbieter zur Quelloffenlegung.
 
 ## Arbeits- & Sequenzprinzipien
 - Engpass ist Fertigstellen & Monetarisieren, nicht Ideen. „Gewinnen" = ein Fremder hat bezahlt,
@@ -214,11 +214,13 @@ multi-zone (A1-Follow-on). (Exposure-Mapping ist **nicht** „fehlt" — bewusst
 Leitentscheidung.)
 
 ### Single Source of Truth (vor Fehlern bewahren)
-- **Preis** lebt nur im Frontend (`frontend/src/components/PricingModal.jsx`: `PRO_PRICE='€15'`,
-  `PRO_YEAR_NOTE='€149/year (−17%)'`) + README — **nicht** in `backend/config.py`.
-- **Pro-Status** = `backend/auth/subscription_check.py` (`is_pro()`); Gate-Dependency
-  `backend/auth/dependencies.py` (`require_pro`); Frontend-Gate `components/ProGate.jsx`.
-- **Lizenz** = `LICENSE` (AGPL-3.0). Zahlung = Lemon Squeezy (`LEMONSQUEEZY_*` in `.env`).
+- **Preis:** keiner — Obsyd ist gratis (kein Pro-Tier; PricingModal/PRO_PRICE entfernt).
+- **Gating:** `backend/auth/dependencies.py` — `require_auth` (Login: Watchlist/Alert-Rules) vs.
+  `require_pro` (nur noch Admin-Collection-Trigger, erfüllt vom Comp-Sub). `is_pro()` in
+  `backend/auth/subscription_check.py` ist dormant. Frontend-Gate = `user?.authenticated`.
+- **Owner/Comp-Zugang:** `backend/scripts/grant_pro.py` (gibt eine aktive `Subscription` → erfüllt
+  `require_pro` für die Admin-Trigger + macht den Daily Brief erreichbar).
+- **Lizenz** = `LICENSE` (AGPL-3.0). Premium-Maschinerie (`Subscription`/`webhooks`) dormant.
 
 ---
 

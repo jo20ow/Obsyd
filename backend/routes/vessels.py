@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.auth.dependencies import require_pro
 from backend.database import get_db
 from backend.geofences.zones import LNG_TERMINALS, NO_AIS_COVERAGE, STS_HOTSPOTS, ZONES
 from backend.models.vessels import (
@@ -214,10 +213,9 @@ async def get_weighted_vessels(
 
 @router.get("/sts")
 async def get_sts_intelligence(
-    user: dict = Depends(require_pro),
     db: Session = Depends(get_db),
 ):
-    """STS transfer detection + dark activity tracking (Pro only).
+    """STS transfer detection + dark activity tracking.
 
     Returns:
     - sts_events: persisted STS candidate/proximity events

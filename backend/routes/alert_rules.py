@@ -14,7 +14,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
-from backend.auth.dependencies import require_pro
+from backend.auth.dependencies import require_auth
 from backend.database import SessionLocal
 from backend.models.alert_rules import AlertRule, UserAlertEvent
 from backend.models.subscription import Subscription
@@ -129,7 +129,7 @@ async def list_templates():
 
 
 @router.get("/rules")
-async def list_rules(user: dict = Depends(require_pro)):
+async def list_rules(user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         rules = (
@@ -148,7 +148,7 @@ async def list_rules(user: dict = Depends(require_pro)):
 
 
 @router.post("/rules")
-async def create_rule(body: CreateRuleBody, user: dict = Depends(require_pro)):
+async def create_rule(body: CreateRuleBody, user: dict = Depends(require_auth)):
     ok, err = validate_params(body.rule_type, body.params)
     if not ok:
         raise HTTPException(status_code=422, detail=err)
@@ -188,7 +188,7 @@ async def create_rule(body: CreateRuleBody, user: dict = Depends(require_pro)):
 
 
 @router.patch("/rules/{rule_id}")
-async def patch_rule(rule_id: int, body: PatchRuleBody, user: dict = Depends(require_pro)):
+async def patch_rule(rule_id: int, body: PatchRuleBody, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         rule = (
@@ -210,7 +210,7 @@ async def patch_rule(rule_id: int, body: PatchRuleBody, user: dict = Depends(req
 
 
 @router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: int, user: dict = Depends(require_pro)):
+async def delete_rule(rule_id: int, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         rule = (
@@ -231,7 +231,7 @@ async def delete_rule(rule_id: int, user: dict = Depends(require_pro)):
 
 
 @router.get("/notifications")
-async def list_notifications(limit: int = 50, user: dict = Depends(require_pro)):
+async def list_notifications(limit: int = 50, user: dict = Depends(require_auth)):
     limit = max(1, min(limit, 200))
     db = SessionLocal()
     try:
@@ -252,7 +252,7 @@ async def list_notifications(limit: int = 50, user: dict = Depends(require_pro))
 
 
 @router.post("/notifications/{event_id}/seen")
-async def mark_seen(event_id: int, user: dict = Depends(require_pro)):
+async def mark_seen(event_id: int, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         evt = (

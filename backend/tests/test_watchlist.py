@@ -1,8 +1,9 @@
 """
 Tests for the per-user watchlist (Personal Supply-Watch keystone):
   - /catalog is public and lists materials + zones
-  - CRUD is Pro-gated (anon 401, authed-non-pro 403)
+  - CRUD is LOGIN-gated (anon 401, any logged-in user 200 — free product)
   - add is idempotent on (email, kind, key); invalid keys 422; delete works
+  - items are per-user (no shared guest)
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from fastapi.testclient import TestClient
 
 from backend.auth.jwt import create_token
 from backend.main import app
-from backend.models.subscription import Subscription
 
 
 @pytest.fixture
@@ -20,15 +20,9 @@ def client(db_session):
     return TestClient(app)
 
 
-def _pro_cookie(email: str) -> dict[str, str]:
-    return {"obsyd_token": create_token(email, subscription_status="pro")}
-
-
-def _make_pro(db_session, email: str):
-    db_session.add(
-        Subscription(email=email, status="active", plan="pro", lemon_squeezy_id=f"ls-{email}")
-    )
-    db_session.commit()
+def _login_cookie(email: str) -> dict[str, str]:
+    """A valid session cookie for a logged-in user (no Pro needed)."""
+    return {"obsyd_token": create_token(email)}
 
 
 def test_catalog_is_public(client):
@@ -42,18 +36,19 @@ def test_catalog_is_public(client):
     assert "DE_LU" in zones  # power bidding zone
 
 
-def test_crud_requires_pro(client, db_session):
-    # anonymous → 401
+def test_crud_requires_login(client, db_session):
+    # anonymous → 401 (login required)
     assert client.get("/api/watchlist").status_code == 401
-    # authenticated but no Pro subscription in DB → require_pro re-checks DB → 403
-    ck = _pro_cookie("free@obsyd.dev")
-    assert client.get("/api/watchlist", cookies=ck).status_code == 403
+    # any logged-in user (no Pro needed — the product is free, login-gated) → 200
+    ck = _login_cookie("free@obsyd.dev")
+    r = client.get("/api/watchlist", cookies=ck)
+    assert r.status_code == 200
+    assert r.json()["items"] == []
 
 
 def test_add_list_idempotent_delete(client, db_session):
     email = "watcher@obsyd.dev"
-    _make_pro(db_session, email)
-    ck = _pro_cookie(email)
+    ck = _login_cookie(email)
 
     r = client.post("/api/watchlist", json={"kind": "material", "key": "cobalt"}, cookies=ck)
     assert r.status_code == 200
@@ -77,8 +72,7 @@ def test_add_list_idempotent_delete(client, db_session):
 
 def test_invalid_key_rejected(client, db_session):
     email = "watcher2@obsyd.dev"
-    _make_pro(db_session, email)
-    ck = _pro_cookie(email)
+    ck = _login_cookie(email)
     assert (
         client.post(
             "/api/watchlist", json={"kind": "material", "key": "unobtanium"}, cookies=ck
@@ -94,11 +88,9 @@ def test_invalid_key_rejected(client, db_session):
 
 
 def test_watchlist_is_per_user(client, db_session):
-    _make_pro(db_session, "a@obsyd.dev")
-    _make_pro(db_session, "b@obsyd.dev")
+    # Two different logged-in users must NOT share a watchlist (the shared-guest bug).
     client.post(
-        "/api/watchlist", json={"kind": "zone", "key": "hormuz"}, cookies=_pro_cookie("a@obsyd.dev")
+        "/api/watchlist", json={"kind": "zone", "key": "hormuz"}, cookies=_login_cookie("a@obsyd.dev")
     )
-    # b sees nothing a saved
-    rb = client.get("/api/watchlist", cookies=_pro_cookie("b@obsyd.dev"))
+    rb = client.get("/api/watchlist", cookies=_login_cookie("b@obsyd.dev"))
     assert rb.json()["items"] == []

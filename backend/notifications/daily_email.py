@@ -15,6 +15,7 @@ import httpx
 
 from backend.config import settings
 from backend.database import SessionLocal
+from backend.models.alerts import Alert
 from backend.models.analytics import (
     DisruptionScoreHistory,
     EIAPredictionHistory,
@@ -24,7 +25,6 @@ from backend.models.pro_features import (
     EmailSubscriber,
     EquitySnapshot,
 )
-from backend.models.alerts import Alert
 from backend.models.subscription import Subscription
 from backend.models.vessels import FloatingStorageEvent
 from backend.models.watchlist import WatchlistItem

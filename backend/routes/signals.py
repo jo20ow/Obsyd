@@ -1,8 +1,7 @@
 """Signal analysis endpoints."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from backend.auth.dependencies import require_pro
 from backend.database import SessionLocal
 from backend.models.pro_features import CrackSpreadHistory, EquitySnapshot
 from backend.signals.correlation import compute_correlations
@@ -42,17 +41,16 @@ async def get_rerouting_index(
 
 
 @router.get("/crack-spread")
-async def get_crack_spread_endpoint(_user=Depends(require_pro)):
-    """3:2:1 crack spread — refinery profitability indicator (live). Pro only."""
+async def get_crack_spread_endpoint():
+    """3:2:1 crack spread — refinery profitability indicator (live)."""
     return await get_crack_spread()
 
 
 @router.get("/crack-spreads")
 async def get_crack_spread_history(
     days: int = Query(365, ge=7, le=730),
-    _user=Depends(require_pro),
 ):
-    """Historical crack spread data with daily values. Pro only."""
+    """Historical crack spread data with daily values."""
     db = SessionLocal()
     try:
         rows = db.query(CrackSpreadHistory).order_by(CrackSpreadHistory.date.desc()).limit(days).all()
@@ -83,8 +81,8 @@ async def get_crack_spread_history(
 
 
 @router.get("/equities")
-async def get_equities(_user=Depends(require_pro)):
-    """Related energy equities with correlations. Pro only."""
+async def get_equities():
+    """Related energy equities with correlations."""
     db = SessionLocal()
     try:
         # Get the most recent date with data

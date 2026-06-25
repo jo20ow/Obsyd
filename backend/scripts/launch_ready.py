@@ -136,7 +136,6 @@ _REQUIRED_JOBS = (
     "geofence_daily",
     "signals_5min",
     "daily_email",
-    "trial_drip_daily",
     "user_alert_rules_30min",
     "floating_storage",
     "voyage_detection_2h",

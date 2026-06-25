@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from backend.auth.dependencies import require_pro
+from backend.auth.dependencies import require_auth
 from backend.database import SessionLocal
 from backend.geofences.zones import ZONES
 from backend.models.watchlist import WatchlistItem
@@ -65,7 +65,7 @@ async def watchlist_catalog():
 
 
 @router.get("")
-async def list_watchlist(user: dict = Depends(require_pro)):
+async def list_watchlist(user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         items = (
@@ -80,7 +80,7 @@ async def list_watchlist(user: dict = Depends(require_pro)):
 
 
 @router.post("")
-async def add_watchlist(body: CreateItemBody, user: dict = Depends(require_pro)):
+async def add_watchlist(body: CreateItemBody, user: dict = Depends(require_auth)):
     if body.kind not in VALID_KEYS:
         raise HTTPException(status_code=422, detail=f"unknown kind: {body.kind}")
     if body.key not in VALID_KEYS[body.kind]:
@@ -120,7 +120,7 @@ async def add_watchlist(body: CreateItemBody, user: dict = Depends(require_pro))
 
 
 @router.delete("/{item_id}")
-async def delete_watchlist(item_id: int, user: dict = Depends(require_pro)):
+async def delete_watchlist(item_id: int, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         item = (

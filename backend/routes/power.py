@@ -31,7 +31,6 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from backend.auth.dependencies import require_pro
 from backend.database import get_db
 from backend.models.energy import EnergyPrice, PowerFlow, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
 from backend.power.energy_charts_flows import ATTRIBUTION
@@ -170,9 +169,8 @@ async def get_day_ahead(
 async def get_spark_spread(
     days: int = Query(120, ge=7, le=1500),
     db: Session = Depends(get_db),
-    _user=Depends(require_pro),
 ):
-    """Spark spread history (power − gas × heat_rate, EUR/MWh). Pro only.
+    """Spark spread history (power − gas × heat_rate, EUR/MWh).
 
     `latest` contains the most recent row for dashboard widgets.
     `data` is the full window sorted ascending for charting.

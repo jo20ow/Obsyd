@@ -66,12 +66,6 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[SecretStr] = None
     finnhub_api_key: Optional[SecretStr] = None
 
-    # TEMP paywall kill-switch. When true, require_pro is bypassed for every
-    # request and all Pro endpoints return data. Reversible: flip back to false
-    # (env: DISABLE_PRO_GATE). Pair with frontend VITE_DISABLE_PROGATE=1 to also
-    # drop the visual ProGate overlay.
-    disable_pro_gate: bool = False
-
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

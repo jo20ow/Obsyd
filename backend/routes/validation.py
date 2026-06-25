@@ -9,7 +9,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.analytics.validation.weights import MIN_CONFIDENT_N, backtest_disruption
-from backend.auth.dependencies import require_pro
 from backend.database import get_db
 from backend.models.validation import SignalScorecard
 
@@ -60,10 +59,9 @@ async def get_scorecards(db: Session = Depends(get_db)):
 @router.get("/disruption-weights")
 async def get_disruption_weights(
     horizon: int = Query(7, ge=1, le=60),
-    _user=Depends(require_pro),
     db: Session = Depends(get_db),
 ):
-    """Live disruption-score weight backtest at the requested horizon (Pro).
+    """Live disruption-score weight backtest at the requested horizon.
 
     Per-component IC + HAC t-stat, out-of-sample composite IC (current vs equal
     vs IC-fitted), and drop-one-out keep/drop verdicts. `confident` is False

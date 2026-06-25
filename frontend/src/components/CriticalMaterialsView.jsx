@@ -23,7 +23,7 @@ function concLevel(hhi) {
   return { label: 'DIVERSIFIED', cls: 'text-green-glow', bar: '#34d399' }
 }
 
-function MaterialCard({ m, watched, onWatch }) {
+function MaterialCard({ m, watched, showWatch, onWatch }) {
   const lvl = concLevel(m.hhi)
   return (
     <div
@@ -37,18 +37,20 @@ function MaterialCard({ m, watched, onWatch }) {
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-xs text-neutral-300 tracking-wider">{m.label}</span>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onWatch(m) }}
-            className={`font-mono text-[9px] px-1.5 py-0.5 border rounded transition-colors ${
-              watched
-                ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10'
-                : 'text-neutral-500 border-border hover:border-cyan-glow/40 hover:text-cyan-glow'
-            }`}
-            title={watched ? 'Watching — click to remove' : 'Watch this material'}
-          >
-            {watched ? '✓ watching' : '+ watch'}
-          </button>
+          {showWatch && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onWatch(m) }}
+              className={`font-mono text-[9px] px-1.5 py-0.5 border rounded transition-colors ${
+                watched
+                  ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10'
+                  : 'text-neutral-500 border-border hover:border-cyan-glow/40 hover:text-cyan-glow'
+              }`}
+              title={watched ? 'Watching — click to remove' : 'Watch this material'}
+            >
+              {watched ? '✓ watching' : '+ watch'}
+            </button>
+          )}
           <span className={`font-mono text-[9px] px-1.5 py-0.5 border rounded ${lvl.cls} border-current/30`}>{lvl.label}</span>
         </div>
       </div>
@@ -73,7 +75,8 @@ function MaterialCard({ m, watched, onWatch }) {
 }
 
 export default function CriticalMaterialsView() {
-  const { isPro, openPricing } = useAuth()
+  const { user } = useAuth()
+  const isLoggedIn = user?.authenticated
   const [crit, setCrit] = useState(null)
   const [alerts, setAlerts] = useState([])
   const [watched, setWatched] = useState([])
@@ -91,20 +94,21 @@ export default function CriticalMaterialsView() {
   }, [])
 
   useEffect(() => {
-    if (isPro) refreshWatched()
-  }, [isPro, refreshWatched])
+    if (isLoggedIn) refreshWatched()
+  }, [isLoggedIn, refreshWatched])
 
   const watchedMaterials = useMemo(
     () =>
-      isPro
+      isLoggedIn
         ? new Set(watched.filter((i) => i.kind === 'material').map((i) => i.key))
         : new Set(),
-    [watched, isPro]
+    [watched, isLoggedIn]
   )
 
-  // Pro → toggle the watchlist entry; free/anon → the honest upgrade gate.
+  // Logged-in users toggle their own watchlist; the "+ watch" button is hidden
+  // for anon (they're invited to log in from the ALERTS tab / header).
   const onWatch = async (m) => {
-    if (!isPro) { openPricing(); return }
+    if (!isLoggedIn) return
     const existing = watched.find((i) => i.kind === 'material' && i.key === m.key)
     try {
       if (existing) {
@@ -149,7 +153,7 @@ export default function CriticalMaterialsView() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {crit.materials.map((m) => (
-              <MaterialCard key={m.key} m={m} watched={watchedMaterials.has(m.key)} onWatch={onWatch} />
+              <MaterialCard key={m.key} m={m} watched={watchedMaterials.has(m.key)} showWatch={isLoggedIn} onWatch={onWatch} />
             ))}
           </div>
         )}

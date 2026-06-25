@@ -115,9 +115,10 @@ def test_scorecards_api_empty_is_graceful(client, db_session):
     assert resp.json()["available"] is False
 
 
-def test_disruption_weights_api_requires_pro(client, db_session):
+def test_disruption_weights_api_is_public(client, db_session):
+    # Read-only validation data is free/public now (no Pro gate).
     resp = client.get("/api/validation/disruption-weights")
-    assert resp.status_code == 401
+    assert resp.status_code == 200
 
 
 def _seed_gas(db, n_days=80, seed=7):

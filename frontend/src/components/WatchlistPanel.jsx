@@ -10,7 +10,8 @@ const API = '/api'
  * the user's own items are Pro-gated (this panel renders inside a Pro section).
  */
 export default function WatchlistPanel() {
-  const { isPro, openPricing } = useAuth()
+  const { user } = useAuth()
+  const isLoggedIn = user?.authenticated
   const [catalog, setCatalog] = useState({ material: [], zone: [] })
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -37,21 +38,17 @@ export default function WatchlistPanel() {
     refresh()
   }, [refresh])
 
-  if (!isPro) {
+  if (!isLoggedIn) {
     return (
       <div className="border border-border bg-surface rounded p-6 text-center font-mono">
         <div className="text-[10px] tracking-wider text-cyan-glow mb-2">YOUR WATCHLIST</div>
-        <div className="text-[12px] text-neutral-400 mb-4 max-w-md mx-auto leading-relaxed">
+        <div className="text-[12px] text-neutral-400 mb-3 max-w-md mx-auto leading-relaxed">
           Pick the materials and zones you care about — OBSYD watches them for you and folds them
-          into your alerts and daily brief. A Pro feature.
+          into your alerts and daily brief. Free — just log in to save your list.
         </div>
-        <button
-          type="button"
-          onClick={openPricing}
-          className="px-5 py-2 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold"
-        >
-          Upgrade to Pro →
-        </button>
+        <div className="text-[11px] text-neutral-500">
+          Use <span className="text-cyan-glow">LOG IN</span> in the header (a magic link, no password).
+        </div>
       </div>
     )
   }

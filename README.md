@@ -2,7 +2,7 @@
 
 **One dashboard for AIS vessel tracking, chokepoint transits, EIA fundamentals, FRED macro, and 9 other public energy data sources.**
 
-[Live Demo](https://obsyd.dev) · [Cloud Pricing](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
+[Live Demo](https://obsyd.dev) · [Free & open source](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
 OBSYD aggregates 13 free, public data sources into one auditable dashboard — live AIS vessel positions, IMF PortWatch chokepoint transits, EIA inventories, FRED macro, GDELT news volume, and more. Every rule, threshold, and correlation runs in code you can read on GitHub. No proprietary scoring, no black-box ML, no "trust us".
 
@@ -12,11 +12,10 @@ OBSYD is **not** a Bloomberg or Kpler replacement — it doesn't have proprietar
 
 ## Cloud hosting or self-host
 
-OBSYD is open source under AGPL-3.0. Two ways to use it:
+OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid tier. Two ways to use it:
 
 - **Self-host (free):** Clone the repo, plug in your own API keys, run on your own infra. Full feature set, no usage limits.
-- **Cloud Free (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). Full dashboard, 30-day history, up to 3 alerts. No API access, no exports.
-- **Cloud Pro (€15/month or €149/year):** Hosted on obsyd.dev. Full history back to 2019, unlimited alerts, API access (rate-limited), CSV/JSON exports, daily email brief Mon–Fri. 14-day free trial, no card required.
+- **Cloud (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). The full dashboard, anomaly radar, and critical-materials view need no account. Personal features (your watchlist, custom alerts, daily brief) just need a free magic-link login — no card, no payment.
 
 ## Features
 

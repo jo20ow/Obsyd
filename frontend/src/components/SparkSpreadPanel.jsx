@@ -11,9 +11,8 @@ const API = '/api'
 export default function SparkSpreadPanel() {
   const { data, loading, error } = useFetchWithError(`${API}/power/spark-spread?days=120`)
 
-  // This panel is Pro-gated at the call site (ProGate). The route is also
-  // require_pro, so an anon/free fetch returns 401/403 — treat that as "not
-  // available" (ProGate shows its upgrade overlay) rather than a red error box.
+  // The spark-spread route is public now; a 401/403 shouldn't occur, but treat
+  // any auth-ish error defensively as "not available" rather than a red box.
   const authError = !!error && (error.includes('401') || error.includes('403'))
   if (error && !authError)
     return (

@@ -10,13 +10,12 @@ Flow:
 
 import logging
 import re
-from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, field_validator
 
-from backend.auth.dependencies import get_current_user, require_auth
+from backend.auth.dependencies import get_current_user
 from backend.auth.jwt import create_magic_token, create_token, verify_token
 from backend.auth.subscription_check import is_pro
 from backend.config import settings
@@ -24,26 +23,9 @@ from backend.database import SessionLocal
 from backend.models.subscription import Subscription
 from backend.models.waitlist import Waitlist
 
-TRIAL_DAYS = 14
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-
-
-def _checkout_url_for(email: str | None) -> str:
-    """Lemon Squeezy checkout URL, prefilled with the signed-in user's email.
-
-    Prefilling `checkout[email]` makes the LS purchase email default to the
-    account email, so the subscription_created webhook (which matches on
-    `user_email`) attaches Pro to the right account. Anonymous visitors get
-    the bare URL (they pick an email at checkout, then log in with it).
-    """
-    base = settings.lemonsqueezy_checkout_url
-    if not email:
-        return base
-    sep = "&" if "?" in base else "?"
-    return f"{base}{sep}checkout[email]={quote(email)}"
 
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
@@ -171,13 +153,10 @@ async def verify_magic_link(token: str, response: Response):
 async def get_me(user: dict | None = Depends(get_current_user)):
     """Get current user info and subscription status."""
     if not user:
-        return {
-            "authenticated": False,
-            "tier": "free",
-            "checkout_url": _checkout_url_for(None),
-        }
+        return {"authenticated": False, "tier": "free"}
 
-    # Refresh subscription status from DB (paid OR in-trial both count as pro)
+    # tier is dormant info (the owner comp account reads "pro"); the free product
+    # no longer gates on it. Personal features are login-gated, not Pro-gated.
     db = SessionLocal()
     try:
         sub = (
@@ -187,8 +166,6 @@ async def get_me(user: dict | None = Depends(get_current_user)):
             .first()
         )
         tier = "pro" if is_pro(sub) else "free"
-        trial_ends_at = sub.trial_ends_at.isoformat() if (sub and sub.status == "trialing" and sub.trial_ends_at) else None
-        trial_used = bool(sub)  # any past subscription record disables fresh trial signup
     finally:
         db.close()
 
@@ -196,9 +173,6 @@ async def get_me(user: dict | None = Depends(get_current_user)):
         "authenticated": True,
         "email": user["email"],
         "tier": tier,
-        "trial_ends_at": trial_ends_at,
-        "trial_eligible": tier == "free" and not trial_used,
-        "checkout_url": _checkout_url_for(user["email"]) if tier == "free" else None,
     }
 
 
@@ -211,84 +185,6 @@ async def logout(response: Response):
         path="/",
     )
     return {"status": "ok"}
-
-
-@router.post("/start-trial")
-async def start_trial(response: Response, user: dict = Depends(require_auth)):
-    """Start a 14-day in-app Pro trial. No card required.
-
-    One trial per email — any prior Subscription record (active, expired,
-    cancelled, or previous trial) disables a fresh trial. This keeps the
-    flow simple and prevents trial-cycling.
-    """
-    from datetime import datetime, timedelta
-
-    db = SessionLocal()
-    try:
-        existing = (
-            db.query(Subscription)
-            .filter(Subscription.email == user["email"])
-            .order_by(Subscription.id.desc())
-            .first()
-        )
-        if existing is not None:
-            if is_pro(existing):
-                # Already Pro — nothing to do, surface that to the client.
-                return {
-                    "status": "already_pro",
-                    "tier": "pro",
-                    "trial_ends_at": existing.trial_ends_at.isoformat() if existing.trial_ends_at else None,
-                }
-            # Past trial / expired / cancelled — trial not re-grantable.
-            raise HTTPException(
-                status_code=409,
-                detail="Trial already used. Subscribe via the Pro checkout to reactivate.",
-            )
-
-        now = datetime.utcnow()
-        trial = Subscription(
-            email=user["email"],
-            status="trialing",
-            plan="pro",
-            trial_ends_at=now + timedelta(days=TRIAL_DAYS),
-            drip_stage=0,  # welcome email sent right below
-        )
-        db.add(trial)
-        db.commit()
-        db.refresh(trial)
-    finally:
-        db.close()
-
-    # Fire the welcome email synchronously. We tolerate failure (e.g. Resend
-    # outage) and don't roll back the trial — the daily drip processor will
-    # not re-send day 0 because drip_stage is already 0.
-    try:
-        from backend.notifications.trial_drip import send_welcome_now
-
-        send_welcome_now(user["email"])
-    except Exception:
-        # Logged inside send_welcome_now; never block trial activation.
-        pass
-
-    # Re-issue session token with sub_status=pro so the frontend sees Pro
-    # immediately without waiting for a /me refresh.
-    new_session_token = create_token(user["email"], subscription_status="pro")
-    response.set_cookie(
-        key="obsyd_token",
-        value=new_session_token,
-        max_age=settings.jwt_expiry_days * 86400,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        domain="obsyd.dev",
-        path="/",
-    )
-    return {
-        "status": "trial_started",
-        "tier": "pro",
-        "trial_ends_at": trial.trial_ends_at.isoformat(),
-        "days_remaining": TRIAL_DAYS,
-    }
 
 
 def _magic_link_html(url: str) -> str:

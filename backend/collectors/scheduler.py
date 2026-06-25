@@ -51,7 +51,6 @@ from backend.metals.usgs_copper import ingest_copper_supply
 from backend.notifications.alert_runner import process_alert_rules
 from backend.notifications.collector_watchdog import check_collectors
 from backend.notifications.daily_email import send_daily_email
-from backend.notifications.trial_drip import process_trial_drip
 from backend.providers.price_provider import get_live_prices as refresh_live_prices
 from backend.signals.alert_outcomes import snapshot_and_backfill_outcomes
 from backend.signals.evaluator import evaluate_signals
@@ -453,16 +452,6 @@ def start_scheduler():
         send_daily_email,
         CronTrigger(day_of_week="mon-fri", hour=7, minute=0),
         id="daily_email",
-        **JOB_DEFAULTS,
-    )
-
-    # Trial onboarding drip: daily at 08:30 UTC (after daily briefing).
-    # Advances each in-app trial one drip stage if its age has crossed
-    # the next threshold (day-0 fires synchronously from start-trial).
-    scheduler.add_job(
-        process_trial_drip,
-        CronTrigger(hour=8, minute=30),
-        id="trial_drip_daily",
         **JOB_DEFAULTS,
     )
 

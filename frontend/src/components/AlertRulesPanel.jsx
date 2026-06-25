@@ -17,7 +17,8 @@ const API = '/api'
  * happens server-side; we only block obvious empty-required cases.
  */
 export default function AlertRulesPanel() {
-  const { isPro, openPricing } = useAuth()
+  const { user } = useAuth()
+  const isLoggedIn = user?.authenticated
   const [templates, setTemplates] = useState(null)
   const [rules, setRules] = useState([])
   const [tier, setTier] = useState('free')
@@ -53,22 +54,18 @@ export default function AlertRulesPanel() {
     refresh()
   }, [refresh])
 
-  // Anon and free users hit a ProGate-style prompt.
-  if (!isPro) {
+  // Anonymous visitors hit a login prompt — alerts are free but per-account.
+  if (!isLoggedIn) {
     return (
       <div className="border border-border bg-surface rounded p-6 text-center font-mono">
         <div className="text-[10px] tracking-wider text-cyan-glow mb-2">ALERT RULES</div>
-        <div className="text-[12px] text-neutral-400 mb-4 max-w-md mx-auto leading-relaxed">
-          Custom flow-anomaly alerts via email are a Pro feature. Set up to
-          three rules during the 14-day trial — unlimited on the paid plan.
+        <div className="text-[12px] text-neutral-400 mb-3 max-w-md mx-auto leading-relaxed">
+          Custom supply-disruption alerts via email — free. Log in to set up your rules and get
+          notified when something deviates.
         </div>
-        <button
-          type="button"
-          onClick={openPricing}
-          className="px-5 py-2 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold"
-        >
-          Upgrade to Pro →
-        </button>
+        <div className="text-[11px] text-neutral-500">
+          Use <span className="text-cyan-glow">LOG IN</span> in the header (a magic link, no password).
+        </div>
       </div>
     )
   }

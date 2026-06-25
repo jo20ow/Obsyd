@@ -22,8 +22,6 @@ import FlowMatrixPanel from './components/FlowMatrixPanel'
 import STSPanel from './components/STSPanel'
 import CrackSpreadPanel from './components/CrackSpreadPanel'
 import RelatedEquitiesPanel from './components/RelatedEquitiesPanel'
-import ProGate from './components/ProGate'
-import PricingModal from './components/PricingModal'
 import ErrorBoundary from './components/ErrorBoundary'
 import PriceTicker from './components/PriceTicker'
 import TransitChart from './components/TransitChart'
@@ -70,46 +68,6 @@ function Disclaimer() {
   )
 }
 
-function ProBanner() {
-  const { isPro, openPricing } = useAuth()
-  if (isPro) return null
-
-  return (
-    <div className="border border-cyan-glow/10 bg-cyan-glow/[0.02] rounded px-4 py-2 flex items-center justify-between flex-wrap gap-2">
-      <span className="font-mono text-[10px] text-neutral-500">
-        OBSYD is open source and free to use. Pro adds daily briefings, custom alerts, and deep-dive panels.
-      </span>
-      <button
-        type="button"
-        onClick={openPricing}
-        className="font-mono text-[10px] tracking-wider text-cyan-glow hover:text-cyan-glow/80 underline-offset-2 hover:underline"
-      >
-        See Pro →
-      </button>
-    </div>
-  )
-}
-
-function ProFooter() {
-  const { isPro, openPricing } = useAuth()
-  if (isPro) return null
-
-  return (
-    <div className="mt-6 border-t border-border pt-4 pb-2">
-      <div className="text-center font-mono text-[10px] text-neutral-600">
-        OBSYD is open source and free to use.{' '}
-        <button
-          type="button"
-          onClick={openPricing}
-          className="text-cyan-glow/80 hover:text-cyan-glow underline-offset-2 hover:underline"
-        >
-          Upgrade to Pro →
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function TabBar({ active, onChange }) {
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hidden border-b border-border">
@@ -144,15 +102,9 @@ function App() {
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
   const wantsApp = pathname.startsWith('/app') || pathname.startsWith('/dashboard')
 
-  // Anon visitor on the root path -> Landing. The PricingModal is also
-  // mounted here so the Landing's "Start trial" button can open it.
+  // Anon visitor on the root path -> Landing; everyone else -> Dashboard.
   if (!wantsApp && !user && !authLoading) {
-    return (
-      <>
-        <Landing />
-        <PricingModal />
-      </>
-    )
+    return <Landing />
   }
 
   return <Dashboard />
@@ -319,11 +271,6 @@ function Dashboard() {
         </div>
       </ErrorBoundary>
 
-      {/* PRO BANNER (compact, once) */}
-      <div className="mt-3">
-        <ProBanner />
-      </div>
-
       {/* MAP + ALERTS */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-3 mt-3">
         <ErrorBoundary name="vessel-map">
@@ -423,14 +370,10 @@ function Dashboard() {
             {/* Row 3: Crack Spread + Related Equities [PRO] */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
               <ErrorBoundary name="crack-spread-market">
-                <ProGate feature="Crack Spreads">
-                  <CrackSpreadPanel />
-                </ProGate>
+                <CrackSpreadPanel />
               </ErrorBoundary>
               <ErrorBoundary name="equities-market">
-                <ProGate feature="Related Equities">
-                  <RelatedEquitiesPanel />
-                </ProGate>
+                <RelatedEquitiesPanel />
               </ErrorBoundary>
             </div>
 
@@ -486,17 +429,13 @@ function Dashboard() {
             {/* Row 5: STS + Rerouting + Crack Spread */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
               <ErrorBoundary name="sts-detection">
-                <ProGate feature="STS Detection">
-                  <STSPanel />
-                </ProGate>
+                <STSPanel />
               </ErrorBoundary>
               <ErrorBoundary name="rerouting-signals">
                 <ReroutingIndex />
               </ErrorBoundary>
               <ErrorBoundary name="crack-spread">
-                <ProGate feature="Crack Spread">
-                  <CrackSpreadPanel />
-                </ProGate>
+                <CrackSpreadPanel />
               </ErrorBoundary>
             </div>
           </>
@@ -505,11 +444,9 @@ function Dashboard() {
         {/* GAS TAB */}
         {activeTab === 'gas' && (
           <>
-            {/* Row 1: Residual balance hero (Pro) */}
+            {/* Row 1: Residual balance hero */}
             <ErrorBoundary name="gas-balance">
-              <ProGate feature="EU Gas Balance">
-                <GasBalancePanel />
-              </ProGate>
+              <GasBalancePanel />
             </ErrorBoundary>
 
             {/* Row 2: Free driver panels */}
@@ -536,11 +473,9 @@ function Dashboard() {
               <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
             </div>
 
-            {/* Row 1: Spark Spread hero (Pro) — DE-LU only, no zone param */}
+            {/* Row 1: Spark Spread hero — DE-LU only, no zone param */}
             <ErrorBoundary name="power-spark">
-              <ProGate feature="Spark Spread">
-                <SparkSpreadPanel />
-              </ProGate>
+              <SparkSpreadPanel />
             </ErrorBoundary>
 
             {/* Row 2: Day-Ahead price (free) */}
@@ -605,12 +540,10 @@ function Dashboard() {
               <SentimentPanel />
             </ErrorBoundary>
 
-            {/* Row 2: Related Equities [PRO] */}
+            {/* Row 2: Related Equities */}
             <ErrorBoundary name="related-equities">
               <div className="mt-3">
-                <ProGate feature="Related Equities">
-                  <RelatedEquitiesPanel />
-                </ProGate>
+                <RelatedEquitiesPanel />
               </div>
             </ErrorBoundary>
           </>
@@ -618,11 +551,7 @@ function Dashboard() {
       </div>
 
       {/* ===== FOOTER ===== */}
-      <ProFooter />
       <Disclaimer />
-
-      {/* ===== PRICING MODAL (rendered conditionally by AuthContext state) ===== */}
-      <PricingModal />
     </div>
   )
 }
