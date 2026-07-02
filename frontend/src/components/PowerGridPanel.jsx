@@ -56,6 +56,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
       title={`RESIDUAL LOAD · ${zoneLabel}`}
       info="Residual load = total electricity demand − wind − solar (MW daily mean). This is the demand that dispatchable plants (gas, coal, nuclear, hydro) must cover. Dunkelflaute = day when renewable share < 15% of total load — a physical stress signal, not a price forecast."
       collapsible
+      defaultCollapsed
       headerRight={
         residualGW != null && (
           <span className="font-mono text-[10px] font-bold" style={{ color: headerColor }}>
@@ -74,7 +75,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
           {/* ── Hero numbers ── */}
           <div className="px-4 py-3 border-b border-border/30">
             <div className="flex items-baseline gap-3 flex-wrap">
-              <span className="font-mono text-3xl font-bold" style={{ color: headerColor }}>
+              <span className="font-mono text-2xl font-bold" style={{ color: headerColor }}>
                 {residualGW != null ? `${residualGW} GW` : '—'}
               </span>
               <span className="font-mono text-[10px] text-neutral-600">residual load</span>

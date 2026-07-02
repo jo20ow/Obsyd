@@ -45,6 +45,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
       title="SPARK SPREAD · DE-LU · CCGT MARGIN"
       info="Spark spread = power − gas × heat-rate (CCGT generation margin). Measures the theoretical profitability of gas-fired power generation. Positive = burning gas to generate electricity is profitable. Clean spark (− CO₂ cost) coming once EUA data is wired."
       collapsible
+      defaultCollapsed
       headerRight={
         spread != null && (
           <span className="font-mono text-[10px] font-bold" style={{ color: spreadColor }}>
@@ -62,7 +63,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
         <>
           <div className="px-4 py-3 border-b border-border/30">
             <div className="flex items-baseline gap-3 flex-wrap">
-              <span className="font-mono text-3xl font-bold" style={{ color: spreadColor }}>
+              <span className="font-mono text-2xl font-bold" style={{ color: spreadColor }}>
                 {spread == null
                   ? '—'
                   : `${spread >= 0 ? '+' : ''}${spread.toFixed(1)}`}

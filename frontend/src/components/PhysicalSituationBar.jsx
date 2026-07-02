@@ -30,6 +30,23 @@ export default function PhysicalSituationBar({ onNavigate }) {
         <span className="font-mono text-[10px] tracking-wider text-neutral-500">PHYSICAL ENERGY SYSTEM</span>
         <span className={`font-mono text-[10px] font-bold tracking-wider ml-auto ${ov.text}`}>{overall}</span>
       </div>
+
+      {/* Plain-language answer — the anchor. What's happening, in one sentence. */}
+      <div className="px-3 py-2 border-b border-border/60">
+        <span className="font-mono text-[13px] leading-snug text-neutral-200">
+          {(() => {
+            const notable = ORDER.filter((k) => data.domains?.[k]?.available && data.domains[k].state !== 'CALM')
+            const lead = overall === 'STRESSED'
+              ? 'Europe’s physical energy system is under stress'
+              : overall === 'ELEVATED'
+                ? 'Europe’s physical energy system is somewhat elevated'
+                : 'Europe’s physical energy system is calm'
+            if (!notable.length) return `${lead} — nothing unusual right now.`
+            const reasons = notable.map((k) => `${data.domains[k].label.toLowerCase()} ${data.domains[k].state.toLowerCase()}`)
+            return `${lead} — ${reasons.join(', ')}.`
+          })()}
+        </span>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/60">
         {ORDER.map((k) => {
           const d = data.domains?.[k]

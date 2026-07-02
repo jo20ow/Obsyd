@@ -31,13 +31,15 @@ export function InfoPopover({ text }) {
   )
 }
 
-export default function Panel({ id, title, info, collapsible = false, headerRight, children }) {
+export default function Panel({ id, title, info, collapsible = false, defaultCollapsed = false, headerRight, children }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (!collapsible) return false
     try {
-      return localStorage.getItem(`obsyd-panel-${id}`) === '1'
+      const saved = localStorage.getItem(`obsyd-panel-${id}`)
+      if (saved === null) return defaultCollapsed  // first visit → honour the panel's default
+      return saved === '1'
     } catch {
-      return false
+      return defaultCollapsed
     }
   })
 

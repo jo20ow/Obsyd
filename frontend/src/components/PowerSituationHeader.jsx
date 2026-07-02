@@ -1,5 +1,7 @@
 import useFetchWithError from '../hooks/useFetchWithError'
 import { InfoPopover } from './Panel'
+import PanelTakeaway from './PanelTakeaway'
+import { zPhrase, residualPhrase } from '../utils/takeaway'
 
 const API = '/api'
 
@@ -97,9 +99,25 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
         </div>
       </div>
 
-      {/* Headline + metrics */}
+      {/* Headline + plain-language take-away + metrics */}
       <div className="px-4 py-4">
-        <div className="font-mono text-xs text-neutral-400 leading-relaxed mb-4">{data.headline}</div>
+        <div className="font-mono text-xs text-neutral-400 leading-relaxed mb-3">{data.headline}</div>
+
+        <PanelTakeaway
+          tone={data.state === 'STRESSED' ? 'alert' : data.state === 'ELEVATED' ? 'warn' : 'info'}
+          className="mb-4"
+        >
+          {(() => {
+            const drivers = []
+            if (price.z != null && Math.abs(price.z) >= 1.5) drivers.push(`the day-ahead price is ${zPhrase(price.z)}`)
+            if (grid.z != null && Math.abs(grid.z) >= 1.5) drivers.push(`residual load is ${residualPhrase(grid.z)}`)
+            if (grid.dunkelflaute) drivers.push('wind + solar are covering under 15% of demand (Dunkelflaute)')
+            if (price.negative) drivers.push('there are hours of negative day-ahead prices')
+            if (data.state === 'CALM' || drivers.length === 0)
+              return `${data.zone_label} power is within its normal range — nothing unusual to act on.`
+            return `${data.zone_label} power looks ${data.state.toLowerCase()} because ${drivers.slice(0, 2).join(', and ')}.`
+          })()}
+        </PanelTakeaway>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Metric

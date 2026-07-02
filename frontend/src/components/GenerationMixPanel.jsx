@@ -65,6 +65,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
       title={`GENERATION MIX · ${zoneLabel}`}
       info="Full ENTSO-E A75 generation breakdown by production type (daily mean MW). Covers nuclear, coal, gas, hydro, biomass, wind, solar and more. Source: ENTSO-E Transparency Platform, processType A16."
       collapsible
+      defaultCollapsed
       headerRight={
         totalGW != null && (
           <span className="font-mono text-[10px] font-bold text-cyan-400">
@@ -83,7 +84,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
           {/* ── Hero numbers ── */}
           <div className="px-4 py-3 border-b border-border/30">
             <div className="flex items-baseline gap-3 flex-wrap">
-              <span className="font-mono text-3xl font-bold text-cyan-400">
+              <span className="font-mono text-2xl font-bold text-cyan-400">
                 {totalGW != null ? `${totalGW} GW` : '—'}
               </span>
               <span className="font-mono text-[10px] text-neutral-600">total generation</span>

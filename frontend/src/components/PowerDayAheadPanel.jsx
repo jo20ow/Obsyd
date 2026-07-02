@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Panel from './Panel'
+import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -63,7 +64,7 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
         <>
           <div className="px-4 py-3 border-b border-border/30">
             <div className="flex items-baseline gap-3">
-              <span className="font-mono text-3xl font-bold text-cyan-glow">
+              <span className="font-mono text-2xl font-bold text-cyan-glow">
                 {close?.toFixed(1)}
               </span>
               <span className="font-mono text-[10px] text-neutral-600">EUR/MWh</span>
@@ -77,6 +78,11 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
                 </span>
               )}
             </div>
+            <PanelTakeaway className="mt-2">
+              {negativeDays > 0
+                ? `Wholesale power is €${close?.toFixed(0)}/MWh. Prices went negative on ${negativeDays} of the last 120 days — renewables briefly out-supplied demand and generators paid to offload power.`
+                : `Wholesale power is €${close?.toFixed(0)}/MWh — the price generators are paid for next-day delivery.`}
+            </PanelTakeaway>
           </div>
           {/* Daily-mean ⇄ hourly-shape toggle (hourly = the 24h peak/off-peak curve). */}
           {hourlyAvail && (
