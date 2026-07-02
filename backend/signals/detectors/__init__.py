@@ -19,9 +19,11 @@ backbone via ``_upsert_alert``.
 from __future__ import annotations
 
 import logging
+from datetime import date as _date
 
 from sqlalchemy.orm import Session
 
+from backend.signals.detectors.base import is_stale
 from backend.signals.detectors.gas import detect_gas_balance
 from backend.signals.detectors.oil import (
     detect_chokepoint,
@@ -54,15 +56,40 @@ DETECTORS = [
 ]
 
 
-def run_all_detectors(db: Session) -> int:
+# How many days a vertical's latest data may lag wall-clock before a result is
+# treated as stale and suppressed. Tuned to each source's publication cadence:
+# power day-ahead/grid is ~daily (D+1 auction, ~1d realised lag), gas AGSI ~daily
+# with a few days' lag, GDELT sentiment daily, oil analytics ride EIA's weekly
+# WPSR. A result whose as_of is unknown (None) is never suppressed here — the
+# rerouting/chokepoint detectors carry their own freshness logic upstream.
+_MAX_AGE_DAYS = {
+    "power": 3,
+    "gas": 4,
+    "sentiment": 3,
+    "oil": 10,
+    "metals": 45,
+}
+_DEFAULT_MAX_AGE_DAYS = 7
+
+
+def run_all_detectors(db: Session, *, today: _date | None = None) -> int:
     """Run every detector and upsert its results. Returns the number of alerts upserted.
 
-    Each detector is isolated: one raising never suppresses the others.
+    Each detector is isolated: one raising never suppresses the others. A result
+    whose underlying data is stale (older than the vertical's tolerance) is dropped
+    so a frozen collector goes quiet instead of surfacing old data as a live anomaly.
     """
     emitted = 0
     for detector in DETECTORS:
         try:
             for result in detector(db):
+                max_age = _MAX_AGE_DAYS.get(result.vertical, _DEFAULT_MAX_AGE_DAYS)
+                if result.as_of is not None and is_stale(result.as_of, max_age, today=today):
+                    logger.warning(
+                        "suppressing stale %s/%s alert (data as of %s)",
+                        result.vertical, result.rule, result.as_of,
+                    )
+                    continue
                 _upsert_alert(
                     db,
                     rule=result.rule,

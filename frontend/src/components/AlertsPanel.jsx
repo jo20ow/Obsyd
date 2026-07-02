@@ -58,7 +58,9 @@ const RULE_TARGET = {
   supply_demand_divergence: { tab: 'overview', panel: 'fundamentals' },
 }
 const VERTICAL_LABELS = { gas: 'GAS', power: 'POWER', oil: 'OIL / MARITIME', metals: 'METALS', sentiment: 'SENTIMENT' }
-const VERTICAL_ORDER = ['gas', 'power', 'oil', 'metals', 'sentiment']
+// Power desk is the front door: power anomalies lead on equal severity (sections
+// are still re-sorted so the single most urgent vertical bubbles to the top).
+const VERTICAL_ORDER = ['power', 'gas', 'oil', 'metals', 'sentiment']
 
 const CONVERGENCE_STYLE = { dot: 'bg-amber-400', text: 'text-amber-400', border: 'border-amber-500/30' }
 

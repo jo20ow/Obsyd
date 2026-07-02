@@ -43,5 +43,6 @@ def detect_gas_balance(db: Session) -> list[DetectorResult]:
                 f"7d residual {resid:+.0f} GWh/d, z-score {z:+.2f} vs trailing 90 days"
                 f"{mover_txt} (as of {row.date})."
             ),
+            as_of=row.date,
         )
     ]

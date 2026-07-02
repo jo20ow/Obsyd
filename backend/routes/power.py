@@ -26,6 +26,7 @@ All endpoints follow the `{"available": bool, "data": [...]}` envelope used
 throughout the gas vertical (see backend/routes/gas.py).
 """
 
+from datetime import date as _date
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -33,8 +34,15 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models.energy import EnergyPrice, PowerFlow, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
+from backend.power.coverage import renewable_share_reliable
 from backend.power.energy_charts_flows import ATTRIBUTION
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
+from backend.signals.detectors.base import severity_from_zscore, trailing_zscore
+
+#: The situation hero is stale when its newest data lags wall-clock by more than
+#: this many days. Day-ahead prices and realised grid data are ~daily, so a gap
+#: beyond a day signals a frozen collector rather than normal publication lag.
+SITUATION_STALE_DAYS = 1
 
 router = APIRouter(prefix="/api/power", tags=["power"])
 
@@ -302,6 +310,260 @@ async def get_grid(
         "to": date_to,
         "data": data,
     }
+
+
+# ─── Power situation synthesis (the desk top-line) ───────────────────────────
+#
+# The coherence keystone of the power desk: instead of six unconnected panels,
+# join day-ahead price → residual load → spark spread into ONE descriptive
+# "so what" for the selected zone. Descriptive only (Posture B): we report the
+# physical state + how far it sits from the series' own recent history, never a
+# price forecast. Reused by the front-door situation header (and, later, the
+# morning briefing).
+
+
+def _series_zscore(series: list[dict], key: str) -> dict | None:
+    """Trailing z-score of the latest `key` value vs the series' own prior history.
+
+    Returns {"z", "baseline_mean", "baseline_n"} or None when there is no
+    trustworthy baseline yet (too few points or zero variance).
+    """
+    vals = [r[key] for r in series if r.get(key) is not None]
+    if len(vals) < 2:
+        return None
+    res = trailing_zscore(vals[-1], vals[:-1])
+    if res is None:
+        return None
+    z, mean, _std, n = res
+    return {"z": round(z, 2), "baseline_mean": round(mean, 2), "baseline_n": n}
+
+
+_STATE_RANK = {"critical": 2, "warning": 1, "info": 0}
+_STATE_LABEL = {2: "STRESSED", 1: "ELEVATED", 0: "CALM"}
+
+
+def _worst_state(severities: list[str]) -> str:
+    """Collapse a list of per-signal severities into one descriptive desk state."""
+    rank = max((_STATE_RANK.get(s, 0) for s in severities), default=0)
+    return _STATE_LABEL[rank]
+
+
+def build_power_situation(
+    zone: str,
+    price_series: list[dict],
+    grid_series: list[dict],
+    spark_latest: dict | None,
+    *,
+    spark_supported: bool = True,
+    grid_coverage_ok: bool = True,
+    today: _date | None = None,
+) -> dict:
+    """Compose day-ahead price, residual load and spark spread into one descriptive
+    power-situation top-line for `zone`. Pure: no DB, no network.
+
+    price_series — ascending [{"date","close","negative_hours"}]
+    grid_series  — ascending _compute_grid_row dicts (residual_mw/renewable_share/dunkelflaute)
+    spark_latest — latest {"spark_spread","power_price","gas_price"} or None (DE-LU only)
+    spark_supported — False for zones without a spark series (FR/NL) so the header can signpost.
+    grid_coverage_ok — False when ENTSO-E generation coverage is too low to trust the
+        renewable share (e.g. NL). The Dunkelflaute flag is then suppressed rather than
+        raised off unreliable data.
+    today — reference date for staleness assessment. When None, staleness is inert
+        (`stale=False`, `age_days=None`) so existing pure call sites are unaffected.
+    """
+    zone_label = POWER_ZONES.get(zone, {}).get("label", zone)
+
+    # ── price block ──
+    price_latest = price_series[-1] if price_series else None
+    price_z = _series_zscore(price_series, "close") if price_series else None
+    neg_hours = (
+        int(price_latest["negative_hours"])
+        if price_latest and price_latest.get("negative_hours") is not None
+        else 0
+    )
+    price = {
+        "available": price_latest is not None,
+        "close": round(price_latest["close"], 2) if price_latest else None,
+        "negative_hours": neg_hours,
+        "negative": neg_hours > 0,
+        "z": price_z["z"] if price_z else None,
+        "baseline_mean": price_z["baseline_mean"] if price_z else None,
+        "baseline_n": price_z["baseline_n"] if price_z else None,
+    }
+
+    # ── grid block (residual load + Dunkelflaute) ──
+    grid_latest = grid_series[-1] if grid_series else None
+    resid_z = _series_zscore(grid_series, "residual_mw") if grid_series else None
+    # Only trust the Dunkelflaute signal when generation coverage is high enough
+    # (grid_coverage_ok). Incomplete A75 (NL) fakes a near-zero renewable share.
+    raw_dunkelflaute = bool(grid_latest["dunkelflaute"]) if grid_latest else False
+    dunkelflaute = raw_dunkelflaute and grid_coverage_ok
+    resid_mw = grid_latest["residual_mw"] if grid_latest else None
+    grid = {
+        "available": grid_latest is not None,
+        "residual_mw": resid_mw,
+        "residual_gw": round(resid_mw / 1000.0, 2) if resid_mw is not None else None,
+        "renewable_share": grid_latest["renewable_share"] if grid_latest else None,
+        "renewable_share_reliable": grid_coverage_ok,
+        "dunkelflaute": dunkelflaute,
+        "z": resid_z["z"] if resid_z else None,
+        "baseline_mean": resid_z["baseline_mean"] if resid_z else None,
+        "baseline_n": resid_z["baseline_n"] if resid_z else None,
+    }
+
+    # ── spark block (DE-LU only; signpost on FR/NL) ──
+    has_spark = spark_supported and spark_latest is not None
+    spark = {
+        "available": has_spark,
+        "supported": spark_supported,
+        "spark_spread": round(spark_latest["spark_spread"], 2) if has_spark else None,
+        "power_price": round(spark_latest["power_price"], 2)
+        if has_spark and spark_latest.get("power_price") is not None else None,
+        "gas_price": round(spark_latest["gas_price"], 2)
+        if has_spark and spark_latest.get("gas_price") is not None else None,
+    }
+
+    # ── flags + descriptive state ──
+    severities: list[str] = []
+    if price["z"] is not None:
+        severities.append(severity_from_zscore(price["z"]))
+    if grid["z"] is not None:
+        severities.append(severity_from_zscore(grid["z"]))
+
+    flags: list[dict] = []
+    if dunkelflaute:
+        flags.append({"key": "dunkelflaute", "severity": "warning",
+                      "label": "Dunkelflaute — wind+solar < 15% of load"})
+        severities.append("warning")
+    if price["negative"]:
+        flags.append({"key": "negative_prices", "severity": "warning",
+                      "label": f"{neg_hours}h of negative day-ahead prices"})
+        severities.append("warning")
+
+    state = _worst_state(severities)
+    available = price["available"] or grid["available"]
+    date_candidates = [s[-1]["date"] for s in (price_series, grid_series) if s]
+    as_of = max(date_candidates) if date_candidates else None
+
+    # ── staleness (vs wall-clock) — never assert a confident state on days-old data ──
+    age_days: int | None = None
+    stale = False
+    if today is not None and as_of is not None:
+        try:
+            age_days = (today - _date.fromisoformat(as_of)).days
+            stale = age_days > SITUATION_STALE_DAYS
+        except ValueError:
+            age_days = None
+
+    # ── headline (descriptive one-liner) ──
+    parts: list[str] = []
+    if price["available"]:
+        seg = f"day-ahead €{price['close']:.0f}/MWh"
+        if price["z"] is not None:
+            seg += f" ({price['z']:+.1f}σ)"
+        parts.append(seg)
+    if grid["available"]:
+        seg = f"residual {grid['residual_gw']:.0f} GW"
+        if grid["z"] is not None:
+            seg += f" ({grid['z']:+.1f}σ)"
+        parts.append(seg)
+    if spark["available"]:
+        parts.append(f"spark €{spark['spark_spread']:+.0f}/MWh")
+    headline = f"{zone_label} · " + " · ".join(parts) if parts else f"{zone_label} · no power data yet"
+
+    return {
+        "available": available,
+        "zone": zone,
+        "zone_label": zone_label,
+        "zones": _ZONE_KEYS,
+        "as_of": as_of,
+        "stale": stale,
+        "age_days": age_days,
+        "state": state,
+        "price": price,
+        "grid": grid,
+        "spark": spark,
+        "flags": flags,
+        "headline": headline,
+    }
+
+
+@router.get("/situation")
+async def get_situation(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
+    db: Session = Depends(get_db),
+):
+    """One descriptive power-situation top-line for a bidding zone — the desk hero.
+
+    Joins the most recent day-ahead price (with its z-context + negative-price
+    flag), residual load + Dunkelflaute, and the DE-LU spark spread into a single
+    `state` (CALM / ELEVATED / STRESSED) plus a `headline` and `flags`. Free tier.
+
+    `zone` defaults to DE_LU; unknown zones fall back. Spark is DE-LU only and is
+    marked `supported: false` for FR/NL so the header can signpost the gap.
+    """
+    resolved_zone = _resolve_zone(zone)
+    date_from, date_to = _window(120)
+
+    price_rows = (
+        db.query(PowerPriceDaily)
+        .filter(
+            PowerPriceDaily.zone == resolved_zone,
+            PowerPriceDaily.date >= date_from,
+            PowerPriceDaily.date <= date_to,
+        )
+        .order_by(PowerPriceDaily.date.asc())
+        .all()
+    )
+    price_series = [
+        {"date": r.date, "close": r.mean_price, "negative_hours": r.negative_hours}
+        for r in price_rows
+    ]
+
+    grid_rows = (
+        db.query(PowerGrid)
+        .filter(
+            PowerGrid.zone == resolved_zone,
+            PowerGrid.date >= date_from,
+            PowerGrid.date <= date_to,
+        )
+        .order_by(PowerGrid.date.asc())
+        .all()
+    )
+    grid_series = [_compute_grid_row(r) for r in grid_rows]
+
+    # Is the latest grid day's renewable share trustworthy? (NL A75 is incomplete.)
+    grid_coverage_ok = True
+    if grid_rows:
+        latest_grid = grid_rows[-1]
+        grid_coverage_ok = renewable_share_reliable(
+            db, latest_grid.date, resolved_zone, latest_grid.load_mw
+        )
+
+    spark_supported = resolved_zone == DEFAULT_ZONE
+    spark_latest = None
+    if spark_supported:
+        srow = (
+            db.query(SparkSpreadHistory)
+            .order_by(SparkSpreadHistory.date.desc())
+            .first()
+        )
+        if srow is not None:
+            spark_latest = {
+                "spark_spread": srow.spark_spread,
+                "power_price": srow.power_price,
+                "gas_price": srow.gas_price,
+            }
+
+    return build_power_situation(
+        resolved_zone,
+        price_series,
+        grid_series,
+        spark_latest,
+        spark_supported=spark_supported,
+        grid_coverage_ok=grid_coverage_ok,
+        today=datetime.utcnow().date(),
+    )
 
 
 # ─── Cross-border physical flows (free) ──────────────────────────────────────

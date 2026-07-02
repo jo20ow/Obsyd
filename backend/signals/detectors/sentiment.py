@@ -48,5 +48,6 @@ def detect_sentiment_risk(db) -> list[DetectorResult]:
             severity=severity,
             title=f"News risk {row.risk_score:.0f}/10 — elevated media negativity",
             detail=f"GDELT-derived geopolitical/energy news risk at {row.risk_score:.0f}/10 ({row.date}).{top_factor}",
+            as_of=row.date,
         )
     ]

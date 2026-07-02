@@ -7,6 +7,7 @@ hour count is persisted per (date, zone) in ``PowerPriceDaily.negative_hours``.
 from __future__ import annotations
 
 from backend.models.energy import PowerGrid, PowerPriceDaily
+from backend.power.coverage import renewable_share_reliable
 from backend.signals.detectors.base import DetectorResult, trailing_zscore
 
 # Dunkelflaute = renewables carry an unusually small share of load (wind+solar < 15%),
@@ -57,6 +58,7 @@ def detect_negative_prices(db) -> list[DetectorResult]:
                     f"{current}h below 0 EUR/MWh on {row.date} vs ~{mean:.0f}h normal for {zone} "
                     f"(z {z:+.2f}; renewable oversupply / inflexible generation)."
                 ),
+                as_of=row.date,
             )
         )
     return results
@@ -78,6 +80,11 @@ def detect_dunkelflaute(db) -> list[DetectorResult]:
         share = ((row.wind_mw or 0.0) + (row.solar_mw or 0.0)) / row.load_mw
         if share >= DUNKELFLAUTE_THRESHOLD:
             continue
+        # Coverage guard: only trust a low renewable share when the zone's reported
+        # generation plausibly covers its load. ENTSO-E A75 is incomplete for some
+        # zones (NL), which fakes a near-zero share — suppress rather than cry wolf.
+        if not renewable_share_reliable(db, row.date, zone, row.load_mw):
+            continue
         results.append(
             DetectorResult(
                 rule="dunkelflaute",
@@ -89,6 +96,7 @@ def detect_dunkelflaute(db) -> list[DetectorResult]:
                     f"Wind+solar only {share * 100:.1f}% of load on {row.date} (<15% threshold); "
                     f"residual load carried by conventional generation."
                 ),
+                as_of=row.date,
             )
         )
     return results

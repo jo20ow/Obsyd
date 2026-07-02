@@ -14,6 +14,10 @@
 > Cross-Vertical-Feed auf obsyd.dev.
 > Offen: Radar Phase 2 (Dunkelflaute/Rerouting/PortWatch persistieren), Slice 4 (Clean-/Dark-Spread)
 > blockiert an freier EUA-/Kohle-Quelle; Payment (LS) ungesetzt.
+>
+> **Vordertür-Entscheidung 2026-06-26: Der Europäische Strom-Desk ist das EINE fokussierte
+> Produkt** (Default-Tab POWER, Always-On-Situation-Header-Hero, übrige Verticals depriorisiert).
+> Siehe Abschnitt „Vordertür: Europäischer Strom-Desk".
 
 ---
 
@@ -40,9 +44,42 @@ positiver Edge). Daraus folgt:
 - **Glaubwürdigkeit = Vollständigkeit + Transparenz + Tempo**, NICHT Trefferquote. Die
   Validierungs-Engine bleibt erhalten, wird aber als *historische Ko-Bewegung (Kontext, keine
   Prognose)* dargestellt, nicht als „Edge". Kein LLM (Texte template-/regelbasiert).
-- **Preis** bleibt €15; **keine** edge-abhängige Preiserhöhung mehr (die 20–30 €-These ist tot).
+- **Preis: komplett gratis** (Entscheidung 2026-06-25, siehe Abschnitt „Gratis / Preis") — kein
+  Pro-Tier mehr. Die früheren €15- / €19,90- / 20–30 €-Thesen sind **alle tot**. (Historischer
+  Hinweis: dieser Block nannte bis 2026-06-26 noch „Preis bleibt €15" — das war ein Überrest und
+  widersprach der Gratis-Entscheidung; bereinigt.)
 
 ---
+
+## Vordertür: Europäischer Strom-Desk (Entscheidung 2026-06-26)
+
+Posture B sagt *was* Obsyd ist (deskriptiver Radar); diese Entscheidung sagt, *welches eine Produkt*
+dem Kunden die Vordertür ist. **Die Vordertür ist der Europäische Strom-Desk** — die tiefste eigene
+Engine (Day-Ahead inkl. Negativpreise, Residuallast/Dunkelflaute, Spark Spread, Generation-Mix, 20
+Cross-Border-Flows, Multi-Zone DE-LU/FR/NL). Ziel = **ein kohärentes, fertiges Produkt**, nicht noch
+ein Vertical. Engpass war nie Daten, sondern dass das fokussierte Produkt nur *obenauf* dem breiten
+Stapel lag.
+
+- **Im Code durchgesetzt (diese Iteration):** Default-Tab = `POWER` (`DEFAULT_TAB` in `App.jsx`; die
+  drei früher auf `'critical'` hartkodierten Stellen ziehen zusammen um). Die übrigen Verticals
+  (Öl/Maritim `overview`/`market`/`signals`, `critical`, `metals`, `atlas`, `sentiment`) sind in eine
+  **sekundäre Tab-Gruppe** hinter einem Divider depriorisiert (`primary`-Flag in `TABS`) — die Breite
+  bleibt der Burggraben *hinter* der Tür, nie co-equal. Damit ist das CLAUDE.md-Prinzip „dem Kunden
+  EIN fokussiertes Produkt" endlich im Code, nicht nur auf dem Papier.
+- **Always-On-Hero = `PowerSituationHeader`** über `GET /api/power/situation?zone=`
+  (`backend/routes/power.py::build_power_situation`, getestet in `test_power_situation.py`): joint
+  Day-Ahead → Residuallast → Spark zu *einem* deskriptiven Lagebild (`state` CALM/ELEVATED/STRESSED +
+  Flags Dunkelflaute/Negativpreise + z-Kontext vs. Eigenhistorie). Ersetzt den DE-only-Spark als Hero;
+  die maritime VesselMap + Briefing sind in den sekundären OVERVIEW-Tab gewandert. Der Zone-Selector
+  (DE-LU/FR/NL) sitzt jetzt im Always-On-Shell und steuert Hero + Power-Tab gemeinsam. Spark ist
+  DE-only und im Header als `supported:false` für FR/NL signposted.
+- **Positionierung angeglichen:** Landing, `index.html` (Title/Meta), `Header`-Subtitle und README
+  führen jetzt mit „European Power Desk" statt gemischt „energy market intelligence/AIS" vs. „critical
+  materials". Persona: Power-Trader / Energie-Analyst ohne Montel/EEX/Bloomberg-Seat. Header-Mode-Toggle
+  (CRUDE/LNG/ALL) entfernt, Ticker TTF/NG-first.
+- **Offen (Phase 2 — kohärent fertig):** Strom ins Morgen-Briefing (`briefing.py` ignoriert Power
+  noch), Zone-Kohärenz-Löcher (Spark/Flows/Track-Record DE-only sauber zonen oder signposten),
+  TTF-Serie als Endpoint exponieren. Clean-Spark/CO₂ bleibt blockiert (keine freie EUA-Quelle).
 
 ## Positionierung
 - Bezahlbare Down-Market Commodity-/Energie-Intelligence: die zugängliche Alternative für alle,
@@ -269,7 +306,9 @@ Leitentscheidung.)
 - **`docs/signal-validation.md` Status-Banner** (P1 shipped) hinkt dem Ist nach — Scorecards sind
   persistiert, Routes live (faktisch P2/P3-Teile gebaut). Zudem noch prädiktiv geframt — sollte
   unter Posture B deskriptiv umformuliert werden (wie `TrackRecordBadge`).
-- **README** spiegelt evtl. noch Pre-Posture-B-Framing (Edge/Exposure) — bei Gelegenheit auf
-  „deskriptiver Anomalie-Radar" angleichen (analog zu dieser CLAUDE.md-Aktualisierung 2026-06-24).
+- ~~**README** spiegelt evtl. noch Pre-Posture-B-Framing (Edge/Exposure)~~ — **behoben 2026-06-26:**
+  README-Lede, `index.html` (Title/Meta), `Header`-Subtitle und Landing führen jetzt mit „European
+  Power Desk" (deskriptiv). Das Features-**Inventar** im README listet bewusst weiter die volle
+  Engine-Breite (das ist der Burggraben, nicht die Vordertür).
 - **`PROJECT_STATUS.md`** war ein vor-Pivot-Statusdoc (2026-03-06) und wurde durch diesen Abschnitt
   ersetzt (siehe Git-Historie für das Archiv).

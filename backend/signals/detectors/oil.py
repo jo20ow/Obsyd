@@ -54,6 +54,7 @@ def detect_days_of_supply(db) -> list[DetectorResult]:
             severity="warning",
             title="US crude days-of-supply turned tight",
             detail=f"{days:.1f} days cover, {dev:+.1f}d vs 5-year seasonal average (as of {cur.date}).",
+            as_of=cur.date,
         )
     ]
 
@@ -78,6 +79,7 @@ def detect_supply_demand_divergence(db) -> list[DetectorResult]:
             severity="warning",
             title="EIA balance vs AIS newly diverging",
             detail=(cur.divergence_detail or cur.divergence_type) + f" (as of {cur.date}).",
+            as_of=cur.date,
         )
     ]
 
@@ -98,6 +100,7 @@ def detect_freight_divergence(db) -> list[DetectorResult]:
             severity="info",
             title=f"Freight proxy {cur.divergence_flag.lower()}",
             detail=f"Tanker-equity freight proxy newly diverging from rerouting / Brent (as of {cur.date}).",
+            as_of=cur.date,
         )
     ]
 
@@ -147,6 +150,7 @@ def detect_floating_storage(db) -> list[DetectorResult]:
                     f"{current} tankers in floating-storage pattern vs ~{mean:.0f} normal for {zone} "
                     f"(z {z:+.2f} over {n}d, as of {anchor})."
                 ),
+                as_of=anchor.isoformat(),
             )
         )
     return results

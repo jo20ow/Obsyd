@@ -42,23 +42,31 @@ import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import CopperPanel from './components/CopperPanel'
 import ZoneSelector from './components/ZoneSelector'
+import PowerSituationHeader from './components/PowerSituationHeader'
 import Landing from './components/Landing'
 import { useAuth } from './context/AuthContext'
 
 const API = '/api'
 
+// The European power desk is the front door (`primary`). The rest of the engine
+// — oil/maritime, metals, atlas, critical-materials — stays reachable as the
+// breadth behind a secondary divider, never co-equal with the desk.
+// NOTE: the default tab is 'energy'; three places below hard-code that key
+// (initial state, hash-strip special-case) and must move together.
 const TABS = [
-  { key: 'critical', label: 'CRITICAL' },
+  { key: 'energy', label: 'POWER', primary: true },
+  { key: 'gas', label: 'GAS', primary: true },
   { key: 'overview', label: 'OVERVIEW' },
   { key: 'market', label: 'MARKET' },
   { key: 'signals', label: 'SIGNALS' },
-  { key: 'gas', label: 'GAS' },
-  { key: 'energy', label: 'ENERGY' },
+  { key: 'critical', label: 'CRITICAL' },
   { key: 'metals', label: 'METALS' },
   { key: 'atlas', label: 'ATLAS' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
 ]
+
+const DEFAULT_TAB = 'energy'
 
 function Disclaimer() {
   return (
@@ -68,21 +76,32 @@ function Disclaimer() {
   )
 }
 
+function TabButton({ tab, active, onChange, dim }) {
+  return (
+    <button
+      onClick={() => onChange(tab.key)}
+      className={`font-mono text-[11px] tracking-wider px-4 py-2.5 transition-colors shrink-0 border-b-2 -mb-px ${
+        active === tab.key
+          ? 'text-cyan-glow border-cyan-glow bg-cyan-glow/5'
+          : `${dim ? 'text-neutral-700' : 'text-neutral-600'} hover:text-neutral-400 border-transparent`
+      }`}
+    >
+      {tab.label}
+    </button>
+  )
+}
+
 function TabBar({ active, onChange }) {
+  const primary = TABS.filter((t) => t.primary)
+  const secondary = TABS.filter((t) => !t.primary)
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hidden border-b border-border">
-      {TABS.map((tab) => (
-        <button
-          key={tab.key}
-          onClick={() => onChange(tab.key)}
-          className={`font-mono text-[11px] tracking-wider px-4 py-2.5 transition-colors shrink-0 border-b-2 -mb-px ${
-            active === tab.key
-              ? 'text-cyan-glow border-cyan-glow bg-cyan-glow/5'
-              : 'text-neutral-600 hover:text-neutral-400 border-transparent'
-          }`}
-        >
-          {tab.label}
-        </button>
+      {primary.map((tab) => (
+        <TabButton key={tab.key} tab={tab} active={active} onChange={onChange} />
+      ))}
+      <span className="mx-2 text-neutral-800 select-none shrink-0" aria-hidden>·</span>
+      {secondary.map((tab) => (
+        <TabButton key={tab.key} tab={tab} active={active} onChange={onChange} dim />
       ))}
     </div>
   )
@@ -125,17 +144,17 @@ function Dashboard() {
 
   const [activeTab, setActiveTab] = useState(() => {
     const hash = window.location.hash.replace('#', '')
-    return TABS.find((t) => t.key === hash) ? hash : 'critical'
+    return TABS.find((t) => t.key === hash) ? hash : DEFAULT_TAB
   })
 
   // Selected bidding zone for the ENERGY tab (DE_LU / FR / NL).
   // SparkSpreadHistory has no zone column and stays DE-LU only (intentional).
   const [energyZone, setEnergyZone] = useState('DE_LU')
 
-  // URL hash sync — keep the default (CRITICAL) tab off the URL so the bare
+  // URL hash sync — keep the default (POWER) tab off the URL so the bare
   // homepage stays clean (`/`); only non-default tabs get a shareable hash.
   useEffect(() => {
-    if (activeTab === 'critical') {
+    if (activeTab === DEFAULT_TAB) {
       history.replaceState(null, '', window.location.pathname + window.location.search)
     } else {
       window.location.hash = activeTab
@@ -269,18 +288,17 @@ function Dashboard() {
         <PriceTicker />
       </div>
 
-      {/* BRIEFING */}
-      <ErrorBoundary name="briefing">
-        <div className="mt-3">
-          <BriefingPanel />
-        </div>
-      </ErrorBoundary>
-
-      {/* MAP + ALERTS */}
+      {/* POWER DESK HERO + ANOMALY RADAR — the always-on front door */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-3 mt-3">
-        <ErrorBoundary name="vessel-map">
-          <VesselMap zones={zones} weatherAlerts={weatherAlerts} />
-        </ErrorBoundary>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// EUROPEAN POWER DESK</span>
+            <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
+          </div>
+          <ErrorBoundary name="power-situation">
+            <PowerSituationHeader zone={energyZone} />
+          </ErrorBoundary>
+        </div>
         <div className="lg:max-h-[600px] lg:overflow-y-auto scrollbar-hidden">
           <ErrorBoundary name="alerts">
             <AlertsPanel weatherAlerts={weatherAlerts} />
@@ -304,13 +322,25 @@ function Dashboard() {
           </ErrorBoundary>
         )}
 
-        {/* OVERVIEW TAB */}
+        {/* OVERVIEW TAB — oil/maritime situational picture */}
         {activeTab === 'overview' && (
           <>
-            {/* Row 0: Market Intelligence Report */}
-            <ErrorBoundary name="market-report">
-              <MarketReportPanel />
+            {/* Row 0: Live tanker map + daily briefing (maritime context) */}
+            <ErrorBoundary name="vessel-map">
+              <VesselMap zones={zones} weatherAlerts={weatherAlerts} />
             </ErrorBoundary>
+            <ErrorBoundary name="briefing">
+              <div className="mt-3">
+                <BriefingPanel />
+              </div>
+            </ErrorBoundary>
+
+            {/* Row 1: Market Intelligence Report */}
+            <div className="mt-3">
+              <ErrorBoundary name="market-report">
+                <MarketReportPanel />
+              </ErrorBoundary>
+            </div>
 
             {/* Row 1: Supply Disruption Index */}
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-3 mt-3">
@@ -469,31 +499,28 @@ function Dashboard() {
           </>
         )}
 
-        {/* ENERGY TAB */}
+        {/* POWER TAB — evidence/drill-down behind the always-on situation header.
+            Zone is controlled from the desk header above (energyZone). The
+            zone-aware, complete free panels (price, residual) lead; the DE-LU-only
+            spark spread follows. */}
         {activeTab === 'energy' && (
           <>
-            {/* Zone selector — applies to DayAhead, Grid, GenerationMix panels.
-                SparkSpreadHistory has no zone column → stays DE-LU only. */}
-            <div className="flex items-center justify-end mb-2">
-              <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
-            </div>
-
-            {/* Row 1: Spark Spread hero — DE-LU only, no zone param */}
-            <ErrorBoundary name="power-spark">
-              <SparkSpreadPanel />
+            {/* Row 1: Day-Ahead price + negative-price flags (free, zoned) */}
+            <ErrorBoundary name="power-dayahead">
+              <PowerDayAheadPanel zone={energyZone} />
             </ErrorBoundary>
 
-            {/* Row 2: Day-Ahead price (free) */}
-            <div className="mt-3">
-              <ErrorBoundary name="power-dayahead">
-                <PowerDayAheadPanel zone={energyZone} />
-              </ErrorBoundary>
-            </div>
-
-            {/* Row 3: Residual Load + Dunkelflaute (free) */}
+            {/* Row 2: Residual Load + Dunkelflaute (free, zoned) */}
             <div className="mt-3">
               <ErrorBoundary name="power-grid">
                 <PowerGridPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 3: Spark Spread — DE-LU only, gas-derived */}
+            <div className="mt-3">
+              <ErrorBoundary name="power-spark">
+                <SparkSpreadPanel />
               </ErrorBoundary>
             </div>
 

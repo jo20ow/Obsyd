@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass
+from datetime import date as _date
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -32,6 +34,29 @@ class DetectorResult:
     severity: str      # "info" | "warning" | "critical"
     title: str
     detail: str = ""
+    as_of: str | None = None  # ISO date of the underlying data; runner uses it for staleness
+
+
+def is_stale(latest: str | _date | None, max_age_days: int, *, today: _date | None = None) -> bool:
+    """True if `latest` is missing, unparseable, or older than `max_age_days` from today.
+
+    Detectors read the newest persisted row and treat it as "now". If a collector
+    stalls, that row goes days stale while the alert still looks fresh in the feed
+    (each 5-min re-fire bumps ``created_at``, so retention never expires it). Gate
+    every latest-row read on this so a frozen source goes quiet instead of asserting
+    stale data as current. Missing/unparseable dates are treated as stale (fail safe:
+    if we cannot prove the data is fresh, we do not emit).
+    """
+    if latest is None:
+        return True
+    if isinstance(latest, str):
+        try:
+            latest = _date.fromisoformat(latest[:10])
+        except ValueError:
+            return True
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    return (today - latest).days > max_age_days
 
 
 # Valid verticals — kept here so the API/frontend and tests share one source.

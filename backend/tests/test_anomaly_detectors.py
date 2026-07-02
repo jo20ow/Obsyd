@@ -18,11 +18,12 @@ from backend.models.analytics import (
     FreightProxyHistory,
     SupplyDemandBalance,
 )
-from backend.models.energy import PowerGrid, PowerPriceDaily
+from backend.models.energy import PowerGenMix, PowerGrid, PowerPriceDaily
 from backend.models.gas import GasBalance
 from backend.models.sentiment import SentimentScore
 from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
 from backend.signals.detectors import DETECTORS, run_all_detectors
+from backend.signals.detectors.base import is_stale
 from backend.signals.detectors.gas import detect_gas_balance
 from backend.signals.detectors.oil import (
     detect_chokepoint,
@@ -240,8 +241,9 @@ def test_sentiment_relative_jump_info(db_session):
 
 
 def test_run_all_detectors_multi_vertical(db_session):
-    db_session.add(GasBalance(date="2026-06-24", residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
-    db_session.add(SentimentScore(date="2026-06-24", risk_score=9.0, risk_factors="[]"))
+    fresh = date.today().isoformat()
+    db_session.add(GasBalance(date=fresh, residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
+    db_session.add(SentimentScore(date=fresh, risk_score=9.0, risk_factors="[]"))
     db_session.commit()
 
     n = run_all_detectors(db_session)
@@ -256,7 +258,7 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
         raise RuntimeError("detector exploded")
 
     monkeypatch.setattr("backend.signals.detectors.DETECTORS", [boom, detect_gas_balance])
-    db_session.add(GasBalance(date="2026-06-24", residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
+    db_session.add(GasBalance(date=date.today().isoformat(), residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
     db_session.commit()
 
     n = run_all_detectors(db_session)  # must not raise
@@ -317,6 +319,11 @@ def test_flow_anomaly_insufficient_history_no_fire(db_session):
 
 def test_dunkelflaute_warns(db_session):
     db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000))  # ~8%
+    # Complete generation coverage (~60 GW ≈ load) → the low renewable share is real.
+    db_session.add(PowerGenMix(date="2026-06-24", zone="DE_LU", psr_type="Fossil Gas", gen_mw=40000))
+    db_session.add(PowerGenMix(date="2026-06-24", zone="DE_LU", psr_type="Nuclear", gen_mw=15000))
+    db_session.add(PowerGenMix(date="2026-06-24", zone="DE_LU", psr_type="Wind Onshore", gen_mw=3000))
+    db_session.add(PowerGenMix(date="2026-06-24", zone="DE_LU", psr_type="Solar", gen_mw=2000))
     db_session.commit()
     r = detect_dunkelflaute(db_session)[0]
     assert r.vertical == "power" and r.rule == "dunkelflaute" and r.severity == "warning"
@@ -414,3 +421,64 @@ def test_alert_defaults_to_oil(db_session):
     db_session.commit()
     row = db_session.query(Alert).filter(Alert.rule == "cushing_drawdown").first()
     assert row.vertical == "oil"
+
+
+# ─── Staleness gate ───────────────────────────────────────────────────────────
+# A detector reads the newest persisted row and treats it as "now". If a collector
+# stalls, that row goes days stale while the alert keeps looking fresh in the feed
+# (each 5-min re-fire bumps created_at, so retention never expires it). The runner
+# must suppress a detector result whose underlying data is older than the vertical's
+# tolerance, so a frozen source goes quiet instead of asserting stale data as current.
+
+
+def test_is_stale_helper():
+    today = date(2026, 7, 2)
+    assert is_stale("2026-07-01", 3, today=today) is False   # 1 day old, within tolerance
+    assert is_stale("2026-06-24", 3, today=today) is True    # 8 days old, stale
+    assert is_stale("2026-07-02", 3, today=today) is False   # today
+    assert is_stale(None, 3, today=today) is True            # missing → treat as stale
+    assert is_stale("not-a-date", 3, today=today) is True    # unparseable → stale
+
+
+def test_run_all_detectors_suppresses_stale_data(db_session):
+    # A gas SIGNAL from a month ago must NOT surface as a current anomaly.
+    old = (date.today() - timedelta(days=30)).isoformat()
+    db_session.add(GasBalance(date=old, residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
+    db_session.commit()
+    run_all_detectors(db_session)
+    assert db_session.query(Alert).filter(Alert.vertical == "gas").count() == 0
+
+
+def test_run_all_detectors_emits_fresh_data(db_session):
+    # The same SIGNAL dated today must surface.
+    fresh = date.today().isoformat()
+    db_session.add(GasBalance(date=fresh, residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
+    db_session.commit()
+    run_all_detectors(db_session)
+    assert db_session.query(Alert).filter(Alert.rule == "gas_balance").count() == 1
+
+
+# ─── Dunkelflaute coverage guard ──────────────────────────────────────────────
+# ENTSO-E A75 generation is materially incomplete for some zones (notably NL),
+# which makes wind+solar look artificially tiny and fires FALSE Dunkelflaute
+# alerts. Renewable share is only trustworthy when reported generation covers a
+# plausible fraction of load — otherwise the detector must stay silent.
+
+
+def test_dunkelflaute_suppressed_on_incomplete_coverage(db_session):
+    d = date.today().isoformat()
+    # Load 10 GW, wind+solar ~1% → would flag. But the generation mix only reports
+    # ~4.8 GW total (<60% of load) → coverage too low to trust the share → suppress.
+    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60))
+    db_session.add(PowerGenMix(date=d, zone="NL", psr_type="Fossil Gas", gen_mw=3400))
+    db_session.add(PowerGenMix(date=d, zone="NL", psr_type="Hard Coal", gen_mw=1360))
+    db_session.commit()
+    assert detect_dunkelflaute(db_session) == []
+
+
+def test_dunkelflaute_suppressed_when_no_generation_mix(db_session):
+    # Grid present but no generation-mix rows at all → cannot validate coverage → suppress.
+    d = date.today().isoformat()
+    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60))
+    db_session.commit()
+    assert detect_dunkelflaute(db_session) == []

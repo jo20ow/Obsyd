@@ -1,12 +1,12 @@
-# OBSYD — Open dashboard for public energy data
+# OBSYD — European power desk on the official record
 
-**One dashboard for AIS vessel tracking, chokepoint transits, EIA fundamentals, FRED macro, and 9 other public energy data sources.**
+**One desk for European power: day-ahead prices, residual load & Dunkelflaute, spark spreads and cross-border flows for DE-LU, FR and NL — from ENTSO-E and Fraunhofer Energy-Charts.**
 
 [Live Demo](https://obsyd.dev) · [Free & open source](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
-OBSYD aggregates 13 free, public data sources into one auditable dashboard — live AIS vessel positions, IMF PortWatch chokepoint transits, EIA inventories, FRED macro, GDELT news volume, and more. Every rule, threshold, and correlation runs in code you can read on GitHub. No proprietary scoring, no black-box ML, no "trust us".
+OBSYD turns the official European power record into one auditable desk: a descriptive situation top-line (calm / elevated / stressed) over day-ahead price, residual load, spark spread and cross-border flows, plus a live anomaly radar that flags negative prices, Dunkelflaute and day-ahead deviations the moment they break from a zone's own history. Behind the desk sits a broader engine of 13 free public sources (AIS, IMF PortWatch, EIA, FRED, USGS, World Bank, GDELT …) — reachable as the breadth behind the front door, never co-equal with it. Every rule, threshold, and correlation runs in code you can read on GitHub. No proprietary scoring, no black-box ML, no "trust us".
 
-OBSYD is **not** a Bloomberg or Kpler replacement — it doesn't have proprietary cargo, owner, or charter data, and PortWatch publishes with a 3–5 day lag. It is a way to stop wiring up 13 APIs by hand and to see the public data side-by-side, with the signal code open for audit.
+OBSYD is **not** a Montel, EEX, or Bloomberg replacement — no intraday, settlement-grade, or pan-EU-complete pricing. It is a way to stop wiring up a dozen APIs by hand and to read the European power situation from the official record, with the signal code open for audit.
 
 ![OBSYD Dashboard](docs/screenshot.png)
 
@@ -15,7 +15,7 @@ OBSYD is **not** a Bloomberg or Kpler replacement — it doesn't have proprietar
 OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid tier. Two ways to use it:
 
 - **Self-host (free):** Clone the repo, plug in your own API keys, run on your own infra. Full feature set, no usage limits.
-- **Cloud (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). The full dashboard, anomaly radar, and critical-materials view need no account. Personal features (your watchlist, custom alerts, daily brief) just need a free magic-link login — no card, no payment.
+- **Cloud (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). The full power desk, anomaly radar, and market data need no account. Personal features (your watchlist, custom alerts, daily brief) just need a free magic-link login — no card, no payment.
 
 ## Features
 
