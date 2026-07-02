@@ -49,6 +49,7 @@ import TerminalBar from './components/TerminalBar'
 import CryptoPanel from './components/CryptoPanel'
 import RatesPanel from './components/RatesPanel'
 import FilingsPanel from './components/FilingsPanel'
+import EconPanel from './components/EconPanel'
 import { useAuth } from './context/AuthContext'
 
 // Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
@@ -80,6 +81,7 @@ const TABS = [
   { key: 'crypto', label: 'CRYPTO' },
   { key: 'rates', label: 'RATES' },
   { key: 'filings', label: 'FILINGS' },
+  { key: 'econ', label: 'ECON' },
   { key: 'atlas', label: 'ATLAS' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
@@ -619,6 +621,13 @@ function Dashboard() {
         {activeTab === 'filings' && (
           <ErrorBoundary name="filings">
             <FilingsPanel />
+          </ErrorBoundary>
+        )}
+
+        {/* ECON TAB — upcoming US macro release calendar (FRED, free) */}
+        {activeTab === 'econ' && (
+          <ErrorBoundary name="econ">
+            <EconPanel />
           </ErrorBoundary>
         )}
 
