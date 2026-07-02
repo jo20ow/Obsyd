@@ -36,6 +36,7 @@ from backend.routes.briefing import _build_briefing
 from backend.routes.power import load_power_situation
 from backend.signals.crack_spread import get_crack_spread
 from backend.signals.tonnage_proxy import compute_rerouting_index
+from backend.situation.physical import build_physical_situation
 
 logger = logging.getLogger(__name__)
 
@@ -114,10 +115,9 @@ async def send_daily_email():
         rerouting = compute_rerouting_index(days=365)
         crack = await get_crack_spread()
         email_data = _gather_email_data(db, crack)
-        power_sits = email_data.get("power_situations") or []
-        de_lu = next((s for s in power_sits if s and s.get("zone") == "DE_LU"), None)
-        power_state = de_lu.get("state") if de_lu else None
-        subject = _build_subject_line(briefing, rerouting, crack, power_state=power_state)
+        physical = email_data.get("physical_situation") or {}
+        overall_state = physical.get("overall") if physical.get("available") else None
+        subject = _build_subject_line(briefing, rerouting, crack, physical_state=overall_state)
         html_template = _build_full_html(briefing, rerouting, crack, email_data)
 
         sent = 0
@@ -224,13 +224,13 @@ def _pct(val, fallback="---"):
     return f"{sign}{val:.1f}%"
 
 
-def _build_subject_line(briefing: dict, rerouting: dict, crack: dict, power_state: str | None = None) -> str:
+def _build_subject_line(briefing: dict, rerouting: dict, crack: dict, physical_state: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     parts = [f"OBSYD Daily -- {now.strftime('%d %b')}"]
 
-    # European Power Desk is the front door — surface a non-calm power state first.
-    if power_state and power_state != "CALM":
-        parts.append(f"Power {power_state}")
+    # The physical energy system is the front door — surface a non-calm overall state first.
+    if physical_state and physical_state != "CALM":
+        parts.append(f"Energy {physical_state}")
 
     market = briefing.get("market_snapshot", {})
     wti = market.get("wti", {})
@@ -299,6 +299,11 @@ def _gather_email_data(db, crack: dict) -> dict:
         data["power_situations"] = [load_power_situation(db, z) for z in POWER_ZONES]
     except Exception as e:
         logger.warning("Email power situations failed: %s", e)
+
+    try:
+        data["physical_situation"] = build_physical_situation(db)
+    except Exception as e:
+        logger.warning("Email physical situation failed: %s", e)
 
     return data
 
@@ -527,6 +532,55 @@ _DIVIDER = f'<div style="border-top:1px solid {_BORDER};margin:20px 0"></div>'
 _POWER_STATE_COLOR = {"CALM": _GREEN, "ELEVATED": _AMBER, "STRESSED": _RED}
 
 
+def _fmt_signed_pct(v) -> str:
+    return "--" if v is None else f"{'+' if v > 0 else ''}{v:.1f}%"
+
+
+def _build_physical_block(situation: dict | None) -> str:
+    """Lead the brief with the whole physical energy system: oil + gas + power in one
+    summary, each with its state and (where anomalous) the honest price context."""
+    if not situation or not situation.get("available"):
+        return ""
+    overall = situation.get("overall", "CALM")
+    ocolor = _POWER_STATE_COLOR.get(overall, _MUTED)
+    domains = situation.get("domains") or {}
+    rows = []
+    for k in ("oil", "gas", "power"):
+        d = domains.get(k)
+        if not d or not d.get("available"):
+            continue
+        state = d.get("state", "CALM")
+        color = _POWER_STATE_COLOR.get(state, _MUTED)
+        rows.append(
+            "<tr>"
+            f'<td style="padding:4px 10px 4px 0;white-space:nowrap;font-weight:700;color:{_TEXT}">{d.get("label", k)}</td>'
+            f'<td style="padding:4px 10px 4px 0;white-space:nowrap;font-weight:700;color:{color}">{state}</td>'
+            f'<td style="padding:4px 0;color:{_MUTED};font-size:13px">{d.get("headline", "")}</td>'
+            "</tr>"
+        )
+        ctx = d.get("context")
+        if ctx:
+            txt = (
+                f'&#8627; last {ctx["n"]} {ctx["event_label"]} &rarr; {ctx["price_label"]} '
+                f'{_fmt_signed_pct(ctx.get("median_30d_pct"))} @30d '
+                f'({_fmt_signed_pct(ctx.get("median_7d_pct"))} @7d) &middot; not a forecast'
+            )
+            rows.append(
+                f'<tr><td></td><td></td><td style="padding:0 0 6px 0;color:{_MUTED};font-size:12px">{txt}</td></tr>'
+            )
+    if not rows:
+        return ""
+    return (
+        _DIVIDER
+        + '<div style="font-size:12px;color:' + _MUTED
+        + ';text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">'
+        + f'Physical Energy System &mdash; <span style="color:{ocolor};font-weight:700">{overall}</span></div>'
+        + f'<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:{_FONT}">'
+        + "".join(rows)
+        + "</table>"
+    )
+
+
 def _build_power_block(situations: list[dict] | None) -> str:
     """Render the per-zone power situation (DE-LU/FR/NL) as the brief's lead block."""
     if not situations:
@@ -635,7 +689,10 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
 
     futures_line = f"Futures: {futures_str}{crack_str}"
 
-    # ── European Power Desk (front door → leads the brief body) ──
+    # ── Physical energy system (the unified front-door summary → leads the body) ──
+    physical_html = _build_physical_block(data.get("physical_situation"))
+
+    # ── European Power Desk (per-zone power detail, below the unified summary) ──
     power_html = _build_power_block(data.get("power_situations"))
 
     # ── Disruption section ──
@@ -816,6 +873,8 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
 {price_rows}
 </table>
 <div style="font-size:13px;color:{_MUTED};line-height:1.5">{futures_line}</div>
+
+{physical_html}
 
 {power_html}
 

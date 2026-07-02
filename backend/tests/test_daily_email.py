@@ -68,3 +68,45 @@ def test_watch_block_zone_no_anomaly(db_session):
     html = _build_watch_block(db_session, email)
     assert "Strait of Malacca" in html
     assert "no anomaly flagged" in html
+
+
+# ── Physical energy system block + subject (the unified brief lead) ──
+
+def test_build_physical_block_renders_states_and_context():
+    from backend.notifications.daily_email import _build_physical_block
+
+    situation = {
+        "available": True,
+        "overall": "STRESSED",
+        "domains": {
+            "oil": {
+                "available": True, "state": "STRESSED", "label": "Oil",
+                "headline": "Strait of Hormuz: -76% drop",
+                "context": {"n": 17, "price_label": "Brent", "event_label": "Strait of Hormuz transit drops",
+                            "median_7d_pct": 0.5, "median_30d_pct": -2.4},
+            },
+            "gas": {"available": True, "state": "CALM", "label": "Gas", "headline": "EU gas balance within normal range."},
+            "power": {"available": True, "state": "ELEVATED", "label": "Power", "headline": "DE-LU day-ahead ..."},
+        },
+    }
+    html = _build_physical_block(situation)
+    assert "Physical Energy System" in html
+    assert "STRESSED" in html and "ELEVATED" in html
+    assert "Strait of Hormuz: -76% drop" in html
+    assert "Brent" in html and "not a forecast" in html
+
+
+def test_build_physical_block_empty_when_unavailable():
+    from backend.notifications.daily_email import _build_physical_block
+
+    assert _build_physical_block(None) == ""
+    assert _build_physical_block({"available": False}) == ""
+
+
+def test_subject_line_leads_with_overall_energy_state():
+    from backend.notifications.daily_email import _build_subject_line
+
+    s = _build_subject_line({}, {}, {}, physical_state="STRESSED")
+    assert "Energy STRESSED" in s
+    calm = _build_subject_line({}, {}, {}, physical_state="CALM")
+    assert "Energy" not in calm  # CALM is not surfaced
