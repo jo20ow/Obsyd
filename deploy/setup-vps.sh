@@ -49,16 +49,27 @@ nginx -t
 systemctl reload nginx
 echo "nginx configured and reloaded"
 
-# 6. Health-check cron
+# 6. Health-check cron (+ optional off-box liveness ping)
+# On success, ping HEALTHCHECKS_URL if set (an off-box dead-man's-switch so an
+# external monitor notices when the whole VPS/cron dies — the on-box restart
+# below can't). Set the URL by editing the crontab env line after creating a
+# check at healthchecks.io / UptimeRobot; empty = no-op.
 echo "[6/7] Installing health-check cron..."
-(crontab -l 2>/dev/null | grep -v obsyd; echo "*/5 * * * * curl -sf http://127.0.0.1:8000/health > /dev/null || systemctl restart obsyd") | crontab -
-echo "Cron health-check installed"
+(crontab -l 2>/dev/null | grep -v obsyd | grep -v '^HEALTHCHECKS_URL='; \
+ echo 'HEALTHCHECKS_URL='; \
+ echo '*/5 * * * * if curl -sf http://127.0.0.1:8000/health >/dev/null; then [ -n "$HEALTHCHECKS_URL" ] && curl -fsS -m 10 --retry 2 "$HEALTHCHECKS_URL" >/dev/null 2>&1; else systemctl restart obsyd; fi') | crontab -
+echo "Cron health-check installed (set HEALTHCHECKS_URL in root crontab to enable off-box ping)"
 
 # 7. Daily DB backup cron (as obsyd user; offsite target via OBSYD_BACKUP_REMOTE)
+# backup-db.sh rsyncs offsite only when OBSYD_BACKUP_REMOTE is set (else backups
+# stay on the same disk as the live DB — a disk loss then loses both). Fill in the
+# crontab env line with e.g. "user@host:/srv/obsyd-backups/" after adding an SSH key.
 echo "[7/7] Installing daily backup cron..."
 chmod +x /home/obsyd/obsyd/deploy/backup-db.sh
-sudo -u obsyd bash -c '(crontab -l 2>/dev/null | grep -v backup-db.sh; echo "30 3 * * * /home/obsyd/obsyd/deploy/backup-db.sh >> /home/obsyd/backups/backup.log 2>&1") | crontab -'
-echo "Daily backup cron installed (03:30, retention 14 days)"
+sudo -u obsyd bash -c '(crontab -l 2>/dev/null | grep -v backup-db.sh | grep -v "^OBSYD_BACKUP_REMOTE="; \
+  echo "OBSYD_BACKUP_REMOTE="; \
+  echo "30 3 * * * /home/obsyd/obsyd/deploy/backup-db.sh >> /home/obsyd/backups/backup.log 2>&1") | crontab -'
+echo "Daily backup cron installed (03:30, retention 14 days; set OBSYD_BACKUP_REMOTE for offsite)"
 
 echo ""
 echo "=== VPS base setup complete ==="
