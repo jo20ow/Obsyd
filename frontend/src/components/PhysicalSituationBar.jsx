@@ -65,18 +65,17 @@ export default function PhysicalSituationBar({ onNavigate }) {
           )
         })}
       </div>
-      {data.domains?.oil?.context && (() => {
-        const ctx = data.domains.oil.context
-        const cp = (data.domains.oil.headline || '').split(':')[0] || 'chokepoint'
+      {ORDER.filter((k) => data.domains?.[k]?.context).map((k) => {
+        const ctx = data.domains[k].context
         return (
-          <div className="px-3 py-1.5 font-mono text-[10px] text-neutral-400 leading-snug border-t border-border/60">
-            <span className="text-neutral-500">↳ context:</span> last {ctx.n} comparable {cp} drops → Brent{' '}
-            <span className="text-neutral-200">{fmtPct(ctx.brent_median_30d_pct)}</span> @30d (
-            {fmtPct(ctx.brent_median_7d_pct)} @7d)
+          <div key={k} className="px-3 py-1.5 font-mono text-[10px] text-neutral-400 leading-snug border-t border-border/60">
+            <span className="text-neutral-500">↳ context:</span> last {ctx.n} {ctx.event_label} → {ctx.price_label}{' '}
+            <span className="text-neutral-200">{fmtPct(ctx.median_30d_pct)}</span> @30d (
+            {fmtPct(ctx.median_7d_pct)} @7d)
             <span className="text-neutral-600"> · co-movement, not a forecast</span>
           </div>
         )
-      })()}
+      })}
 
       <div className="px-3 py-1 font-mono text-[8px] text-neutral-700 border-t border-border/40">
         Deviation vs each domain&apos;s own history — descriptive, not a forecast.

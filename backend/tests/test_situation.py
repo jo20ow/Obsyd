@@ -56,8 +56,8 @@ def test_chokepoint_price_context_summarizes_forward_brent(monkeypatch):
     monkeypatch.setattr("backend.signals.historical_lookup.find_anomalies", fake_find)
     ctx = physical.chokepoint_price_context("hormuz")
     assert ctx["n"] == 3
-    assert ctx["brent_median_7d_pct"] == 4.0
-    assert ctx["brent_median_30d_pct"] == 5.0
+    assert ctx["median_7d_pct"] == 4.0
+    assert ctx["median_30d_pct"] == 5.0
 
 
 def test_chokepoint_price_context_none_without_events(monkeypatch):
@@ -68,6 +68,29 @@ def test_chokepoint_price_context_none_without_events(monkeypatch):
         lambda *a, **k: {"anomalies": []},
     )
     assert physical.chokepoint_price_context("hormuz") is None
+
+
+def test_gas_balance_price_context_from_seeded_db(db_session):
+    from backend.models.energy import EnergyPrice
+    from backend.models.gas import GasBalance
+    from backend.situation import physical
+
+    for d, c in [("2025-01-01", 30.0), ("2025-01-08", 33.0), ("2025-01-31", 27.0)]:
+        db_session.add(EnergyPrice(date=d, symbol="TTF", close=c))
+    db_session.add(GasBalance(date="2024-12-31", flag=None))
+    db_session.add(GasBalance(date="2025-01-01", flag="SIGNAL:supply↑"))  # onset
+    db_session.commit()
+
+    ctx = physical.gas_balance_price_context(db_session)
+    assert ctx["n"] == 1
+    assert ctx["median_7d_pct"] == 10.0   # 30 → 33
+    assert ctx["median_30d_pct"] == -10.0  # 30 → 27
+
+
+def test_gas_balance_price_context_none_without_ttf(db_session):
+    from backend.situation import physical
+
+    assert physical.gas_balance_price_context(db_session) is None  # empty DB → no TTF
 
 
 def test_situation_endpoint_envelope(db_session):

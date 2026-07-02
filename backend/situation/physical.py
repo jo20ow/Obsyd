@@ -42,10 +42,23 @@ def _median(xs: list[float]) -> float | None:
     return s[m] if len(s) % 2 else round((s[m - 1] + s[m]) / 2, 1)
 
 
+def _summary(d7: list[float], d30: list[float]) -> dict | None:
+    """Common context shape: median forward move at +7d/+30d + sample size. Generic
+    across domains (oil→Brent, gas→TTF) so the frontend renders one uniform line."""
+    n = max(len(d7), len(d30))
+    if n == 0:
+        return None
+    return {
+        "n": n,
+        "median_7d_pct": _median(d7),
+        "median_30d_pct": _median(d30),
+        "note": "historical co-movement over a small sample — not a forecast",
+    }
+
+
 def chokepoint_price_context(chokepoint: str) -> dict | None:
     """Honest historical analog for a chokepoint transit drop: how Brent moved after
-    comparable past drops (median of +7d / +30d changes). Descriptive co-movement over
-    a small sample — NOT a forecast. Reuses signals.historical_lookup.find_anomalies."""
+    comparable past drops. Reuses signals.historical_lookup.find_anomalies."""
     try:
         from backend.signals.historical_lookup import find_anomalies
 
@@ -55,15 +68,36 @@ def chokepoint_price_context(chokepoint: str) -> dict | None:
     events = res.get("anomalies") or []
     d7 = [e["brent_change_7d_pct"] for e in events if e.get("brent_change_7d_pct") is not None]
     d30 = [e["brent_change_30d_pct"] for e in events if e.get("brent_change_30d_pct") is not None]
-    n = max(len(d7), len(d30))
-    if n == 0:
+    return _summary(d7, d30)
+
+
+def gas_balance_price_context(db: Session) -> dict | None:
+    """Honest historical analog for a gas-balance SIGNAL: how TTF moved after past
+    SIGNAL onsets. Same shape as the oil context. Pure local DB read."""
+    from backend.models.energy import EnergyPrice
+    from backend.models.gas import GasBalance
+    from backend.signals.historical_lookup import _find_nearest_price
+
+    ttf = {r.date: r.close for r in db.query(EnergyPrice).filter(EnergyPrice.symbol == "TTF").all()}
+    if not ttf:
         return None
-    return {
-        "n": n,
-        "brent_median_7d_pct": _median(d7),
-        "brent_median_30d_pct": _median(d30),
-        "note": "historical co-movement after comparable transit drops — small sample, not a forecast",
-    }
+    rows = db.query(GasBalance).order_by(GasBalance.date.asc()).all()
+    d7: list[float] = []
+    d30: list[float] = []
+    prev_signal = False
+    for r in rows:
+        is_signal = bool(r.flag) and r.flag.startswith("SIGNAL")
+        if is_signal and not prev_signal:  # onset only — don't double-count a run
+            base = _find_nearest_price(ttf, r.date, direction=-1)
+            if base:
+                a7 = _find_nearest_price(ttf, r.date, direction=1, offset_days=7)
+                a30 = _find_nearest_price(ttf, r.date, direction=1, offset_days=30)
+                if a7:
+                    d7.append(round((a7 - base) / base * 100, 1))
+                if a30:
+                    d30.append(round((a30 - base) / base * 100, 1))
+        prev_signal = is_signal
+    return _summary(d7, d30)
 
 
 def _oil_domain(db: Session) -> dict:
@@ -87,7 +121,8 @@ def _oil_domain(db: Session) -> dict:
     if getattr(worst, "rule", "") == "chokepoint_anomaly" and worst.zone:
         ctx = chokepoint_price_context(worst.zone)
         if ctx:
-            out["context"] = ctx
+            cp = (worst.title or "").split(":")[0].strip() or "chokepoint"
+            out["context"] = {**ctx, "price_label": "Brent", "event_label": f"{cp} transit drops"}
     return out
 
 
@@ -108,8 +143,12 @@ def _gas_domain(db: Session, today: _date) -> dict:
     flagged = detect_gas_balance(db)
     if flagged:
         r = flagged[0]
-        return {**base, "available": True, "state": _state_from_severity(r.severity),
-                "headline": r.title, "detail": r.detail, "as_of": as_of, "stale": stale}
+        out = {**base, "available": True, "state": _state_from_severity(r.severity),
+               "headline": r.title, "detail": r.detail, "as_of": as_of, "stale": stale}
+        ctx = gas_balance_price_context(db)
+        if ctx:
+            out["context"] = {**ctx, "price_label": "TTF", "event_label": "EU gas-balance SIGNALs"}
+        return out
     return {**base, "available": True, "state": "CALM",
             "headline": "EU gas balance within normal range.", "as_of": as_of, "stale": stale}
 
