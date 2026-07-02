@@ -22,12 +22,23 @@ FRED_SERIES = {
     "DTWEXBGS": {
         "description": "Trade Weighted US Dollar Index (Broad)",  # DXY proxy
     },
+    # US Treasury constant-maturity yield curve (daily). The full tenor set powers
+    # the RATES yield-curve view; DGS10/DGS2 also feed the macro panel + T10Y2Y spread.
+    "DGS1MO": {"description": "1-Month Treasury Constant Maturity Rate"},
+    "DGS3MO": {"description": "3-Month Treasury Constant Maturity Rate"},
+    "DGS6MO": {"description": "6-Month Treasury Constant Maturity Rate"},
+    "DGS1": {"description": "1-Year Treasury Constant Maturity Rate"},
     "DGS10": {
         "description": "10-Year Treasury Constant Maturity Rate",
     },
     "DGS2": {
         "description": "2-Year Treasury Constant Maturity Rate",
     },
+    "DGS3": {"description": "3-Year Treasury Constant Maturity Rate"},
+    "DGS5": {"description": "5-Year Treasury Constant Maturity Rate"},
+    "DGS7": {"description": "7-Year Treasury Constant Maturity Rate"},
+    "DGS20": {"description": "20-Year Treasury Constant Maturity Rate"},
+    "DGS30": {"description": "30-Year Treasury Constant Maturity Rate"},
     "T10Y2Y": {
         "description": "10-Year Treasury Minus 2-Year Treasury (Yield Curve)",
     },
