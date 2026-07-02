@@ -34,7 +34,15 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models.energy import EnergyPrice, PowerFlow, PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
+from backend.models.energy import (
+    EnergyPrice,
+    PowerFlow,
+    PowerGenMix,
+    PowerGrid,
+    PowerLoadForecast,
+    PowerPriceDaily,
+    SparkSpreadHistory,
+)
 from backend.power.coverage import renewable_share_reliable
 from backend.power.energy_charts_flows import ATTRIBUTION
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
@@ -360,6 +368,68 @@ async def get_grid(
         "dunkelflaute_days": dunkelflaute_days,
         "from": date_from,
         "to": date_to,
+        "data": data,
+    }
+
+
+@router.get("/load-forecast")
+async def get_load_forecast(
+    days: int = Query(30, ge=1, le=365),
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
+    db: Session = Depends(get_db),
+):
+    """ENTSO-E day-ahead total-load forecast vs actual (daily mean MW). The trailing
+    rows carry a forecast error; the newest row(s) with a forecast but no actual yet
+    are the forward view (tomorrow's expected demand). Descriptive, not a price call."""
+    resolved_zone = _resolve_zone(zone)
+    date_from, _ = _window(days)
+
+    fc_rows = (
+        db.query(PowerLoadForecast)
+        .filter(PowerLoadForecast.zone == resolved_zone, PowerLoadForecast.date >= date_from)
+        .order_by(PowerLoadForecast.date.asc())
+        .all()
+    )
+    if not fc_rows:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"No load forecast for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
+        }
+
+    actual = {
+        r.date: r.load_mw
+        for r in db.query(PowerGrid)
+        .filter(PowerGrid.zone == resolved_zone, PowerGrid.date >= date_from)
+        .all()
+    }
+
+    data = []
+    for r in fc_rows:
+        a = actual.get(r.date)
+        err = round(a - r.forecast_mw, 2) if a is not None else None
+        err_pct = round((a - r.forecast_mw) / r.forecast_mw * 100, 2) if a is not None and r.forecast_mw else None
+        data.append({
+            "date": r.date,
+            "forecast_mw": r.forecast_mw,
+            "actual_mw": a,
+            "error_mw": err,
+            "error_pct": err_pct,
+        })
+
+    forward = [d for d in data if d["actual_mw"] is None]  # forecast without actual yet = tomorrow
+    errs = [abs(d["error_pct"]) for d in data if d["error_pct"] is not None]
+    mape = round(sum(errs) / len(errs), 1) if errs else None
+
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "unit": "MW",
+        "mape_pct": mape,  # mean absolute % forecast error over days with an actual
+        "forward": forward,
+        "from": date_from,
         "data": data,
     }
 

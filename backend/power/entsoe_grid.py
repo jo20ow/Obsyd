@@ -196,6 +196,7 @@ async def _fetch_zone_month(
     extra_params: dict,
     *,
     overwrite: bool = False,
+    cache_source: str | None = None,
 ) -> str:
     """Fetch one zone's XML for a calendar month (raw XML, cached).
 
@@ -211,7 +212,10 @@ async def _fetch_zone_month(
     period_start = f"{month_start:%Y%m%d}0000"
     period_end = f"{nxt:%Y%m%d}0000"
 
-    cache_source = "entsoe_load" if doctype == "A65" else "entsoe_genmix"
+    # A65 covers BOTH actual load (processType A16) and the day-ahead forecast (A01);
+    # callers must pass a distinct cache_source for the forecast so the two don't collide.
+    if cache_source is None:
+        cache_source = "entsoe_load" if doctype == "A65" else "entsoe_genmix"
     cache_key = f"{eic}_{month_start:%Y-%m}"
 
     async def _do() -> dict:
@@ -234,6 +238,68 @@ async def _fetch_zone_month(
 
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
+
+
+async def ingest_load_forecast(
+    db: Session,
+    days: list[str],
+    *,
+    eic: str = DE_LU_EIC,
+    zone: str = "DE_LU",
+    overwrite: bool = False,
+) -> dict:
+    """Fetch the ENTSO-E day-ahead total-load FORECAST (A65, processType A01) for the
+    month(s) spanning `days` and upsert daily-mean MW into PowerLoadForecast.
+
+    Same document type + parser as actual load — only processType differs (A01 vs A16).
+    The A01 series extends to the last published day-ahead day (tomorrow), which is why
+    `days` should include the +1 frontier. Returns {"days","written"} or a skip marker.
+    """
+    from backend.models.energy import PowerLoadForecast
+
+    if not days:
+        return {"days": 0, "written": 0}
+    if not settings.entsoe_api_token:
+        logger.warning("entsoe_grid.ingest_load_forecast: ENTSOE_API_TOKEN not set — skipping")
+        return {"skipped": "no token"}
+
+    wanted = set(days)
+    months = sorted({datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days})
+
+    fc_by_day: dict[str, float] = {}
+    for month_start in months:
+        try:
+            xml = await _fetch_zone_month(
+                eic,
+                month_start,
+                "A65",
+                {"processType": "A01", "outBiddingZone_Domain": eic},
+                overwrite=overwrite,
+                cache_source="entsoe_load_forecast",
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("entsoe_grid: A65/A01 %s fetch failed: %s", month_start, exc)
+            xml = ""
+        if xml:
+            for day, mean_mw in parse_load(xml).items():
+                if day in wanted:
+                    fc_by_day[day] = mean_mw
+
+    written = 0
+    for day, mw in fc_by_day.items():
+        row = (
+            db.query(PowerLoadForecast)
+            .filter(PowerLoadForecast.date == day, PowerLoadForecast.zone == zone)
+            .first()
+        )
+        if row is None:
+            db.add(PowerLoadForecast(date=day, zone=zone, forecast_mw=round(mw, 2)))
+            written += 1
+        elif overwrite:
+            row.forecast_mw = round(mw, 2)
+            written += 1
+    db.commit()
+    return {"days": len(fc_by_day), "written": written}
 
 
 async def ingest_grid(

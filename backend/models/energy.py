@@ -34,6 +34,25 @@ class EnergyPrice(Base):
     __table_args__ = (UniqueConstraint("date", "symbol", name="uq_energy_price_date_symbol"),)
 
 
+class PowerLoadForecast(Base):
+    """ENTSO-E day-ahead total-load FORECAST (A65, processType A01), daily mean MW.
+
+    Kept in its own table — NOT in PowerGrid — so future-dated forecast rows (e.g.
+    tomorrow's D+1 forecast) never leak into the actual-based situation / Dunkelflaute
+    computations, which read PowerGrid. Forecast-vs-actual is joined at read time.
+    """
+
+    __tablename__ = "power_load_forecast"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)   # YYYY-MM-DD
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)   # e.g. "DE_LU"
+    forecast_mw: Mapped[float] = mapped_column(Float, nullable=False)       # day-ahead load forecast, daily mean MW
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("date", "zone", name="uq_power_load_forecast_date_zone"),)
+
+
 class SparkSpreadHistory(Base):
     """Daily spark spread: power − gas × heat_rate (EUR/MWh).
 

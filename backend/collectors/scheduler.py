@@ -173,7 +173,7 @@ async def _run_power_daily():
     Then:
       (c) Recompute SparkSpreadHistory — DE-LU only (no zone column; intentional).
     """
-    from backend.power.entsoe_grid import ingest_grid
+    from backend.power.entsoe_grid import ingest_grid, ingest_load_forecast
     from backend.power.entsoe_prices import ingest_day_ahead
     from backend.power.zones import POWER_ZONES
 
@@ -204,6 +204,12 @@ async def _run_power_daily():
                 logger.info("power daily grid ingest [%s]: %s", zone_key, result)
             except Exception as exc:
                 logger.error("power daily ingest_grid [%s] failed: %s", zone_key, exc)
+
+            try:
+                result = await ingest_load_forecast(db, days, eic=zone_cfg["eic"], zone=zone_key, overwrite=True)
+                logger.info("power daily load-forecast ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_load_forecast [%s] failed: %s", zone_key, exc)
 
         # Cross-border physical flows (Energy-Charts CBPF, CC BY 4.0).
         try:

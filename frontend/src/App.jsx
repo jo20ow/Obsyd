@@ -35,6 +35,7 @@ import GasSupplyPanel from './components/GasSupplyPanel'
 import GasDemandPanel from './components/GasDemandPanel'
 import PowerDayAheadPanel from './components/PowerDayAheadPanel'
 import PowerGridPanel from './components/PowerGridPanel'
+import PowerLoadForecastPanel from './components/PowerLoadForecastPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
@@ -573,6 +574,13 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="power-grid">
                 <PowerGridPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 2b: Day-ahead load forecast vs actual + tomorrow (forward-looking) */}
+            <div className="mt-3">
+              <ErrorBoundary name="power-load-forecast">
+                <PowerLoadForecastPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
 
