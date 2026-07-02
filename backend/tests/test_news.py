@@ -1,10 +1,13 @@
 """Cross-asset news reader: pure parse + endpoints (no network)."""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.news import gdelt_news
 from backend.news.gdelt_news import parse_articles
 from backend.routes import news as news_routes
 
@@ -60,3 +63,32 @@ def test_feed_freetext_query(client, monkeypatch):
     monkeypatch.setattr(news_routes, "get_feed", fake_feed)
     body = client.get("/api/news/feed?q=lithium supply").json()
     assert body["available"] is True and seen["q"] == "lithium supply"
+
+
+def test_get_feed_never_caches_empty_serves_stale(monkeypatch):
+    """A transient empty/failed fetch (e.g. GDELT 429) must not poison the cache —
+    the feed keeps serving the last good result instead of going blank."""
+    gdelt_news._cache.clear()
+    monkeypatch.setattr(gdelt_news, "_MIN_INTERVAL", 0.0)  # no real sleeps in tests
+
+    calls = {"n": 0}
+
+    async def fake_fetch(query, max_records, timespan):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [{"url": "https://x.com/1", "title": "First", "domain": "x.com", "seendate": "20260702T120000Z"}]
+        return []  # subsequent fetches come back empty (rate-limited / transient)
+
+    monkeypatch.setattr(gdelt_news, "_fetch", fake_fetch)
+
+    first = asyncio.run(gdelt_news.get_feed("q", timespan="3d", max_records=25))
+    assert len(first) == 1
+
+    # Expire the TTL so the next call actually re-fetches (and gets empty).
+    key = "q|3d|25"
+    ts, data = gdelt_news._cache[key]
+    gdelt_news._cache[key] = (ts - gdelt_news._TTL - 1, data)
+
+    second = asyncio.run(gdelt_news.get_feed("q", timespan="3d", max_records=25))
+    assert len(second) == 1 and second[0]["url"] == "https://x.com/1"  # stale served, not empty
+    assert calls["n"] == 2  # it really did re-fetch

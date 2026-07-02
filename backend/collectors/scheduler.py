@@ -252,6 +252,16 @@ async def _run_edgar_tickers():
         db.close()
 
 
+async def _run_news():
+    """Pre-warm the cross-asset news topics (GDELT, rate-limited, cache-only)."""
+    from backend.news.gdelt_news import refresh_all_topics
+
+    try:
+        await refresh_all_topics()
+    except Exception as exc:
+        logger.error("news prewarm failed: %s", exc)
+
+
 async def _run_gas_registry_weekly():
     """Re-sync the ENTSOG point registry (operators rename/reclassify points)."""
     from backend.gas.entsog import sync_points
@@ -678,6 +688,14 @@ def start_scheduler():
         _run_edgar_tickers,
         CronTrigger(day_of_week="sun", hour=4, minute=20),
         id="edgar_tickers_weekly",
+        **JOB_DEFAULTS,
+    )
+
+    # Cross-asset news — pre-warm the topic feeds every 20 min (rate-limited).
+    scheduler.add_job(
+        _run_news,
+        CronTrigger(minute="*/20"),
+        id="news_prewarm_20min",
         **JOB_DEFAULTS,
     )
 

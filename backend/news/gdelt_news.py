@@ -8,6 +8,7 @@ cached, and fail-soft. Descriptive aggregation of public news — not our own re
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -31,6 +32,12 @@ _TOPIC_QUERY = {k: q for k, _label, q in TOPICS}
 
 _cache: dict[str, tuple[float, list]] = {}
 _TTL = 20 * 60  # 20 min
+
+# GDELT hard-limits to ~1 request / 5s per IP (429 otherwise). Serialize our calls
+# through a lock with a min interval so bursts (topic switching, prewarm) never 429.
+_lock = asyncio.Lock()
+_last_call = 0.0
+_MIN_INTERVAL = 5.5
 
 
 def _iso(seendate: str | None) -> str | None:
@@ -77,21 +84,48 @@ async def _fetch(query: str, max_records: int, timespan: str) -> list[dict]:
         return resp.json().get("articles", [])
 
 
+async def _rate_limited_fetch(query: str, max_records: int, timespan: str) -> list[dict]:
+    global _last_call
+    async with _lock:
+        wait = _MIN_INTERVAL - (time.monotonic() - _last_call)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        try:
+            return await _fetch(query, max_records, timespan)
+        finally:
+            _last_call = time.monotonic()
+
+
 async def get_feed(query: str, *, max_records: int = 25, timespan: str = "3d") -> list[dict]:
-    """Fetch + normalise a news feed for a GDELT query (cached ~20 min, fail-soft)."""
+    """News feed for a GDELT query. Serves fresh cache instantly; else fetches
+    (rate-limited). NEVER caches an empty/failed result — a transient 429 must not
+    poison the feed — and serves stale data over nothing."""
     now = time.monotonic()
     ckey = f"{query}|{timespan}|{max_records}"
     cached = _cache.get(ckey)
     if cached and now - cached[0] < _TTL:
         return cached[1]
     try:
-        raw = await _fetch(query, max_records, timespan)
+        raw = await _rate_limited_fetch(query, max_records, timespan)
     except Exception as exc:  # noqa: BLE001 — feed must never crash the route
         logger.warning("news: GDELT fetch failed: %s", exc)
-        return []
+        return cached[1] if cached else []
     data = parse_articles(raw, limit=max_records)
-    _cache[ckey] = (now, data)
-    return data
+    if data:
+        _cache[ckey] = (time.monotonic(), data)  # cache successes only
+        return data
+    return cached[1] if cached else []  # keep serving stale rather than empty
+
+
+async def refresh_all_topics() -> int:
+    """Pre-warm every curated topic into the cache (rate-limited). Background/scheduler."""
+    n = 0
+    for _k, _label, q in TOPICS:
+        arts = await get_feed(q)
+        if arts:
+            n += 1
+    logger.info("news: prewarmed %d/%d topics", n, len(TOPICS))
+    return n
 
 
 def query_for_topic(topic: str) -> str | None:
