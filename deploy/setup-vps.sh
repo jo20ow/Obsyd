@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# OBSYD VPS Setup Script
+# OBSYD VPS Setup Script — STANDALONE self-host path (single-tenant VPS).
+# Provisions a dedicated nginx + Let's Encrypt (certbot) reverse proxy in front of
+# the systemd service. This is a valid, self-contained way to self-host OBSYD.
+#
+# NOTE: the hosted deployment at obsyd.dev does NOT use this script — it runs
+# behind Caddy shared with another app (see deploy/install-caddy-integration.sh).
+# If you already run Caddy, skip the nginx steps here and use that integration
+# instead. Either reverse proxy works; pick one.
+#
 # Run as root on a fresh Ubuntu/Debian VPS
 #
 # Usage: ssh root@<VPS_IP> 'bash -s' < deploy/setup-vps.sh

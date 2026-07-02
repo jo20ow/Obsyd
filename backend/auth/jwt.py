@@ -40,13 +40,16 @@ def create_token(email: str, subscription_status: str = "free", expiry_days: int
 
 
 def create_magic_token(email: str) -> str:
-    """Short-lived token for magic link (15 minutes)."""
+    """Short-lived token for magic link (15 minutes). Carries a unique `jti` so
+    the verify path can enforce single-use (replay protection)."""
+    import secrets
     import time
 
     now = int(time.time())
     payload = {
         "email": email.lower(),
         "purpose": "magic_link",
+        "jti": secrets.token_urlsafe(12),
         "iat": now,
         "exp": now + 900,
     }

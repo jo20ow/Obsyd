@@ -39,7 +39,7 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 
 **Backend:** FastAPI · SQLAlchemy · SQLite (WAL mode) · APScheduler · Python 3.11+
 **Frontend:** React 19 · Vite · Tailwind CSS 4 · deck.gl · Recharts · Lightweight Charts
-**Deployment:** Ubuntu 24.04 · nginx · systemd · Let's Encrypt
+**Deployment:** Ubuntu 24.04 · systemd · a reverse proxy for TLS. Self-host: the included `deploy/setup-vps.sh` provisions a standalone nginx + Let's Encrypt (certbot). Hosted obsyd.dev runs behind Caddy (shared with another app) via `deploy/install-caddy-integration.sh` — use whichever proxy you prefer.
 
 ## Screenshots
 

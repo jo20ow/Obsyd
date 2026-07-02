@@ -18,6 +18,7 @@ from pydantic import BaseModel, field_validator
 from backend.auth.dependencies import get_current_user
 from backend.auth.jwt import create_magic_token, create_token, verify_token
 from backend.auth.ratelimit import allow, client_ip, magic_link_rules
+from backend.auth.single_use import consume
 from backend.auth.subscription_check import is_pro
 from backend.config import settings
 from backend.database import SessionLocal
@@ -118,6 +119,16 @@ async def verify_magic_link(token: str, response: Response):
     if payload.get("purpose") != "magic_link":
         return Response(
             content=_redirect_html("https://obsyd.dev?auth=invalid"),
+            media_type="text/html",
+        )
+
+    # Single-use: reject a replayed link. `jti` is present on all tokens minted
+    # after this shipped; legacy tokens (<=15 min post-deploy) lack it and are
+    # allowed through on signature+expiry alone.
+    jti = payload.get("jti")
+    if jti and not consume(jti, payload.get("exp", 0)):
+        return Response(
+            content=_redirect_html("https://obsyd.dev?auth=expired"),
             media_type="text/html",
         )
 
