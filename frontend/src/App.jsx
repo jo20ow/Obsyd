@@ -47,6 +47,7 @@ import BriefSubscribe from './components/BriefSubscribe'
 import CommandPalette from './components/CommandPalette'
 import TerminalBar from './components/TerminalBar'
 import CryptoPanel from './components/CryptoPanel'
+import RatesPanel from './components/RatesPanel'
 import { useAuth } from './context/AuthContext'
 
 // Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
@@ -76,6 +77,7 @@ const TABS = [
   { key: 'critical', label: 'CRITICAL' },
   { key: 'metals', label: 'METALS' },
   { key: 'crypto', label: 'CRYPTO' },
+  { key: 'rates', label: 'RATES' },
   { key: 'atlas', label: 'ATLAS' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
@@ -601,6 +603,13 @@ function Dashboard() {
         {activeTab === 'crypto' && (
           <ErrorBoundary name="crypto">
             <CryptoPanel />
+          </ErrorBoundary>
+        )}
+
+        {/* RATES TAB — US Treasury yield curve (FRED, free) */}
+        {activeTab === 'rates' && (
+          <ErrorBoundary name="rates">
+            <RatesPanel />
           </ErrorBoundary>
         )}
 
