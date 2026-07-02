@@ -21,6 +21,7 @@ from backend.models.analytics import (
     EIAPredictionHistory,
     MarketReport,
 )
+from backend.models.energy import EnergyPrice
 from backend.models.pro_features import (
     EmailSubscriber,
     EquitySnapshot,
@@ -463,6 +464,19 @@ def _build_watch_block(db, email: str) -> str:
                 lines.append(f"{it.label} &middot; {alert.title}")
             else:
                 lines.append(f"{it.label} &middot; no anomaly flagged")
+        elif it.kind == "symbol":
+            # Latest stored close if we persist this symbol (TTF/COPPER/POWER_DE);
+            # otherwise just surface the item so it isn't silently dropped.
+            row = (
+                db.query(EnergyPrice)
+                .filter(EnergyPrice.symbol == it.key)
+                .order_by(EnergyPrice.date.desc())
+                .first()
+            )
+            if row is not None and row.close is not None:
+                lines.append(f"{it.label} &middot; {row.close:.2f}")
+            else:
+                lines.append(f"{it.label} &middot; on your watchlist")
 
     if not lines:
         return ""

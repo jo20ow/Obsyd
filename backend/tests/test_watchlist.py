@@ -87,6 +87,34 @@ def test_invalid_key_rejected(client, db_session):
     )
 
 
+def test_catalog_includes_symbols(client):
+    # Cross-asset: commodity/price symbols are watchable alongside materials + zones.
+    data = client.get("/api/watchlist/catalog").json()
+    assert "symbol" in data
+    keys = {s["key"] for s in data["symbol"]}
+    assert {"TTF", "BRENT", "COPPER", "POWER_DE"} <= keys
+
+
+def test_add_symbol_item(client, db_session):
+    ck = _login_cookie("sym@obsyd.dev")
+    r = client.post("/api/watchlist", json={"kind": "symbol", "key": "TTF"}, cookies=ck)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "symbol" and body["key"] == "TTF" and body["label"]
+    # unknown symbol still rejected by the generic validator
+    assert client.post("/api/watchlist", json={"kind": "symbol", "key": "NOPE"}, cookies=ck).status_code == 422
+
+
+def test_watch_block_renders_symbol_item(db_session):
+    from backend.models.watchlist import WatchlistItem
+    from backend.notifications.daily_email import _build_watch_block
+
+    db_session.add(WatchlistItem(email="s@obsyd.dev", kind="symbol", key="TTF", label="TTF Gas Europe (TTF=F)"))
+    db_session.commit()
+    html = _build_watch_block(db_session, "s@obsyd.dev")
+    assert "TTF" in html  # symbol items are no longer silently skipped
+
+
 def test_watchlist_is_per_user(client, db_session):
     # Two different logged-in users must NOT share a watchlist (the shared-guest bug).
     client.post(
