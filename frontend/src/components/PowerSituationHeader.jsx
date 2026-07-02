@@ -1,6 +1,15 @@
 import useFetchWithError from '../hooks/useFetchWithError'
+import { InfoPopover } from './Panel'
 
 const API = '/api'
+
+// Plain-language legend for the descriptive desk state (Posture B: a deviation
+// vs the zone's own history, never a forecast). Mirrors the backend derivation.
+const STATE_LEGEND =
+  'How far this zone sits from its own recent history — a deviation, not a forecast. ' +
+  'STRESSED: day-ahead price or residual load ≥3σ from its ~90-day norm. ' +
+  'ELEVATED: ≥2σ, or a Dunkelflaute (wind+solar <15% of load) / negative-price flag. ' +
+  'CALM: within ~2σ and no flags.'
 
 // Descriptive desk state → colour. Posture B: this is "how far from normal",
 // not a forecast. CALM / ELEVATED / STRESSED come straight from the backend.
@@ -74,6 +83,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
         <div className="flex items-center gap-2 shrink-0">
           <span className={`w-1.5 h-1.5 rounded-full ${st.dot} ${data.state === 'STRESSED' ? 'animate-pulse' : ''}`} />
           <span className={`font-mono text-[11px] font-bold tracking-wider ${st.text}`}>{data.state}</span>
+          <InfoPopover text={STATE_LEGEND} />
           {data.stale ? (
             <span
               className="font-mono text-[9px] tracking-wide text-orange-400 border border-orange-500/30 rounded px-1 py-0.5"

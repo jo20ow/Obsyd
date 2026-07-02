@@ -41,6 +41,7 @@ import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import CopperPanel from './components/CopperPanel'
 import ZoneSelector from './components/ZoneSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
+import PowerIntro from './components/PowerIntro'
 import Landing from './components/Landing'
 import BriefSubscribe from './components/BriefSubscribe'
 import { useAuth } from './context/AuthContext'
@@ -299,6 +300,9 @@ function Dashboard() {
       </div>
 
       {/* POWER DESK HERO + ANOMALY RADAR — the always-on front door */}
+      <ErrorBoundary name="power-intro">
+        <PowerIntro />
+      </ErrorBoundary>
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-3 mt-3">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
