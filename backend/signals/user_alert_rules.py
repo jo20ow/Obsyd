@@ -24,12 +24,19 @@ from typing import Any, Callable
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.models.energy import PowerPriceDaily
+from backend.models.energy import PowerGrid, PowerPriceDaily, SparkSpreadHistory
 from backend.models.gas import GasBalance
 from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
+from backend.power.coverage import renewable_share_reliable
 from backend.power.zones import POWER_ZONES
 from backend.signals.detectors.base import trailing_zscore
-from backend.signals.detectors.power import NP_CRIT_Z, NP_MIN_HOURS, NP_WARN_Z, NP_WINDOW
+from backend.signals.detectors.power import (
+    DUNKELFLAUTE_THRESHOLD,
+    NP_CRIT_Z,
+    NP_MIN_HOURS,
+    NP_WARN_Z,
+    NP_WINDOW,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +336,159 @@ def evaluate_gas_balance(
 
 
 # ---------------------------------------------------------------------------
+# 6) dunkelflaute  (power vertical)
+#    params: {"zone": "DE_LU"|"FR"|"NL", "threshold_pct": 15}
+#    Triggers when the zone's latest wind+solar share of load falls below the
+#    threshold. Reuses the coverage guard so incomplete ENTSO-E A75 (NL) can't
+#    fake a near-zero share (mirrors detectors/power.py::detect_dunkelflaute).
+# ---------------------------------------------------------------------------
+def evaluate_dunkelflaute(
+    db: Session,
+    params: dict,
+    *,
+    now: datetime,
+) -> EvaluatorResult | None:
+    zone = params.get("zone")
+    if zone not in POWER_ZONES:
+        return None
+    threshold_pct = params.get("threshold_pct")
+    try:
+        threshold = float(threshold_pct) / 100.0 if threshold_pct is not None else DUNKELFLAUTE_THRESHOLD
+    except (TypeError, ValueError):
+        threshold = DUNKELFLAUTE_THRESHOLD
+
+    row = (
+        db.query(PowerGrid)
+        .filter(PowerGrid.zone == zone)
+        .order_by(PowerGrid.date.desc())
+        .first()
+    )
+    if row is None or not row.load_mw or row.load_mw <= 0:
+        return None
+    share = ((row.wind_mw or 0.0) + (row.solar_mw or 0.0)) / row.load_mw
+    if share >= threshold:
+        return None
+    # Only trust a low share when reported generation plausibly covers load.
+    if not renewable_share_reliable(db, row.date, zone, row.load_mw):
+        return None
+
+    return EvaluatorResult(
+        title=f"{zone}: Dunkelflaute — renewables {share * 100:.0f}% of load",
+        detail=(
+            f"Wind+solar only {share * 100:.1f}% of load on {row.date} "
+            f"(< {threshold * 100:.0f}% threshold); residual load carried by conventional generation."
+        ),
+        payload={
+            "zone": zone,
+            "renewable_share": round(share, 4),
+            "threshold": round(threshold, 4),
+            "date": row.date,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7) dayahead_spike  (power vertical)
+#    params: {"zone", "direction": "above"|"below", "threshold_eur": float}
+#    Triggers when the zone's latest day-ahead mean price crosses the threshold.
+# ---------------------------------------------------------------------------
+def evaluate_dayahead_spike(
+    db: Session,
+    params: dict,
+    *,
+    now: datetime,
+) -> EvaluatorResult | None:
+    zone = params.get("zone")
+    if zone not in POWER_ZONES:
+        return None
+    direction = params.get("direction")
+    if direction not in ("above", "below"):
+        return None
+    try:
+        threshold = float(params.get("threshold_eur"))
+    except (TypeError, ValueError):
+        return None
+
+    row = (
+        db.query(PowerPriceDaily)
+        .filter(PowerPriceDaily.zone == zone)
+        .order_by(PowerPriceDaily.date.desc())
+        .first()
+    )
+    if row is None or row.mean_price is None:
+        return None
+    price = float(row.mean_price)
+    if direction == "above" and price < threshold:
+        return None
+    if direction == "below" and price > threshold:
+        return None
+
+    cmp = ">" if direction == "above" else "<"
+    return EvaluatorResult(
+        title=f"{zone} day-ahead {cmp} €{threshold:.0f}: now €{price:.0f}/MWh",
+        detail=(
+            f"{zone} day-ahead mean is €{price:.1f}/MWh ({cmp} your €{threshold:.0f} threshold) on {row.date}."
+        ),
+        payload={
+            "zone": zone,
+            "mean_price": round(price, 2),
+            "threshold_eur": threshold,
+            "direction": direction,
+            "date": row.date,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8) spark_spread_breach  (power vertical, DE-LU only — no zone param)
+#    params: {"direction": "above"|"below", "threshold_eur": float}
+#    Triggers when the DE-LU spark spread crosses the threshold. Structurally
+#    identical to crack_spread_breach; SparkSpreadHistory has no zone column.
+# ---------------------------------------------------------------------------
+def evaluate_spark_spread_breach(
+    db: Session,
+    params: dict,
+    *,
+    now: datetime,
+) -> EvaluatorResult | None:
+    direction = params.get("direction")
+    if direction not in ("above", "below"):
+        return None
+    try:
+        threshold = float(params.get("threshold_eur"))
+    except (TypeError, ValueError):
+        return None
+
+    latest = (
+        db.query(SparkSpreadHistory)
+        .order_by(SparkSpreadHistory.date.desc())
+        .first()
+    )
+    if latest is None or latest.spark_spread is None:
+        return None
+    spread = float(latest.spark_spread)
+    if direction == "above" and spread < threshold:
+        return None
+    if direction == "below" and spread > threshold:
+        return None
+
+    cmp = ">" if direction == "above" else "<"
+    return EvaluatorResult(
+        title=f"DE-LU spark spread {cmp} €{threshold:.0f}: now €{spread:.0f}/MWh",
+        detail=(
+            f"DE-LU spark spread is €{spread:.1f}/MWh ({cmp} your €{threshold:.0f} threshold) on {latest.date}. "
+            f"Spark spread is published for DE-LU only."
+        ),
+        payload={
+            "spark_spread": round(spread, 2),
+            "threshold_eur": threshold,
+            "direction": direction,
+            "date": latest.date,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Template registry — exposed to the route layer for client-side schema
 # discovery and for params validation.
 # ---------------------------------------------------------------------------
@@ -387,6 +547,34 @@ TEMPLATES: dict[str, dict] = {
         "summary": "Notify me when the EU gas-balance residual flags a WATCH or SIGNAL deviation vs its 90d norm.",
         "params_schema": {},
         "evaluator": evaluate_gas_balance,
+    },
+    "dunkelflaute": {
+        "label": "Dunkelflaute (low wind + solar)",
+        "summary": "Notify me when a power zone's wind+solar fall below a share-of-load threshold.",
+        "params_schema": {
+            "zone": {"type": "enum", "options": list(POWER_ZONES), "required": True},
+            "threshold_pct": {"type": "number", "min": 5, "max": 40, "default": 15},
+        },
+        "evaluator": evaluate_dunkelflaute,
+    },
+    "dayahead_spike": {
+        "label": "Day-ahead price breach",
+        "summary": "Notify me when a zone's day-ahead mean price crosses a €/MWh threshold.",
+        "params_schema": {
+            "zone": {"type": "enum", "options": list(POWER_ZONES), "required": True},
+            "direction": {"type": "enum", "options": ["above", "below"], "required": True},
+            "threshold_eur": {"type": "number", "min": -50, "max": 1000, "required": True},
+        },
+        "evaluator": evaluate_dayahead_spike,
+    },
+    "spark_spread_breach": {
+        "label": "Spark spread breach (DE-LU)",
+        "summary": "Notify me when the DE-LU spark spread crosses a €/MWh threshold.",
+        "params_schema": {
+            "direction": {"type": "enum", "options": ["above", "below"], "required": True},
+            "threshold_eur": {"type": "number", "min": -100, "max": 200, "required": True},
+        },
+        "evaluator": evaluate_spark_spread_breach,
     },
 }
 

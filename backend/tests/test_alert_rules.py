@@ -17,6 +17,7 @@ import backend.database as _db_module
 from backend.auth.jwt import create_token
 from backend.main import app
 from backend.models.alert_rules import AlertRule, UserAlertEvent
+from backend.models.energy import PowerGenMix, PowerGrid, PowerPriceDaily, SparkSpreadHistory
 from backend.models.pro_features import CrackSpreadHistory
 from backend.models.subscription import Subscription
 from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
@@ -202,6 +203,72 @@ def test_crack_spread_breach_no_trigger_within_band(db_session):
     assert res is None
 
 
+# ---------- new power templates: dunkelflaute / day-ahead spike / spark breach ----------
+
+
+def test_dunkelflaute_triggers_with_full_coverage(db_session):
+    d = "2026-05-20"
+    db_session.add(PowerGrid(date=d, zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000))  # ~8%
+    # Reported generation ≈ load → coverage OK → the low share is real.
+    db_session.add(PowerGenMix(date=d, zone="DE_LU", psr_type="Fossil Gas", gen_mw=40000))
+    db_session.add(PowerGenMix(date=d, zone="DE_LU", psr_type="Nuclear", gen_mw=15000))
+    db_session.add(PowerGenMix(date=d, zone="DE_LU", psr_type="Wind Onshore", gen_mw=3000))
+    db_session.add(PowerGenMix(date=d, zone="DE_LU", psr_type="Solar", gen_mw=2000))
+    db_session.commit()
+    res = user_alert_rules.evaluate_dunkelflaute(db_session, {"zone": "DE_LU"}, now=NOW)
+    assert res is not None
+    assert "Dunkelflaute" in res.title
+    assert res.payload["zone"] == "DE_LU"
+
+
+def test_dunkelflaute_suppressed_on_incomplete_coverage(db_session):
+    d = "2026-05-20"
+    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60))  # ~1.3%
+    db_session.add(PowerGenMix(date=d, zone="NL", psr_type="Fossil Gas", gen_mw=3400))  # total < 60% of load
+    db_session.commit()
+    res = user_alert_rules.evaluate_dunkelflaute(db_session, {"zone": "NL"}, now=NOW)
+    assert res is None
+
+
+def test_dayahead_spike_triggers_above(db_session):
+    db_session.add(PowerPriceDaily(date="2026-05-20", zone="DE_LU", mean_price=250.0, min_price=90, max_price=600, negative_hours=0))
+    db_session.commit()
+    res = user_alert_rules.evaluate_dayahead_spike(
+        db_session, {"zone": "DE_LU", "direction": "above", "threshold_eur": 200.0}, now=NOW,
+    )
+    assert res is not None
+    assert res.payload["mean_price"] == 250.0
+
+
+def test_dayahead_spike_no_trigger_within_band(db_session):
+    db_session.add(PowerPriceDaily(date="2026-05-20", zone="DE_LU", mean_price=100.0, min_price=40, max_price=180, negative_hours=0))
+    db_session.commit()
+    res = user_alert_rules.evaluate_dayahead_spike(
+        db_session, {"zone": "DE_LU", "direction": "above", "threshold_eur": 200.0}, now=NOW,
+    )
+    assert res is None
+
+
+def test_spark_spread_breach_triggers_below(db_session):
+    db_session.add(SparkSpreadHistory(date="2026-05-20", power_price=40.0, gas_price=45.0, heat_rate=2.0, spark_spread=-15.0))
+    db_session.commit()
+    res = user_alert_rules.evaluate_spark_spread_breach(
+        db_session, {"direction": "below", "threshold_eur": -10.0}, now=NOW,
+    )
+    assert res is not None
+    assert "DE-LU" in res.detail
+    assert res.payload["spark_spread"] == -15.0
+
+
+def test_spark_spread_breach_no_trigger_within_band(db_session):
+    db_session.add(SparkSpreadHistory(date="2026-05-20", power_price=60.0, gas_price=30.0, heat_rate=2.0, spark_spread=5.0))
+    db_session.commit()
+    res = user_alert_rules.evaluate_spark_spread_breach(
+        db_session, {"direction": "below", "threshold_eur": -10.0}, now=NOW,
+    )
+    assert res is None
+
+
 # ---------- REST CRUD ----------
 
 
@@ -330,6 +397,9 @@ def test_templates_endpoint_public(client):
         "crack_spread_breach",
         "negative_prices",
         "gas_balance",
+        "dunkelflaute",
+        "dayahead_spike",
+        "spark_spread_breach",
     }
     assert body["chokepoint_anomaly"]["params_schema"]["zone"]["type"] == "enum"
     # gas_balance is a no-param template (whole-EU signal).
