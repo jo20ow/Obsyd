@@ -117,6 +117,30 @@ def test_alerts_feed_attaches_gas_context(db_session):
     assert gas[0]["context"]["n"] == 1
 
 
+def test_power_forward_residual_from_seeded_forecast(db_session):
+    from backend.models.energy import PowerLoadForecast
+    from backend.situation import physical
+
+    db_session.add(PowerLoadForecast(
+        date="2026-07-03", zone="DE_LU", forecast_mw=54000.0,
+        wind_forecast_mw=29000.0, solar_forecast_mw=24000.0,
+    ))
+    db_session.commit()
+
+    fwd = physical._power_forward(db_session, "DE_LU")
+    assert fwd["date"] == "2026-07-03"
+    assert fwd["residual_mw"] == 1000.0  # 54000 - 29000 - 24000
+
+
+def test_power_forward_none_without_wind_solar(db_session):
+    from backend.models.energy import PowerLoadForecast
+    from backend.situation import physical
+
+    db_session.add(PowerLoadForecast(date="2026-07-03", zone="DE_LU", forecast_mw=54000.0))
+    db_session.commit()
+    assert physical._power_forward(db_session, "DE_LU") is None
+
+
 def test_situation_endpoint_envelope(db_session):
     body = TestClient(app).get("/api/situation").json()
     assert "overall" in body and "domains" in body

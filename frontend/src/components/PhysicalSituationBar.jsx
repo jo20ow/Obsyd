@@ -60,6 +60,11 @@ export default function PhysicalSituationBar({ onNavigate }) {
               <div className="font-mono text-[11px] text-neutral-400 mt-1 leading-snug">
                 {d.available ? d.headline : 'No data yet'}
               </div>
+              {d.forward?.residual_mw != null && (
+                <div className="font-mono text-[10px] text-violet-300/90 mt-0.5">
+                  &rarr; D+1 residual {(d.forward.residual_mw / 1000).toFixed(1)} GW
+                </div>
+              )}
             </button>
           )
         })}

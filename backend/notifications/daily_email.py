@@ -551,11 +551,15 @@ def _build_physical_block(situation: dict | None) -> str:
             continue
         state = d.get("state", "CALM")
         color = _POWER_STATE_COLOR.get(state, _MUTED)
+        headline = d.get("headline", "")
+        fwd = d.get("forward") or {}
+        if fwd.get("residual_mw") is not None:
+            headline += f' &middot; D+1 residual {fwd["residual_mw"] / 1000:.1f} GW'
         rows.append(
             "<tr>"
             f'<td style="padding:4px 10px 4px 0;white-space:nowrap;font-weight:700;color:{_TEXT}">{d.get("label", k)}</td>'
             f'<td style="padding:4px 10px 4px 0;white-space:nowrap;font-weight:700;color:{color}">{state}</td>'
-            f'<td style="padding:4px 0;color:{_MUTED};font-size:13px">{d.get("headline", "")}</td>'
+            f'<td style="padding:4px 0;color:{_MUTED};font-size:13px">{headline}</td>'
             "</tr>"
         )
         ctx = d.get("context")

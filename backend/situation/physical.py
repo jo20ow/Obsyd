@@ -153,6 +153,23 @@ def _gas_domain(db: Session, today: _date) -> dict:
             "headline": "EU gas balance within normal range.", "as_of": as_of, "stale": stale}
 
 
+def _power_forward(db: Session, zone: str) -> dict | None:
+    """Tomorrow's (D+1) residual-load forecast for a zone — the price-driving forward
+    quantity: forecast load − wind − solar. None if the wind/solar forecast is absent."""
+    from backend.models.energy import PowerLoadForecast
+
+    row = (
+        db.query(PowerLoadForecast)
+        .filter(PowerLoadForecast.zone == zone)
+        .order_by(PowerLoadForecast.date.desc())
+        .first()
+    )
+    if row is None or row.wind_forecast_mw is None or row.solar_forecast_mw is None:
+        return None
+    resid = row.forecast_mw - row.wind_forecast_mw - row.solar_forecast_mw
+    return {"date": row.date, "residual_mw": round(resid, 2), "load_mw": round(row.forecast_mw, 2)}
+
+
 def _power_domain(db: Session) -> dict:
     """European power grid — worst of the covered bidding zones (DE-LU / FR / NL)."""
     base = {"domain": "power", "label": "Power", "tab": "energy"}
@@ -175,7 +192,8 @@ def _power_domain(db: Session) -> dict:
     if best is None:
         return {**base, "available": False, "state": "CALM",
                 "headline": "No power data yet.", "as_of": None, "stale": False}
-    return {**base, "available": True, **best}
+    forward = _power_forward(db, best["zone"])
+    return {**base, "available": True, **best, "forward": forward}
 
 
 def combine_domains(oil: dict, gas: dict, power: dict) -> dict:
