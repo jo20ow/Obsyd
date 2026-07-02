@@ -8,13 +8,13 @@ GDELT API: https://api.gdeltproject.org/api/v2/doc/doc
 No API key required. Public domain.
 """
 
-import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 
 import httpx
 
+from backend.collectors.gdelt_gate import gdelt_get
 from backend.config import settings
 from backend.database import SessionLocal
 from backend.models.sentiment import GDELTVolume, SentimentScore
@@ -42,7 +42,8 @@ KEYWORDS_SECONDARY = [
 # All keywords (used for headlines query and cleanup)
 KEYWORDS = KEYWORDS_PRIMARY + KEYWORDS_SECONDARY
 
-CALL_DELAY = 5  # seconds between GDELT API calls to avoid 429
+# Spacing between GDELT calls is enforced centrally by the shared gate (gdelt_gate),
+# which every GDELT caller in the app routes through — see gdelt_gate.gdelt_get.
 
 LLM_PROMPT = """You are an energy market analyst. Analyze these recent news headlines about energy markets and oil.
 
@@ -58,9 +59,10 @@ Rate the CURRENT risk to global oil supply and prices based on these headlines. 
 async def _fetch_volume(client: httpx.AsyncClient, keyword: str) -> list[dict]:
     """Fetch 24h volume timeline for a keyword."""
     try:
-        resp = await client.get(
+        resp = await gdelt_get(
+            client,
             GDELT_URL,
-            params={
+            {
                 "query": keyword,
                 "mode": "TimelineVol",
                 "TIMESPAN": "1d",
@@ -82,9 +84,10 @@ async def _fetch_volume(client: httpx.AsyncClient, keyword: str) -> list[dict]:
 async def _fetch_tone(client: httpx.AsyncClient, keyword: str) -> list[dict]:
     """Fetch 24h tone timeline for a keyword."""
     try:
-        resp = await client.get(
+        resp = await gdelt_get(
+            client,
             GDELT_URL,
-            params={
+            {
                 "query": keyword,
                 "mode": "TimelineTone",
                 "TIMESPAN": "1d",
@@ -107,9 +110,10 @@ async def _fetch_headlines(client: httpx.AsyncClient, max_records: int = 30) -> 
     """Fetch top English headlines for energy keywords."""
     query = "(" + " OR ".join(f'"{k}"' for k in KEYWORDS[:4]) + ") sourcelang:english"
     try:
-        resp = await client.get(
+        resp = await gdelt_get(
+            client,
             GDELT_URL,
-            params={
+            {
                 "query": query,
                 "mode": "artlist",
                 "maxrecords": str(max_records),
@@ -190,9 +194,7 @@ async def _collect_keywords(keywords: list[str]):
     async with httpx.AsyncClient() as client:
         for keyword in keywords:
             vol_data = await _fetch_volume(client, keyword)
-            await asyncio.sleep(CALL_DELAY)
             tone_data = await _fetch_tone(client, keyword)
-            await asyncio.sleep(CALL_DELAY)
 
             # Build tone lookup by timestamp
             tone_map = {d["date"]: d["value"] for d in tone_data}

@@ -69,7 +69,6 @@ def test_get_feed_never_caches_empty_serves_stale(monkeypatch):
     """A transient empty/failed fetch (e.g. GDELT 429) must not poison the cache —
     the feed keeps serving the last good result instead of going blank."""
     gdelt_news._cache.clear()
-    monkeypatch.setattr(gdelt_news, "_MIN_INTERVAL", 0.0)  # no real sleeps in tests
 
     calls = {"n": 0}
 
