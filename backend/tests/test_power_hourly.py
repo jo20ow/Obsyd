@@ -93,6 +93,21 @@ def test_hourly_endpoint_returns_latest_day_series(db_session):
     assert body["data"][0] == {"hour": 0, "price": 40.0}
 
 
+def test_hourly_endpoint_dedupes_legacy_bloated_row(db_session):
+    # A row persisted by the buggy version (multiple points per hour) must still
+    # render as a clean one-mean-per-hour curve on read.
+    bloated = [{"hour": h, "price": 100.0} for h in range(24)] + [{"hour": h, "price": 120.0} for h in range(24)]
+    db_session.add(PowerPriceDaily(
+        date="2026-05-01", zone="DE_LU", mean_price=110, min_price=100, max_price=120,
+        negative_hours=0, hourly_prices=json.dumps(bloated),
+    ))
+    db_session.commit()
+    with _Client(db_session) as c:
+        body = c.get("/api/power/day-ahead/hourly?zone=DE_LU").json()
+    assert len(body["data"]) == 24                      # not 48
+    assert body["data"][0] == {"hour": 0, "price": 110.0}  # mean of 100 and 120
+
+
 def test_hourly_endpoint_unavailable_when_missing(db_session):
     with _Client(db_session) as c:
         body = c.get("/api/power/day-ahead/hourly?zone=DE_LU").json()

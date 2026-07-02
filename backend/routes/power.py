@@ -171,6 +171,21 @@ async def get_day_ahead(
     }
 
 
+def _dedupe_hourly(points: list) -> list[dict]:
+    """Collapse a stored hourly series to one mean price per hour (ascending).
+
+    Defensive: legacy rows (from before the parser aggregated) and any future
+    ENTSO-E revision quirk can hold multiple points per hour — never show that.
+    """
+    acc: dict[int, list[float]] = {}
+    for p in points or []:
+        h, v = p.get("hour"), p.get("price")
+        if h is None or v is None:
+            continue
+        acc.setdefault(int(h), []).append(float(v))
+    return [{"hour": h, "price": round(sum(vs) / len(vs), 2)} for h, vs in sorted(acc.items())]
+
+
 @router.get("/day-ahead/hourly")
 async def get_day_ahead_hourly(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
@@ -197,7 +212,7 @@ async def get_day_ahead_hourly(
             "reason": f"No hourly day-ahead data for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
     try:
-        data = json.loads(row.hourly_prices)
+        data = _dedupe_hourly(json.loads(row.hourly_prices))
     except (ValueError, TypeError):
         data = []
     return {
