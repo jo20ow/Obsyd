@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import AnomalyContextLine from './AnomalyContextLine'
 
 const API = '/api'
 
@@ -222,6 +223,7 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
             <div className="font-mono text-[10px] text-neutral-500 mt-0.5 leading-relaxed">
               {a.detail}
             </div>
+            {a.context && <AnomalyContextLine context={a.context} className="mt-1" />}
             {a.zone && (
               <span className="inline-block font-mono text-[9px] text-cyan-glow mt-1 px-1 border border-cyan-glow/20 rounded">
                 {a.zone.toUpperCase()}

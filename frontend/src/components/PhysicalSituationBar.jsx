@@ -1,4 +1,5 @@
 import useFetchWithError from '../hooks/useFetchWithError'
+import AnomalyContextLine from './AnomalyContextLine'
 
 // The niche-defining glance: the whole physical energy system in one strip —
 // oil molecules (chokepoints), gas balance, and power electrons — each a
@@ -12,8 +13,6 @@ const STATE_UI = {
 }
 
 const ORDER = ['oil', 'gas', 'power']
-
-const fmtPct = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1)}%`)
 
 export default function PhysicalSituationBar({ onNavigate }) {
   const { data } = useFetchWithError(`${API}/situation`)
@@ -65,17 +64,13 @@ export default function PhysicalSituationBar({ onNavigate }) {
           )
         })}
       </div>
-      {ORDER.filter((k) => data.domains?.[k]?.context).map((k) => {
-        const ctx = data.domains[k].context
-        return (
-          <div key={k} className="px-3 py-1.5 font-mono text-[10px] text-neutral-400 leading-snug border-t border-border/60">
-            <span className="text-neutral-500">↳ context:</span> last {ctx.n} {ctx.event_label} → {ctx.price_label}{' '}
-            <span className="text-neutral-200">{fmtPct(ctx.median_30d_pct)}</span> @30d (
-            {fmtPct(ctx.median_7d_pct)} @7d)
-            <span className="text-neutral-600"> · co-movement, not a forecast</span>
-          </div>
-        )
-      })}
+      {ORDER.filter((k) => data.domains?.[k]?.context).map((k) => (
+        <AnomalyContextLine
+          key={k}
+          context={data.domains[k].context}
+          className="px-3 py-1.5 border-t border-border/60"
+        />
+      ))}
 
       <div className="px-3 py-1 font-mono text-[8px] text-neutral-700 border-t border-border/40">
         Deviation vs each domain&apos;s own history — descriptive, not a forecast.

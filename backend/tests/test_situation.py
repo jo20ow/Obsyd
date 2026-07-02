@@ -93,6 +93,30 @@ def test_gas_balance_price_context_none_without_ttf(db_session):
     assert physical.gas_balance_price_context(db_session) is None  # empty DB → no TTF
 
 
+def test_alerts_feed_attaches_gas_context(db_session):
+    from datetime import datetime
+
+    from backend.models.alerts import Alert
+    from backend.models.energy import EnergyPrice
+    from backend.models.gas import GasBalance
+
+    for d, c in [("2025-01-01", 30.0), ("2025-01-08", 33.0), ("2025-01-31", 27.0)]:
+        db_session.add(EnergyPrice(date=d, symbol="TTF", close=c))
+    db_session.add(GasBalance(date="2024-12-31", flag=None))
+    db_session.add(GasBalance(date="2025-01-01", flag="SIGNAL:supply↑"))
+    db_session.add(Alert(
+        rule="gas_balance", zone="EU", vertical="gas", severity="critical",
+        title="EU gas balance signal", detail="...", created_at=datetime.utcnow(),
+    ))
+    db_session.commit()
+
+    items = TestClient(app).get("/api/alerts").json()
+    gas = [a for a in items if a["rule"] == "gas_balance"]
+    assert gas and gas[0].get("context")
+    assert gas[0]["context"]["price_label"] == "TTF"
+    assert gas[0]["context"]["n"] == 1
+
+
 def test_situation_endpoint_envelope(db_session):
     body = TestClient(app).get("/api/situation").json()
     assert "overall" in body and "domains" in body
