@@ -77,6 +77,12 @@ def run_migrations() -> None:
     if _add_column_if_missing("alerts", "vertical", "VARCHAR DEFAULT 'oil'"):
         applied.append("alerts.vertical")
 
+    # 2026-07-02: store the 24 hourly day-ahead prices (JSON-in-Text) for the
+    # hourly-curve panel. Existing rows stay NULL and backfill lazily on the next
+    # ingest (overwrite=True re-writes the recent window nightly).
+    if _add_column_if_missing("power_price_daily", "hourly_prices", "TEXT"):
+        applied.append("power_price_daily.hourly_prices")
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:
@@ -95,4 +101,6 @@ def list_pending() -> Iterable[str]:
         pending.append("power_grid.residual_mw")
     if "vertical" not in _existing_columns("alerts"):
         pending.append("alerts.vertical")
+    if "hourly_prices" not in _existing_columns("power_price_daily"):
+        pending.append("power_price_daily.hourly_prices")
     return pending

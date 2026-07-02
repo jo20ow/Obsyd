@@ -16,7 +16,7 @@ is deferred until a reliable free source is confirmed.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -163,6 +163,9 @@ class PowerPriceDaily(Base):
     min_price: Mapped[float] = mapped_column(Float, nullable=False)         # EUR/MWh daily min
     max_price: Mapped[float] = mapped_column(Float, nullable=False)         # EUR/MWh daily max
     negative_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # count of hours < 0 EUR/MWh
+    # JSON array of the 24 hourly auction prices [{"hour": 0-23, "price": EUR/MWh}], ordered.
+    # Text-JSON (project convention, no native JSON type); nullable — older rows backfill lazily.
+    hourly_prices: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (

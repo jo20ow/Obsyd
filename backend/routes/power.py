@@ -26,6 +26,7 @@ All endpoints follow the `{"available": bool, "data": [...]}` envelope used
 throughout the gas vertical (see backend/routes/gas.py).
 """
 
+import json
 from datetime import date as _date
 from datetime import datetime, timedelta
 
@@ -166,6 +167,45 @@ async def get_day_ahead(
         "to": date_to,
         "negative_days": 0,
         "latest": data[-1],
+        "data": data,
+    }
+
+
+@router.get("/day-ahead/hourly")
+async def get_day_ahead_hourly(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
+    date: str = Query(None, description="YYYY-MM-DD; default = latest day with hourly data"),
+    db: Session = Depends(get_db),
+):
+    """The 24 hourly day-ahead prices for one day — the peak/off-peak shape behind
+    the daily mean. Free tier. Defaults to the most recent day that has an hourly
+    series. Returns {available, zone, date, unit, data:[{"hour","price"}]}.
+    """
+    resolved_zone = _resolve_zone(zone)
+    q = db.query(PowerPriceDaily).filter(
+        PowerPriceDaily.zone == resolved_zone,
+        PowerPriceDaily.hourly_prices.isnot(None),
+    )
+    if date:
+        q = q.filter(PowerPriceDaily.date == date)
+    row = q.order_by(PowerPriceDaily.date.desc()).first()
+    if row is None or not row.hourly_prices:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"No hourly day-ahead data for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
+        }
+    try:
+        data = json.loads(row.hourly_prices)
+    except (ValueError, TypeError):
+        data = []
+    return {
+        "available": bool(data),
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "date": row.date,
+        "unit": "EUR/MWh",
         "data": data,
     }
 

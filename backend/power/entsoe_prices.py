@@ -14,6 +14,7 @@ The key difference from the A75/power-burn parser:
 
 from __future__ import annotations
 
+import json
 import logging
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
@@ -105,7 +106,7 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
     except ET.ParseError as exc:
         raise ValueError(f"ENTSO-E A44 XML parse error: {exc}") from exc
 
-    by_day: dict[str, list[tuple[float, float]]] = {}  # day -> [(price, res_hours)]
+    by_day: dict[str, list[tuple]] = {}  # day -> [(ts_time, price, res_hours)]
 
     for ts in root.iter():
         if _localname(ts.tag) != "TimeSeries":
@@ -132,20 +133,26 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
                 except (ValueError, TypeError):
                     continue
                 day = ts_time.astimezone(timezone.utc).strftime("%Y-%m-%d")
-                by_day.setdefault(day, []).append((price, res_hours))
+                by_day.setdefault(day, []).append((ts_time, price, res_hours))
 
     result: dict[str, dict] = {}
     for day, pairs in by_day.items():
         if not pairs:
             continue
-        prices = [p for p, _ in pairs]
+        pairs.sort(key=lambda x: x[0])  # order by time so the hourly series is ascending
+        prices = [p for _, p, _ in pairs]
         result[day] = {
             "mean": sum(prices) / len(prices),
             "min": min(prices),
             "max": max(prices),
             # True hours: weight each negative slot by its resolution so PT15M
             # (96 slots/day) yields real hours (0.25 each), not raw interval counts.
-            "negative_hours": round(sum(res for p, res in pairs if p < 0), 2),
+            "negative_hours": round(sum(res for _, p, res in pairs if p < 0), 2),
+            # The ordered hourly curve for the day-ahead panel.
+            "hourly": [
+                {"hour": t.astimezone(timezone.utc).hour, "price": round(p, 2)}
+                for t, p, _ in pairs
+            ],
         }
     return result
 
@@ -257,7 +264,8 @@ def _upsert(db: Session, day: str, symbol: str, close: float) -> None:
 
 
 def _upsert_daily(db: Session, day: str, zone: str, stats: dict) -> None:
-    """Upsert one PowerPriceDaily row from a stats dict (mean/min/max/negative_hours)."""
+    """Upsert one PowerPriceDaily row from a stats dict (mean/min/max/negative_hours + optional hourly)."""
+    hourly_json = json.dumps(stats["hourly"]) if stats.get("hourly") else None
     existing = (
         db.query(PowerPriceDaily)
         .filter(PowerPriceDaily.date == day, PowerPriceDaily.zone == zone)
@@ -268,6 +276,8 @@ def _upsert_daily(db: Session, day: str, zone: str, stats: dict) -> None:
         existing.min_price = stats["min"]
         existing.max_price = stats["max"]
         existing.negative_hours = stats["negative_hours"]
+        if hourly_json is not None:
+            existing.hourly_prices = hourly_json
     else:
         db.add(
             PowerPriceDaily(
@@ -277,5 +287,6 @@ def _upsert_daily(db: Session, day: str, zone: str, stats: dict) -> None:
                 min_price=stats["min"],
                 max_price=stats["max"],
                 negative_hours=stats["negative_hours"],
+                hourly_prices=hourly_json,
             )
         )

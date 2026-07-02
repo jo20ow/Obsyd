@@ -6,6 +6,11 @@ export function fmtDate(d) {
 
 export const CHART_TOOLTIP_STYLE = { background: '#0a0a12', border: '1px solid #2a2a3a', fontFamily: 'monospace', fontSize: 10 }
 
+// Hour-of-day label for the hourly day-ahead curve (0 → "00h", 13 → "13h").
+export function fmtHour(h) {
+  return `${String(h).padStart(2, '0')}h`
+}
+
 // Sequential color ramp (dark → cyan → amber) for choropleth fills. t in [0,1].
 const _RAMP = [
   [0.0, [18, 22, 38]],
