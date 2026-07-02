@@ -25,6 +25,25 @@ def test_parse_stats_includes_hourly_series():
     assert [h["hour"] for h in hourly] == list(range(24))  # ordered by hour
 
 
+def test_parse_stats_hourly_dedupes_overlapping_series():
+    # ENTSO-E can return several TimeSeries for the same delivery day → one mean/hour.
+    xml = _a44(
+        _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [100.0] * 24)
+        + _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [110.0] * 24)
+    )
+    hourly = parse_day_ahead_stats(xml)["2026-05-01"]["hourly"]
+    assert len(hourly) == 24  # not 48
+    assert hourly[0] == {"hour": 0, "price": 105.0}  # mean of 100 and 110
+
+
+def test_parse_stats_hourly_aggregates_quarter_hours():
+    # PT15M: 96 quarter-hour slots collapse to 24 hourly means.
+    xml = _a44(_ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [80.0] * 96, res="PT15M"))
+    hourly = parse_day_ahead_stats(xml)["2026-05-01"]["hourly"]
+    assert len(hourly) == 24
+    assert hourly[0] == {"hour": 0, "price": 80.0}
+
+
 def test_upsert_daily_persists_hourly_json(db_session):
     stats = {
         "mean": 50.0, "min": 40.0, "max": 63.0, "negative_hours": 0,

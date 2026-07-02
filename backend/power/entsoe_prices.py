@@ -141,6 +141,17 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
             continue
         pairs.sort(key=lambda x: x[0])  # order by time so the hourly series is ascending
         prices = [p for _, p, _ in pairs]
+        # Collapse to ONE mean price per hour: ENTSO-E can return several
+        # overlapping TimeSeries and/or sub-hourly (PT15M) slots for the same day,
+        # so a raw per-point list would show multiple values per hour. Averaging
+        # per hour normalises both into a clean 0-23 curve.
+        hour_acc: dict[int, list[float]] = {}
+        for t, p, _ in pairs:
+            hour_acc.setdefault(t.astimezone(timezone.utc).hour, []).append(p)
+        hourly = [
+            {"hour": h, "price": round(sum(ps) / len(ps), 2)}
+            for h, ps in sorted(hour_acc.items())
+        ]
         result[day] = {
             "mean": sum(prices) / len(prices),
             "min": min(prices),
@@ -148,11 +159,7 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
             # True hours: weight each negative slot by its resolution so PT15M
             # (96 slots/day) yields real hours (0.25 each), not raw interval counts.
             "negative_hours": round(sum(res for _, p, res in pairs if p < 0), 2),
-            # The ordered hourly curve for the day-ahead panel.
-            "hourly": [
-                {"hour": t.astimezone(timezone.utc).hour, "price": round(p, 2)}
-                for t, p, _ in pairs
-            ],
+            "hourly": hourly,
         }
     return result
 
