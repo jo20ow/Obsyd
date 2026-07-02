@@ -34,6 +34,7 @@ from backend.routes import filings as filings_routes
 from backend.routes import gas as gas_routes
 from backend.routes import jodi as jodi_routes
 from backend.routes import metals as metals_routes
+from backend.routes import news as news_routes
 from backend.routes import portwatch as portwatch_routes
 from backend.routes import power as power_routes
 from backend.routes import rates as rates_routes
@@ -233,6 +234,7 @@ app.include_router(crypto_routes.router)
 app.include_router(rates_routes.router)
 app.include_router(filings_routes.router)
 app.include_router(econ_routes.router)
+app.include_router(news_routes.router)
 app.include_router(gas_routes.router)
 app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)
