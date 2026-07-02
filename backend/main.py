@@ -28,6 +28,7 @@ from backend.routes import atlas as atlas_routes
 from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
 from backend.routes import crypto as crypto_routes
+from backend.routes import econ as econ_routes
 from backend.routes import email as email_routes
 from backend.routes import filings as filings_routes
 from backend.routes import gas as gas_routes
@@ -231,6 +232,7 @@ app.include_router(validation_routes.router)
 app.include_router(crypto_routes.router)
 app.include_router(rates_routes.router)
 app.include_router(filings_routes.router)
+app.include_router(econ_routes.router)
 app.include_router(gas_routes.router)
 app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)
