@@ -46,6 +46,7 @@ import Landing from './components/Landing'
 import BriefSubscribe from './components/BriefSubscribe'
 import CommandPalette from './components/CommandPalette'
 import TerminalBar from './components/TerminalBar'
+import PhysicalSituationBar from './components/PhysicalSituationBar'
 import NewsPanel from './components/NewsPanel'
 import { useAuth } from './context/AuthContext'
 
@@ -331,6 +332,13 @@ function Dashboard() {
             setEnergyZone={setEnergyZone}
             refreshKey={wlRefresh}
           />
+        </ErrorBoundary>
+      </div>
+
+      {/* PHYSICAL ENERGY SYSTEM — molecules + electrons in one glance (the niche top-line) */}
+      <div className="mt-3">
+        <ErrorBoundary name="physical-situation">
+          <PhysicalSituationBar onNavigate={setActiveTab} />
         </ErrorBoundary>
       </div>
 

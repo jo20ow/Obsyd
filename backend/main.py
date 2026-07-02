@@ -40,6 +40,7 @@ from backend.routes import power as power_routes
 from backend.routes import rates as rates_routes
 from backend.routes import settings as settings_routes
 from backend.routes import signals as signals_routes
+from backend.routes import situation as situation_routes
 from backend.routes import thermal as thermal_routes
 from backend.routes import validation as validation_routes
 from backend.routes import waitlist as waitlist_routes
@@ -246,4 +247,5 @@ app.include_router(gas_routes.router)
 app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)
 app.include_router(power_routes.router)
+app.include_router(situation_routes.router)
 app.include_router(watchlist_routes.router)
