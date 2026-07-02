@@ -29,6 +29,7 @@ from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
 from backend.routes import crypto as crypto_routes
 from backend.routes import email as email_routes
+from backend.routes import filings as filings_routes
 from backend.routes import gas as gas_routes
 from backend.routes import jodi as jodi_routes
 from backend.routes import metals as metals_routes
@@ -143,12 +144,13 @@ async def lifespan(app: FastAPI):
     # Power desk (front door): pull day-ahead/grid/flows to the published frontier
     # on startup so a restart doesn't wait for the 22:30 cron (kills the deploy-time
     # freshness lag). Reuses the same daily job the scheduler runs.
-    from backend.collectors.scheduler import _run_crypto, _run_fred, _run_power_daily
+    from backend.collectors.scheduler import _run_crypto, _run_edgar_tickers, _run_fred, _run_power_daily
 
     _create_task_logged(_run_power_daily(), "power_daily_startup")
     _create_task_logged(_run_crypto(), "crypto_startup")
     _create_task_logged(_run_fred(), "fred_startup")  # populates the treasury curve tenors promptly
-    logger.info("Startup: power desk + crypto + FRED refresh started (background)")
+    _create_task_logged(_run_edgar_tickers(), "edgar_tickers_startup")  # seeds the company master if empty
+    logger.info("Startup: power desk + crypto + FRED + EDGAR refresh started (background)")
 
     # STS detection initial run
     from backend.collectors.sts_collector import collect_sts_events
@@ -228,6 +230,7 @@ app.include_router(analytics_routes.router)
 app.include_router(validation_routes.router)
 app.include_router(crypto_routes.router)
 app.include_router(rates_routes.router)
+app.include_router(filings_routes.router)
 app.include_router(gas_routes.router)
 app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)

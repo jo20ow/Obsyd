@@ -239,6 +239,19 @@ async def _run_crypto():
         db.close()
 
 
+async def _run_edgar_tickers():
+    """Refresh the SEC EDGAR company security-master (ticker→CIK→title)."""
+    from backend.edgar.client import load_company_tickers
+
+    db = SessionLocal()
+    try:
+        await load_company_tickers(db)
+    except Exception as exc:
+        logger.error("edgar tickers refresh failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_gas_registry_weekly():
     """Re-sync the ENTSOG point registry (operators rename/reclassify points)."""
     from backend.gas.entsog import sync_points
@@ -657,6 +670,14 @@ def start_scheduler():
         _run_crypto,
         CronTrigger(minute="*/15"),
         id="crypto_15min",
+        **JOB_DEFAULTS,
+    )
+
+    # SEC EDGAR company security-master — refresh weekly (Sun 04:20 UTC).
+    scheduler.add_job(
+        _run_edgar_tickers,
+        CronTrigger(day_of_week="sun", hour=4, minute=20),
+        id="edgar_tickers_weekly",
         **JOB_DEFAULTS,
     )
 
