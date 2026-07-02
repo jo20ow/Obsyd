@@ -183,7 +183,11 @@ async def test_briefing(user=Depends(require_pro)):
         crack = await get_crack_spread()
 
         email_data = _gather_email_data(db, crack)
-        subject = _build_subject_line(briefing, rerouting, crack)
+        physical = email_data.get("physical_situation") or {}
+        subject = _build_subject_line(
+            briefing, rerouting, crack,
+            physical_state=physical.get("overall") if physical.get("available") else None,
+        )
         html = _build_full_html(briefing, rerouting, crack, email_data)
         html = (
             html.replace("{{email}}", email)
