@@ -50,6 +50,7 @@ import CryptoPanel from './components/CryptoPanel'
 import RatesPanel from './components/RatesPanel'
 import FilingsPanel from './components/FilingsPanel'
 import EconPanel from './components/EconPanel'
+import NewsPanel from './components/NewsPanel'
 import { useAuth } from './context/AuthContext'
 
 // Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
@@ -82,6 +83,7 @@ const TABS = [
   { key: 'rates', label: 'RATES' },
   { key: 'filings', label: 'FILINGS' },
   { key: 'econ', label: 'ECON' },
+  { key: 'news', label: 'NEWS' },
   { key: 'atlas', label: 'ATLAS' },
   { key: 'sentiment', label: 'SENTIMENT' },
   { key: 'alerts', label: 'ALERTS' },
@@ -628,6 +630,13 @@ function Dashboard() {
         {activeTab === 'econ' && (
           <ErrorBoundary name="econ">
             <EconPanel />
+          </ErrorBoundary>
+        )}
+
+        {/* NEWS TAB — cross-asset headlines (GDELT, free) */}
+        {activeTab === 'news' && (
+          <ErrorBoundary name="news">
+            <NewsPanel />
           </ErrorBoundary>
         )}
 
