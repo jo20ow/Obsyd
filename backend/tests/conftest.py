@@ -44,6 +44,7 @@ _DB_CONSUMERS = (
     "backend.routes.webhooks",
     "backend.routes.alert_rules",
     "backend.routes.watchlist",
+    "backend.routes.email",
     "backend.notifications.alert_runner",
 )
 

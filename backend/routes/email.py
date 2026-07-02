@@ -94,11 +94,63 @@ async def email_stats(_user=Depends(require_auth)):
         db.close()
 
 
+@router.post("/subscribe")
+async def subscribe(user=Depends(require_auth)):
+    """Opt the logged-in user into the free daily brief (Weg B).
+
+    Writes/reactivates an EmailSubscriber(tier="free"); the daily send loop mails
+    every active subscriber regardless of tier. Unsubscribe uses the existing
+    GET /api/email/unsubscribe?token= flow.
+    """
+    email = user["email"]
+    db = SessionLocal()
+    try:
+        sub = db.query(EmailSubscriber).filter(EmailSubscriber.email == email).first()
+        if sub is None:
+            sub = EmailSubscriber(
+                email=email,
+                tier="free",
+                unsubscribe_token=secrets.token_urlsafe(32),
+                active=True,
+            )
+            db.add(sub)
+        else:
+            sub.active = True
+            sub.unsubscribed_at = None
+        db.commit()
+        logger.info("Email subscribe (free): %s", email)
+        return {"status": "ok", "subscribed": email}
+    finally:
+        db.close()
+
+
+@router.get("/subscription")
+async def subscription_status(user=Depends(require_auth)):
+    """Whether the logged-in user is currently subscribed to the daily brief."""
+    email = user["email"]
+    db = SessionLocal()
+    try:
+        sub = (
+            db.query(EmailSubscriber)
+            .filter(EmailSubscriber.email == email, EmailSubscriber.active == True)  # noqa: E712
+            .first()
+        )
+        return {"subscribed": sub is not None, "email": email}
+    finally:
+        db.close()
+
+
 @router.post("/test-briefing")
 async def test_briefing(user=Depends(require_pro)):
     """Send a test briefing email to the authenticated Pro user."""
     from backend.config import settings
-    from backend.notifications.daily_email import _build_full_html, _build_subject_line, _send_via_resend
+    from backend.notifications.daily_email import (
+        _build_full_html,
+        _build_subject_line,
+        _build_watch_block,
+        _gather_email_data,
+        _send_via_resend,
+    )
 
     api_key = settings.resend_api_key
     if not api_key:
@@ -130,9 +182,14 @@ async def test_briefing(user=Depends(require_pro)):
         rerouting = compute_rerouting_index(days=365)
         crack = await get_crack_spread()
 
+        email_data = _gather_email_data(db, crack)
         subject = _build_subject_line(briefing, rerouting, crack)
-        html = _build_full_html(briefing, rerouting, crack)
-        html = html.replace("{{email}}", email).replace("{{token}}", sub.unsubscribe_token)
+        html = _build_full_html(briefing, rerouting, crack, email_data)
+        html = (
+            html.replace("{{email}}", email)
+            .replace("{{token}}", sub.unsubscribe_token)
+            .replace("{{watch_block}}", _build_watch_block(db, email))
+        )
 
         await _send_via_resend(
             api_key=api_key,

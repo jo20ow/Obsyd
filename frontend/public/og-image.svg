@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="OBSYD — European Power Desk">
+  <rect width="1200" height="630" fill="#0f1923"/>
+  <rect x="0" y="0" width="1200" height="6" fill="#5bbfb5"/>
+  <text x="72" y="150" font-family="'JetBrains Mono', monospace" font-size="34" letter-spacing="10" fill="#5bbfb5" font-weight="700">OBSYD</text>
+  <text x="72" y="300" font-family="'JetBrains Mono', monospace" font-size="76" fill="#e8eaed" font-weight="700">European Power Desk</text>
+  <text x="72" y="372" font-family="'JetBrains Mono', monospace" font-size="30" fill="#9aa0a6">Day-ahead · residual load &amp; Dunkelflaute · spark · cross-border flows</text>
+  <text x="72" y="418" font-family="'JetBrains Mono', monospace" font-size="30" fill="#9aa0a6">DE-LU · FR · NL — from the official record. Free &amp; open source.</text>
+  <g font-family="'JetBrains Mono', monospace" font-size="26" font-weight="700">
+    <rect x="72" y="470" width="150" height="52" rx="6" fill="none" stroke="#34a853" stroke-opacity="0.5"/>
+    <text x="147" y="504" fill="#34a853" text-anchor="middle">CALM</text>
+    <rect x="238" y="470" width="200" height="52" rx="6" fill="none" stroke="#f59e0b" stroke-opacity="0.5"/>
+    <text x="338" y="504" fill="#f59e0b" text-anchor="middle">ELEVATED</text>
+    <rect x="454" y="470" width="200" height="52" rx="6" fill="none" stroke="#ea4335" stroke-opacity="0.5"/>
+    <text x="554" y="504" fill="#ea4335" text-anchor="middle">STRESSED</text>
+  </g>
+  <text x="72" y="588" font-family="'JetBrains Mono', monospace" font-size="24" fill="#5bbfb5">obsyd.dev</text>
+</svg>

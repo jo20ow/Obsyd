@@ -225,6 +225,16 @@ export default function Landing() {
             </div>
           </div>
         </div>
+
+        <div className="mt-8 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <a
+            href="/app"
+            className="px-6 py-3 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold text-center"
+          >
+            Get the free daily brief →
+          </a>
+          <span className="text-[11px] text-neutral-600">Log in with a magic link — no card, no spam.</span>
+        </div>
       </section>
 
       {/* PRICING → it's all free */}
@@ -290,6 +300,8 @@ export default function Landing() {
             >
               GitHub
             </a>
+            {' · '}
+            <a href="/api/alerts/rss" className="text-cyan-glow hover:underline">Anomaly radar RSS</a>
             .
           </div>
           <div className="text-neutral-700 max-w-md leading-relaxed">

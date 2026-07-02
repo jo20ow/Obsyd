@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
+from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
@@ -11,6 +13,24 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 # Sort order for the radar feed: most urgent first, then most recent.
 _SEVERITY_RANK = {"critical": 0, "warning": 1, "info": 2}
+
+
+def _query_alerts(db, *, max_age_hours, limit, rule=None, zone=None, vertical=None, severity=None):
+    """Shared radar query: alerts refreshed within the window, newest first.
+
+    Single source of truth for the JSON feed and the RSS feed so they can't drift.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    query = db.query(Alert).filter(Alert.created_at > cutoff).order_by(Alert.created_at.desc())
+    if rule:
+        query = query.filter(Alert.rule == rule)
+    if zone:
+        query = query.filter(Alert.zone == zone)
+    if vertical:
+        query = query.filter(Alert.vertical == vertical)
+    if severity:
+        query = query.filter(Alert.severity == severity)
+    return query.limit(limit).all()
 
 
 def _serialize(r: Alert) -> dict:
@@ -43,17 +63,10 @@ async def get_alerts(
     re-fire, so a still-active anomaly always falls inside `max_age_hours` while a resolved
     one ages out — keeping the radar feed to what is currently abnormal, not weeks of history.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
-    query = db.query(Alert).filter(Alert.created_at > cutoff).order_by(Alert.created_at.desc())
-    if rule:
-        query = query.filter(Alert.rule == rule)
-    if zone:
-        query = query.filter(Alert.zone == zone)
-    if vertical:
-        query = query.filter(Alert.vertical == vertical)
-    if severity:
-        query = query.filter(Alert.severity == severity)
-    rows = query.limit(limit).all()
+    rows = _query_alerts(
+        db, max_age_hours=max_age_hours, limit=limit,
+        rule=rule, zone=zone, vertical=vertical, severity=severity,
+    )
     items = [_serialize(r) for r in rows]
 
     if not group_by_vertical:
@@ -68,6 +81,41 @@ async def get_alerts(
         group.sort(key=lambda a: a["created_at"], reverse=True)
         group.sort(key=lambda a: _SEVERITY_RANK.get(a["severity"], 9))
     return {"verticals": groups, "total": len(items)}
+
+
+@router.get("/rss")
+async def alerts_rss(
+    vertical: str = Query(None, description="Filter by vertical (oil/gas/power/metals/sentiment)"),
+    max_age_hours: int = Query(48, ge=1, le=720),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """The anomaly radar as an RSS 2.0 feed — a shareable distribution artifact.
+
+    Same query as the JSON feed (`_query_alerts`); stdlib serialization, no new dep.
+    """
+    rows = _query_alerts(db, max_age_hours=max_age_hours, limit=limit, vertical=vertical)
+    items = "".join(
+        "<item>"
+        f"<title>{escape(r.title or '')}</title>"
+        f"<description>{escape(r.detail or '')}</description>"
+        f"<category>{escape(r.vertical or '')}</category>"
+        f'<guid isPermaLink="false">obsyd-alert-{r.id}</guid>'
+        f"<link>https://obsyd.dev/#alert-{r.id}</link>"
+        f"<pubDate>{format_datetime(r.created_at.replace(tzinfo=timezone.utc))}</pubDate>"
+        "</item>"
+        for r in rows
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0"><channel>'
+        "<title>OBSYD Anomaly Radar</title>"
+        "<link>https://obsyd.dev</link>"
+        "<description>Cross-vertical anomaly radar — negative prices, Dunkelflaute, "
+        "day-ahead deviations and cross-commodity signals from the official record.</description>"
+        f"{items}</channel></rss>"
+    )
+    return Response(content=xml, media_type="application/rss+xml")
 
 
 @router.get("/portwatch")

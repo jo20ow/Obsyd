@@ -28,8 +28,10 @@ from backend.models.pro_features import (
 from backend.models.subscription import Subscription
 from backend.models.vessels import FloatingStorageEvent
 from backend.models.watchlist import WatchlistItem
+from backend.power.zones import POWER_ZONES
 from backend.routes.atlas import CRITICAL_MATERIALS, _concentration, _material_rows
 from backend.routes.briefing import _build_briefing
+from backend.routes.power import load_power_situation
 from backend.signals.crack_spread import get_crack_spread
 from backend.signals.tonnage_proxy import compute_rerouting_index
 
@@ -60,9 +62,10 @@ async def send_daily_email():
     try:
         _sync_pro_subscribers(db)
 
-        # Pro-only: the daily brief is a paid benefit, so it goes solely to
-        # active EmailSubscriber rows (Pro subs are synced in above). The legacy
-        # free Waitlist is deliberately NOT mailed the brief anymore.
+        # The brief is free (Weg B): it goes to every active EmailSubscriber —
+        # both comp/Pro rows synced above and free opt-ins from POST /api/email/subscribe
+        # (tier="free"). The legacy free Waitlist is a separate email-capture table and
+        # is deliberately not mailed here.
         subscribers = (
             db.query(EmailSubscriber)
             .filter(EmailSubscriber.active == True)  # noqa: E712
@@ -70,7 +73,7 @@ async def send_daily_email():
         )
 
         if not subscribers:
-            logger.info("Daily email: no Pro subscribers, skipping")
+            logger.info("Daily email: no subscribers, skipping")
             return
 
         # --- Resend free tier safety check ---
@@ -109,7 +112,10 @@ async def send_daily_email():
         rerouting = compute_rerouting_index(days=365)
         crack = await get_crack_spread()
         email_data = _gather_email_data(db, crack)
-        subject = _build_subject_line(briefing, rerouting, crack)
+        power_sits = email_data.get("power_situations") or []
+        de_lu = next((s for s in power_sits if s and s.get("zone") == "DE_LU"), None)
+        power_state = de_lu.get("state") if de_lu else None
+        subject = _build_subject_line(briefing, rerouting, crack, power_state=power_state)
         html_template = _build_full_html(briefing, rerouting, crack, email_data)
 
         sent = 0
@@ -216,9 +222,13 @@ def _pct(val, fallback="---"):
     return f"{sign}{val:.1f}%"
 
 
-def _build_subject_line(briefing: dict, rerouting: dict, crack: dict) -> str:
+def _build_subject_line(briefing: dict, rerouting: dict, crack: dict, power_state: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     parts = [f"OBSYD Daily -- {now.strftime('%d %b')}"]
+
+    # European Power Desk is the front door — surface a non-calm power state first.
+    if power_state and power_state != "CALM":
+        parts.append(f"Power {power_state}")
 
     market = briefing.get("market_snapshot", {})
     wti = market.get("wti", {})
@@ -282,6 +292,11 @@ def _gather_email_data(db, crack: dict) -> dict:
         data["eia_prediction"] = _get_eia_prediction(db)
     except Exception as e:
         logger.warning("Email EIA prediction failed: %s", e)
+
+    try:
+        data["power_situations"] = [load_power_situation(db, z) for z in POWER_ZONES]
+    except Exception as e:
+        logger.warning("Email power situations failed: %s", e)
 
     return data
 
@@ -481,6 +496,47 @@ _ACCENT = "#5bbfb5"
 _AMBER = "#f59e0b"
 _DIVIDER = f'<div style="border-top:1px solid {_BORDER};margin:20px 0"></div>'
 
+# European Power Desk is the front door → its situation leads the brief.
+_POWER_STATE_COLOR = {"CALM": _GREEN, "ELEVATED": _AMBER, "STRESSED": _RED}
+
+
+def _build_power_block(situations: list[dict] | None) -> str:
+    """Render the per-zone power situation (DE-LU/FR/NL) as the brief's lead block."""
+    if not situations:
+        return ""
+    rows = []
+    for s in situations:
+        if not s or not s.get("available"):
+            continue
+        state = s.get("state", "CALM")
+        color = _POWER_STATE_COLOR.get(state, _MUTED)
+        label = s.get("zone_label") or s.get("zone") or ""
+        headline = s.get("headline", "")
+        # headline is "<zone> · day-ahead €.. · residual .. GW · spark €.." — drop the zone prefix.
+        metrics = headline.split(" · ", 1)[1] if " · " in headline else headline
+        extra = ""
+        flags = s.get("flags") or []
+        if flags:
+            extra += " · " + ", ".join(f["label"] for f in flags)
+        if s.get("stale"):
+            extra += f' <span style="color:{_MUTED}">· as of {s.get("as_of")} ({s.get("age_days")}d)</span>'
+        rows.append(
+            "<tr>"
+            f'<td style="padding:4px 10px 4px 0;white-space:nowrap;font-weight:700;color:{_TEXT}">{label}</td>'
+            f'<td style="padding:4px 10px 4px 0;white-space:nowrap;font-weight:700;color:{color}">{state}</td>'
+            f'<td style="padding:4px 0;color:{_MUTED};font-size:13px">{metrics}{extra}</td>'
+            "</tr>"
+        )
+    if not rows:
+        return ""
+    return (
+        _DIVIDER
+        + f'<div style="font-size:12px;color:{_MUTED};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">European Power Desk</div>'
+        + f'<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:{_FONT}">'
+        + "".join(rows)
+        + "</table>"
+    )
+
 
 def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -> str:
     """Build the daily briefing email HTML."""
@@ -551,6 +607,9 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
                 crack_str += f" ({', '.join(pct_parts)})"
 
     futures_line = f"Futures: {futures_str}{crack_str}"
+
+    # ── European Power Desk (front door → leads the brief body) ──
+    power_html = _build_power_block(data.get("power_situations"))
 
     # ── Disruption section ──
     disruption_html = ""
@@ -730,6 +789,8 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
 {price_rows}
 </table>
 <div style="font-size:13px;color:{_MUTED};line-height:1.5">{futures_line}</div>
+
+{power_html}
 
 {{{{watch_block}}}}
 

@@ -1,11 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import Header from './components/Header'
 import CompactView from './components/CompactView'
 import PriceChart from './components/PriceChart'
 import MacroPanel from './components/MacroPanel'
 import SentimentPanel from './components/SentimentPanel'
-import VesselMap from './components/VesselMap'
-import AtlasMap from './components/AtlasMap'
 import CriticalMaterialsView from './components/CriticalMaterialsView'
 import AlertsPanel from './components/AlertsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
@@ -44,7 +42,19 @@ import CopperPanel from './components/CopperPanel'
 import ZoneSelector from './components/ZoneSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import Landing from './components/Landing'
+import BriefSubscribe from './components/BriefSubscribe'
 import { useAuth } from './context/AuthContext'
+
+// Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
+// tabs — lazy-load them so the default POWER desk doesn't ship the mapping stack.
+const VesselMap = lazy(() => import('./components/VesselMap'))
+const AtlasMap = lazy(() => import('./components/AtlasMap'))
+
+const MAP_FALLBACK = (
+  <div className="border border-border bg-surface rounded px-4 py-8 text-center font-mono text-xs text-neutral-500">
+    Loading map…
+  </div>
+)
 
 const API = '/api'
 
@@ -133,7 +143,7 @@ function Dashboard() {
   const [compactMode, setCompactMode] = useState(false)
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)
-  const [liveSource, setLiveSource] = useState(null)
+  const [, setLiveSource] = useState(null)
   const [zones, setZones] = useState([])
   const [aisActive, setAisActive] = useState(false)
   const [gdeltActive, setGdeltActive] = useState(false)
@@ -327,7 +337,9 @@ function Dashboard() {
           <>
             {/* Row 0: Live tanker map + daily briefing (maritime context) */}
             <ErrorBoundary name="vessel-map">
-              <VesselMap zones={zones} weatherAlerts={weatherAlerts} />
+              <Suspense fallback={MAP_FALLBACK}>
+                <VesselMap zones={zones} weatherAlerts={weatherAlerts} />
+              </Suspense>
             </ErrorBoundary>
             <ErrorBoundary name="briefing">
               <div className="mt-3">
@@ -553,15 +565,22 @@ function Dashboard() {
         {/* ATLAS TAB — per-country world map (energy / macro / climate / resources) */}
         {activeTab === 'atlas' && (
           <ErrorBoundary name="atlas">
-            <AtlasMap />
+            <Suspense fallback={MAP_FALLBACK}>
+              <AtlasMap />
+            </Suspense>
           </ErrorBoundary>
         )}
 
         {/* ALERTS TAB (Pro feature; panel itself handles the gate) */}
         {activeTab === 'alerts' && (
-          <ErrorBoundary name="alert-rules">
-            <AlertRulesPanel />
-          </ErrorBoundary>
+          <>
+            <ErrorBoundary name="brief-subscribe">
+              <BriefSubscribe />
+            </ErrorBoundary>
+            <ErrorBoundary name="alert-rules">
+              <AlertRulesPanel />
+            </ErrorBoundary>
+          </>
         )}
 
         {/* SENTIMENT TAB */}

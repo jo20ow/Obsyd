@@ -488,19 +488,12 @@ def build_power_situation(
     }
 
 
-@router.get("/situation")
-async def get_situation(
-    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
-    db: Session = Depends(get_db),
-):
-    """One descriptive power-situation top-line for a bidding zone — the desk hero.
+def load_power_situation(db: Session, zone: str) -> dict:
+    """Load the DB slices for `zone` and compose the descriptive power situation.
 
-    Joins the most recent day-ahead price (with its z-context + negative-price
-    flag), residual load + Dunkelflaute, and the DE-LU spark spread into a single
-    `state` (CALM / ELEVATED / STRESSED) plus a `headline` and `flags`. Free tier.
-
-    `zone` defaults to DE_LU; unknown zones fall back. Spark is DE-LU only and is
-    marked `supported: false` for FR/NL so the header can signpost the gap.
+    Extracted from the /situation route so the morning brief can reuse the exact
+    same synthesis (day-ahead + residual load + Dunkelflaute + DE-LU spark →
+    CALM/ELEVATED/STRESSED) without going through HTTP.
     """
     resolved_zone = _resolve_zone(zone)
     date_from, date_to = _window(120)
@@ -564,6 +557,23 @@ async def get_situation(
         grid_coverage_ok=grid_coverage_ok,
         today=datetime.utcnow().date(),
     )
+
+
+@router.get("/situation")
+async def get_situation(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
+    db: Session = Depends(get_db),
+):
+    """One descriptive power-situation top-line for a bidding zone — the desk hero.
+
+    Joins the most recent day-ahead price (with its z-context + negative-price
+    flag), residual load + Dunkelflaute, and the DE-LU spark spread into a single
+    `state` (CALM / ELEVATED / STRESSED) plus a `headline` and `flags`. Free tier.
+
+    `zone` defaults to DE_LU; unknown zones fall back. Spark is DE-LU only and is
+    marked `supported: false` for FR/NL so the header can signpost the gap.
+    """
+    return load_power_situation(db, zone)
 
 
 # ─── Cross-border physical flows (free) ──────────────────────────────────────
