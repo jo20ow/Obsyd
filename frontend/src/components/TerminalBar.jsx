@@ -7,6 +7,7 @@ const POWER_ZONES = new Set(['DE_LU', 'FR', 'NL'])
 // Which view a watchlist chip jumps to when clicked.
 function navFor(item, setActiveTab, setEnergyZone) {
   if (item.kind === 'symbol') return () => setActiveTab('market')
+  if (item.kind === 'crypto') return () => setActiveTab('crypto')
   if (item.kind === 'material') return () => setActiveTab('critical')
   if (item.kind === 'zone') {
     if (POWER_ZONES.has(item.key)) return () => { setEnergyZone(item.key); setActiveTab('energy') }
