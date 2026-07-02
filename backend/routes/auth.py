@@ -12,11 +12,12 @@ import logging
 import re
 
 import httpx
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, field_validator
 
 from backend.auth.dependencies import get_current_user
 from backend.auth.jwt import create_magic_token, create_token, verify_token
+from backend.auth.ratelimit import allow, client_ip, magic_link_rules
 from backend.auth.subscription_check import is_pro
 from backend.config import settings
 from backend.database import SessionLocal
@@ -44,8 +45,16 @@ class MagicLinkRequest(BaseModel):
 
 
 @router.post("/magic-link")
-async def request_magic_link(body: MagicLinkRequest):
-    """Send a magic link email for passwordless login."""
+async def request_magic_link(body: MagicLinkRequest, request: Request):
+    """Send a magic link email for passwordless login.
+
+    Rate-limited per email + per IP (backend/auth/ratelimit.py) — the endpoint sends
+    a real Resend email to an arbitrary address, so without a throttle it's an
+    email-bomb / Resend-quota-exhaustion / sender-reputation vector.
+    """
+    if not allow(magic_link_rules(body.email, client_ip(request))):
+        raise HTTPException(status_code=429, detail="Too many login requests — please try again later.")
+
     api_key = settings.resend_api_key
     if not api_key:
         return {"status": "error", "message": "Email not configured"}
