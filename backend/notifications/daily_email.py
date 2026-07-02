@@ -21,6 +21,7 @@ from backend.models.analytics import (
     EIAPredictionHistory,
     MarketReport,
 )
+from backend.models.crypto import CryptoPrice
 from backend.models.energy import EnergyPrice
 from backend.models.pro_features import (
     EmailSubscriber,
@@ -475,6 +476,18 @@ def _build_watch_block(db, email: str) -> str:
             )
             if row is not None and row.close is not None:
                 lines.append(f"{it.label} &middot; {row.close:.2f}")
+            else:
+                lines.append(f"{it.label} &middot; on your watchlist")
+        elif it.kind == "crypto":
+            crow = (
+                db.query(CryptoPrice)
+                .filter(CryptoPrice.symbol == it.key)
+                .order_by(CryptoPrice.date.desc())
+                .first()
+            )
+            if crow is not None:
+                chg = f" ({crow.change_24h_pct:+.1f}% 24h)" if crow.change_24h_pct is not None else ""
+                lines.append(f"{it.label} &middot; ${crow.price_usd:,.0f}{chg}")
             else:
                 lines.append(f"{it.label} &middot; on your watchlist")
 

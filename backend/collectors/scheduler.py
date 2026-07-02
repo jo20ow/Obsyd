@@ -226,6 +226,19 @@ async def _run_power_daily():
         db.close()
 
 
+async def _run_crypto():
+    """Refresh the crypto basket (CoinGecko, no key). The one real-time free feed."""
+    from backend.crypto.coingecko import collect_crypto
+
+    db = SessionLocal()
+    try:
+        await collect_crypto(db)
+    except Exception as exc:
+        logger.error("crypto refresh failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_gas_registry_weekly():
     """Re-sync the ENTSOG point registry (operators rename/reclassify points)."""
     from backend.gas.entsog import sync_points
@@ -636,6 +649,14 @@ def start_scheduler():
         _run_power_daily,
         CronTrigger(hour=22, minute=30),
         id="power_spark_daily",
+        **JOB_DEFAULTS,
+    )
+
+    # Crypto basket — the one real-time free feed; refresh every 15 min.
+    scheduler.add_job(
+        _run_crypto,
+        CronTrigger(minute="*/15"),
+        id="crypto_15min",
         **JOB_DEFAULTS,
     )
 

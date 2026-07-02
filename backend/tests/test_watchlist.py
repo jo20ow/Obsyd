@@ -105,6 +105,19 @@ def test_add_symbol_item(client, db_session):
     assert client.post("/api/watchlist", json={"kind": "symbol", "key": "NOPE"}, cookies=ck).status_code == 422
 
 
+def test_catalog_includes_crypto(client):
+    data = client.get("/api/watchlist/catalog").json()
+    assert "crypto" in data
+    keys = {c["key"] for c in data["crypto"]}
+    assert {"BTC", "ETH"} <= keys
+
+
+def test_add_crypto_item(client, db_session):
+    ck = _login_cookie("c@obsyd.dev")
+    r = client.post("/api/watchlist", json={"kind": "crypto", "key": "BTC"}, cookies=ck)
+    assert r.status_code == 200 and r.json()["kind"] == "crypto"
+
+
 def test_watch_block_renders_symbol_item(db_session):
     from backend.models.watchlist import WatchlistItem
     from backend.notifications.daily_email import _build_watch_block

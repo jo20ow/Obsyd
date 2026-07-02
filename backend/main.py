@@ -27,6 +27,7 @@ from backend.routes import analytics as analytics_routes
 from backend.routes import atlas as atlas_routes
 from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
+from backend.routes import crypto as crypto_routes
 from backend.routes import email as email_routes
 from backend.routes import gas as gas_routes
 from backend.routes import jodi as jodi_routes
@@ -141,10 +142,11 @@ async def lifespan(app: FastAPI):
     # Power desk (front door): pull day-ahead/grid/flows to the published frontier
     # on startup so a restart doesn't wait for the 22:30 cron (kills the deploy-time
     # freshness lag). Reuses the same daily job the scheduler runs.
-    from backend.collectors.scheduler import _run_power_daily
+    from backend.collectors.scheduler import _run_crypto, _run_power_daily
 
     _create_task_logged(_run_power_daily(), "power_daily_startup")
-    logger.info("Startup: power desk refresh started (background)")
+    _create_task_logged(_run_crypto(), "crypto_startup")
+    logger.info("Startup: power desk + crypto refresh started (background)")
 
     # STS detection initial run
     from backend.collectors.sts_collector import collect_sts_events
@@ -222,6 +224,7 @@ app.include_router(email_routes.router)
 app.include_router(voyages.router)
 app.include_router(analytics_routes.router)
 app.include_router(validation_routes.router)
+app.include_router(crypto_routes.router)
 app.include_router(gas_routes.router)
 app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)

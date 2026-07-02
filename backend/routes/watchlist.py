@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from backend.auth.dependencies import require_auth
+from backend.crypto.coingecko import CRYPTO_ASSETS
 from backend.database import SessionLocal
 from backend.geofences.zones import ZONES
 from backend.models.watchlist import WatchlistItem
@@ -39,7 +40,8 @@ def _build_catalog() -> dict[str, dict[str, str]]:
     zones.update({k: v["label"] for k, v in POWER_ZONES.items()})
     symbols = dict(PRICE_SYMBOLS)
     symbols["POWER_DE"] = "German Power Day-Ahead (POWER_DE)"
-    return {"material": materials, "zone": zones, "symbol": symbols}
+    crypto = {sym: name for _gid, sym, name in CRYPTO_ASSETS}
+    return {"material": materials, "zone": zones, "symbol": symbols, "crypto": crypto}
 
 
 VALID_KEYS = _build_catalog()
