@@ -106,7 +106,7 @@ def extract_key_financials(facts: dict) -> dict:
     gaap = (facts or {}).get("facts", {}).get("us-gaap", {})
     out: dict[str, dict | None] = {}
     for metric, tags in _METRIC_TAGS.items():
-        value = None
+        best = None
         for tag in tags:
             units = gaap.get(tag, {}).get("units", {})
             unit = "USD" if "USD" in units else (next(iter(units), None))
@@ -115,15 +115,19 @@ def extract_key_financials(facts: dict) -> dict:
             entry = _latest_annual(units[unit])
             if entry is None:
                 continue
-            value = {
+            cand = {
                 "value": entry.get("val"),
                 "unit": unit,
                 "fiscal_year": entry.get("fy"),
                 "period_end": entry.get("end"),
                 "form": entry.get("form"),
             }
-            break
-        out[metric] = value
+            # Companies migrate tags (e.g. "Revenues" → "RevenueFromContract…"), leaving a
+            # deprecated tag with stale data. Take the freshest entry ACROSS candidate tags,
+            # not the first tag that has any data.
+            if best is None or (cand["period_end"] or "") > (best["period_end"] or ""):
+                best = cand
+        out[metric] = best
     return out
 
 

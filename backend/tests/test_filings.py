@@ -77,6 +77,22 @@ def test_extract_key_financials_prefers_annual_and_handles_missing():
     assert m["equity"] is None  # absent tag → None, not a crash
 
 
+def test_extract_key_financials_picks_freshest_tag_not_first():
+    # Apple-style: a deprecated "Revenues" tag (stale, ends 2018) + the current tag
+    # (2025). The freshest entry across candidate tags must win, not the first tag.
+    facts = {"facts": {"us-gaap": {
+        "Revenues": {"units": {"USD": [
+            {"end": "2018-09-29", "val": 265595, "fy": 2018, "fp": "FY", "form": "10-K"},
+        ]}},
+        "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"USD": [
+            {"end": "2025-09-27", "val": 391035, "fy": 2025, "fp": "FY", "form": "10-K"},
+        ]}},
+    }}}
+    m = extract_key_financials(facts)
+    assert m["revenue"]["fiscal_year"] == 2025
+    assert m["revenue"]["value"] == 391035
+
+
 # ─── endpoints ──────────────────────────────────────────────────────────────
 
 
