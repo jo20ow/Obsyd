@@ -138,6 +138,14 @@ async def lifespan(app: FastAPI):
     _create_task_logged(collect_equities(), "equities")
     logger.info("Startup: Crack spreads + equities collection started (background)")
 
+    # Power desk (front door): pull day-ahead/grid/flows to the published frontier
+    # on startup so a restart doesn't wait for the 22:30 cron (kills the deploy-time
+    # freshness lag). Reuses the same daily job the scheduler runs.
+    from backend.collectors.scheduler import _run_power_daily
+
+    _create_task_logged(_run_power_daily(), "power_daily_startup")
+    logger.info("Startup: power desk refresh started (background)")
+
     # STS detection initial run
     from backend.collectors.sts_collector import collect_sts_events
 

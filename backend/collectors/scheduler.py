@@ -144,11 +144,20 @@ async def _run_gas_daily():
         db.close()
 
 
-def _power_recent_days(n: int = 7) -> list[str]:
-    """The last n days ending yesterday for ENTSO-E A44 ingestion."""
+def _power_recent_days(n: int = 7, *, today=None, ahead: int = 1) -> list[str]:
+    """The n days ending `ahead` days after today, for ENTSO-E A44 ingestion.
+
+    Day-ahead prices for delivery day D (and D+1) are published the afternoon
+    before, so the window must reach *tomorrow* (`ahead=1`) to capture the
+    published frontier — ending at yesterday left the desk 1-2 days behind even
+    when the collector ran fine. Future days with no data yet parse to nothing
+    (idempotent, harmless). `today` is injectable for tests.
+    """
     from datetime import datetime, timedelta, timezone
 
-    end = datetime.now(timezone.utc).date() - timedelta(days=1)
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    end = today + timedelta(days=ahead)
     return [(end - timedelta(days=i)).isoformat() for i in range(n)][::-1]
 
 
@@ -181,7 +190,12 @@ async def _run_power_daily():
                     zone=zone_key,
                     overwrite=True,
                 )
-                logger.info("power daily ingest [%s]: %s", zone_key, result)
+                # Fail loudly on the silent-skip path (missing/expired token) so a
+                # frozen desk is a logged, monitorable condition, not a quiet no-op.
+                if isinstance(result, dict) and result.get("skipped"):
+                    logger.error("power daily ingest [%s] SKIPPED: %s — desk will go stale", zone_key, result)
+                else:
+                    logger.info("power daily ingest [%s]: %s", zone_key, result)
             except Exception as exc:
                 logger.error("power daily ingest_day_ahead [%s] failed: %s", zone_key, exc)
 

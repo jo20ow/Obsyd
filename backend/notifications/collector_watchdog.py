@@ -7,45 +7,27 @@ agree. Emails OPS_EMAIL via Resend; logs (and skips) when no key is set.
 """
 
 import logging
-from datetime import datetime
 
 import httpx
-from sqlalchemy import func
 
+from backend.collectors.freshness import evaluate_freshness
 from backend.config import settings
 from backend.database import SessionLocal
-from backend.models.prices import EIAPrice, FREDSeries
-from backend.models.sentiment import GDELTVolume
-from backend.models.vessels import VesselPosition
 from backend.notifications.daily_email import OPS_EMAIL
-from backend.routes.health import STALENESS
 
 logger = logging.getLogger(__name__)
 
 
-def _collect_staleness(db) -> dict:
-    """Return {collector: {'fresh': bool, 'last_seen': datetime|None}}."""
-    now = datetime.utcnow()
-    last = {
-        "eia": db.query(func.max(EIAPrice.fetched_at)).scalar(),
-        "fred": db.query(func.max(FREDSeries.fetched_at)).scalar(),
-        "ais": db.query(func.max(VesselPosition.timestamp)).scalar(),
-        "gdelt": db.query(func.max(GDELTVolume.created_at)).scalar(),
-    }
-    return {
-        key: {
-            "fresh": ts is not None and (now - ts) <= STALENESS[key],
-            "last_seen": ts,
-        }
-        for key, ts in last.items()
-    }
-
-
 async def check_collectors():
-    """Daily watchdog: email ops when one or more collectors are stale."""
+    """Daily watchdog: email ops when one or more collectors are stale.
+
+    Shares backend/collectors/freshness.py with /api/health/collectors, so the
+    alert and the health endpoint can never drift — and both now cover the
+    product-critical power/gas/price sources by delivery date, not write time.
+    """
     db = SessionLocal()
     try:
-        status = _collect_staleness(db)
+        status = evaluate_freshness(db)
     except Exception as e:
         logger.error("Collector watchdog: staleness check failed: %s", e)
         return
@@ -69,8 +51,8 @@ async def check_collectors():
 
     rows = "".join(
         f"<tr><td><strong>{k}</strong></td>"
-        f"<td>{v['last_seen'].isoformat() if v['last_seen'] else 'never'}</td>"
-        f"<td>{STALENESS[k]}</td></tr>"
+        f"<td>{v['last_seen'] or 'never'}</td>"
+        f"<td>{v['max_age_days']:.0f}d</td></tr>"
         for k, v in stale.items()
     )
     html = (
