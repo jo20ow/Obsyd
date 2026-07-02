@@ -43,6 +43,33 @@ def test_combine_all_unavailable():
     assert out["overall"] == "CALM"
 
 
+def test_chokepoint_price_context_summarizes_forward_brent(monkeypatch):
+    from backend.situation import physical
+
+    def fake_find(chokepoint, **kw):
+        return {"anomalies": [
+            {"brent_change_7d_pct": 2.0, "brent_change_30d_pct": 5.0},
+            {"brent_change_7d_pct": 4.0, "brent_change_30d_pct": 9.0},
+            {"brent_change_7d_pct": 6.0, "brent_change_30d_pct": 1.0},
+        ]}
+
+    monkeypatch.setattr("backend.signals.historical_lookup.find_anomalies", fake_find)
+    ctx = physical.chokepoint_price_context("hormuz")
+    assert ctx["n"] == 3
+    assert ctx["brent_median_7d_pct"] == 4.0
+    assert ctx["brent_median_30d_pct"] == 5.0
+
+
+def test_chokepoint_price_context_none_without_events(monkeypatch):
+    from backend.situation import physical
+
+    monkeypatch.setattr(
+        "backend.signals.historical_lookup.find_anomalies",
+        lambda *a, **k: {"anomalies": []},
+    )
+    assert physical.chokepoint_price_context("hormuz") is None
+
+
 def test_situation_endpoint_envelope(db_session):
     body = TestClient(app).get("/api/situation").json()
     assert "overall" in body and "domains" in body

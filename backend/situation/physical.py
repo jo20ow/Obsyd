@@ -34,6 +34,38 @@ def _today(today: _date | None) -> _date:
     return today or datetime.now(timezone.utc).date()
 
 
+def _median(xs: list[float]) -> float | None:
+    if not xs:
+        return None
+    s = sorted(xs)
+    m = len(s) // 2
+    return s[m] if len(s) % 2 else round((s[m - 1] + s[m]) / 2, 1)
+
+
+def chokepoint_price_context(chokepoint: str) -> dict | None:
+    """Honest historical analog for a chokepoint transit drop: how Brent moved after
+    comparable past drops (median of +7d / +30d changes). Descriptive co-movement over
+    a small sample — NOT a forecast. Reuses signals.historical_lookup.find_anomalies."""
+    try:
+        from backend.signals.historical_lookup import find_anomalies
+
+        res = find_anomalies(chokepoint)
+    except Exception:
+        return None
+    events = res.get("anomalies") or []
+    d7 = [e["brent_change_7d_pct"] for e in events if e.get("brent_change_7d_pct") is not None]
+    d30 = [e["brent_change_30d_pct"] for e in events if e.get("brent_change_30d_pct") is not None]
+    n = max(len(d7), len(d30))
+    if n == 0:
+        return None
+    return {
+        "n": n,
+        "brent_median_7d_pct": _median(d7),
+        "brent_median_30d_pct": _median(d30),
+        "note": "historical co-movement after comparable transit drops — small sample, not a forecast",
+    }
+
+
 def _oil_domain(db: Session) -> dict:
     """Oil molecules in motion: chokepoint transit + Suez→Cape rerouting anomalies."""
     base = {"domain": "oil", "label": "Oil", "tab": "overview"}
@@ -49,8 +81,14 @@ def _oil_domain(db: Session) -> dict:
                 "headline": "Chokepoint transit within normal range.", "as_of": None, "stale": False}
 
     worst = max(results, key=lambda r: _RANK[_state_from_severity(r.severity)])
-    return {**base, "available": True, "state": _state_from_severity(worst.severity),
-            "headline": worst.title, "detail": worst.detail, "as_of": worst.as_of, "stale": False}
+    out = {**base, "available": True, "state": _state_from_severity(worst.severity),
+           "headline": worst.title, "detail": worst.detail, "as_of": worst.as_of, "stale": False}
+    # "So what?" — attach the honest historical price analog for a chokepoint drop.
+    if getattr(worst, "rule", "") == "chokepoint_anomaly" and worst.zone:
+        ctx = chokepoint_price_context(worst.zone)
+        if ctx:
+            out["context"] = ctx
+    return out
 
 
 def _gas_domain(db: Session, today: _date) -> dict:
