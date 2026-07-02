@@ -532,7 +532,7 @@ function Dashboard() {
             {/* Row 3: Spark Spread — DE-LU only, gas-derived */}
             <div className="mt-3">
               <ErrorBoundary name="power-spark">
-                <SparkSpreadPanel />
+                <SparkSpreadPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
 
@@ -546,7 +546,7 @@ function Dashboard() {
             {/* Row 5: Cross-Border Physical Flows (free) */}
             <div className="mt-3">
               <ErrorBoundary name="cross-border-flows">
-                <CrossBorderFlowPanel />
+                <CrossBorderFlowPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
           </>

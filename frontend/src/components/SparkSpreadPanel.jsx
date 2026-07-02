@@ -8,8 +8,20 @@ import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
 
-export default function SparkSpreadPanel() {
+export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
   const { data, loading, error } = useFetchWithError(`${API}/power/spark-spread?days=120`)
+
+  // Spark spread is published for DE-LU only. Under another zone, signpost that
+  // instead of silently showing DE-LU numbers (mirrors the hero's spark.supported).
+  if (zone !== 'DE_LU') {
+    return (
+      <Panel id="spark-spread" title="SPARK SPREAD · DE-LU ONLY" collapsible>
+        <div className="px-4 py-4 font-mono text-[11px] text-neutral-500">
+          Spark spread is published for DE-LU only — not available for {zone}.
+        </div>
+      </Panel>
+    )
+  }
 
   // The spark-spread route is public now; a 401/403 shouldn't occur, but treat
   // any auth-ish error defensively as "not available" rather than a red box.
@@ -30,7 +42,7 @@ export default function SparkSpreadPanel() {
   return (
     <Panel
       id="spark-spread"
-      title="SPARK SPREAD · CCGT GENERATION MARGIN"
+      title="SPARK SPREAD · DE-LU · CCGT MARGIN"
       info="Spark spread = power − gas × heat-rate (CCGT generation margin). Measures the theoretical profitability of gas-fired power generation. Positive = burning gas to generate electricity is profitable. Clean spark (− CO₂ cost) coming once EUA data is wired."
       collapsible
       headerRight={

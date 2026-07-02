@@ -47,7 +47,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
       <div className="border border-border bg-surface rounded px-4 py-5">
         <div className="font-mono text-[10px] text-neutral-600 tracking-wider">// POWER SITUATION</div>
         <div className="font-mono text-xs text-neutral-500 mt-2">
-          No power data for {data?.zone_label || zone} yet — run the power backfill.
+          No power data for {data?.zone_label || zone} yet — check back shortly.
         </div>
       </div>
     )

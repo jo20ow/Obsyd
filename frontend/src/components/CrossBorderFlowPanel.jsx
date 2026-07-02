@@ -118,7 +118,7 @@ function BorderRow({ border, data }) {
   )
 }
 
-export default function CrossBorderFlowPanel() {
+export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
   const url = `${API}/power/flows?days=30`
   const { data, loading, error } = useFetchWithError(url)
 
@@ -134,14 +134,19 @@ export default function CrossBorderFlowPanel() {
 
   if (!data?.available && !loading) return null
 
-  const borders = data?.borders ?? []
+  // Coherence with the zone selector: show the interconnectors that touch the
+  // selected zone, not all 20 borders (the API returns the full network).
+  const zl = zoneLabel(zone)
+  const borders = (data?.borders ?? []).filter(
+    (b) => b.from_zone === zone || b.to_zone === zone,
+  )
   const rows = data?.data ?? []
 
   return (
     <Panel
       id="cross-border-flows"
-      title="CROSS-BORDER FLOWS"
-      info="Net physical electricity flows between bidding zones. All real interconnectors of DE-LU, FR, and NL — sorted by magnitude. Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the last 30 days signed. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0)."
+      title={`CROSS-BORDER FLOWS · ${zl}`}
+      info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the last 30 days signed. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
       collapsible
       headerRight={
         borders.length > 0 && (

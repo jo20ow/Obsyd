@@ -278,3 +278,20 @@ def test_route_empty_unavailable(db_session):
     resp = client.get("/api/power/situation?zone=DE_LU")
     assert resp.status_code == 200
     assert resp.json()["available"] is False
+
+
+def test_power_empty_states_are_user_facing(db_session):
+    # Empty-DB "reason" strings are surfaced to visitors — they must not leak the
+    # internal collector function names (ingest_*/backfill/run …).
+    client = _make_client(db_session)
+    for path in (
+        "/api/power/day-ahead?zone=DE_LU",
+        "/api/power/grid?zone=DE_LU",
+        "/api/power/generation-mix?zone=DE_LU",
+        "/api/power/flows",
+        "/api/power/spark-spread",
+    ):
+        body = client.get(path).json()
+        assert body["available"] is False, path
+        reason = (body.get("reason") or "").lower()
+        assert "ingest" not in reason and "backfill" not in reason and "run " not in reason, (path, reason)

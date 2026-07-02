@@ -153,7 +153,7 @@ async def get_day_ahead(
             "available": False,
             "zone": resolved_zone,
             "zones": _ZONE_KEYS,
-            "reason": f"no {symbol} data yet — run power backfill (ingest_day_ahead)",
+            "reason": f"No day-ahead prices for {zone_cfg['label']} yet — check back shortly.",
         }
     data = [{"date": r.date, "close": r.close} for r in rows]
     return {
@@ -198,10 +198,7 @@ async def get_spark_spread(
     if not rows:
         return {
             "available": False,
-            "reason": (
-                "no spark spread data yet — "
-                "ingest POWER_DE via ingest_day_ahead, then run collect_spark_spreads"
-            ),
+            "reason": "Spark spread isn't available yet — check back shortly.",
         }
 
     def _row_dict(r: SparkSpreadHistory) -> dict:
@@ -291,7 +288,7 @@ async def get_grid(
             "available": False,
             "zone": resolved_zone,
             "zones": _ZONE_KEYS,
-            "reason": f"no grid data for zone {resolved_zone} — run power grid backfill (ingest_grid)",
+            "reason": f"No grid data for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
 
     data = [_compute_grid_row(r) for r in rows]
@@ -638,7 +635,7 @@ async def get_flows(
     if not rows:
         return {
             "available": False,
-            "reason": "no cross-border flow data yet — run power backfill (ingest_cbpf)",
+            "reason": "No cross-border flow data yet — check back shortly.",
         }
 
     # Build wide format {date -> {border_arrow: net_mw}}
@@ -739,7 +736,7 @@ async def get_generation_mix(
             "available": False,
             "zone": resolved_zone,
             "zones": _ZONE_KEYS,
-            "reason": f"no generation-mix data for zone {resolved_zone} — run power grid backfill (ingest_grid)",
+            "reason": f"No generation-mix data for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
 
     # Pivot: {date -> {psr_type -> gen_mw}}
