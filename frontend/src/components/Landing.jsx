@@ -4,15 +4,15 @@ import { useAuth } from '../context/AuthContext'
 const PILLARS = [
   {
     label: '01',
-    title: 'See the power situation at a glance',
+    title: 'See the physical energy picture',
     body:
-      'Day-ahead price, residual load, spark spread and grid stress for DE-LU, FR and NL — joined into one descriptive top-line that reads whether the market is calm, elevated or stressed. The charts below are the evidence, not six tabs to reconcile by hand.',
+      'Oil tankers moving through Hormuz, Suez and Malacca; LNG send-out and gas storage across Europe; the power grid’s day-ahead price, residual load and cross-border flows. The molecules and the electrons — in one desk, not a dozen tabs to reconcile by hand.',
   },
   {
     label: '02',
-    title: 'Catch grid stress as it happens',
+    title: 'Catch the stress as it happens',
     body:
-      'A live radar flags negative prices, Dunkelflaute (wind+solar below 15% of load) and day-ahead anomalies the moment they deviate from each zone’s own history. A deviation vs history, not a forecast.',
+      'A live radar flags negative power prices, Dunkelflaute (wind+solar below 15% of load), gas-balance anomalies and chokepoint disruptions the moment they deviate from their own history. A deviation vs history, not a forecast.',
   },
   {
     label: '03',
@@ -23,8 +23,8 @@ const PILLARS = [
 ]
 
 const STATS = [
-  { label: 'bidding zones (DE-LU · FR · NL)', value: '3' },
-  { label: 'cross-border flows tracked', value: '20' },
+  { label: 'global oil chokepoints tracked', value: '6' },
+  { label: 'power zones · cross-border flows', value: '3 · 20' },
   { label: 'official public-domain data', value: '100%' },
   { label: 'license', value: 'AGPL-3.0' },
 ]
@@ -63,19 +63,19 @@ export default function Landing() {
       {/* HERO */}
       <section className="px-4 py-12 sm:py-20 max-w-5xl mx-auto">
         <div className="text-[10px] tracking-[4px] text-cyan-glow mb-4">
-          EUROPEAN POWER DESK
+          THE PHYSICAL ENERGY SYSTEM
         </div>
         <h1 className="text-3xl sm:text-5xl lg:text-6xl text-neutral-100 leading-tight font-mono font-bold mb-6">
-          The European power market —
+          The physical energy system —
           <br />
-          <span className="text-cyan-glow">from the official record.</span>
+          <span className="text-cyan-glow">molecules and electrons, in one desk.</span>
         </h1>
         <p className="text-sm sm:text-base text-neutral-400 max-w-2xl leading-relaxed mb-8">
-          OBSYD turns the official European power record (ENTSO-E · Fraunhofer Energy-Charts) into one
-          desk: day-ahead prices with negative-price flags, residual load &amp; Dunkelflaute, spark
-          spreads and cross-border flows for DE-LU, FR and NL — joined into a single read of whether
-          the market is calm, elevated or stressed. Descriptive, auditable, open source under
-          AGPL-3.0 — run it yourself, or use the hosted cloud.
+          OBSYD turns the free, official record of physical energy into one desk: oil tankers moving
+          through Hormuz, Suez and Malacca; LNG send-out and gas storage across Europe; the power
+          grid’s day-ahead prices, residual load and cross-border flows — with a radar that flags
+          what’s deviating from its own history. Descriptive, auditable, open source under AGPL-3.0 —
+          run it yourself, or use the hosted cloud.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3">
@@ -142,10 +142,11 @@ export default function Landing() {
           {glanceOpen && (
             <ul className="space-y-1.5 mt-2">
               <li>· ENTSO-E — day-ahead prices, load &amp; generation mix for DE-LU, FR, NL</li>
-              <li>· Fraunhofer Energy-Charts — cross-border physical flows (CC BY 4.0)</li>
+              <li>· GIE (AGSI/ALSI) + ENTSOG — European gas storage, LNG send-out &amp; pipeline flows</li>
+              <li>· Fraunhofer Energy-Charts — cross-border physical power flows (CC BY 4.0)</li>
+              <li>· IMF PortWatch + AIS — tanker transit through the world’s oil chokepoints</li>
               <li>· TTF / NG / Brent — the fuel prices that set the marginal power price</li>
-              <li>· USGS / EIA International / World Bank — supply concentration &amp; macro context</li>
-              <li>· IMF PortWatch, AISStream, GDELT, NOAA, NASA FIRMS — the wider engine behind the desk</li>
+              <li>· USGS / EIA / World Bank, GDELT, NOAA, NASA FIRMS — the wider context engine</li>
             </ul>
           )}
         </div>
@@ -157,30 +158,30 @@ export default function Landing() {
           <div>
             <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// WHY OBSYD</div>
             <h2 className="text-2xl text-neutral-100 mb-5 font-bold leading-snug">
-              The official power record,
+              The physical energy record,
               <br />
               turned into a desk.
             </h2>
             <p className="text-[13px] text-neutral-400 leading-relaxed">
-              OBSYD doesn&apos;t match Montel, EEX or a Bloomberg terminal on proprietary or intraday
-              data — it can&apos;t, and it doesn&apos;t pretend to. What it does is turn the official
-              European power record (ENTSO-E, Fraunhofer Energy-Charts) into one auditable desk —
-              day-ahead, residual load, spark spread, cross-border flows — and watch it for you, so
-              you stop wiring up a dozen APIs by hand.
+              OBSYD doesn&apos;t match Kpler, Vortexa or a Bloomberg terminal on proprietary vessel
+              data or intraday pricing — it can&apos;t, and it doesn&apos;t pretend to. What it does is
+              turn the free, official record of physical energy — ENTSO-E, GIE, Fraunhofer
+              Energy-Charts, IMF PortWatch — into one auditable desk, and watch it for you, so you
+              stop wiring up a dozen APIs by hand.
             </p>
           </div>
           <div className="border border-border bg-[#06060a] p-5 text-[11px] text-neutral-500 leading-relaxed">
             <div className="text-cyan-glow text-[10px] tracking-wider mb-3">// NOT FOR</div>
             <ul className="space-y-2">
-              <li>· Intraday or real-time trade execution</li>
-              <li>· Desks already paying for Montel / EEX / Bloomberg</li>
-              <li>· Anyone needing settlement-grade or pan-EU-complete pricing</li>
+              <li>· Intraday or settlement-grade trade execution</li>
+              <li>· Desks already paying for Kpler / Vortexa / Montel / Bloomberg</li>
+              <li>· Global, complete vessel tracking or verified cargo flows</li>
             </ul>
             <div className="text-cyan-glow text-[10px] tracking-wider mt-5 mb-3">// MADE FOR</div>
             <ul className="space-y-2">
-              <li>· Power traders &amp; energy-risk analysts without a Montel/Bloomberg seat</li>
-              <li>· Energy desks at utilities &amp; industrials tracking spreads and grid stress</li>
-              <li>· Researchers and journalists needing one honest source for the power picture</li>
+              <li>· Energy &amp; commodity traders/analysts without a Kpler/Bloomberg seat</li>
+              <li>· Utilities &amp; industrials tracking spreads, grid stress and supply routes</li>
+              <li>· Researchers &amp; journalists needing one honest source for the physical picture</li>
               <li>· Anyone who wants to read the signal code, not trust it blindly</li>
             </ul>
           </div>
@@ -189,14 +190,14 @@ export default function Landing() {
 
       {/* YOUR POWER WATCH (the recurring deliverable, honest to what ships today) */}
       <section className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
-        <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// YOUR POWER WATCH</div>
+        <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// YOUR ENERGY WATCH</div>
         <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-5 font-bold">
           Don&apos;t watch the desk. <span className="text-cyan-glow">Let it watch for you.</span>
         </h2>
         <p className="text-[13px] text-neutral-400 leading-relaxed max-w-2xl mb-10">
-          You shouldn&apos;t have to refresh six tabs to know when the power market moves. OBSYD turns
-          the radar into your inbox — set the alerts that matter, and it pings you with the evidence
-          the moment a zone deviates. Free, like the rest of it.
+          You shouldn&apos;t have to refresh a dozen tabs to know when the energy system moves. OBSYD
+          turns the radar into your inbox — set the alerts that matter, and it pings you with the
+          evidence the moment something deviates. Free, like the rest of it.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
@@ -204,8 +205,8 @@ export default function Landing() {
             <div className="text-cyan-glow text-[11px] tracking-widest mb-3">01</div>
             <div className="text-neutral-100 text-base mb-3 leading-snug">Set your alerts</div>
             <div className="text-[12px] text-neutral-500 leading-relaxed">
-              Choose the power anomalies that matter to you — negative prices, Dunkelflaute,
-              day-ahead spikes, spark-spread breaches — with your own thresholds.
+              Choose the anomalies that matter to you — negative prices, Dunkelflaute, day-ahead
+              spikes, spark-spread and gas-balance breaches — with your own thresholds.
             </div>
           </div>
           <div className="bg-[#0a0a12] p-6">
@@ -221,7 +222,7 @@ export default function Landing() {
             <div className="text-neutral-100 text-base mb-3 leading-snug">You get the email</div>
             <div className="text-[12px] text-neutral-500 leading-relaxed">
               The trigger, the evidence, and a link straight to the chart — plus a Mon–Fri daily
-              brief so your morning starts with the power situation.
+              brief so your morning starts with the energy situation.
             </div>
           </div>
         </div>
@@ -250,8 +251,8 @@ export default function Landing() {
             <div className="text-3xl text-neutral-200 mb-1">€0</div>
             <div className="text-[10px] text-neutral-600 mb-5">on obsyd.dev · no card, no account needed</div>
             <ul className="text-[11px] text-neutral-400 space-y-1.5">
-              <li>· Full power desk + anomaly radar</li>
-              <li>· Day-ahead, residual load, spark spread, cross-border flows</li>
+              <li>· Full energy desk + anomaly radar</li>
+              <li>· Chokepoints, gas balance, day-ahead, cross-border flows</li>
               <li>· Watchlist, custom alerts, daily brief</li>
               <li>· Everything unlocked, no limits</li>
             </ul>

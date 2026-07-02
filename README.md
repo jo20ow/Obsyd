@@ -1,12 +1,12 @@
-# OBSYD — European power desk on the official record
+# OBSYD — the desk for the physical energy system
 
-**One desk for European power: day-ahead prices, residual load & Dunkelflaute, spark spreads and cross-border flows for DE-LU, FR and NL — from ENTSO-E and Fraunhofer Energy-Charts.**
+**Molecules and electrons in one desk: oil tankers through the world's chokepoints, European gas storage & LNG send-out, and the power grid's day-ahead prices & cross-border flows — from the official record (ENTSO-E, GIE, Fraunhofer Energy-Charts, IMF PortWatch).**
 
 [Live Demo](https://obsyd.dev) · [Free & open source](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
-OBSYD turns the official European power record into one auditable desk: a descriptive situation top-line (calm / elevated / stressed) over day-ahead price, residual load, spark spread and cross-border flows, plus a live anomaly radar that flags negative prices, Dunkelflaute and day-ahead deviations the moment they break from a zone's own history. Behind the desk sits a broader engine of 13 free public sources (AIS, IMF PortWatch, EIA, FRED, USGS, World Bank, GDELT …) — reachable as the breadth behind the front door, never co-equal with it. Every rule, threshold, and correlation runs in code you can read on GitHub. No proprietary scoring, no black-box ML, no "trust us".
+OBSYD turns the free, official record of physical energy into one auditable desk. The load-bearing core is the European gas & power balance — GIE storage and LNG send-out, ENTSOG pipeline flows, day-ahead price, residual load, spark spread and 20 cross-border power flows — with a live anomaly radar that flags negative prices, Dunkelflaute, gas-balance and day-ahead deviations the moment they break from their own history. The visual hook is the chokepoint map: oil tankers moving through Hormuz, Suez and Malacca (AIS + IMF PortWatch), honestly framed as physical context, not proven alpha. Every rule, threshold and correlation runs in code you can read on GitHub. No proprietary scoring, no black-box ML, no "trust us".
 
-OBSYD is **not** a Montel, EEX, or Bloomberg replacement — no intraday, settlement-grade, or pan-EU-complete pricing. It is a way to stop wiring up a dozen APIs by hand and to read the European power situation from the official record, with the signal code open for audit.
+OBSYD is **not** a Kpler, Vortexa, Montel or Bloomberg replacement — no proprietary vessel data, no intraday or settlement-grade pricing, no global complete cargo tracking. It is a way to stop wiring up a dozen APIs by hand and read the physical energy system from the official record, with the signal code open for audit.
 
 ![OBSYD Dashboard](docs/screenshot.png)
 
@@ -15,7 +15,7 @@ OBSYD is **not** a Montel, EEX, or Bloomberg replacement — no intraday, settle
 OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid tier. Two ways to use it:
 
 - **Self-host (free):** Clone the repo, plug in your own API keys, run on your own infra. Full feature set, no usage limits.
-- **Cloud (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). The full power desk, anomaly radar, and market data need no account. Personal features (your watchlist, custom alerts, daily brief) just need a free magic-link login — no card, no payment.
+- **Cloud (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). The full energy desk, chokepoint map, anomaly radar, and market data need no account. Personal features (your watchlist, custom alerts, daily brief) just need a free magic-link login — no card, no payment.
 
 ## Features
 

@@ -1,5 +1,23 @@
 # OBSYD — Strategischer Kontext & Arbeitsprinzipien
 
+> ## ⇒ AKTUELLE AUSRICHTUNG 2026-07-02 (überschreibt die Positionierungs-Absätze unten)
+> **Nische (Owner-Entscheidung 2026-07-02): Obsyd ist der Desk für das PHYSISCHE ENERGIESYSTEM —
+> „Moleküle + Elektronen an einem Ort, gratis".**
+> - **Tragender Kern (Substanz, validiert, schwer-gratis-woanders):** die Gas-/Strom-Physik-Bilanz
+>   (GIE AGSI-Speicher + ALSI-LNG-Send-out, ENTSOG-Flüsse, 20 Cross-Border-Stromflüsse via
+>   Energy-Charts, Residuallast, Negativpreise, Spark, Dunkelflaute) + der Anomalie-Radar.
+> - **Haken (Einstieg/Kontext, KEIN belegtes Alpha):** die Chokepoint-/Tanker-Karte (AIS + IMF
+>   PortWatch). Bleibt prominent (jetzt PRIMÄRER Tab „FLOWS"), ehrlich gerahmt — Zonen ohne Live-AIS
+>   (Suez/Panama/Cape) sind „TRANSIT DATA" (PortWatch); Maritim→Preis ist NICHT belegt (Scorecards n=0
+>   → „building"). NIE als Moat verkaufen (Kpler/Vortexa/TankerTrackers gewinnen dort).
+> - **RAUS aus der Vordertür (der „gratis-Bloomberg"-Umweg, 2026-07-02 verworfen):** die reine
+>   Terminal-Breite Crypto/Rates/Filings/Econ — Tabs aus der Nav geschnitten, Backend-Routes dormant.
+> - **Preis:** komplett gratis, KEINE Umsatzmaschine live (kein Checkout). Das alte „50–70 Abos =
+>   Einkommen"-Ziel ist eine OFFENE Owner-Entscheidung, kein aktives Ziel.
+> - Siehe [[project_obsyd_terminal_pivot]]-Historie + Plan-Doc „Reposition auf Das physische
+>   Energiesystem" (2026-07-02). Die „Vordertür: Europäischer Strom-Desk"- und „Gratis-Bloomberg"-
+>   Absätze unten sind HISTORIE — der Power-Desk ist jetzt EIN Modul (POWER) im Energiesystem-Desk.
+>
 > Verbindliche Single Source of Truth für Positionierung, Ist-Stand und nächste Schritte.
 > Strategie ist **state-agnostisch** formuliert (Prinzipien & Entscheidungen), der **Ist-Stand**
 > (Abschnitt „Build-Stand") ist zum Datum unten verifiziert und veraltet schneller — bei Konflikt

@@ -46,10 +46,6 @@ import Landing from './components/Landing'
 import BriefSubscribe from './components/BriefSubscribe'
 import CommandPalette from './components/CommandPalette'
 import TerminalBar from './components/TerminalBar'
-import CryptoPanel from './components/CryptoPanel'
-import RatesPanel from './components/RatesPanel'
-import FilingsPanel from './components/FilingsPanel'
-import EconPanel from './components/EconPanel'
 import NewsPanel from './components/NewsPanel'
 import { useAuth } from './context/AuthContext'
 
@@ -66,23 +62,23 @@ const MAP_FALLBACK = (
 
 const API = '/api'
 
-// The European power desk is the front door (`primary`). The rest of the engine
-// — oil/maritime, metals, atlas, critical-materials — stays reachable as the
-// breadth behind a secondary divider, never co-equal with the desk.
-// NOTE: the default tab is 'energy'; three places below hard-code that key
-// (initial state, hash-strip special-case) and must move together.
+// Obsyd is the desk for the physical energy system. The front door (`primary`) is
+// the three views that carry the story: POWER (electrons), GAS (molecules), and
+// FLOWS (tankers through chokepoints — the physical-flow hook). The rest of the
+// engine — oil/maritime signals, metals, atlas, critical-materials, news,
+// sentiment — stays reachable as on-theme breadth behind a secondary divider.
+// The off-theme "terminal breadth" (crypto/rates/filings/econ) was deliberately
+// cut from the navigation; those routes stay dormant in the backend (reversible).
+// NOTE: the default tab is 'energy'; the FLOWS tab keeps the key 'overview' so
+// existing #overview deep-links keep working — only its label changed.
 const TABS = [
   { key: 'energy', label: 'POWER', primary: true },
   { key: 'gas', label: 'GAS', primary: true },
-  { key: 'overview', label: 'OVERVIEW' },
+  { key: 'overview', label: 'FLOWS', primary: true },
   { key: 'market', label: 'MARKET' },
   { key: 'signals', label: 'SIGNALS' },
   { key: 'critical', label: 'CRITICAL' },
   { key: 'metals', label: 'METALS' },
-  { key: 'crypto', label: 'CRYPTO' },
-  { key: 'rates', label: 'RATES' },
-  { key: 'filings', label: 'FILINGS' },
-  { key: 'econ', label: 'ECON' },
   { key: 'news', label: 'NEWS' },
   { key: 'atlas', label: 'ATLAS' },
   { key: 'sentiment', label: 'SENTIMENT' },
@@ -368,7 +364,7 @@ function Dashboard() {
       {/* ===== TAB CONTENT ===== */}
       <div className="mt-3">
 
-        {/* CRITICAL MATERIALS TAB — the product hero */}
+        {/* CRITICAL MATERIALS TAB — supply concentration for critical minerals */}
         {activeTab === 'critical' && (
           <ErrorBoundary name="critical-materials">
             <CriticalMaterialsView />
@@ -603,34 +599,6 @@ function Dashboard() {
               <CopperPanel />
             </ErrorBoundary>
           </>
-        )}
-
-        {/* CRYPTO TAB — real-time spot basket (CoinGecko, free) */}
-        {activeTab === 'crypto' && (
-          <ErrorBoundary name="crypto">
-            <CryptoPanel />
-          </ErrorBoundary>
-        )}
-
-        {/* RATES TAB — US Treasury yield curve (FRED, free) */}
-        {activeTab === 'rates' && (
-          <ErrorBoundary name="rates">
-            <RatesPanel />
-          </ErrorBoundary>
-        )}
-
-        {/* FILINGS TAB — company filings + fundamentals (SEC EDGAR, free) */}
-        {activeTab === 'filings' && (
-          <ErrorBoundary name="filings">
-            <FilingsPanel />
-          </ErrorBoundary>
-        )}
-
-        {/* ECON TAB — upcoming US macro release calendar (FRED, free) */}
-        {activeTab === 'econ' && (
-          <ErrorBoundary name="econ">
-            <EconPanel />
-          </ErrorBoundary>
         )}
 
         {/* NEWS TAB — cross-asset headlines (GDELT, free) */}
