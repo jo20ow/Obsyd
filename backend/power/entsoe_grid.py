@@ -266,16 +266,16 @@ async def ingest_load_forecast(
     wanted = set(days)
     months = sorted({datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days})
 
-    fc_by_day: dict[str, float] = {}
+    load_by_day: dict[str, float] = {}
+    wind_by_day: dict[str, float] = {}
+    solar_by_day: dict[str, float] = {}
     for month_start in months:
+        # ── A65/A01 day-ahead load forecast ──
         try:
             xml = await _fetch_zone_month(
-                eic,
-                month_start,
-                "A65",
+                eic, month_start, "A65",
                 {"processType": "A01", "outBiddingZone_Domain": eic},
-                overwrite=overwrite,
-                cache_source="entsoe_load_forecast",
+                overwrite=overwrite, cache_source="entsoe_load_forecast",
             )
         except httpx.HTTPError as exc:
             logger.warning("entsoe_grid: A65/A01 %s fetch failed: %s", month_start, exc)
@@ -283,23 +283,53 @@ async def ingest_load_forecast(
         if xml:
             for day, mean_mw in parse_load(xml).items():
                 if day in wanted:
-                    fc_by_day[day] = mean_mw
+                    load_by_day[day] = mean_mw
+
+        # ── A69/A01 day-ahead wind + solar forecast (same parser as A75 genmix) ──
+        try:
+            gxml = await _fetch_zone_month(
+                eic, month_start, "A69",
+                {"processType": "A01", "in_Domain": eic},
+                overwrite=overwrite, cache_source="entsoe_gen_forecast",
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("entsoe_grid: A69/A01 %s fetch failed: %s", month_start, exc)
+            gxml = ""
+        if gxml:
+            for day, by_psr in parse_generation_by_type(gxml).items():
+                if day in wanted:
+                    wind_by_day[day] = (by_psr.get(PSR_WIND_OFFSHORE, 0.0) or 0.0) + (by_psr.get(PSR_WIND_ONSHORE, 0.0) or 0.0)
+                    solar_by_day[day] = by_psr.get(PSR_SOLAR, 0.0) or 0.0
 
     written = 0
-    for day, mw in fc_by_day.items():
+    for day in sorted(set(load_by_day) | set(wind_by_day) | set(solar_by_day)):
         row = (
             db.query(PowerLoadForecast)
             .filter(PowerLoadForecast.date == day, PowerLoadForecast.zone == zone)
             .first()
         )
+        load = load_by_day.get(day)
+        wind = wind_by_day.get(day)
+        solar = solar_by_day.get(day)
         if row is None:
-            db.add(PowerLoadForecast(date=day, zone=zone, forecast_mw=round(mw, 2)))
+            if load is None:
+                continue  # forecast_mw is required — skip a day with only wind/solar
+            db.add(PowerLoadForecast(
+                date=day, zone=zone, forecast_mw=round(load, 2),
+                wind_forecast_mw=round(wind, 2) if wind is not None else None,
+                solar_forecast_mw=round(solar, 2) if solar is not None else None,
+            ))
             written += 1
         elif overwrite:
-            row.forecast_mw = round(mw, 2)
+            if load is not None:
+                row.forecast_mw = round(load, 2)
+            if wind is not None:
+                row.wind_forecast_mw = round(wind, 2)
+            if solar is not None:
+                row.solar_forecast_mw = round(solar, 2)
             written += 1
     db.commit()
-    return {"days": len(fc_by_day), "written": written}
+    return {"days": len(load_by_day), "written": written}
 
 
 async def ingest_grid(

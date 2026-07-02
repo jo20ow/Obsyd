@@ -48,6 +48,9 @@ class PowerLoadForecast(Base):
     date: Mapped[str] = mapped_column(String, nullable=False, index=True)   # YYYY-MM-DD
     zone: Mapped[str] = mapped_column(String, nullable=False, index=True)   # e.g. "DE_LU"
     forecast_mw: Mapped[float] = mapped_column(Float, nullable=False)       # day-ahead load forecast, daily mean MW
+    # Day-ahead wind/solar forecast (A69) → residual-load forecast = load − wind − solar.
+    wind_forecast_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # B18+B19, daily mean MW
+    solar_forecast_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # B16, daily mean MW
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("date", "zone", name="uq_power_load_forecast_date_zone"),)

@@ -18,7 +18,9 @@ def test_load_forecast_joins_actual_error_and_forward(db_session):
     db_session.add_all([
         PowerLoadForecast(date=d2, zone="DE_LU", forecast_mw=50000.0),
         PowerLoadForecast(date=d1, zone="DE_LU", forecast_mw=60000.0),
-        PowerLoadForecast(date=dtom, zone="DE_LU", forecast_mw=55000.0),  # forward (no actual yet)
+        # forward (no actual yet) with wind/solar → residual forecast computable
+        PowerLoadForecast(date=dtom, zone="DE_LU", forecast_mw=55000.0,
+                          wind_forecast_mw=20000.0, solar_forecast_mw=15000.0),
         PowerGrid(date=d2, zone="DE_LU", load_mw=55000.0),  # actual +10% vs forecast
         PowerGrid(date=d1, zone="DE_LU", load_mw=57000.0),  # actual -5% vs forecast
     ])
@@ -30,6 +32,8 @@ def test_load_forecast_joins_actual_error_and_forward(db_session):
     assert rows[d2]["error_pct"] == 10.0
     assert rows[d1]["error_pct"] == -5.0
     assert rows[dtom]["actual_mw"] is None
+    assert rows[dtom]["residual_forecast_mw"] == 20000.0  # 55000 - 20000 - 15000
+    assert rows[d2]["residual_forecast_mw"] is None       # no wind/solar → not computed
     assert [f["date"] for f in body["forward"]] == [dtom]
     assert body["mape_pct"] == 7.5  # mean(|+10|, |-5|)
 

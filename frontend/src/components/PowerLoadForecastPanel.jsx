@@ -29,28 +29,40 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
     actual: r.actual_mw != null ? r.actual_mw / 1000 : null,
   }))
   const forward = data?.forward?.[0]
-  const tomorrowGW = forward?.forecast_mw != null ? (forward.forecast_mw / 1000).toFixed(1) : null
+  const gw = (mw) => (mw != null ? (mw / 1000).toFixed(1) : null)
+  const tomorrowGW = gw(forward?.forecast_mw)
+  const residGW = gw(forward?.residual_forecast_mw)
+  const windGW = gw(forward?.wind_forecast_mw)
+  const solarGW = gw(forward?.solar_forecast_mw)
   const mape = data?.mape_pct
 
   return (
     <Panel
       id="power-load-forecast"
       title="LOAD FORECAST vs ACTUAL // ENTSO-E"
-      info="ENTSO-E day-ahead total-load forecast (processType A01) vs realised load, daily mean GW. The violet line runs one day ahead of the cyan actual — the gap is the forecast error. Tomorrow's point is the forward view (no actual yet). Descriptive; higher expected demand tends to firm prices, but this is not a price call."
+      info="ENTSO-E day-ahead forecasts (processType A01): total load (A65) and wind+solar (A69). The headline is tomorrow's RESIDUAL load = load − wind − solar — the demand dispatchable plants must cover, and the quantity that most drives the day-ahead price. The chart tracks the load forecast (violet) vs realised (cyan); the gap is the forecast error. Descriptive — higher residual tends to firm prices, but this is not a price call."
       collapsible
       headerRight={<span className="font-mono text-[9px] text-neutral-600">ENTSO-E</span>}
     >
-      <div className="px-4 pt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1">
-        {tomorrowGW != null && (
-          <div>
-            <span className="font-mono text-[10px] text-neutral-500 tracking-wider">TOMORROW (D+1) </span>
-            <span className="font-mono text-lg text-violet-300 font-bold">{tomorrowGW} GW</span>
-            <span className="font-mono text-[10px] text-neutral-600"> forecast demand</span>
+      <div className="px-4 pt-3">
+        {residGW != null ? (
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-mono text-[10px] text-neutral-500 tracking-wider">TOMORROW (D+1) RESIDUAL</span>
+            <span className="font-mono text-xl text-violet-300 font-bold">{residGW} GW</span>
+            <span className="font-mono text-[10px] text-neutral-600">
+              = load {tomorrowGW} &minus; wind {windGW} &minus; solar {solarGW} · the demand dispatchable plants must cover
+            </span>
           </div>
-        )}
+        ) : tomorrowGW != null ? (
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-mono text-[10px] text-neutral-500 tracking-wider">TOMORROW (D+1) LOAD</span>
+            <span className="font-mono text-lg text-violet-300 font-bold">{tomorrowGW} GW</span>
+            <span className="font-mono text-[10px] text-neutral-600">forecast demand</span>
+          </div>
+        ) : null}
         {mape != null && (
-          <div>
-            <span className="font-mono text-[10px] text-neutral-500 tracking-wider">FORECAST ERROR </span>
+          <div className="mt-1">
+            <span className="font-mono text-[10px] text-neutral-500 tracking-wider">LOAD FORECAST ERROR </span>
             <span className="font-mono text-sm text-neutral-300">±{mape}%</span>
             <span className="font-mono text-[10px] text-neutral-600"> mean abs, 30d</span>
           </div>

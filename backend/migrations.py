@@ -83,6 +83,12 @@ def run_migrations() -> None:
     if _add_column_if_missing("power_price_daily", "hourly_prices", "TEXT"):
         applied.append("power_price_daily.hourly_prices")
 
+    # Day-ahead wind/solar forecast alongside the load forecast → residual-load forecast.
+    if _add_column_if_missing("power_load_forecast", "wind_forecast_mw", "REAL"):
+        applied.append("power_load_forecast.wind_forecast_mw")
+    if _add_column_if_missing("power_load_forecast", "solar_forecast_mw", "REAL"):
+        applied.append("power_load_forecast.solar_forecast_mw")
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:

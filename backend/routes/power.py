@@ -399,7 +399,7 @@ async def get_load_forecast(
         }
 
     actual = {
-        r.date: r.load_mw
+        r.date: r
         for r in db.query(PowerGrid)
         .filter(PowerGrid.zone == resolved_zone, PowerGrid.date >= date_from)
         .all()
@@ -407,15 +407,24 @@ async def get_load_forecast(
 
     data = []
     for r in fc_rows:
-        a = actual.get(r.date)
+        ar = actual.get(r.date)
+        a = ar.load_mw if ar else None
         err = round(a - r.forecast_mw, 2) if a is not None else None
         err_pct = round((a - r.forecast_mw) / r.forecast_mw * 100, 2) if a is not None and r.forecast_mw else None
+        # Residual-load forecast = load − wind − solar (the price-driving forward quantity).
+        resid_fc = None
+        if r.wind_forecast_mw is not None and r.solar_forecast_mw is not None:
+            resid_fc = round(r.forecast_mw - r.wind_forecast_mw - r.solar_forecast_mw, 2)
         data.append({
             "date": r.date,
             "forecast_mw": r.forecast_mw,
             "actual_mw": a,
             "error_mw": err,
             "error_pct": err_pct,
+            "wind_forecast_mw": r.wind_forecast_mw,
+            "solar_forecast_mw": r.solar_forecast_mw,
+            "residual_forecast_mw": resid_fc,
+            "residual_actual_mw": ar.residual_mw if ar else None,
         })
 
     forward = [d for d in data if d["actual_mw"] is None]  # forecast without actual yet = tomorrow
@@ -427,7 +436,7 @@ async def get_load_forecast(
         "zone": resolved_zone,
         "zones": _ZONE_KEYS,
         "unit": "MW",
-        "mape_pct": mape,  # mean absolute % forecast error over days with an actual
+        "mape_pct": mape,  # mean absolute % load-forecast error over days with an actual
         "forward": forward,
         "from": date_from,
         "data": data,
