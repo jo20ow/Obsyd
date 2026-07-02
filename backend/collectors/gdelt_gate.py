@@ -19,7 +19,9 @@ import httpx
 
 _lock = asyncio.Lock()
 _last_call = 0.0
-MIN_INTERVAL = 6.0  # seconds between ANY two GDELT calls (>5s limit, with margin)
+# GDELT's documented limit is 1 req / 5s, but bursts trigger a sticky IP ban that
+# outlasts the burst, so we keep a conservative margin above the documented rate.
+MIN_INTERVAL = 10.0  # seconds between ANY two GDELT calls
 
 
 async def gdelt_get(

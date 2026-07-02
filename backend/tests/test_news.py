@@ -37,32 +37,43 @@ def test_topics_endpoint(client):
 
 
 def test_feed_endpoint_topic(client, monkeypatch):
-    async def fake_feed(query, **kw):
-        return [{"title": "Fed holds", "url": "https://x.com/a", "source": "x.com", "published": "2026-07-02T09:00:00Z"}]
-
-    monkeypatch.setattr(news_routes, "get_feed", fake_feed)
+    monkeypatch.setattr(
+        news_routes,
+        "get_cached",
+        lambda query, **kw: [
+            {"title": "Fed holds", "url": "https://x.com/a", "source": "x.com", "published": "2026-07-02T09:00:00Z"}
+        ],
+    )
     body = client.get("/api/news/feed?topic=rates").json()
     assert body["available"] is True and body["topic"] == "rates" and len(body["data"]) == 1
 
 
-def test_feed_unknown_topic(client, monkeypatch):
-    async def fake_feed(query, **kw):
-        return []
-
-    monkeypatch.setattr(news_routes, "get_feed", fake_feed)
+def test_feed_unknown_topic(client):
     assert client.get("/api/news/feed?topic=nope").json()["available"] is False
 
 
 def test_feed_freetext_query(client, monkeypatch):
     seen = {}
 
-    async def fake_feed(query, **kw):
+    def fake_cached(query, **kw):
         seen["q"] = query
         return [{"title": "t", "url": "u", "source": "s", "published": None}]
 
-    monkeypatch.setattr(news_routes, "get_feed", fake_feed)
+    monkeypatch.setattr(news_routes, "get_cached", fake_cached)
     body = client.get("/api/news/feed?q=lithium supply").json()
     assert body["available"] is True and seen["q"] == "lithium supply"
+
+
+def test_feed_miss_is_non_blocking_and_schedules_warm(client, monkeypatch):
+    """A cache miss must NOT fetch inline (no blocking on GDELT) — it returns an
+    honest empty result and schedules a background warm for next time."""
+    monkeypatch.setattr(news_routes, "get_cached", lambda query, **kw: None)
+    warmed = {}
+    monkeypatch.setattr(news_routes, "schedule_warm", lambda query, **kw: warmed.setdefault("q", query))
+
+    body = client.get("/api/news/feed?topic=energy").json()
+    assert body["available"] is False
+    assert warmed["q"] == news_routes.query_for_topic("energy")
 
 
 def test_get_feed_never_caches_empty_serves_stale(monkeypatch):
