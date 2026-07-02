@@ -44,6 +44,8 @@ import PowerSituationHeader from './components/PowerSituationHeader'
 import PowerIntro from './components/PowerIntro'
 import Landing from './components/Landing'
 import BriefSubscribe from './components/BriefSubscribe'
+import CommandPalette from './components/CommandPalette'
+import TerminalBar from './components/TerminalBar'
 import { useAuth } from './context/AuthContext'
 
 // Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
@@ -181,6 +183,21 @@ function Dashboard() {
     return () => window.removeEventListener('hashchange', handler)
   }, [])
 
+  // Terminal command palette (⌘K / Ctrl-K toggles it). First global key handler.
+  const { user } = useAuth()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [wlRefresh, setWlRefresh] = useState(0)
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   useEffect(() => {
     const controller = new AbortController()
     const { signal } = controller
@@ -297,6 +314,18 @@ function Dashboard() {
       {/* PRICE TICKER */}
       <div className="mt-3">
         <PriceTicker />
+      </div>
+
+      {/* TERMINAL BAR — ⌘K command palette trigger + cross-asset watchlist */}
+      <div className="mt-3">
+        <ErrorBoundary name="terminal-bar">
+          <TerminalBar
+            onOpenPalette={() => setPaletteOpen(true)}
+            setActiveTab={setActiveTab}
+            setEnergyZone={setEnergyZone}
+            refreshKey={wlRefresh}
+          />
+        </ErrorBoundary>
       </div>
 
       {/* POWER DESK HERO + ANOMALY RADAR — the always-on front door */}
@@ -607,6 +636,16 @@ function Dashboard() {
 
       {/* ===== FOOTER ===== */}
       <Disclaimer />
+
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => { setPaletteOpen(false); setWlRefresh((n) => n + 1) }}
+          tabs={TABS}
+          setActiveTab={setActiveTab}
+          setEnergyZone={setEnergyZone}
+          authed={!!user?.authenticated}
+        />
+      )}
     </div>
   )
 }
