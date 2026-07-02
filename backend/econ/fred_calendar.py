@@ -60,7 +60,9 @@ def parse_calendar(release_dates: list[dict], today: str) -> list[dict]:
         label = _label_for(name)
         if label is None:
             continue
-        key = (date, rd.get("release_id"))
+        # Dedupe by (date, label): FRED has several release_ids that map to the same
+        # curated label (e.g. multiple "retail" releases) — collapse to one row.
+        key = (date, label)
         if key in seen:
             continue
         seen.add(key)

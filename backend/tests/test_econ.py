@@ -20,12 +20,17 @@ def test_parse_calendar_filters_curated_future_deduped():
         {"release_id": 742, "release_name": "Bankrate Monitor National Index", "date": "2026-07-03"},  # not curated
         {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-07-15"},
         {"release_id": 10, "release_name": "Consumer Price Index", "date": "2026-06-15"},  # past → dropped
-        {"release_id": 50, "release_name": "Employment Situation", "date": "2026-07-03"},  # dup → deduped
+        {"release_id": 50, "release_name": "Employment Situation", "date": "2026-07-03"},  # dup id → deduped
+        # Two DIFFERENT release_ids that map to the same curated label on the same
+        # date (FRED has several "retail" releases) must collapse to one row.
+        {"release_id": 8, "release_name": "Advance Monthly Sales for Retail and Food Services", "date": "2026-07-16"},
+        {"release_id": 9, "release_name": "Monthly Retail Trade", "date": "2026-07-16"},
     ]
     out = parse_calendar(sample, "2026-07-02")
     assert [(x["date"], x["label"]) for x in out] == [
         ("2026-07-03", "Jobs report — payrolls & unemployment"),
         ("2026-07-15", "CPI — consumer inflation"),
+        ("2026-07-16", "Retail sales"),
     ]
 
 
