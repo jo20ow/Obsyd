@@ -19,6 +19,7 @@ the raw_cache filesystem store.
 
 from __future__ import annotations
 
+import json
 import logging
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
@@ -186,6 +187,132 @@ def parse_generation_by_type(xml_text: str) -> dict[str, dict[str, float]]:
     }
 
 
+def parse_load_hourly(xml_text: str) -> dict[str, dict[int, float]]:
+    """Parse an A65 GL_MarketDocument into {YYYY-MM-DD: {hour_utc: mean_mw}}.
+
+    Same walk as parse_load, but keeps the hour-of-day (UTC 0-23) instead of
+    collapsing to a daily mean. Sub-hourly slots (PT15M/PT30M) and overlapping
+    TimeSeries are averaged within each hour.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"ENTSO-E A65 XML parse error: {exc}") from exc
+
+    by_day_hour: dict[str, dict[int, list[float]]] = {}
+    for ts in root.iter():
+        if _localname(ts.tag) != "TimeSeries":
+            continue
+        for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
+            start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
+            res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
+            if start_el is None or res_el is None:
+                continue
+            start = _parse_utc(start_el.text)
+            res_hours = _RESOLUTION_HOURS.get((res_el.text or "").strip())
+            if start is None or res_hours is None:
+                continue
+            for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
+                pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
+                qty = next((e.text for e in point if _localname(e.tag) == "quantity"), None)
+                if pos is None or qty is None:
+                    continue
+                try:
+                    ts_time = start + timedelta(hours=res_hours * (int(pos) - 1))
+                    mw = float(qty)
+                except (ValueError, TypeError):
+                    continue
+                utc = ts_time.astimezone(timezone.utc)
+                day = utc.strftime("%Y-%m-%d")
+                by_day_hour.setdefault(day, {}).setdefault(utc.hour, []).append(mw)
+
+    return {
+        day: {h: sum(v) / len(v) for h, v in hours.items() if v}
+        for day, hours in by_day_hour.items()
+    }
+
+
+def parse_generation_hourly(xml_text: str) -> dict[str, dict[str, dict[int, float]]]:
+    """Parse an A75/A69 GL_MarketDocument into {date: {psrType: {hour_utc: mean_mw}}}.
+
+    Hourly counterpart of parse_generation_by_type — keeps the hour-of-day so the
+    per-hour wind/solar forecast can be subtracted from the hourly load forecast.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"ENTSO-E A75 XML parse error: {exc}") from exc
+
+    by: dict[str, dict[str, dict[int, list[float]]]] = {}
+    for ts in root.iter():
+        if _localname(ts.tag) != "TimeSeries":
+            continue
+        psr = next((e.text for e in ts.iter() if _localname(e.tag) == "psrType"), None)
+        if psr is None:
+            continue
+        for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
+            start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
+            res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
+            if start_el is None or res_el is None:
+                continue
+            start = _parse_utc(start_el.text)
+            res_hours = _RESOLUTION_HOURS.get((res_el.text or "").strip())
+            if start is None or res_hours is None:
+                continue
+            for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
+                pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
+                qty = next((e.text for e in point if _localname(e.tag) == "quantity"), None)
+                if pos is None or qty is None:
+                    continue
+                try:
+                    ts_time = start + timedelta(hours=res_hours * (int(pos) - 1))
+                    mw = float(qty)
+                except (ValueError, TypeError):
+                    continue
+                utc = ts_time.astimezone(timezone.utc)
+                day = utc.strftime("%Y-%m-%d")
+                by.setdefault(day, {}).setdefault(psr, {}).setdefault(utc.hour, []).append(mw)
+
+    return {
+        day: {
+            psr: {h: sum(v) / len(v) for h, v in hours.items() if v}
+            for psr, hours in psrs.items()
+        }
+        for day, psrs in by.items()
+    }
+
+
+def build_hourly_forecast(
+    load_by_hour: dict[int, float],
+    gen_by_hour: dict[str, dict[int, float]],
+) -> list[dict]:
+    """Combine hourly load + wind + solar forecasts into a 24-point residual series.
+
+    residual = load − (wind_offshore + wind_onshore) − solar, per hour. wind/solar
+    (and thus residual) are None for an hour with no renewable forecast. Returns
+    [{hour, load_mw, wind_mw, solar_mw, residual_mw}] ordered by hour.
+    """
+    off = gen_by_hour.get(PSR_WIND_OFFSHORE, {})
+    on = gen_by_hour.get(PSR_WIND_ONSHORE, {})
+    solar = gen_by_hour.get(PSR_SOLAR, {})
+    out: list[dict] = []
+    for hour in sorted(load_by_hour):
+        load = load_by_hour[hour]
+        wind = None
+        if hour in off or hour in on:
+            wind = (off.get(hour) or 0.0) + (on.get(hour) or 0.0)
+        s = solar.get(hour)
+        resid = round(load - wind - s, 2) if wind is not None and s is not None else None
+        out.append({
+            "hour": hour,
+            "load_mw": round(load, 2),
+            "wind_mw": round(wind, 2) if wind is not None else None,
+            "solar_mw": round(s, 2) if s is not None else None,
+            "residual_mw": resid,
+        })
+    return out
+
+
 # ─── fetch ────────────────────────────────────────────────────────────────────
 
 
@@ -269,6 +396,8 @@ async def ingest_load_forecast(
     load_by_day: dict[str, float] = {}
     wind_by_day: dict[str, float] = {}
     solar_by_day: dict[str, float] = {}
+    load_hourly_by_day: dict[str, dict[int, float]] = {}
+    gen_hourly_by_day: dict[str, dict[str, dict[int, float]]] = {}
     for month_start in months:
         # ── A65/A01 day-ahead load forecast ──
         try:
@@ -284,6 +413,9 @@ async def ingest_load_forecast(
             for day, mean_mw in parse_load(xml).items():
                 if day in wanted:
                     load_by_day[day] = mean_mw
+            for day, hours in parse_load_hourly(xml).items():
+                if day in wanted:
+                    load_hourly_by_day[day] = hours
 
         # ── A69/A01 day-ahead wind + solar forecast (same parser as A75 genmix) ──
         try:
@@ -300,6 +432,9 @@ async def ingest_load_forecast(
                 if day in wanted:
                     wind_by_day[day] = (by_psr.get(PSR_WIND_OFFSHORE, 0.0) or 0.0) + (by_psr.get(PSR_WIND_ONSHORE, 0.0) or 0.0)
                     solar_by_day[day] = by_psr.get(PSR_SOLAR, 0.0) or 0.0
+            for day, by_psr in parse_generation_hourly(gxml).items():
+                if day in wanted:
+                    gen_hourly_by_day[day] = by_psr
 
     written = 0
     for day in sorted(set(load_by_day) | set(wind_by_day) | set(solar_by_day)):
@@ -311,6 +446,12 @@ async def ingest_load_forecast(
         load = load_by_day.get(day)
         wind = wind_by_day.get(day)
         solar = solar_by_day.get(day)
+        # Hourly residual-load shape (tomorrow's price-driving curve), if hourly load present.
+        hourly = load_hourly_by_day.get(day)
+        hourly_json = (
+            json.dumps(build_hourly_forecast(hourly, gen_hourly_by_day.get(day, {})))
+            if hourly else None
+        )
         if row is None:
             if load is None:
                 continue  # forecast_mw is required — skip a day with only wind/solar
@@ -318,6 +459,7 @@ async def ingest_load_forecast(
                 date=day, zone=zone, forecast_mw=round(load, 2),
                 wind_forecast_mw=round(wind, 2) if wind is not None else None,
                 solar_forecast_mw=round(solar, 2) if solar is not None else None,
+                hourly_forecast=hourly_json,
             ))
             written += 1
         elif overwrite:
@@ -327,6 +469,8 @@ async def ingest_load_forecast(
                 row.wind_forecast_mw = round(wind, 2)
             if solar is not None:
                 row.solar_forecast_mw = round(solar, 2)
+            if hourly_json is not None:
+                row.hourly_forecast = hourly_json
             written += 1
     db.commit()
     return {"days": len(load_by_day), "written": written}

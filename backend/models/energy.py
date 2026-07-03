@@ -51,6 +51,9 @@ class PowerLoadForecast(Base):
     # Day-ahead wind/solar forecast (A69) → residual-load forecast = load − wind − solar.
     wind_forecast_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # B18+B19, daily mean MW
     solar_forecast_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # B16, daily mean MW
+    # JSON array of the 24 hourly forecast points [{"hour": 0-23, "load_mw", "wind_mw",
+    # "solar_mw", "residual_mw"}] — tomorrow's price-driving residual-load shape.
+    hourly_forecast: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("date", "zone", name="uq_power_load_forecast_date_zone"),)

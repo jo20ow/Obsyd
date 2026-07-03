@@ -88,6 +88,8 @@ def run_migrations() -> None:
         applied.append("power_load_forecast.wind_forecast_mw")
     if _add_column_if_missing("power_load_forecast", "solar_forecast_mw", "REAL"):
         applied.append("power_load_forecast.solar_forecast_mw")
+    if _add_column_if_missing("power_load_forecast", "hourly_forecast", "TEXT"):
+        applied.append("power_load_forecast.hourly_forecast")
 
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))

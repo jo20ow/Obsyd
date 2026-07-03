@@ -443,6 +443,47 @@ async def get_load_forecast(
     }
 
 
+@router.get("/load-forecast/hourly")
+async def get_load_forecast_hourly(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
+    date: str = Query(None, description="YYYY-MM-DD; default = latest forecast day (tomorrow)"),
+    db: Session = Depends(get_db),
+):
+    """Tomorrow's hour-by-hour residual-load forecast (load − wind − solar) — the
+    price-driving forward curve behind the daily-mean forecast: the evening ramp,
+    the midday solar trough, Dunkelflaute windows. Free tier. Defaults to the latest
+    forecast day (tomorrow). Returns {available, zone, date, unit,
+    data:[{hour, load_mw, wind_mw, solar_mw, residual_mw}]}. Descriptive, not a price call.
+    """
+    resolved_zone = _resolve_zone(zone)
+    q = db.query(PowerLoadForecast).filter(
+        PowerLoadForecast.zone == resolved_zone,
+        PowerLoadForecast.hourly_forecast.isnot(None),
+    )
+    if date:
+        q = q.filter(PowerLoadForecast.date == date)
+    row = q.order_by(PowerLoadForecast.date.desc()).first()
+    if row is None or not row.hourly_forecast:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"No hourly load forecast for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
+        }
+    try:
+        data = json.loads(row.hourly_forecast)
+    except (ValueError, TypeError):
+        data = []
+    return {
+        "available": bool(data),
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "date": row.date,
+        "unit": "MW",
+        "data": data,
+    }
+
+
 @router.get("/overview")
 async def get_power_overview(db: Session = Depends(get_db)):
     """All bidding zones at a glance — the single-glance overview (rows = zones,
