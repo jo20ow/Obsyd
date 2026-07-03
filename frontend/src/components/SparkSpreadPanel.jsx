@@ -9,19 +9,10 @@ import TrackRecordBadge from './TrackRecordBadge'
 const API = '/api'
 
 export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
-  const { data, loading, error } = useFetchWithError(`${API}/power/spark-spread?days=120`)
-
-  // Spark spread is published for DE-LU only. Under another zone, signpost that
-  // instead of silently showing DE-LU numbers (mirrors the hero's spark.supported).
-  if (zone !== 'DE_LU') {
-    return (
-      <Panel id="spark-spread" title="SPARK SPREAD · DE-LU ONLY" collapsible>
-        <div className="px-4 py-4 font-mono text-[11px] text-neutral-500">
-          Spark spread is published for DE-LU only — not available for {zone}.
-        </div>
-      </Panel>
-    )
-  }
+  const { data, loading, error } = useFetchWithError(
+    `${API}/power/spark-spread?days=120&zone=${zone}`, { deps: [zone] },
+  )
+  const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
 
   // The spark-spread route is public now; a 401/403 shouldn't occur, but treat
   // any auth-ish error defensively as "not available" rather than a red box.
@@ -42,8 +33,8 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
   return (
     <Panel
       id="spark-spread"
-      title="SPARK SPREAD · DE-LU · CCGT MARGIN"
-      info="Spark spread = power − gas × heat-rate (CCGT generation margin). Measures the theoretical profitability of gas-fired power generation. Positive = burning gas to generate electricity is profitable. Clean spark (− CO₂ cost) coming once EUA data is wired."
+      title={`SPARK SPREAD · ${zoneLabel} · CCGT MARGIN`}
+      info="Spark spread = power − gas × heat-rate (CCGT generation margin). Measures the theoretical profitability of gas-fired power generation. Positive = burning gas to generate electricity is profitable. Gas leg = TTF (the European benchmark hub) for every zone. Clean spark (− CO₂ cost) coming once EUA data is wired."
       collapsible
       defaultCollapsed
       headerRight={
@@ -91,7 +82,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
               </div>
             </div>
             <div className="font-mono text-[10px] text-neutral-700 mt-1.5">
-              Clean spark (− CO₂) coming once EUA data is wired.
+              Gas leg: TTF (European benchmark). Clean spark (− CO₂) coming once EUA data is wired.
             </div>
           </div>
           {rows.length > 1 && (
@@ -138,7 +129,8 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
           )}
         </>
       )}
-      <TrackRecordBadge signal="spark_spread" targetLabel="Power" />
+      {/* Track record is scored for DE-LU only; don't imply it for other zones. */}
+      {zone === 'DE_LU' && <TrackRecordBadge signal="spark_spread" targetLabel="Power" />}
     </Panel>
   )
 }

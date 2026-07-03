@@ -33,6 +33,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from backend.config import settings
 from backend.database import get_db
 from backend.models.energy import (
     EnergyPrice,
@@ -239,52 +240,67 @@ async def get_day_ahead_hourly(
 @router.get("/spark-spread")
 async def get_spark_spread(
     days: int = Query(120, ge=7, le=1500),
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL, …"),
     db: Session = Depends(get_db),
 ):
-    """Spark spread history (power − gas × heat_rate, EUR/MWh).
+    """Spark spread (power − gas × heat_rate, EUR/MWh) for any zone.
 
-    `latest` contains the most recent row for dashboard widgets.
-    `data` is the full window sorted ascending for charting.
-    CO₂ and clean-spark fields are included in the schema but will be null
-    until EUA data ingestion is implemented.
+    Computed live by aligning the zone's day-ahead price (EnergyPrice POWER_<zone>)
+    with the TTF gas front-month on each date. The gas leg is TTF (the European
+    benchmark hub) for every zone — a per-zone gas hub is a later refinement. CO₂/
+    clean-spark stay null until a free EUA source is confirmed. `latest` is the most
+    recent row; `data` is the ascending window for charting.
     """
+    resolved_zone = _resolve_zone(zone)
+    symbol = POWER_ZONES[resolved_zone]["price_symbol"]
+    heat_rate = round(1.0 / settings.gas_ccgt_efficiency, 4)
     date_from, date_to = _window(days)
-    rows = (
-        db.query(SparkSpreadHistory)
-        .filter(
-            SparkSpreadHistory.date >= date_from,
-            SparkSpreadHistory.date <= date_to,
-        )
-        .order_by(SparkSpreadHistory.date.asc())
-        .all()
-    )
-    if not rows:
+
+    def _prices(sym: str) -> dict[str, float]:
+        return {
+            r.date: r.close
+            for r in db.query(EnergyPrice).filter(
+                EnergyPrice.symbol == sym,
+                EnergyPrice.date >= date_from,
+                EnergyPrice.date <= date_to,
+            )
+        }
+
+    power_by = _prices(symbol)
+    ttf_by = _prices("TTF")
+    dates = sorted(set(power_by) & set(ttf_by))
+    if not dates:
         return {
             "available": False,
-            "reason": "Spark spread isn't available yet — check back shortly.",
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"Spark spread isn't available for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
 
-    def _row_dict(r: SparkSpreadHistory) -> dict:
-        return {
-            "date": r.date,
-            "power_price": r.power_price,
-            "gas_price": r.gas_price,
-            "heat_rate": r.heat_rate,
-            "spark_spread": r.spark_spread,
-            "co2_price": r.co2_price,
-            "clean_spark_spread": r.clean_spark_spread,
+    data = [
+        {
+            "date": d,
+            "power_price": power_by[d],
+            "gas_price": ttf_by[d],
+            "heat_rate": heat_rate,
+            "spark_spread": round(power_by[d] - ttf_by[d] * heat_rate, 4),
+            "co2_price": None,
+            "clean_spark_spread": None,
         }
-
-    latest = _row_dict(rows[-1])
+        for d in dates
+    ]
     return {
         "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
         "unit": "EUR/MWh",
         "heat_rate_note": "1 / CCGT_efficiency; default efficiency = 0.50",
+        "gas_leg_note": "gas leg = TTF (European benchmark) for all zones; per-zone hub is a later refinement",
         "co2_note": "co2_price and clean_spark_spread are deferred (EUA ticker TBD)",
-        "latest": latest,
+        "latest": data[-1],
         "from": date_from,
         "to": date_to,
-        "data": [_row_dict(r) for r in rows],
+        "data": data,
     }
 
 

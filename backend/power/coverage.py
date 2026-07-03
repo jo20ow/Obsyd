@@ -24,6 +24,16 @@ from backend.models.energy import PowerGenMix
 # above this; NL's broken A75 coverage (~0.49) sits clearly below it.
 COVERAGE_MIN_RATIO = 0.6
 
+# Per-zone overrides for zones whose A75 completeness differs from the default.
+# Empty by default (all zones use COVERAGE_MIN_RATIO); populate as zones are enabled
+# and their coverage is characterized. Keeps the guard tunable per bidding zone.
+ZONE_COVERAGE_MIN: dict[str, float] = {}
+
+
+def coverage_min_ratio(zone: str) -> float:
+    """The minimum generation/load coverage ratio to trust a zone's renewable share."""
+    return ZONE_COVERAGE_MIN.get(zone, COVERAGE_MIN_RATIO)
+
 
 def generation_total_mw(db: Session, date: str, zone: str) -> float | None:
     """Sum of reported A75 generation (MW) for (date, zone), or None if none present."""
@@ -46,4 +56,4 @@ def renewable_share_reliable(db: Session, date: str, zone: str, load_mw: float |
     total = generation_total_mw(db, date, zone)
     if total is None:
         return False
-    return total >= COVERAGE_MIN_RATIO * load_mw
+    return total >= coverage_min_ratio(zone) * load_mw

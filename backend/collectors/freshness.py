@@ -23,6 +23,7 @@ from backend.models.gas import GasBalance
 from backend.models.prices import EIAPrice, FREDSeries
 from backend.models.sentiment import GDELTVolume
 from backend.models.vessels import VesselPosition
+from backend.power.zones import POWER_ZONES
 
 
 @dataclass(frozen=True)
@@ -45,10 +46,6 @@ SPECS: list[FreshnessSpec] = [
     FreshnessSpec("ais", VesselPosition, "timestamp", timedelta(hours=2)),
     FreshnessSpec("gdelt", GDELTVolume, "created_at", timedelta(hours=24)),
     # Delivery-date probes (product-critical — the ones that were unmonitored).
-    FreshnessSpec("power_dayahead", PowerPriceDaily, "date", timedelta(days=2),
-                  is_date_string=True, filter_col="zone", filter_val="DE_LU"),
-    FreshnessSpec("power_grid", PowerGrid, "date", timedelta(days=3),
-                  is_date_string=True, filter_col="zone", filter_val="DE_LU"),
     FreshnessSpec("power_flows", PowerFlow, "date", timedelta(days=3), is_date_string=True),
     FreshnessSpec("gas_balance", GasBalance, "date", timedelta(days=3), is_date_string=True),
     FreshnessSpec("ttf", EnergyPrice, "date", timedelta(days=4),
@@ -56,6 +53,14 @@ SPECS: list[FreshnessSpec] = [
     FreshnessSpec("copper", EnergyPrice, "date", timedelta(days=4),
                   is_date_string=True, filter_col="symbol", filter_val="COPPER"),
 ]
+
+# Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled
+# zone is now monitored). Keys are suffixed with the zone, e.g. "power_dayahead:FR".
+for _z in POWER_ZONES:
+    SPECS.append(FreshnessSpec(f"power_dayahead:{_z}", PowerPriceDaily, "date", timedelta(days=2),
+                               is_date_string=True, filter_col="zone", filter_val=_z))
+    SPECS.append(FreshnessSpec(f"power_grid:{_z}", PowerGrid, "date", timedelta(days=3),
+                               is_date_string=True, filter_col="zone", filter_val=_z))
 
 
 def _spec_max(db, spec: FreshnessSpec):

@@ -38,6 +38,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from backend.models.energy import PowerFlow
+from backend.power.zones import ENABLED_ZONES, ZONE_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ COUNTRY_TO_ZONE: dict[str, str] = {
     "Belgium": "BE",
     "Italy": "IT",
     "Spain": "ES",
+    "Portugal": "PT",
     "Switzerland": "CH",
     "United Kingdom": "GB",
     "Denmark": "DK",
@@ -63,18 +65,38 @@ COUNTRY_TO_ZONE: dict[str, str] = {
     "Austria": "AT",
     "Poland": "PL",
     "Czech Republic": "CZ",
+    "Hungary": "HU",
+    "Romania": "RO",
+    "Greece": "GR",
+    "Bulgaria": "BG",
+    "Croatia": "HR",
+    "Slovenia": "SI",
+    "Slovakia": "SK",
+    "Finland": "FI",
+    "Ireland": "IE_SEM",
     "Luxembourg": "LU",
     "Sweden": "SE",
 }
 
-# The three base countries whose neighbours we ingest.
-BASE_COUNTRIES: list[str] = ["de", "fr", "nl"]
+# Base countries whose neighbours we ingest — derived from the enabled zones'
+# Energy-Charts country code (registry). Falls back to de/fr/nl if none resolve.
+# Zones without an ec_country (Italian sub-zones, DK1/DK2) don't seed a base query;
+# their prices/load/gen still ingest — only cross-border flows are country-level.
+_seen: set[str] = set()
+BASE_COUNTRIES: list[str] = []
+for _z in ENABLED_ZONES:
+    _ec = ZONE_REGISTRY.get(_z, {}).get("ec_country")
+    if _ec and _ec not in _seen:
+        _seen.add(_ec)
+        BASE_COUNTRIES.append(_ec)
+if not BASE_COUNTRIES:
+    BASE_COUNTRIES = ["de", "fr", "nl"]
 
-# Reverse map: zone code -> Energy-Charts country query string, for base zones.
+# Reverse map: zone code -> Energy-Charts country query string, for enabled base zones.
 ZONE_TO_COUNTRY: dict[str, str] = {
-    "DE_LU": "de",
-    "FR": "fr",
-    "NL": "nl",
+    _z: ZONE_REGISTRY[_z]["ec_country"]
+    for _z in ENABLED_ZONES
+    if ZONE_REGISTRY.get(_z, {}).get("ec_country")
 }
 
 

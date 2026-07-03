@@ -167,6 +167,49 @@ def test_no_data_returns_zero_counts(db_session):
     assert result == {"computed": 0, "written": 0}
 
 
+def test_spark_route_computes_per_zone(db_session, monkeypatch):
+    """/api/power/spark-spread computes live per zone from EnergyPrice(POWER_<zone>) × TTF."""
+    from datetime import date, timedelta
+
+    from fastapi.testclient import TestClient
+
+    from backend.config import settings as _settings
+    from backend.database import get_db
+    from backend.main import app
+
+    monkeypatch.setattr(_settings, "gas_ccgt_efficiency", 0.50)
+    d = (date.today() - timedelta(days=5)).isoformat()
+    _seed(db_session, "POWER_FR", [(d, 90.0)])
+    _seed(db_session, "TTF", [(d, 30.0)])
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        body = TestClient(app).get("/api/power/spark-spread?zone=FR&days=120").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert body["available"] is True
+    assert body["zone"] == "FR"
+    assert set(body["zones"]) == {"DE_LU", "FR", "NL"}
+    assert body["data"][0]["spark_spread"] == 90.0 - 30.0 * 2.0  # 30.0, heat_rate=2.0
+    assert body["latest"]["gas_price"] == 30.0
+
+
+def test_spark_route_unavailable_without_overlap(db_session):
+    from fastapi.testclient import TestClient
+
+    from backend.database import get_db
+    from backend.main import app
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        body = TestClient(app).get("/api/power/spark-spread?zone=NL&days=120").json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["available"] is False
+    assert body["zone"] == "NL"
+
+
 def test_multiple_dates(db_session, monkeypatch):
     """Multiple aligned dates all get their own row."""
     from backend.config import settings as _settings

@@ -20,8 +20,11 @@ class Settings(BaseSettings):
     obsyd_role: str = "all"
 
     # Enabled bidding zones (comma-separated keys from ZONE_REGISTRY in
-    # backend/power/zones.py). Adding a zone is config-only once the registry + zone
-    # parameterization are in place. Default = the three live zones (unchanged).
+    # backend/power/zones.py). Adding a zone is config-only. The code default stays
+    # lean (3 zones) for fast dev/CI; PRODUCTION enables the broader European core via
+    # the ENABLED_ZONES env var in .env, e.g.:
+    #   ENABLED_ZONES=DE_LU,FR,NL,BE,AT,ES,PT,PL,CZ
+    # (all with clean Energy-Charts flow mappings + well-covered ENTSO-E data).
     enabled_zones: str = "DE_LU,FR,NL"
 
     # EIA (Public Domain, no key required but recommended)
