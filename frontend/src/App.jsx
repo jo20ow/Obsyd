@@ -42,6 +42,7 @@ import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import CopperPanel from './components/CopperPanel'
 import ZoneSelector from './components/ZoneSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
+import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
 import BriefSubscribe from './components/BriefSubscribe'
@@ -351,12 +352,12 @@ function Dashboard() {
       </ErrorBoundary>
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-3 mt-3">
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// EUROPEAN POWER DESK</span>
-            <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
-          </div>
-          <ErrorBoundary name="power-situation">
-            <PowerSituationHeader zone={energyZone} />
+          <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// EUROPEAN POWER DESK</span>
+          <ErrorBoundary name="power-overview">
+            <PowerOverviewMatrix
+              selectedZone={energyZone}
+              onSelect={(z) => { setEnergyZone(z); setActiveTab('energy') }}
+            />
           </ErrorBoundary>
         </div>
         <div className="lg:max-h-[600px] lg:overflow-y-auto scrollbar-hidden">
@@ -567,10 +568,21 @@ function Dashboard() {
             spark spread follows. */}
         {activeTab === 'energy' && (
           <>
-            {/* Row 1: Day-Ahead price + negative-price flags (free, zoned) */}
-            <ErrorBoundary name="power-dayahead">
-              <PowerDayAheadPanel zone={energyZone} />
+            {/* Selected-zone detail (the deep-dive under the all-zones overview above) */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// POWER DETAIL</span>
+              <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
+            </div>
+            <ErrorBoundary name="power-situation">
+              <PowerSituationHeader zone={energyZone} />
             </ErrorBoundary>
+
+            {/* Row 1: Day-Ahead price + negative-price flags (free, zoned) */}
+            <div className="mt-3">
+              <ErrorBoundary name="power-dayahead">
+                <PowerDayAheadPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
 
             {/* Row 2: Residual Load + Dunkelflaute (free, zoned) */}
             <div className="mt-3">

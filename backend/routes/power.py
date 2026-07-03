@@ -443,6 +443,38 @@ async def get_load_forecast(
     }
 
 
+@router.get("/overview")
+async def get_power_overview(db: Session = Depends(get_db)):
+    """All bidding zones at a glance — the single-glance overview (rows = zones,
+    each with its state + key metrics + vs-normal z-scores). Reuses the exact
+    per-zone synthesis (load_power_situation) so the overview and the detail agree."""
+    zones = []
+    for zone in POWER_ZONES:
+        try:
+            sit = load_power_situation(db, zone)
+        except Exception:
+            continue
+        if not sit.get("available"):
+            continue
+        price = sit.get("price", {})
+        grid = sit.get("grid", {})
+        zones.append({
+            "zone": sit.get("zone"),
+            "zone_label": sit.get("zone_label"),
+            "state": sit.get("state", "CALM"),
+            "stale": bool(sit.get("stale")),
+            "as_of": sit.get("as_of"),
+            "price_close": price.get("close"),
+            "price_z": price.get("z"),
+            "residual_gw": grid.get("residual_gw"),
+            "residual_z": grid.get("z"),
+            "renewable_share": grid.get("renewable_share"),
+            "renewable_reliable": grid.get("renewable_share_reliable"),
+            "dunkelflaute": grid.get("dunkelflaute"),
+        })
+    return {"available": bool(zones), "zones": zones}
+
+
 # ─── Power situation synthesis (the desk top-line) ───────────────────────────
 #
 # The coherence keystone of the power desk: instead of six unconnected panels,
