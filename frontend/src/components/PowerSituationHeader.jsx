@@ -1,6 +1,7 @@
 import useFetchWithError from '../hooks/useFetchWithError'
 import { InfoPopover } from './Panel'
 import PanelTakeaway from './PanelTakeaway'
+import ReferenceBand from './ReferenceBand'
 import { zPhrase, residualPhrase } from '../utils/takeaway'
 
 const API = '/api'
@@ -21,7 +22,7 @@ const STATE_STYLE = {
   STRESSED: { text: 'text-red-400', dot: 'bg-red-400', border: 'border-red-500/30' },
 }
 
-function Metric({ label, value, sub, color }) {
+function Metric({ label, value, sub, color, band }) {
   return (
     <div className="min-w-0">
       <div className="font-mono text-[9px] text-neutral-600 tracking-wider uppercase">{label}</div>
@@ -29,6 +30,7 @@ function Metric({ label, value, sub, color }) {
         {value}
       </div>
       {sub && <div className="font-mono text-[9px] text-neutral-600 truncate mt-0.5">{sub}</div>}
+      {band}
     </div>
   )
 }
@@ -123,14 +125,16 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
           <Metric
             label="Day-ahead"
             value={price.close != null ? `€${price.close.toFixed(0)}` : '—'}
-            sub={price.z != null ? `${price.z >= 0 ? '+' : ''}${price.z.toFixed(1)}σ vs ${price.baseline_n}d` : 'EUR/MWh'}
+            sub="EUR/MWh"
             color={priceColor}
+            band={price.z != null && <ReferenceBand z={price.z} baselineN={price.baseline_n} className="mt-1.5" />}
           />
           <Metric
             label="Residual load"
             value={grid.residual_gw != null ? `${grid.residual_gw.toFixed(0)} GW` : '—'}
-            sub={grid.z != null ? `${grid.z >= 0 ? '+' : ''}${grid.z.toFixed(1)}σ vs ${grid.baseline_n}d` : 'load − wind − solar'}
+            sub="load − wind − solar"
             color={residColor}
+            band={grid.z != null && <ReferenceBand z={grid.z} baselineN={grid.baseline_n} className="mt-1.5" />}
           />
           <Metric
             label="Spark spread"

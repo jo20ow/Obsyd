@@ -36,6 +36,12 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
   const latest = data?.latest ?? rows[rows.length - 1]
   const close = latest?.close
   const negativeDays = data?.negative_days ?? 0
+  // "vs normal": where does today's price sit in its own recent range? (the single
+  // biggest legibility win — a bare €/MWh teaches nothing without this anchor.)
+  const closes = rows.map((r) => r.close).filter((v) => v != null)
+  const pctile = closes.length && close != null
+    ? Math.round((closes.filter((v) => v < close).length / closes.length) * 100)
+    : null
   // Readable label: prefer what the API returns, fall back to the zone prop
   const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
   const hourlyAvail = !!hourlyData?.available && Array.isArray(hourlyData?.data) && hourlyData.data.length > 0
@@ -79,9 +85,12 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
               )}
             </div>
             <PanelTakeaway className="mt-2">
+              {`Wholesale power is €${close?.toFixed(0)}/MWh${
+                pctile != null ? ` — higher than ${pctile}% of the last ${closes.length} days` : ' (next-day delivery price)'
+              }.`}
               {negativeDays > 0
-                ? `Wholesale power is €${close?.toFixed(0)}/MWh. Prices went negative on ${negativeDays} of the last 120 days — renewables briefly out-supplied demand and generators paid to offload power.`
-                : `Wholesale power is €${close?.toFixed(0)}/MWh — the price generators are paid for next-day delivery.`}
+                ? ` Prices went negative on ${negativeDays} of those days — renewables briefly out-supplied demand.`
+                : ''}
             </PanelTakeaway>
           </div>
           {/* Daily-mean ⇄ hourly-shape toggle (hourly = the 24h peak/off-peak curve). */}
