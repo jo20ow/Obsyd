@@ -84,20 +84,30 @@ async def lifespan(app: FastAPI):
                 )
             logger.warning("SECURITY: %s uses default value — set it in .env before production!", name)
 
-    start_scheduler()
-    logger.info("Startup: DB initialized, scheduler started")
+    # Role gating (OBSYD_ROLE): only the ingest/all roles run the scheduler and act as
+    # the DB writer. The api role serves requests only, so its workers can scale without
+    # double-firing crons. Default "all" = the current single-process behavior.
+    from backend.collectors.scheduler import scheduler_role_enabled
 
-    # Phase 2: Power desk startup refresh (staggered, non-blocking).
+    ingest_enabled = scheduler_role_enabled(settings.obsyd_role)
+    if ingest_enabled:
+        start_scheduler()
+        logger.info("Startup: DB initialized, scheduler started (role=%s)", settings.obsyd_role)
+    else:
+        logger.info("Startup: DB initialized, scheduler DISABLED (role=api)")
+
+    # Phase 2: Power desk startup refresh (staggered, non-blocking) — ingest role only.
     # REFOCUS 2026-07-03 — Obsyd is the European electricity+gas desk. The non-power
     # verticals (AIS/oil, portwatch, gdelt/sentiment, jodi, crack/equities, analytics)
     # were split to the sibling project; their startup runs + AIS websockets are gone.
     # Pull day-ahead/grid/flows/forecasts to the published frontier on startup so a
     # restart doesn't wait for the 22:30 cron. Gas runs via its daily cron.
-    await asyncio.sleep(2)
-    from backend.collectors.scheduler import _run_power_daily
+    if ingest_enabled:
+        await asyncio.sleep(2)
+        from backend.collectors.scheduler import _run_power_daily
 
-    _create_task_logged(_run_power_daily(), "power_daily_startup")
-    logger.info("Startup: power desk refresh started (background)")
+        _create_task_logged(_run_power_daily(), "power_daily_startup")
+        logger.info("Startup: power desk refresh started (background)")
 
     # Daily Briefing Email status
     if settings.resend_api_key:
@@ -107,7 +117,8 @@ async def lifespan(app: FastAPI):
 
     logger.info("Startup complete")
     yield
-    stop_scheduler()
+    if ingest_enabled:
+        stop_scheduler()
 
 
 app = FastAPI(

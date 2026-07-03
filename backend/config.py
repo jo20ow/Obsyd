@@ -12,6 +12,18 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./obsyd.db"
 
+    # Process role: "api" (serve requests only, scheduler OFF), "ingest" (run the
+    # scheduler/collectors as the sole DB writer), or "all" (both — single process).
+    # Splitting into two systemd units (obsyd = api, obsyd-ingest = ingest) lets the
+    # API scale workers without double-firing crons and keeps heavy ingest off the
+    # request loop. Default "all" = the current single-process behavior (byte-identical).
+    obsyd_role: str = "all"
+
+    # Enabled bidding zones (comma-separated keys from ZONE_REGISTRY in
+    # backend/power/zones.py). Adding a zone is config-only once the registry + zone
+    # parameterization are in place. Default = the three live zones (unchanged).
+    enabled_zones: str = "DE_LU,FR,NL"
+
     # EIA (Public Domain, no key required but recommended)
     eia_api_key: Optional[SecretStr] = None
     eia_base_url: str = "https://api.eia.gov/v2"

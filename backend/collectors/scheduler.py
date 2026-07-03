@@ -176,6 +176,16 @@ async def _run_power_daily():
         db.close()
 
 
+def scheduler_role_enabled(role: str) -> bool:
+    """True if this process role should run the scheduler / be a DB writer.
+
+    'ingest' and 'all' run the collectors; 'api' serves requests only (no scheduler,
+    so API workers can scale without double-firing crons). Unknown roles default to
+    enabled (fail-safe: never silently stop ingestion because of a typo'd env var).
+    """
+    return (role or "all").strip().lower() != "api"
+
+
 def start_scheduler():
     """Register the electricity+gas desk + shared jobs, then start the scheduler."""
     # Power day-ahead + grid + forecasts + flows + spark: daily 22:30 UTC.

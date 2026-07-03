@@ -1,0 +1,41 @@
+[Unit]
+# OBSYD ingest role — the sole steady-state DB writer (scheduler/collectors, no HTTP).
+# Pairs with obsyd.service (OBSYD_ROLE=api). Activate ONLY after setting OBSYD_ROLE=api
+# on obsyd.service, so exactly one process runs the crons. Inert until enabled.
+Description=OBSYD Ingest (scheduler/collectors, sole DB writer)
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=obsyd
+Group=obsyd
+WorkingDirectory=/home/obsyd/obsyd
+EnvironmentFile=/home/obsyd/obsyd/.env
+Environment="PATH=/home/obsyd/obsyd/.venv/bin"
+Environment="OBSYD_ROLE=ingest"
+ExecStart=/home/obsyd/obsyd/.venv/bin/python -m backend.ingest_main
+Restart=on-failure
+RestartSec=10
+
+# --- Hardening (mirrors obsyd.service) ---
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/obsyd/obsyd
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+
+# --- Resource limits (ingest parses month-XML; generous headroom for backfill) ---
+MemoryHigh=1536M
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

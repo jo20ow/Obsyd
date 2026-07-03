@@ -196,3 +196,47 @@ class PowerPriceDaily(Base):
     __table_args__ = (
         UniqueConstraint("date", "zone", name="uq_power_price_daily_date_zone"),
     )
+
+
+# ─── Canonical hourly time-series store (roadmap Block 0/1) ───────────────────
+#
+# One long table for ALL hourly power series across ALL zones — the backbone for
+# gridstatus-parity range queries + CSV/Parquet export. A new series or zone is a
+# row in a dim table (config-only); one write path (backend/power/hourly_store.py),
+# one covering index (the PK). The existing daily-mean tables stay and are rolled up
+# from here so current routes/scorecards keep reading unchanged.
+
+
+class ZoneDim(Base):
+    """Bidding-zone dimension (id ↔ zone key, e.g. 'DE_LU')."""
+
+    __tablename__ = "zone_dim"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+
+
+class SeriesDim(Base):
+    """Series dimension (id ↔ series key, e.g. 'price.dayahead', 'load.actual')."""
+
+    __tablename__ = "series_dim"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+class PowerHourly(Base):
+    """One value per (series, zone, hour-UTC). Integer-keyed, WITHOUT ROWID so the
+    PK is the clustering + covering index for the dominant (series, zone, range) scan.
+    `ts_utc` = epoch seconds at top-of-hour UTC."""
+
+    __tablename__ = "power_hourly"
+
+    series_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    zone_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts_utc: Mapped[int] = mapped_column(Integer, primary_key=True)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # WITHOUT ROWID: the composite PK becomes the table's clustering key.
+    __table_args__ = {"sqlite_with_rowid": False}
