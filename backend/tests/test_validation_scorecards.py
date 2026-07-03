@@ -13,7 +13,6 @@ from backend.main import app
 from backend.models.analytics import DisruptionScoreHistory
 from backend.models.energy import EnergyPrice, PowerGrid, SparkSpreadHistory
 from backend.models.gas import GasBalance
-from backend.models.metals import CopperSupply
 from backend.models.prices import FREDSeries
 from backend.models.validation import SignalScorecard
 
@@ -63,32 +62,21 @@ def test_load_signal_series_dedupes_to_one_per_day(db_session):
 
 
 def test_recompute_writes_cards_for_every_signal_and_horizon(db_session):
-    _seed(db_session)
+    # Refocus 2026-07-03: the desk scores gas/power signals only. Seed gas → gas_residual.
+    _seed_gas(db_session)
     cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
-    # disruption_score has data; the other two signals have no history -> skipped
-    ds_cards = [c for c in cards if c["signal"] == "disruption_score"]
-    assert {c["horizon_days"] for c in ds_cards} == set(scorecards.HORIZONS)
-    rows = db_session.query(SignalScorecard).filter(SignalScorecard.signal == "disruption_score").all()
+    gas_cards = [c for c in cards if c["signal"] == "gas_residual"]
+    assert {c["horizon_days"] for c in gas_cards} == set(scorecards.HORIZONS)
+    rows = db_session.query(SignalScorecard).filter(SignalScorecard.signal == "gas_residual").all()
     assert len(rows) == len(scorecards.HORIZONS)
 
 
 def test_recompute_is_idempotent_per_as_of(db_session):
-    _seed(db_session)
+    _seed_gas(db_session)
     scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
     scorecards.recompute_scorecards(db_session, as_of="2026-06-11")  # upsert, not duplicate
     rows = db_session.query(SignalScorecard).filter(SignalScorecard.as_of == "2026-06-11").all()
-    assert len(rows) == len(scorecards.HORIZONS)  # only disruption_score had data
-
-
-def test_predictive_signal_shows_positive_ic(db_session):
-    _seed(db_session)
-    cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
-    card_7d = next(c for c in cards if c["signal"] == "disruption_score" and c["horizon_days"] == 7)
-    # Planted predictive signal: positive IC, HAC-significant, high hit rate.
-    assert card_7d["ic"] is not None and card_7d["ic"] > 0.15
-    assert card_7d["t_stat"] > 2.0
-    assert card_7d["hit_rate"] > 0.7
-    assert card_7d["confident"] == 1  # n >= 30
+    assert len(rows) == len(scorecards.HORIZONS)  # only gas_residual had data
 
 
 def test_two_sided_p_matches_known_values():
@@ -98,15 +86,15 @@ def test_two_sided_p_matches_known_values():
 
 
 def test_scorecards_api_returns_latest(client, db_session):
-    _seed(db_session)
+    _seed_gas(db_session)
     scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
     resp = client.get("/api/validation/scorecards")
     assert resp.status_code == 200
     body = resp.json()
     assert body["available"] is True
     assert body["as_of"] == "2026-06-11"
-    assert "disruption_score" in body["signals"]
-    assert len(body["signals"]["disruption_score"]) == len(scorecards.HORIZONS)
+    assert "gas_residual" in body["signals"]
+    assert len(body["signals"]["gas_residual"]) == len(scorecards.HORIZONS)
 
 
 def test_scorecards_api_empty_is_graceful(client, db_session):
@@ -263,17 +251,16 @@ def test_spark_spread_scores_against_power_price(db_session):
     assert card_7d["ic"] is not None
 
 
-def test_existing_brent_ttf_signals_not_broken(db_session):
-    """Regression: adding energy targets must not break Brent or TTF signals."""
-    _seed(db_session)
+def test_gas_and_power_signals_score_together(db_session):
+    """The refocused desk scores both its signals (gas_residual + power_residual)."""
     _seed_gas(db_session)
+    _seed_power(db_session)
     cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
     signals = {c["signal"] for c in cards}
-    assert "disruption_score" in signals
     assert "gas_residual" in signals
-    # Both scored at all horizons
-    assert {c["horizon_days"] for c in cards if c["signal"] == "disruption_score"} == set(scorecards.HORIZONS)
+    assert "power_residual" in signals
     assert {c["horizon_days"] for c in cards if c["signal"] == "gas_residual"} == set(scorecards.HORIZONS)
+    assert {c["horizon_days"] for c in cards if c["signal"] == "power_residual"} == set(scorecards.HORIZONS)
 
 
 def test_copper_target_reads_energy_price(db_session):
@@ -285,23 +272,6 @@ def test_copper_target_reads_energy_price(db_session):
     assert pm == {"2026-06-01": 4.5, "2026-06-02": 4.6}
 
 
-def test_copper_stocks_signal_resolves_and_scores(db_session):
-    """A4.3: copper_stocks (CopperSupply) resolves via metals module + scores vs copper price."""
-    assert scorecards._resolve_model("CopperSupply") is CopperSupply
-    # 36 monthly stock obs + a daily copper price series covering them + the 30d horizon tail
-    months = [f"2023-{mm:02d}-01" for mm in range(1, 13)] + [f"2024-{mm:02d}-01" for mm in range(1, 13)] + [f"2025-{mm:02d}-01" for mm in range(1, 13)]
-    for i, mdate in enumerate(months):
-        db_session.add(CopperSupply(date=mdate, us_refined_stocks=100000.0 + i * 1000))
-    # daily copper price across the whole span + 30d horizon tail
-    d = date(2023, 1, 1)
-    px = 4.0
-    while d <= date(2026, 1, 31):
-        db_session.add(EnergyPrice(date=d.isoformat(), symbol="COPPER", close=px))
-        px += 0.001
-        d += timedelta(days=1)
-    db_session.commit()
-
-    cards = scorecards.recompute_scorecards(db_session, as_of="2026-06-11")
-    cs = [c for c in cards if c["signal"] == "copper_stocks"]
-    assert {c["horizon_days"] for c in cs} == set(scorecards.HORIZONS)
-    assert any(c["n"] > 0 for c in cs)  # scored against the COPPER price target
+# NOTE: copper_stocks scoring (metals) moved to the sibling project in the refocus;
+# its scorecard test lives there now. The generic "copper" target resolver
+# (_load_target_map) is exercised by test_copper_target_reads_energy_price above.

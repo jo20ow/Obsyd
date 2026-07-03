@@ -25,33 +25,18 @@ from sqlalchemy.orm import Session
 
 from backend.signals.detectors.base import is_stale
 from backend.signals.detectors.gas import detect_gas_balance
-from backend.signals.detectors.oil import (
-    detect_chokepoint,
-    detect_days_of_supply,
-    detect_floating_storage,
-    detect_freight_divergence,
-    detect_rerouting,
-    detect_supply_demand_divergence,
-)
 from backend.signals.detectors.power import detect_dunkelflaute, detect_negative_prices
-from backend.signals.detectors.sentiment import detect_sentiment_risk
 from backend.signals.rules import _upsert_alert
 
 logger = logging.getLogger(__name__)
 
-# Curated detector registry. Phase 1 = persisted-flag detectors; Phase 2 adds the
-# rerouting/chokepoint/dunkelflaute detectors (all pure local-DB reads — they wrap
-# already-baseline-aware computations, no new persistence needed).
+# Curated detector registry — REFOCUSED 2026-07-03 to the European electricity desk
+# (electrons + their gas fuel). The oil/sentiment detectors (detectors/oil.py,
+# detectors/sentiment.py) stay in the tree but are unwired here; they move to the
+# sibling project in Phase 2. The radar now surfaces only power/gas anomalies.
 DETECTORS = [
     detect_gas_balance,
-    detect_days_of_supply,
-    detect_supply_demand_divergence,
-    detect_freight_divergence,
-    detect_floating_storage,
     detect_negative_prices,
-    detect_sentiment_risk,
-    detect_rerouting,
-    detect_chokepoint,
     detect_dunkelflaute,
 ]
 

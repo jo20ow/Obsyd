@@ -66,26 +66,16 @@ const MAP_FALLBACK = (
 const API = '/api'
 
 // Obsyd is the desk for the physical energy system. The front door (`primary`) is
-// the three views that carry the story: POWER (electrons), GAS (molecules), and
-// FLOWS (tankers through chokepoints — the physical-flow hook). The rest of the
-// engine — oil/maritime signals, metals, atlas, critical-materials, news,
-// sentiment — stays reachable as on-theme breadth behind a secondary divider.
-// The off-theme "terminal breadth" (crypto/rates/filings/econ) was deliberately
-// cut from the navigation; those routes stay dormant in the backend (reversible).
-// NOTE: the default tab is 'energy'; the FLOWS tab keeps the key 'overview' so
-// existing #overview deep-links keep working — only its label changed.
+// REFOCUS 2026-07-03: Obsyd is "gridstatus.io for Europe" — the European
+// electricity+gas desk. The navigation is only POWER (electrons), GAS (its fuel)
+// and ALERTS. Everything non-power (oil/maritime FLOWS, market, signals, critical,
+// metals, news, atlas, sentiment) is being split into a sibling project; its tabs
+// are removed here (the render blocks below are now unreachable and get physically
+// extracted in Phase 2). The default tab is 'energy'.
 const TABS = [
   { key: 'energy', label: 'POWER', primary: true },
   { key: 'gas', label: 'GAS', primary: true },
-  { key: 'overview', label: 'FLOWS', primary: true },
-  { key: 'market', label: 'MARKET' },
-  { key: 'signals', label: 'SIGNALS' },
-  { key: 'critical', label: 'CRITICAL' },
-  { key: 'metals', label: 'METALS' },
-  { key: 'news', label: 'NEWS' },
-  { key: 'atlas', label: 'ATLAS' },
-  { key: 'sentiment', label: 'SENTIMENT' },
-  { key: 'alerts', label: 'ALERTS' },
+  { key: 'alerts', label: 'ALERTS', primary: true },
 ]
 
 const DEFAULT_TAB = 'energy'
@@ -121,7 +111,9 @@ function TabBar({ active, onChange }) {
       {primary.map((tab) => (
         <TabButton key={tab.key} tab={tab} active={active} onChange={onChange} />
       ))}
-      <span className="mx-2 text-neutral-800 select-none shrink-0" aria-hidden>·</span>
+      {secondary.length > 0 && (
+        <span className="mx-2 text-neutral-800 select-none shrink-0" aria-hidden>·</span>
+      )}
       {secondary.map((tab) => (
         <TabButton key={tab.key} tab={tab} active={active} onChange={onChange} dim />
       ))}

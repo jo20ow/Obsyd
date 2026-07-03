@@ -17,13 +17,9 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from backend.auth.dependencies import require_auth
-from backend.crypto.coingecko import CRYPTO_ASSETS
 from backend.database import SessionLocal
-from backend.geofences.zones import ZONES
 from backend.models.watchlist import WatchlistItem
 from backend.power.zones import POWER_ZONES
-from backend.providers.yfinance_provider import DISPLAY_NAMES as PRICE_SYMBOLS
-from backend.routes.atlas import CRITICAL_MATERIALS
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +27,16 @@ router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
 
 def _build_catalog() -> dict[str, dict[str, str]]:
-    """Legal {kind: {key: label}}. Materials from the criticality list; zones from
-    the chokepoint geofences + power bidding zones; symbols from the commodity/price
-    universe (WTI/Brent/NG/TTF/Gold/Silver/Copper) + the DE-LU day-ahead power price
-    — so the cross-asset watchlist can never drift from what the app actually tracks."""
-    materials = {key: label for key, label, _kind, _spec in CRITICAL_MATERIALS}
-    zones = {z["name"]: z["display_name"] for z in ZONES}
-    zones.update({k: v["label"] for k, v in POWER_ZONES.items()})
-    symbols = dict(PRICE_SYMBOLS)
-    symbols["POWER_DE"] = "German Power Day-Ahead (POWER_DE)"
-    crypto = {sym: name for _gid, sym, name in CRYPTO_ASSETS}
-    return {"material": materials, "zone": zones, "symbol": symbols, "crypto": crypto}
+    """Legal {kind: {key: label}} for the European electricity desk: the power
+    bidding zones + the day-ahead power price and TTF gas price. Refocus 2026-07-03
+    — materials / chokepoint zones / crypto moved to the sibling project, so the
+    watchlist can never drift from what this app actually tracks."""
+    zones = {k: v["label"] for k, v in POWER_ZONES.items()}
+    symbols = {
+        "POWER_DE": "German Power Day-Ahead (POWER_DE)",
+        "TTF": "Dutch TTF Gas (TTF)",
+    }
+    return {"zone": zones, "symbol": symbols}
 
 
 VALID_KEYS = _build_catalog()

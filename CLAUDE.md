@@ -1,22 +1,23 @@
 # OBSYD — Strategischer Kontext & Arbeitsprinzipien
 
-> ## ⇒ AKTUELLE AUSRICHTUNG 2026-07-02 (überschreibt die Positionierungs-Absätze unten)
-> **Nische (Owner-Entscheidung 2026-07-02): Obsyd ist der Desk für das PHYSISCHE ENERGIESYSTEM —
-> „Moleküle + Elektronen an einem Ort, gratis".**
-> - **Tragender Kern (Substanz, validiert, schwer-gratis-woanders):** die Gas-/Strom-Physik-Bilanz
->   (GIE AGSI-Speicher + ALSI-LNG-Send-out, ENTSOG-Flüsse, 20 Cross-Border-Stromflüsse via
->   Energy-Charts, Residuallast, Negativpreise, Spark, Dunkelflaute) + der Anomalie-Radar.
-> - **Haken (Einstieg/Kontext, KEIN belegtes Alpha):** die Chokepoint-/Tanker-Karte (AIS + IMF
->   PortWatch). Bleibt prominent (jetzt PRIMÄRER Tab „FLOWS"), ehrlich gerahmt — Zonen ohne Live-AIS
->   (Suez/Panama/Cape) sind „TRANSIT DATA" (PortWatch); Maritim→Preis ist NICHT belegt (Scorecards n=0
->   → „building"). NIE als Moat verkaufen (Kpler/Vortexa/TankerTrackers gewinnen dort).
-> - **RAUS aus der Vordertür (der „gratis-Bloomberg"-Umweg, 2026-07-02 verworfen):** die reine
->   Terminal-Breite Crypto/Rates/Filings/Econ — Tabs aus der Nav geschnitten, Backend-Routes dormant.
-> - **Preis:** komplett gratis, KEINE Umsatzmaschine live (kein Checkout). Das alte „50–70 Abos =
->   Einkommen"-Ziel ist eine OFFENE Owner-Entscheidung, kein aktives Ziel.
-> - Siehe [[project_obsyd_terminal_pivot]]-Historie + Plan-Doc „Reposition auf Das physische
->   Energiesystem" (2026-07-02). Die „Vordertür: Europäischer Strom-Desk"- und „Gratis-Bloomberg"-
->   Absätze unten sind HISTORIE — der Power-Desk ist jetzt EIN Modul (POWER) im Energiesystem-Desk.
+> ## ⇒ AKTUELLE AUSRICHTUNG 2026-07-03 (überschreibt ALLE Positionierungs-Absätze unten)
+> **Endziel (Owner-Entscheidung 2026-07-03): Obsyd = „gridstatus.io für Europa" — ein fokussierter
+> europäischer STROM-Desk. Alles Nicht-Strom wird in ein ZWEITPROJEKT aufgespalten.**
+> - **Behalter (Obsyd):** der EU-Elektrizitäts-Desk — Day-Ahead-Preise (+Negativpreise), Load/
+>   Residuallast, Generation-Mix, Wind/Solar, 20 Cross-Border-Flows, Last-/Residuallast-**Prognose**,
+>   Spark-Spread; DE-LU/FR/NL; All-Zones-Übersicht → Zonen-Detail; Anomalie-Radar (nur power/gas);
+>   „vs. normal" + „This means" Lesbarkeit. **Gas BLEIBT** (Brennstoff-Seite: Spark + Gasbilanz).
+> - **RAUS ins Zweitprojekt (bewahrt, nicht gelöscht — inkl. AIS-/Chokepoint-Karte):** Öl/Maritim/AIS,
+>   Metalle, Atlas, Crypto/Rates/Filings/Econ, News, Sentiment.
+> - **Sequenz: erst refokussieren (Phase 1, LIVE), dann extrahieren (Phase 2).** Phase 1 deployed
+>   2026-07-03: Frontend nur POWER/GAS/ALERTS; Nicht-Strom-Scheduler-Jobs + Startups + AIS AUS;
+>   situation/detectors/alerts/scorecards/watchlist/daily_email/evaluator auf power/gas getrimmt.
+>   Nicht-Strom-Routes bleiben registriert-DORMANT (Produkt zeigt sie nicht, keine frischen Daten) bis
+>   zur physischen Extraktion (Phase 2: eigenes Repo, zweiter Service/DB/Deploy). Kartierung + Plan im
+>   Plan-Doc „gridstatus.io für Europa + Obsyd aufspalten"; Vorbilder in [[reference_obsyd_comparables]].
+> - **Preis:** komplett gratis, KEINE Umsatzmaschine live. „50–70 Abos"-Ziel = offene Owner-Entscheidung.
+> - Alles unten (inkl. der 2026-07-02-„physisches Energiesystem"-Nische + „Gratis-Bloomberg" + „Strom-
+>   Desk als Modul") ist HISTORIE.
 >
 > Verbindliche Single Source of Truth für Positionierung, Ist-Stand und nächste Schritte.
 > Strategie ist **state-agnostisch** formuliert (Prinzipien & Entscheidungen), der **Ist-Stand**

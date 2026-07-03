@@ -38,7 +38,7 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
             OBSYD
           </div>
           <div className="text-neutral-500 font-mono text-xs hidden md:block">
-            // THE PHYSICAL ENERGY SYSTEM
+            // THE EUROPEAN ELECTRICITY DESK
           </div>
         </div>
 

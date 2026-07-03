@@ -25,20 +25,21 @@ def test_worst_picks_highest_rank():
 
 
 def test_combine_overall_is_worst_of_available():
-    out = combine_domains(_dom("CALM"), _dom("ELEVATED"), _dom("STRESSED"))
+    # Refocus 2026-07-03: the desk fuses gas + power only (electrons + their fuel).
+    out = combine_domains(_dom("ELEVATED"), _dom("STRESSED"))
     assert out["overall"] == "STRESSED"
     assert out["available"] is True
-    assert set(out["domains"]) == {"oil", "gas", "power"}
+    assert set(out["domains"]) == {"gas", "power"}
 
 
 def test_combine_excludes_unavailable_domains_from_overall():
-    # a STRESSED but unavailable oil domain must not drive the overall state
-    out = combine_domains(_dom("STRESSED", available=False), _dom("CALM"), _dom("CALM"))
+    # a STRESSED but unavailable gas domain must not drive the overall state
+    out = combine_domains(_dom("STRESSED", available=False), _dom("CALM"))
     assert out["overall"] == "CALM"
 
 
 def test_combine_all_unavailable():
-    out = combine_domains(*(_dom("CALM", available=False) for _ in range(3)))
+    out = combine_domains(_dom("CALM", available=False), _dom("CALM", available=False))
     assert out["available"] is False
     assert out["overall"] == "CALM"
 
@@ -144,6 +145,6 @@ def test_power_forward_none_without_wind_solar(db_session):
 def test_situation_endpoint_envelope(db_session):
     body = TestClient(app).get("/api/situation").json()
     assert "overall" in body and "domains" in body
-    assert set(body["domains"]) == {"oil", "gas", "power"}
+    assert set(body["domains"]) == {"gas", "power"}
     for d in body["domains"].values():
         assert "state" in d and "available" in d and "headline" in d

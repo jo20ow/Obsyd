@@ -50,20 +50,13 @@ def _attach_context(db, items: list[dict]) -> None:
     """Enrich anomaly alerts with the honest historical price analog ('so what?') so
     each radar entry carries its context, not just the top situation bar. In place;
     cached per (rule, key) within the request; only for rules that have an analog."""
-    from backend.situation.physical import chokepoint_price_context, gas_balance_price_context
+    from backend.situation.physical import gas_balance_price_context
 
     cache: dict = {}
     for it in items:
-        rule, zone = it.get("rule"), it.get("zone")
-        if rule == "chokepoint_anomaly" and zone:
-            key = ("cp", zone)
-            if key not in cache:
-                c = chokepoint_price_context(zone)
-                cp = (it.get("title") or "").split(":")[0].strip() or "chokepoint"
-                cache[key] = {**c, "price_label": "Brent", "event_label": f"{cp} transit drops"} if c else None
-            if cache[key]:
-                it["context"] = cache[key]
-        elif rule == "gas_balance":
+        # Refocus 2026-07-03: electricity desk. Only the gas-balance analog remains;
+        # the oil chokepoint→Brent context moved to the sibling project.
+        if it.get("rule") == "gas_balance":
             key = ("gas",)
             if key not in cache:
                 c = gas_balance_price_context(db)

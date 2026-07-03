@@ -17,8 +17,8 @@ export default function HowToRead() {
     <Panel id="how-to-read" title="NEW HERE? HOW TO READ THIS" collapsible defaultCollapsed={false}>
       <div className="px-4 py-3 space-y-3">
         <p className="font-mono text-[12px] text-neutral-300 leading-relaxed">
-          Obsyd watches the <span className="text-cyan-glow">physical energy system</span> — the molecules
-          (oil tankers through chokepoints, gas storage &amp; LNG) and the electrons (the European power grid).
+          Obsyd is the <span className="text-cyan-glow">European electricity desk</span> — a free "gridstatus
+          for Europe": the power grid (prices, load, generation, flows) and the gas that fuels it.
           Every number tells you <span className="text-neutral-200">how far it is from normal</span> and what
           that means — descriptive, never a price forecast.
         </p>

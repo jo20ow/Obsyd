@@ -1,14 +1,10 @@
 import { useState, useEffect } from 'react'
 
-// Power desk first: TTF (the fuel that sets the marginal power price) and NG lead;
-// oil/metals follow as broader context.
+// Refocus 2026-07-03 (electricity desk): the fuels that set the marginal power
+// price — TTF gas and NG. Oil/metals moved to the sibling project.
 const TICKERS = [
   { key: 'TTF', label: 'TTF', color: 'text-pink-400' },
   { key: 'NG', label: 'NG', color: 'text-purple-400' },
-  { key: 'BRENT', label: 'BRENT', color: 'text-green-glow' },
-  { key: 'WTI', label: 'WTI', color: 'text-cyan-glow' },
-  { key: 'GOLD', label: 'GOLD', color: 'text-yellow-400' },
-  { key: 'COPPER', label: 'COPPER', color: 'text-orange-400' },
 ]
 
 export default function PriceTicker() {

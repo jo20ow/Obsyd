@@ -240,16 +240,18 @@ def test_sentiment_relative_jump_info(db_session):
 # ─── Runner (loop) ────────────────────────────────────────────────────────────
 
 
-def test_run_all_detectors_multi_vertical(db_session):
+def test_run_all_detectors_power_gas_only(db_session):
+    # Refocus 2026-07-03: the radar registry runs only power/gas detectors. A seeded
+    # sentiment score must NOT surface (sentiment moved to the sibling project).
     fresh = date.today().isoformat()
     db_session.add(GasBalance(date=fresh, residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
     db_session.add(SentimentScore(date=fresh, risk_score=9.0, risk_factors="[]"))
     db_session.commit()
 
-    n = run_all_detectors(db_session)
-    assert n >= 2  # >= because store-backed detectors (rerouting/chokepoint) may also fire
+    run_all_detectors(db_session)
     rules = {a.rule for a in db_session.query(Alert).all()}
-    assert {"gas_balance", "sentiment_risk"} <= rules
+    assert "gas_balance" in rules
+    assert "sentiment_risk" not in rules  # no longer in the registry
 
 
 def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
@@ -267,7 +269,7 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
 
 
 def test_detector_registry_count(db_session):
-    assert len(DETECTORS) == 10
+    assert len(DETECTORS) == 3  # refocus: gas_balance + negative_prices + dunkelflaute
 
 
 # ─── flow_anomaly (legacy maritime check) — baseline + onset cure ─────────────

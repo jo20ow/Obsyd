@@ -196,10 +196,14 @@ def _power_domain(db: Session) -> dict:
     return {**base, "available": True, **best, "forward": forward}
 
 
-def combine_domains(oil: dict, gas: dict, power: dict) -> dict:
-    """Pure: collapse the three domains into one envelope. Overall = worst of the
-    AVAILABLE domains (an unavailable domain never drives the headline state)."""
-    domains = {"oil": oil, "gas": gas, "power": power}
+def combine_domains(gas: dict, power: dict) -> dict:
+    """Pure: collapse the desk's domains into one envelope. Overall = worst of the
+    AVAILABLE domains (an unavailable domain never drives the headline state).
+
+    Refocus 2026-07-03: Obsyd is the European electricity desk (electrons + their
+    fuel side, gas). The oil domain moved to the sibling project — `_oil_domain` /
+    `chokepoint_price_context` stay defined but unwired (extracted in Phase 2)."""
+    domains = {"gas": gas, "power": power}
     available = [d for d in domains.values() if d.get("available")]
     return {
         "available": bool(available),
@@ -209,6 +213,6 @@ def combine_domains(oil: dict, gas: dict, power: dict) -> dict:
 
 
 def build_physical_situation(db: Session, today: _date | None = None) -> dict:
-    """The whole physical energy system at a glance — molecules + electrons in one line."""
+    """The European power system at a glance — electrons + their gas fuel in one line."""
     t = _today(today)
-    return combine_domains(_oil_domain(db), _gas_domain(db, t), _power_domain(db))
+    return combine_domains(_gas_domain(db, t), _power_domain(db))

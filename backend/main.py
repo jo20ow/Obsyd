@@ -10,13 +10,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.collectors.aishub import start_aishub, stop_aishub
-from backend.collectors.aisstream import start_aisstream, stop_aisstream
-from backend.collectors.finnhub_news import collect_finnhub_news
-from backend.collectors.gdelt import collect_gdelt_sentiment, collect_gdelt_volume
-from backend.collectors.geofence_aggregator import backfill_geofence_events
-from backend.collectors.jodi import collect_jodi
-from backend.collectors.portwatch import collect_portwatch
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.database import init_db
 from backend.migrations import run_migrations
@@ -46,7 +39,6 @@ from backend.routes import validation as validation_routes
 from backend.routes import waitlist as waitlist_routes
 from backend.routes import watchlist as watchlist_routes
 from backend.routes import webhooks as webhooks_routes
-from backend.signals.sentiment_scorer import compute_sentiment_score
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -95,86 +87,17 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     logger.info("Startup: DB initialized, scheduler started")
 
-    # Phase 2: AIS connections (after 2s to let DB settle)
+    # Phase 2: Power desk startup refresh (staggered, non-blocking).
+    # REFOCUS 2026-07-03 — Obsyd is the European electricity+gas desk. The non-power
+    # verticals (AIS/oil, portwatch, gdelt/sentiment, jodi, crack/equities, analytics)
+    # were split to the sibling project; their startup runs + AIS websockets are gone.
+    # Pull day-ahead/grid/flows/forecasts to the published frontier on startup so a
+    # restart doesn't wait for the 22:30 cron. Gas runs via its daily cron.
     await asyncio.sleep(2)
-    start_aisstream()
-    start_aishub()
-    logger.info("Startup: AIS connections started")
-
-    # Phase 3: Background data collection (staggered, non-blocking)
-    await asyncio.sleep(3)
-    _create_task_logged(collect_portwatch(), "portwatch")
-    _create_task_logged(collect_jodi(), "jodi")
-    logger.info("Startup: PortWatch + JODI collection started (background)")
-
-    await asyncio.sleep(3)
-    _create_task_logged(collect_gdelt_volume(), "gdelt_volume")
-    _create_task_logged(collect_gdelt_sentiment(), "gdelt_sentiment")
-    _create_task_logged(compute_sentiment_score(), "sentiment_score")
-    _create_task_logged(collect_finnhub_news(), "finnhub_news")
-    logger.info("Startup: GDELT + Finnhub + Sentiment started (background)")
-
-    await asyncio.sleep(3)
-    _create_task_logged(backfill_geofence_events(), "geofence_backfill")
-    logger.info("Startup: Geofence backfill started (background)")
-
-    # FRED backfill (one-time: extends WTI/Brent back to 2019)
-    await asyncio.sleep(2)
-    from backend.collectors.fleet_summary import create_daily_fleet_summary
-    from backend.collectors.fred_backfill import backfill_fred
-
-    db_session = __import__("backend.database", fromlist=["SessionLocal"]).SessionLocal()
-    try:
-        await backfill_fred(db_session)
-        logger.info("Startup: FRED backfill complete")
-    except Exception as e:
-        logger.warning(f"Startup: FRED backfill failed: {e}")
-    finally:
-        db_session.close()
-
-    # Initial fleet summary for today
-    _create_task_logged(create_daily_fleet_summary(), "fleet_summary")
-    logger.info("Startup: Fleet summary scheduled")
-
-    # Pro features: backfill crack spreads + equities if empty
-    from backend.collectors.crack_spreads import collect_crack_spreads
-    from backend.collectors.equities import collect_equities
-
-    _create_task_logged(collect_crack_spreads(), "crack_spreads")
-    _create_task_logged(collect_equities(), "equities")
-    logger.info("Startup: Crack spreads + equities collection started (background)")
-
-    # Power desk (front door): pull day-ahead/grid/flows to the published frontier
-    # on startup so a restart doesn't wait for the 22:30 cron (kills the deploy-time
-    # freshness lag). Reuses the same daily job the scheduler runs.
-    from backend.collectors.scheduler import (
-        _run_crypto,
-        _run_edgar_tickers,
-        _run_fred,
-        _run_news,
-        _run_power_daily,
-    )
+    from backend.collectors.scheduler import _run_power_daily
 
     _create_task_logged(_run_power_daily(), "power_daily_startup")
-    _create_task_logged(_run_crypto(), "crypto_startup")
-    _create_task_logged(_run_fred(), "fred_startup")  # populates the treasury curve tenors promptly
-    _create_task_logged(_run_edgar_tickers(), "edgar_tickers_startup")  # seeds the company master if empty
-    _create_task_logged(_run_news(), "news_prewarm_startup")  # warms the news topic feeds
-    logger.info("Startup: power desk + crypto + FRED + EDGAR + news refresh started (background)")
-
-    # STS detection initial run
-    from backend.collectors.sts_collector import collect_sts_events
-
-    _create_task_logged(collect_sts_events(), "sts_events")
-    logger.info("Startup: STS detection started (background)")
-
-    # Analytics: initial computation
-    from backend.analytics.disruption_score import compute_disruption_score
-    from backend.analytics.tonne_miles import compute_tonne_miles
-
-    _create_task_logged(compute_tonne_miles(), "tonne_miles")
-    _create_task_logged(compute_disruption_score(), "disruption_score")
-    logger.info("Startup: Analytics (tonne-miles, disruption score) started (background)")
+    logger.info("Startup: power desk refresh started (background)")
 
     # Daily Briefing Email status
     if settings.resend_api_key:
@@ -184,19 +107,17 @@ async def lifespan(app: FastAPI):
 
     logger.info("Startup complete")
     yield
-    stop_aishub()
-    stop_aisstream()
     stop_scheduler()
 
 
 app = FastAPI(
     title="OBSYD",
     description=(
-        "Open-Source Energy Market Intelligence. "
-        "Physical oil flows, energy inventories, macro signals, "
-        "and geopolitical sentiment in one API."
+        "The European electricity desk — gridstatus.io for Europe. Day-ahead prices, "
+        "load & residual load, generation mix, cross-border flows, forecasts and the "
+        "gas that fuels them, from the official record (ENTSO-E, Energy-Charts, GIE)."
     ),
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -217,6 +138,11 @@ app.add_middleware(
 # and embedded into every log line via the contextvar in backend.observability.
 app.add_middleware(TraceIDMiddleware)
 
+# Refocus 2026-07-03: the PRODUCT is the European electricity+gas desk (only power/
+# gas tabs in the frontend; non-power scheduler jobs + startups are off). The
+# non-power routers stay registered but DORMANT — nothing in the product calls them
+# and no fresh data is collected — until they are physically extracted to the
+# sibling project (Phase 2), together with their code and tests.
 app.include_router(health.router)
 app.include_router(prices.router)
 app.include_router(vessels.router)

@@ -35,17 +35,15 @@ TOP_TERCILE_Q = 2 / 3  # "signal high" = top third of its own distribution
 # Continuous signals: (name, history-table, scalar column, forward-return target).
 # target ∈ {"brent" (FRED oil), "ttf" (EnergyPrice gas), "power" (EnergyPrice POWER_DE)}.
 # Models are resolved lazily inside the loader to avoid import cycles at module load.
+# Refocus 2026-07-03: the electricity desk scores only its own signals. The oil
+# (disruption/tonne_miles/freight → brent) and metals (copper_stocks) specs moved
+# to the sibling project.
 SIGNAL_SPECS = (
-    ("disruption_score", "DisruptionScoreHistory", "composite_score", "brent"),
-    ("tonne_miles", "TonneMilesHistory", "tonne_miles_index", "brent"),
-    ("freight_proxy", "FreightProxyHistory", "proxy_index", "brent"),
     # Gas residual predicts European GAS prices, not Brent → scored against TTF.
     ("gas_residual", "GasBalance", "z_score", "ttf"),
     # Energy signals: residual load + spark spread both scored against day-ahead power price.
     ("power_residual", "PowerGrid", "residual_mw", "power"),
     ("spark_spread", "SparkSpreadHistory", "spark_spread", "power"),
-    # Copper refined stocks (USGS, monthly) vs forward copper price — low stocks = tight supply.
-    ("copper_stocks", "CopperSupply", "us_refined_stocks", "copper"),
 )
 
 

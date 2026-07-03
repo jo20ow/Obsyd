@@ -1,12 +1,12 @@
-# OBSYD — the desk for the physical energy system
+# OBSYD — the European electricity desk (a free "gridstatus for Europe")
 
-**Molecules and electrons in one desk: oil tankers through the world's chokepoints, European gas storage & LNG send-out, and the power grid's day-ahead prices & cross-border flows — from the official record (ENTSO-E, GIE, Fraunhofer Energy-Charts, IMF PortWatch).**
+**One desk for the European power grid: day-ahead prices, load & residual load, generation mix, wind/solar and cross-border flows for DE-LU, FR and NL — plus tomorrow's load & residual forecast and the gas that fuels the marginal price — from the official record (ENTSO-E, Fraunhofer Energy-Charts, GIE).**
 
 [Live Demo](https://obsyd.dev) · [Free & open source](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
-OBSYD turns the free, official record of physical energy into one auditable desk. The load-bearing core is the European gas & power balance — GIE storage and LNG send-out, ENTSOG pipeline flows, day-ahead price, residual load, spark spread and 20 cross-border power flows — with a live anomaly radar that flags negative prices, Dunkelflaute, gas-balance and day-ahead deviations the moment they break from their own history. The visual hook is the chokepoint map: oil tankers moving through Hormuz, Suez and Malacca (AIS + IMF PortWatch), honestly framed as physical context, not proven alpha. Every rule, threshold and correlation runs in code you can read on GitHub. No proprietary scoring, no black-box ML, no "trust us".
+OBSYD turns the free, official European power record into one legible, auditable desk — the way [gridstatus.io](https://www.gridstatus.io) does for US ISOs, but for Europe. An all-zones overview leads to per-zone detail: day-ahead price (with negative-price flags), residual load & Dunkelflaute, generation mix, spark spread, 20 cross-border flows, and the day-ahead load/residual **forecast**. A live anomaly radar flags negative prices, Dunkelflaute, day-ahead spikes and gas-balance moves the moment they deviate from each zone's own history — every number arriving with a plain-language "what this means" and a "vs normal" reference. Every rule and threshold runs in code you can read on GitHub. No black-box ML, no proprietary scoring, no "trust us".
 
-OBSYD is **not** a Kpler, Vortexa, Montel or Bloomberg replacement — no proprietary vessel data, no intraday or settlement-grade pricing, no global complete cargo tracking. It is a way to stop wiring up a dozen APIs by hand and read the physical energy system from the official record, with the signal code open for audit.
+OBSYD is **not** a Montel, EPEX or Bloomberg replacement — no intraday or settlement-grade pricing. And it is deliberately **power-only**: non-power commodities (oil flows, shipping/AIS, metals) live in a separate sibling project. It is a way to stop wiring up a dozen ENTSO-E queries by hand and read the European power situation from the official record, with the signal code open for audit.
 
 ![OBSYD Dashboard](docs/screenshot.png)
 

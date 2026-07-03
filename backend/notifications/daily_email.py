@@ -7,7 +7,6 @@ Uses Resend API (free tier: 100 emails/day, capped at 95 for safety).
 
 import json
 import logging
-import re
 import secrets
 from datetime import datetime, timezone
 
@@ -32,10 +31,7 @@ from backend.models.vessels import FloatingStorageEvent
 from backend.models.watchlist import WatchlistItem
 from backend.power.zones import POWER_ZONES
 from backend.routes.atlas import CRITICAL_MATERIALS, _concentration, _material_rows
-from backend.routes.briefing import _build_briefing
 from backend.routes.power import load_power_situation
-from backend.signals.crack_spread import get_crack_spread
-from backend.signals.tonnage_proxy import compute_rerouting_index
 from backend.situation.physical import build_physical_situation
 
 logger = logging.getLogger(__name__)
@@ -110,15 +106,12 @@ async def send_daily_email():
         elif total_recipients < LIMIT_WARN_RESET:
             _limit_warning_sent = False
 
-        # Build data
-        briefing = await _build_briefing()
-        rerouting = compute_rerouting_index(days=365)
-        crack = await get_crack_spread()
-        email_data = _gather_email_data(db, crack)
+        # Build data — refocus 2026-07-03: power/gas only.
+        email_data = _gather_email_data(db, {})
         physical = email_data.get("physical_situation") or {}
         overall_state = physical.get("overall") if physical.get("available") else None
-        subject = _build_subject_line(briefing, rerouting, crack, physical_state=overall_state)
-        html_template = _build_full_html(briefing, rerouting, crack, email_data)
+        subject = _build_subject_line({}, {}, {}, physical_state=overall_state)
+        html_template = _build_full_html({}, {}, {}, email_data)
 
         sent = 0
         for sub in subscribers:
@@ -267,33 +260,9 @@ def _get_floating_storage_count() -> tuple[int, int]:
 
 
 def _gather_email_data(db, crack: dict) -> dict:
-    """Gather all data for the email template."""
+    """Gather data for the brief — refocus 2026-07-03: power/gas only. (`crack` kept
+    for signature compatibility.)"""
     data: dict = {}
-
-    try:
-        data["crack_analysis"] = _get_crack_analysis(db, crack)
-    except Exception as e:
-        logger.warning("Email crack analysis failed: %s", e)
-
-    try:
-        data["equity_movers"] = _get_equity_movers(db)
-    except Exception as e:
-        logger.warning("Email equity movers failed: %s", e)
-
-    try:
-        data["chokepoint_detail"] = _get_chokepoint_detail()
-    except Exception as e:
-        logger.warning("Email chokepoint detail failed: %s", e)
-
-    try:
-        data["disruption_context"] = _get_disruption_context(db)
-    except Exception as e:
-        logger.warning("Email disruption context failed: %s", e)
-
-    try:
-        data["eia_prediction"] = _get_eia_prediction(db)
-    except Exception as e:
-        logger.warning("Email EIA prediction failed: %s", e)
 
     try:
         data["power_situations"] = [load_power_situation(db, z) for z in POWER_ZONES]
@@ -624,243 +593,20 @@ def _build_power_block(situations: list[dict] | None) -> str:
 
 
 def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -> str:
-    """Build the daily briefing email HTML."""
+    """Build the daily brief HTML — the European electricity + gas desk.
+
+    Refocus 2026-07-03: the brief leads with the unified physical-energy situation
+    and the per-zone power detail, then the user's watch block. The oil price grid /
+    disruption / chokepoint / EIA / equity / floating-storage sections moved to the
+    sibling project. `briefing`/`rerouting`/`crack` are kept in the signature for
+    call-site compatibility but are no longer used.
+    """
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%A, %d %B %Y")
-    market = briefing.get("market_snapshot", {})
-    mkt_struct = briefing.get("market_structure") or {}
-    anomalies = briefing.get("anomalies", [])
 
-    # ── Price grid (2 rows × 3 columns) ──
-    def _pcell(key, label):
-        p = market.get(key, {})
-        price = p.get("price")
-        change = p.get("change_pct")
-        cell_style = f'style="padding:0 6px 14px 0;vertical-align:top;width:33%;font-family:{_FONT}"'
-        if price is None:
-            return (
-                f"<td {cell_style}>"
-                f'<div style="font-size:12px;color:{_MUTED};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">{label}</div>'
-                f'<div style="font-size:16px;color:{_MUTED}">---</div>'
-                "</td>"
-            )
-        pfmt = f"${price:,.0f}" if price >= 100 else f"${price:.2f}"
-        chg_html = ""
-        if change is not None:
-            arrow = "&#9650;" if change >= 0 else "&#9660;"
-            color = _GREEN if change >= 0 else _RED
-            chg_html = f' <span style="font-size:14px;font-weight:700;color:{color}">{arrow}{abs(change):.1f}%</span>'
-        return (
-            f"<td {cell_style}>"
-            f'<div style="font-size:12px;color:{_MUTED};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">{label}</div>'
-            f'<div><span style="font-size:16px;font-weight:700;color:{_TEXT}">{pfmt}</span>{chg_html}</div>'
-            "</td>"
-        )
-
-    price_rows = ""
-    for row in [
-        [("wti", "WTI"), ("brent", "BRENT"), ("ng", "NG")],
-        [("ttf", "TTF"), ("gold", "GOLD"), ("copper", "COPPER")],
-    ]:
-        cells = "".join(_pcell(k, lbl) for k, lbl in row)
-        price_rows += f"<tr>{cells}</tr>"
-
-    # ── Futures + Crack (one line) ──
-    summary = mkt_struct.get("summary", "unavailable")
-    wti_spread = mkt_struct.get("curves", {}).get("WTI", {}).get("spread_pct")
-    futures_str = summary.capitalize()
-    if wti_spread is not None:
-        futures_str += f" ({_pct(wti_spread)})"
-
-    crack_str = ""
-    ca = data.get("crack_analysis") or {}
-    if crack and not crack.get("error"):
-        s321 = crack.get("spread_321")
-        if s321 is not None:
-            pct_parts: list[str] = []
-            pctile = ca.get("percentile") or crack.get("percentile_1y")
-            pct_vs_30d = ca.get("pct_vs_30d")
-            if pctile is not None:
-                pct_parts.append(f"{pctile}th pct")
-            if pct_vs_30d is not None:
-                color = _GREEN if pct_vs_30d >= 0 else _RED
-                pct_parts.append(f'<span style="color:{color}">{_pct(pct_vs_30d)} vs 30d</span>')
-            crack_str = (
-                f' &middot; 3-2-1 Crack: <span style="color:{_ACCENT};font-weight:600">${_safe(s321)}/bbl</span>'
-            )
-            if pct_parts:
-                crack_str += f" ({', '.join(pct_parts)})"
-
-    futures_line = f"Futures: {futures_str}{crack_str}"
-
-    # ── Physical energy system (the unified front-door summary → leads the body) ──
     physical_html = _build_physical_block(data.get("physical_situation"))
-
-    # ── European Power Desk (per-zone power detail, below the unified summary) ──
     power_html = _build_power_block(data.get("power_situations"))
 
-    # ── Disruption section ──
-    disruption_html = ""
-    dc = data.get("disruption_context") or {}
-    score = dc.get("score")
-    catalyst = dc.get("catalyst", "")
-    cd = data.get("chokepoint_detail")
-    r_current = rerouting.get("current", {}) if rerouting.get("available") else {}
-    cape_pct = r_current.get("ratio_pct")
-
-    # Determine which chokepoints are "headline" disruptions (>25% from briefing anomalies)
-    headline_names: set[str] = set()
-    for a in anomalies:
-        headline_names.add(a.get("chokepoint", "").upper())
-
-    has_disruption = bool(anomalies) or (score is not None and score >= 40)
-
-    if has_disruption:
-        # Badge + score — use single source (DisruptionScoreHistory)
-        score_int = round(score) if score is not None else None
-        score_text = f" Score: {score_int}/100" if score_int is not None else ""
-        # Strip any embedded score references from catalyst to avoid inconsistency
-        if catalyst and score_int is not None:
-            catalyst = re.sub(r"\bAt \d+/100[,.]?\s*", "", catalyst).strip()
-            catalyst = re.sub(r"\bscore[: ]+\d+/100[,.]?\s*", "", catalyst, flags=re.IGNORECASE).strip()
-            # Ensure first character is uppercase after stripping
-            if catalyst and catalyst[0].islower():
-                catalyst = catalyst[0].upper() + catalyst[1:]
-        disruption_html = (
-            _DIVIDER + '<div style="margin-bottom:12px">'
-            f'<span style="display:inline-block;background:{_RED};color:#fff;font-size:11px;'
-            f"font-weight:600;letter-spacing:1px;text-transform:uppercase;"
-            f'padding:3px 8px;border-radius:4px;vertical-align:middle">DISRUPTION</span>'
-            f'<span style="font-size:15px;color:{_TEXT};margin-left:10px;vertical-align:middle">'
-            f"Supply Disruption{score_text}</span>"
-            "</div>"
-        )
-
-        # Catalyst sentence
-        if catalyst:
-            disruption_html += (
-                f'<div style="font-size:15px;color:{_TEXT};line-height:1.6;margin-bottom:16px">{catalyst}</div>'
-            )
-
-    # Chokepoint detail table (>10% deviation, excluding headline chokepoints)
-    cp_rows_html = ""
-    if cd:
-        for d in cd:
-            # Skip if already in the disruption headline
-            if d["name"].upper().split()[-1] in headline_names or d["name"].upper() in headline_names:
-                # Also check short names like HORMUZ matching "STRAIT OF HORMUZ"
-                continue
-            color = (
-                _RED
-                if d["drop_pct"] < -25
-                else _RED
-                if d["drop_pct"] < -10
-                else _GREEN
-                if d["drop_pct"] > 10
-                else _MUTED
-            )
-            name = d["name"].replace("Strait of ", "").replace(" Strait", "").replace(" Canal", "")
-            pct_color = _RED if d["drop_pct"] < 0 else _GREEN
-            cp_rows_html += (
-                "<tr>"
-                f'<td style="padding:3px 0;color:{_ACCENT};font-weight:600;font-size:15px">{name}</td>'
-                f'<td style="padding:3px 0;text-align:right;font-size:15px">'
-                f'<span style="color:{pct_color};font-weight:700">{_pct(d["drop_pct"])} vs 30d avg</span>'
-                "</td></tr>"
-            )
-
-    # Main anomaly chokepoints (at the top)
-    main_cp_rows = ""
-    for a in anomalies:
-        cp_name = a.get("chokepoint", "?").capitalize()
-        drop = a.get("drop_pct")
-        pct_color = _RED if (drop or 0) < 0 else _GREEN
-        extra = ""
-        if cp_name.lower() == "hormuz" and cape_pct is not None:
-            extra = f' <span style="color:{_MUTED};font-size:13px">&middot; Cape rerouting {cape_pct:.1f}%</span>'
-        main_cp_rows += (
-            "<tr>"
-            f'<td style="padding:3px 0;color:{_ACCENT};font-weight:600;font-size:15px">{cp_name}</td>'
-            f'<td style="padding:3px 0;text-align:right;font-size:15px">'
-            f'<span style="color:{pct_color};font-weight:700">{_pct(drop)} vs 30d avg</span>'
-            f"{extra}"
-            "</td></tr>"
-        )
-
-    all_cp_rows = main_cp_rows + cp_rows_html
-    chokepoint_html = ""
-    if all_cp_rows:
-        chokepoint_html = (
-            '<table width="100%" cellpadding="0" cellspacing="0" '
-            f'style="border-collapse:collapse;font-family:{_FONT}">'
-            f"{all_cp_rows}</table>"
-        )
-
-    # ── Houston Tanker Activity Context (Wednesdays only, ahead of EIA release) ──
-    eia_html = ""
-    eia = data.get("eia_prediction")
-    if eia:
-        change_pct = eia.get("tanker_change_pct")
-        if change_pct is None:
-            change_color = _MUTED
-        elif change_pct >= 5:
-            change_color = _RED
-        elif change_pct <= -5:
-            change_color = _GREEN
-        else:
-            change_color = _TEXT
-        details_parts = []
-        if eia.get("tanker_count") is not None and eia.get("tanker_count_30d_avg") is not None:
-            details_parts.append(f"Houston tankers: {eia['tanker_count']} vs {eia['tanker_count_30d_avg']:.0f} (30d avg)")
-        if eia.get("pearson_r") is not None:
-            details_parts.append(f"observed Pearson r={eia['pearson_r']:.2f}")
-        details = " · ".join(details_parts) if details_parts else "—"
-        headline = _pct(change_pct) if change_pct is not None else "no data"
-
-        eia_html = (
-            _DIVIDER + '<div style="margin-bottom:4px">'
-            f'<span style="display:inline-block;background:{_AMBER};color:#1a1a2e;font-size:11px;'
-            f"font-weight:600;letter-spacing:1px;text-transform:uppercase;"
-            f'padding:3px 8px;border-radius:4px;vertical-align:middle">EIA RELEASE TODAY</span>'
-            f'<span style="font-size:15px;color:{_TEXT};margin-left:10px;vertical-align:middle">'
-            f'Houston tanker activity: <span style="color:{change_color};font-weight:700">{headline}</span> vs 30d avg</span>'
-            "</div>"
-            f'<div style="font-size:13px;color:{_MUTED};line-height:1.5">{details} · informational context, not a forecast</div>'
-        )
-
-    # ── Equity Movers (1 line) ──
-    equity_html = ""
-    em = data.get("equity_movers")
-    if em and em.get("top_movers"):
-        movers = []
-        for m in em["top_movers"]:
-            color = _GREEN if m["change_pct"] >= 0 else _RED
-            sign = "+" if m["change_pct"] >= 0 else ""
-            movers.append(
-                f'<span style="font-weight:600">{m["ticker"]}</span> '
-                f'<span style="color:{color};font-weight:700">{sign}{m["change_pct"]:.1f}%</span>'
-            )
-        corr_str = ""
-        hc = em.get("highest_corr")
-        if hc:
-            corr_str = f'<span style="color:{_MUTED}"> | WTI corr: {hc["ticker"]} (r={hc["corr"]:.2f})</span>'
-        equity_html = (
-            _DIVIDER + f'<div style="font-size:15px;color:{_TEXT}">'
-            f"{' &nbsp;&middot;&nbsp; '.join(movers)}{corr_str}</div>"
-        )
-
-    # ── Floating Storage (only if > 0) ──
-    storage_html = ""
-    storage_count, storage_vlcc = _get_floating_storage_count()
-    if storage_count > 0:
-        vlcc_note = f" ({storage_vlcc} VLCC)" if storage_vlcc > 0 else ""
-        storage_html = (
-            f'<div style="font-size:15px;color:{_TEXT};margin-top:12px">'
-            f"Floating storage: "
-            f'<span style="color:{_AMBER};font-weight:600">{storage_count} vessels</span>{vlcc_note}</div>'
-        )
-
-    # ── Assemble ──
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -870,13 +616,9 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
 <div style="background:{_BG_CARD};border:1px solid {_BORDER};border-radius:8px;padding:28px">
 
 <div style="font-size:28px;font-weight:700;color:{_ACCENT};margin-bottom:2px">OBSYD</div>
+<div style="font-size:14px;color:{_MUTED};margin-bottom:4px">The European electricity desk</div>
 <div style="font-size:14px;color:{_MUTED};margin-bottom:20px">{date_str}</div>
-<div style="border-top:1px solid {_BORDER};margin-bottom:20px"></div>
-
-<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-family:{_FONT}">
-{price_rows}
-</table>
-<div style="font-size:13px;color:{_MUTED};line-height:1.5">{futures_line}</div>
+<div style="border-top:1px solid {_BORDER};margin-bottom:4px"></div>
 
 {physical_html}
 
@@ -884,24 +626,14 @@ def _build_full_html(briefing: dict, rerouting: dict, crack: dict, data: dict) -
 
 {{{{watch_block}}}}
 
-{disruption_html}
-
-{chokepoint_html}
-
-{eia_html}
-
-{equity_html}
-
-{storage_html}
-
 <div style="border-top:1px solid {_BORDER};margin-top:24px;padding-top:16px">
-<a href="https://obsyd.dev" style="color:{_ACCENT};text-decoration:none;font-size:14px;font-weight:600">View full dashboard &#8594;</a>
+<a href="https://obsyd.dev" style="color:{_ACCENT};text-decoration:none;font-size:14px;font-weight:600">View the full desk &#8594;</a>
 </div>
 
 </div>
 
 <div style="font-size:12px;color:#6b7280;margin-top:16px;line-height:1.6;text-align:center">
-You subscribed to OBSYD Daily Briefing.<br>
+You subscribed to the OBSYD daily brief.<br>
 <a href="https://obsyd.dev/api/email/unsubscribe?token={{{{token}}}}" style="color:{_MUTED};text-decoration:underline">Unsubscribe</a>
 </div>
 
