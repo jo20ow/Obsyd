@@ -31,6 +31,7 @@ from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
 from backend.models.energy import PowerGenMix, PowerGrid
+from backend.power.hourly_store import upsert_day_hours
 
 logger = logging.getLogger(__name__)
 
@@ -473,6 +474,26 @@ async def ingest_load_forecast(
                 row.hourly_forecast = hourly_json
             written += 1
     db.commit()
+
+    # ── Hourly forecast series → power_hourly (load/wind/solar/residual forecast) ──
+    fc_series: dict[str, dict[str, dict[int, float]]] = {
+        "load.forecast": {}, "wind.forecast": {}, "solar.forecast": {}, "residual.forecast": {},
+    }
+    for day, load_hours in load_hourly_by_day.items():
+        for p in build_hourly_forecast(load_hours, gen_hourly_by_day.get(day, {})):
+            h = p["hour"]
+            for key, val in (
+                ("load.forecast", p["load_mw"]),
+                ("wind.forecast", p["wind_mw"]),
+                ("solar.forecast", p["solar_mw"]),
+                ("residual.forecast", p["residual_mw"]),
+            ):
+                if val is not None:
+                    fc_series[key].setdefault(day, {})[h] = val
+    for series_key, day_hours in fc_series.items():
+        if day_hours:
+            upsert_day_hours(db, series_key, zone, day_hours, unit="MW")
+
     return {"days": len(load_by_day), "written": written}
 
 
@@ -508,6 +529,9 @@ async def ingest_grid(
     # Accumulate per-day values across month fetches
     load_by_day: dict[str, float] = {}
     gen_by_day: dict[str, dict[str, float]] = {}  # date → {psr: mean_mw}
+    # Hourly shape → power_hourly (the new canonical store; roadmap Block 1)
+    load_hourly_by_day: dict[str, dict[int, float]] = {}
+    gen_hourly_by_day: dict[str, dict[str, dict[int, float]]] = {}  # date → {psr: {hour: mw}}
 
     for month_start in months:
         # ── A65 Total Load ──────────────────────────────────────────────────
@@ -530,6 +554,9 @@ async def ingest_grid(
             for day, mean_mw in parse_load(load_xml).items():
                 if day in wanted:
                     load_by_day[day] = mean_mw
+            for day, hours in parse_load_hourly(load_xml).items():
+                if day in wanted:
+                    load_hourly_by_day[day] = hours
 
         # ── A75 Generation Mix ──────────────────────────────────────────────
         try:
@@ -551,6 +578,9 @@ async def ingest_grid(
             for day, psr_map in parse_generation_by_type(gen_xml).items():
                 if day in wanted:
                     gen_by_day[day] = psr_map
+            for day, by_psr in parse_generation_hourly(gen_xml).items():
+                if day in wanted:
+                    gen_hourly_by_day[day] = by_psr
 
     # ── Upsert PowerGrid ───────────────────────────────────────────────────
     all_days = wanted & (load_by_day.keys() | gen_by_day.keys())
@@ -575,6 +605,32 @@ async def ingest_grid(
     _upsert_generation_mix(db, gen_by_day, zone)
 
     db.commit()
+
+    # ── Hourly actuals → power_hourly (load, per-fuel generation, residual) ──
+    # Additive to the daily-mean tables above; the canonical hourly store powers
+    # range queries + export. Reuses build_hourly_forecast for the residual shape.
+    if load_hourly_by_day:
+        upsert_day_hours(db, "load.actual", zone, load_hourly_by_day, unit="MW")
+    gen_series: dict[str, dict[str, dict[int, float]]] = {}  # psr → {day → {hour → mw}}
+    for day, by_psr in gen_hourly_by_day.items():
+        for psr, hours in by_psr.items():
+            gen_series.setdefault(psr, {})[day] = hours
+    for psr, day_hours in gen_series.items():
+        upsert_day_hours(db, f"gen.{psr}", zone, day_hours, unit="MW")
+    resid_by_day: dict[str, dict[int, float]] = {}
+    for day, load_hours in load_hourly_by_day.items():
+        if day not in gen_hourly_by_day:
+            continue
+        rr = {
+            p["hour"]: p["residual_mw"]
+            for p in build_hourly_forecast(load_hours, gen_hourly_by_day[day])
+            if p["residual_mw"] is not None
+        }
+        if rr:
+            resid_by_day[day] = rr
+    if resid_by_day:
+        upsert_day_hours(db, "residual.actual", zone, resid_by_day, unit="MW")
+
     logger.info(
         "entsoe_grid.ingest_grid: %d/%d days written (zone=%s)",
         written,

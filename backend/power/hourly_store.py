@@ -10,11 +10,18 @@ per-test in-memory DBs and across a reconnect).
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime, timezone
 
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
+
+
+def day_hour_ts(day: str, hour: int) -> int:
+    """Epoch seconds at top-of-hour UTC for a 'YYYY-MM-DD' day + hour 0-23."""
+    d = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return int(d.timestamp()) + hour * 3600
 
 # Rows per multi-row INSERT. 4 cols × 2000 = 8000 bind params — well under SQLite's
 # default limit across versions; small enough to release the write lock frequently.
@@ -72,6 +79,24 @@ def upsert_hourly(
         written += len(chunk)
     db.commit()
     return written
+
+
+def upsert_day_hours(
+    db: Session,
+    series_key: str,
+    zone_key: str,
+    day_hours: dict[str, dict[int, float]],
+    *,
+    unit: str | None = None,
+) -> int:
+    """Upsert a {day: {hour: value}} mapping (the shape the hourly parsers return)
+    into power_hourly, converting (day, hour) → top-of-hour-UTC epoch."""
+    points = [
+        (day_hour_ts(day, h), v)
+        for day, hours in day_hours.items()
+        for h, v in hours.items()
+    ]
+    return upsert_hourly(db, series_key, zone_key, points, unit=unit)
 
 
 def read_hourly(

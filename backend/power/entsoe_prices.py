@@ -26,6 +26,7 @@ from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
 from backend.models.energy import EnergyPrice, PowerPriceDaily
+from backend.power.hourly_store import upsert_day_hours
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +250,16 @@ async def ingest_day_ahead(
         _upsert_daily(db, day, zone, stats)
         written += 1
     db.commit()
+
+    # ── Hourly day-ahead price → power_hourly (canonical store; roadmap Block 1) ──
+    price_by_day: dict[str, dict[int, float]] = {
+        day: {int(p["hour"]): float(p["price"]) for p in stats["hourly"]}
+        for day, stats in stats_by_day.items()
+        if stats.get("hourly")
+    }
+    if price_by_day:
+        upsert_day_hours(db, "price.dayahead", zone, price_by_day, unit="EUR/MWh")
+
     logger.info(
         "entsoe_prices.ingest_day_ahead: %d/%d days written (symbol=%s)",
         written,
