@@ -1,9 +1,10 @@
+import { useMemo, useState } from 'react'
 import useFetchWithError from '../hooks/useFetchWithError'
 
 // Single-glance overview — read all bidding zones at once, colour-first, like
 // Electricity Maps / Grid Status. Colour encodes how far each metric sits from its
 // own ~90-day norm, so the European power picture reads in one second. Click a zone
-// to drill into its detail. Descriptive, not a forecast.
+// to drill into its detail; click a column header to sort. Descriptive, not a forecast.
 const API = '/api'
 
 const STATE = {
@@ -11,33 +12,66 @@ const STATE = {
   ELEVATED: { t: 'text-yellow-400', d: 'bg-yellow-400' },
   STRESSED: { t: 'text-red-400', d: 'bg-red-400' },
 }
+const STATE_ORDER = { CALM: 0, ELEVATED: 1, STRESSED: 2 }
 
 const zColor = (z) =>
   z == null ? 'text-neutral-400' : Math.abs(z) >= 3 ? 'text-red-400' : Math.abs(z) >= 2 ? 'text-yellow-400' : 'text-neutral-300'
 
+const COLUMNS = [
+  { key: 'zone', label: 'Zone', align: 'left', get: (z) => z.zone_label || z.zone },
+  { key: 'state', label: 'State', align: 'left', get: (z) => STATE_ORDER[z.state] ?? -1 },
+  { key: 'price', label: 'Day-ahead', align: 'right', get: (z) => z.price_close },
+  { key: 'residual', label: 'Residual', align: 'right', get: (z) => z.residual_gw },
+  { key: 'renewables', label: 'Renewables', align: 'right', get: (z) => (z.renewable_reliable === false ? null : z.renewable_share) },
+]
+
 export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
   const { data } = useFetchWithError(`${API}/power/overview`)
+  const [sort, setSort] = useState({ key: 'zone', dir: 'asc' })
+
+  const sorted = useMemo(() => {
+    const rows = data?.zones ? [...data.zones] : []
+    const get = COLUMNS.find((c) => c.key === sort.key)?.get || (() => null)
+    rows.sort((a, b) => {
+      const av = get(a)
+      const bv = get(b)
+      if (av == null && bv == null) return 0
+      if (av == null) return 1  // nulls last
+      if (bv == null) return -1
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return sort.dir === 'asc' ? cmp : -cmp
+    })
+    return rows
+  }, [data, sort])
+
   if (!data?.available) return null
+
+  const toggle = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
+  const arrow = (key) => (sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '')
 
   return (
     <div className="border border-border bg-surface rounded overflow-hidden">
       <div className="px-3 py-1.5 border-b border-border/60 flex items-center gap-2">
         <span className="font-mono text-[10px] tracking-wider text-neutral-500">EUROPEAN POWER · ALL ZONES</span>
-        <span className="font-mono text-[9px] text-neutral-700 ml-auto">click a zone for detail →</span>
+        <span className="font-mono text-[9px] text-neutral-700 ml-auto">sort ↕ · click a zone for detail →</span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
         <table className="w-full font-mono text-[11px]">
-          <thead>
+          <thead className="sticky top-0 bg-surface">
             <tr className="text-[9px] text-neutral-600 uppercase tracking-wider">
-              <th className="text-left px-3 py-1 font-normal">Zone</th>
-              <th className="text-left px-2 py-1 font-normal">State</th>
-              <th className="text-right px-2 py-1 font-normal">Day-ahead</th>
-              <th className="text-right px-2 py-1 font-normal">Residual</th>
-              <th className="text-right px-3 py-1 font-normal">Renewables</th>
+              {COLUMNS.map((c) => (
+                <th
+                  key={c.key}
+                  onClick={() => toggle(c.key)}
+                  className={`${c.align === 'right' ? 'text-right' : 'text-left'} ${c.key === 'zone' || c.key === 'renewables' ? 'px-3' : 'px-2'} py-1 font-normal cursor-pointer hover:text-neutral-300 select-none`}
+                >
+                  {c.label}{arrow(c.key)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {data.zones.map((z) => {
+            {sorted.map((z) => {
               const st = STATE[z.state] || STATE.CALM
               const sel = z.zone === selectedZone
               return (

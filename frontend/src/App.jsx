@@ -76,14 +76,16 @@ const API = '/api'
 // are removed here (the render blocks below are now unreachable and get physically
 // extracted in Phase 2). The default tab is 'energy'.
 const TABS = [
+  { key: 'europe', label: 'EUROPE', primary: true },
   { key: 'energy', label: 'POWER', primary: true },
   { key: 'gas', label: 'GAS', primary: true },
-  { key: 'map', label: 'MAP', primary: true },
   { key: 'explore', label: 'EXPLORE', primary: true },
   { key: 'alerts', label: 'ALERTS', primary: true },
 ]
 
-const DEFAULT_TAB = 'energy'
+// Analyst front door: land on the pan-European overview (all-zones matrix in the
+// always-on hero + the choropleth map here), not a single-zone desk.
+const DEFAULT_TAB = 'europe'
 
 function Disclaimer() {
   return (
@@ -644,8 +646,9 @@ function Dashboard() {
           </ErrorBoundary>
         )}
 
-        {/* MAP TAB — Europe bidding-zone choropleth (price / grid state) */}
-        {activeTab === 'map' && (
+        {/* EUROPE TAB (default front door) — bidding-zone choropleth; the sortable
+            all-zones matrix sits in the always-on hero above. */}
+        {activeTab === 'europe' && (
           <ErrorBoundary name="power-map">
             <Suspense fallback={MAP_FALLBACK}>
               <PowerMap />

@@ -7,6 +7,8 @@ import useFetchWithError from '../hooks/useFetchWithError'
 import { CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
+const COLOR_A = '#22d3ee'
+const COLOR_B = '#a78bfa'
 
 const RANGES = [
   { key: '7d', label: '7D', days: 7 },
@@ -26,23 +28,35 @@ function isoDaysAgo(n) {
 export default function SeriesExplorer() {
   const [series, setSeries] = useState('price.dayahead')
   const [zone, setZone] = useState('DE_LU')
+  const [compareZone, setCompareZone] = useState('')  // '' = off
   const [range, setRange] = useState('30d')
   const [resolution, setResolution] = useState('daily')
 
   const { data: catalog } = useFetchWithError(`${API}/v1/series/catalog`)
-
   const rangeDays = RANGES.find((r) => r.key === range)?.days ?? 30
   const start = useMemo(() => isoDaysAgo(rangeDays), [rangeDays])
 
-  const url = `${API}/v1/series?series=${encodeURIComponent(series)}&zone=${zone}&start=${start}&resolution=${resolution}`
+  const enc = encodeURIComponent(series)
+  const url = `${API}/v1/series?series=${enc}&zone=${zone}&start=${start}&resolution=${resolution}`
   const { data: resp, loading } = useFetchWithError(url, { deps: [series, zone, start, resolution] })
 
-  const tkey = resolution === 'daily' ? 'date' : 'datetime_utc'
-  const data = (resp?.data || []).map((p) => ({ t: p[tkey], value: p.value }))
-  const csvUrl = `${API}/v1/series?series=${encodeURIComponent(series)}&zone=${zone}&start=${start}&resolution=${resolution}&format=csv`
+  const comparing = !!compareZone && compareZone !== zone
+  const cmpZoneEff = compareZone || zone  // when off, same URL as primary → served from SWR cache (no extra fetch)
+  const cmpUrl = `${API}/v1/series?series=${enc}&zone=${cmpZoneEff}&start=${start}&resolution=${resolution}`
+  const { data: cmpResp } = useFetchWithError(cmpUrl, { deps: [series, cmpZoneEff, start, resolution] })
 
+  const tkey = resolution === 'daily' ? 'date' : 'datetime_utc'
+  const data = useMemo(() => {
+    const base = (resp?.data || []).map((p) => ({ t: p[tkey], a: p.value }))
+    if (!comparing) return base
+    const bByT = new Map((cmpResp?.data || []).map((p) => [p[tkey], p.value]))
+    return base.map((row) => ({ ...row, b: bByT.get(row.t) ?? null }))
+  }, [resp, cmpResp, comparing, tkey])
+
+  const csvUrl = `${url}&format=csv`
   const seriesList = catalog?.series || [{ key: 'price.dayahead', unit: 'EUR/MWh' }]
   const zoneList = catalog?.zones || [{ key: 'DE_LU', label: 'DE-LU' }]
+  const zoneLabel = (k) => zoneList.find((z) => z.key === k)?.label || k
   const fmtT = (t) => (resolution === 'daily' ? t : String(t).slice(5, 16).replace('T', ' '))
 
   return (
@@ -50,7 +64,7 @@ export default function SeriesExplorer() {
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs text-neutral-500 tracking-wider">SERIES EXPLORER · /api/v1</span>
-          <InfoPopover text="Query any series for any zone over the canonical hourly store via the public data API (GET /api/v1/series). Pick a series, zone, range and resolution; download the exact query as CSV. Free, official, redistributable data — descriptive, not a forecast." />
+          <InfoPopover text="Query any series for any zone over the canonical hourly store via the public data API (GET /api/v1/series). Pick a series, a zone (optionally a second zone to compare), a range and resolution; download the exact query as CSV. Free, official, redistributable data — descriptive, not a forecast." />
         </div>
         <a
           href={csvUrl}
@@ -66,8 +80,13 @@ export default function SeriesExplorer() {
           {seriesList.map((s) => <option key={s.key} value={s.key}>{s.key}</option>)}
         </select>
         <select value={zone} onChange={(e) => setZone(e.target.value)}
-          className="font-mono text-[11px] bg-[#0a0a12] border border-border rounded px-2 py-1 text-neutral-300">
+          className="font-mono text-[11px] bg-[#0a0a12] border border-cyan-500/40 text-cyan-300 rounded px-2 py-1">
           {zoneList.map((z) => <option key={z.key} value={z.key}>{z.label || z.key}</option>)}
+        </select>
+        <select value={compareZone} onChange={(e) => setCompareZone(e.target.value)}
+          className="font-mono text-[11px] bg-[#0a0a12] border border-violet-400/40 text-violet-300 rounded px-2 py-1">
+          <option value="">vs … compare</option>
+          {zoneList.filter((z) => z.key !== zone).map((z) => <option key={z.key} value={z.key}>vs {z.label || z.key}</option>)}
         </select>
         <div className="flex items-center gap-1">
           {RANGES.map((r) => (
@@ -96,8 +115,10 @@ export default function SeriesExplorer() {
         )}
         {!loading && data.length > 0 && (
           <>
-            <div className="px-2 pb-2 font-mono text-[10px] text-neutral-500">
-              {resp.count} points · {resp.unit || ''} · {resolution}
+            <div className="px-2 pb-2 flex items-center gap-3 font-mono text-[10px] text-neutral-500">
+              <span>{resp.count} points · {resp.unit || ''} · {resolution}</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: COLOR_A }} />{zoneLabel(zone)}</span>
+              {comparing && <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: COLOR_B }} />{zoneLabel(compareZone)}</span>}
             </div>
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={data} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
@@ -105,8 +126,9 @@ export default function SeriesExplorer() {
                 <XAxis dataKey="t" tickFormatter={fmtT} tick={{ fontSize: 8, fill: '#737373' }} minTickGap={40} />
                 <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={44} domain={['auto', 'auto']} />
                 <Tooltip {...CHART_TOOLTIP_STYLE} labelFormatter={fmtT}
-                  formatter={(v) => [v != null ? Number(v).toFixed(1) : '—', resp.unit || 'value']} />
-                <Line type="monotone" dataKey="value" stroke="#22d3ee" dot={false} strokeWidth={1.4} />
+                  formatter={(v, n) => [v != null ? Number(v).toFixed(1) : '—', n === 'a' ? zoneLabel(zone) : zoneLabel(compareZone)]} />
+                <Line type="monotone" dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.4} connectNulls />
+                {comparing && <Line type="monotone" dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.4} connectNulls />}
               </LineChart>
             </ResponsiveContainer>
           </>
