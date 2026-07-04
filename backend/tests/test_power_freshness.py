@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from backend.collectors.scheduler import _power_recent_days
+from backend.collectors.scheduler import _intraday_days, _power_recent_days
 
 
 def test_power_recent_days_reaches_tomorrow():
@@ -25,4 +25,15 @@ def test_power_recent_days_defaults_to_wallclock():
     # Called without `today` (production path), it must still return n ascending days.
     days = _power_recent_days(5)
     assert len(days) == 5
+    assert days == sorted(days)
+
+
+def test_intraday_days_is_yesterday_and_today():
+    # The near-real-time refresh window: yesterday + today (where actuals still fill in).
+    assert _intraday_days(today=date(2026, 7, 4)) == ["2026-07-03", "2026-07-04"]
+
+
+def test_intraday_days_defaults_to_wallclock():
+    days = _intraday_days()
+    assert len(days) == 2
     assert days == sorted(days)

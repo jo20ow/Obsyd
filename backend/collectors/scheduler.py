@@ -176,6 +176,70 @@ async def _run_power_daily():
         db.close()
 
 
+def _intraday_days(today=None) -> list[str]:
+    """Yesterday + today (UTC) — the window where actual load/generation are still
+    filling in / being revised through the day. `today` injectable for tests."""
+    from datetime import datetime, timedelta, timezone
+
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+    return [(today - timedelta(days=1)).isoformat(), today.isoformat()]
+
+
+async def _run_power_intraday():
+    """Near-real-time refresh (every ~30 min): actual load + generation (→ residual,
+    per-fuel) and cross-border flows for the current window, so the desk shows TODAY
+    filling in hour by hour instead of only after the nightly run. Day-ahead prices and
+    forecasts don't change intraday and stay on the daily / midday jobs."""
+    from backend.power.entsoe_grid import ingest_grid
+    from backend.power.zones import POWER_ZONES
+
+    db = SessionLocal()
+    try:
+        days = _intraday_days()
+        for zone_key, zone_cfg in POWER_ZONES.items():
+            try:
+                await ingest_grid(db, days, eic=zone_cfg["eic"], zone=zone_key, overwrite=True)
+            except Exception as exc:
+                logger.error("power intraday grid [%s] failed: %s", zone_key, exc)
+        try:
+            from backend.power.energy_charts_flows import ingest_cbpf
+
+            await ingest_cbpf(db, days, overwrite=True)
+        except Exception as exc:
+            logger.error("power intraday flows failed: %s", exc)
+    except Exception as exc:
+        logger.error("_run_power_intraday outer failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _run_power_prices_midday():
+    """Midday day-ahead price refresh (~after the 12:45 CET auction) so tomorrow's
+    prices appear hours earlier than the 22:30 nightly run — for all enabled zones."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.entsoe_prices import ingest_day_ahead
+    from backend.power.zones import POWER_ZONES
+
+    today = datetime.now(timezone.utc).date()
+    days = [today.isoformat(), (today + timedelta(days=1)).isoformat()]
+    db = SessionLocal()
+    try:
+        for zone_key, zone_cfg in POWER_ZONES.items():
+            try:
+                await ingest_day_ahead(
+                    db, days, eic=zone_cfg["eic"],
+                    symbol=zone_cfg["price_symbol"], zone=zone_key, overwrite=True,
+                )
+            except Exception as exc:
+                logger.error("power midday price [%s] failed: %s", zone_key, exc)
+    except Exception as exc:
+        logger.error("_run_power_prices_midday outer failed: %s", exc)
+    finally:
+        db.close()
+
+
 def scheduler_role_enabled(role: str) -> bool:
     """True if this process role should run the scheduler / be a DB writer.
 
@@ -190,6 +254,13 @@ def start_scheduler():
     """Register the electricity+gas desk + shared jobs, then start the scheduler."""
     # Power day-ahead + grid + forecasts + flows + spark: daily 22:30 UTC.
     scheduler.add_job(_run_power_daily, CronTrigger(hour=22, minute=30), id="power_spark_daily", **JOB_DEFAULTS)
+
+    # Near-real-time: refresh actual load/generation + flows every 30 min so the desk
+    # shows today filling in hour by hour (free ENTSO-E ceiling: ~1h publication lag).
+    scheduler.add_job(_run_power_intraday, CronTrigger(minute="*/30"), id="power_intraday_30min", **JOB_DEFAULTS)
+    # Midday day-ahead price refresh: 12:00 UTC (after the ~12:45 CET auction) so
+    # tomorrow's prices appear hours before the nightly run.
+    scheduler.add_job(_run_power_prices_midday, CronTrigger(hour=12, minute=0), id="power_prices_midday", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)
