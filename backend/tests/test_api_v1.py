@@ -116,6 +116,17 @@ def test_status_reports_coverage(db_session):
     assert body["total"] >= 6  # 3 zones × (dayahead+grid) + flows/gas/ttf
 
 
+def test_zones_lists_registry_with_flags(db_session):
+    body = _client(db_session).get("/api/v1/zones").json()
+    assert body["default"] == "DE_LU"
+    assert set(body["enabled_keys"]) == {"DE_LU", "FR", "NL"}
+    z = {x["key"]: x for x in body["zones"]}
+    assert len(z) >= 27  # full registry, not just enabled
+    assert z["DE_LU"]["enabled"] is True and z["DE_LU"]["has_flows"] is True
+    assert z["IT_NORD"]["enabled"] is False and z["IT_NORD"]["has_flows"] is False  # ec_country=None
+    assert z["ES"]["has_flows"] is True
+
+
 def test_status_empty_is_not_healthy(db_session):
     body = _client(db_session).get("/api/v1/status").json()
     assert body["healthy"] is False

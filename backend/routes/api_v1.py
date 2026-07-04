@@ -19,7 +19,7 @@ from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
 from backend.models.energy import PowerHourly, SeriesDim
 from backend.power.hourly_store import read_hourly
-from backend.power.zones import POWER_ZONES
+from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
@@ -101,6 +101,27 @@ async def status(db: Session = Depends(get_db)):
         "fresh_count": sum(1 for i in items if i["fresh"]),
         "total": len(items),
         "sources": items,
+    }
+
+
+@router.get("/zones")
+async def zones():
+    """Every bidding zone in the registry with its enablement + flow-mapping flags —
+    the single source of truth for zone selectors/navigation across the frontend."""
+    enabled = set(POWER_ZONES)
+    return {
+        "default": DEFAULT_ZONE,
+        "enabled_keys": [z for z in ZONE_REGISTRY if z in enabled],
+        "zones": [
+            {
+                "key": k,
+                "label": v["label"],
+                "ec_country": v.get("ec_country"),
+                "has_flows": v.get("ec_country") is not None,
+                "enabled": k in enabled,
+            }
+            for k, v in ZONE_REGISTRY.items()
+        ],
     }
 
 

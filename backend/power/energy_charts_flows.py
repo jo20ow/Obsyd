@@ -99,6 +99,10 @@ ZONE_TO_COUNTRY: dict[str, str] = {
     if ZONE_REGISTRY.get(_z, {}).get("ec_country")
 }
 
+# Country query code -> canonical zone key (reverse of ZONE_TO_COUNTRY). Drives
+# ingest_cbpf so it scales to every flow-mapped enabled zone, not just de/fr/nl.
+COUNTRY_CODE_TO_ZONE: dict[str, str] = {v: k for k, v in ZONE_TO_COUNTRY.items()}
+
 
 # -- fetch --------------------------------------------------------------------
 
@@ -271,9 +275,9 @@ async def ingest_cbpf(
     *,
     overwrite: bool = False,  # noqa: ARG001
 ) -> dict:
-    """Ingest CBPF cross-border flows for all three base countries.
+    """Ingest CBPF cross-border flows for every flow-mapped enabled base zone.
 
-    For each of de/fr/nl, fetches the full date range in one request
+    For each base country (derived from the enabled zones), fetches the full date range in one request
     (Energy-Charts accepts arbitrary start/end).  Parses each response into
     canonical (from_zone, to_zone) daily net_mw values.  Where a border is
     seen from both queried sides (e.g. DE_LU/FR appears in both the DE and
@@ -302,7 +306,9 @@ async def ingest_cbpf(
     )
 
     for country_code in BASE_COUNTRIES:
-        zone = {"de": "DE_LU", "fr": "FR", "nl": "NL"}[country_code]
+        zone = COUNTRY_CODE_TO_ZONE.get(country_code)
+        if zone is None:
+            continue
         try:
             payload = await fetch_cbpf(country_code, start_date, end_date)
         except httpx.HTTPError as exc:

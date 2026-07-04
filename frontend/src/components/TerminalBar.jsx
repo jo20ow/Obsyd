@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 
 const API = '/api'
-const POWER_ZONES = new Set(['DE_LU', 'FR', 'NL'])
 
 // Which view a watchlist chip jumps to when clicked.
 function navFor(item, setActiveTab, setEnergyZone) {
@@ -10,8 +9,9 @@ function navFor(item, setActiveTab, setEnergyZone) {
   if (item.kind === 'crypto') return () => setActiveTab('crypto')
   if (item.kind === 'material') return () => setActiveTab('critical')
   if (item.kind === 'zone') {
-    if (POWER_ZONES.has(item.key)) return () => { setEnergyZone(item.key); setActiveTab('energy') }
-    return () => setActiveTab('overview') // chokepoint geofences live on OVERVIEW
+    // Any zone watchlist item routes to the power desk (the backend resolves
+    // unknown/disabled zones to the default zone). Data-driven — no hardcoded set.
+    return () => { setEnergyZone(item.key); setActiveTab('energy') }
   }
   return () => {}
 }

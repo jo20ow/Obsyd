@@ -11,8 +11,15 @@ const API = '/api'
 // are left out of the map until enabled.
 const ZONE_TO_ISO3 = {
   DE_LU: 'DEU', FR: 'FRA', NL: 'NLD', BE: 'BEL', AT: 'AUT',
-  ES: 'ESP', PT: 'PRT', PL: 'POL', CZ: 'CZE',
+  ES: 'ESP', PT: 'PRT', PL: 'POL', CZ: 'CZE', HU: 'HUN', RO: 'ROU',
+  GR: 'GRC', IE_SEM: 'IRL', BG: 'BGR', HR: 'HRV', SI: 'SVN', SK: 'SVK', FI: 'FIN',
+  // Sub-zoned countries: many zones → one country polygon (map shows the country mean).
+  IT_NORD: 'ITA', IT_CENTRO_NORD: 'ITA', IT_CENTRO_SUD: 'ITA', IT_SUD: 'ITA',
+  IT_SICILIA: 'ITA', IT_SARDEGNA: 'ITA', IT_CALABRIA: 'ITA',
+  DK1: 'DNK', DK2: 'DNK',
 }
+
+const STATE_ORDER = { CALM: 0, ELEVATED: 1, STRESSED: 2 }
 
 const STATE_COLOR = {
   CALM: [74, 222, 128],       // green
@@ -44,12 +51,25 @@ export default function PowerMap() {
     return () => { alive = false }
   }, [])
 
-  // Index overview rows by ISO3 + normalize price across the covered zones.
+  // Index overview rows by ISO3 (aggregating sub-zoned countries: mean price, worst
+  // state) + normalize price across the covered countries.
   const { byIso, priceMin, priceMax } = useMemo(() => {
-    const m = new Map()
+    const groups = new Map() // iso -> rows[]
     for (const z of rows || []) {
       const iso = ZONE_TO_ISO3[z.zone]
-      if (iso) m.set(iso, z)
+      if (!iso) continue
+      if (!groups.has(iso)) groups.set(iso, [])
+      groups.get(iso).push(z)
+    }
+    const m = new Map()
+    for (const [iso, zs] of groups) {
+      const prices = zs.map((z) => z.price_close).filter((v) => v != null)
+      const price = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null
+      const state = zs.map((z) => z.state).filter(Boolean)
+        .sort((a, b) => (STATE_ORDER[b] ?? -1) - (STATE_ORDER[a] ?? -1))[0] || null
+      const first = zs[0]
+      const zoneLabel = zs.length > 1 ? `${first.zone_label || first.zone} +${zs.length - 1}` : (first.zone_label || first.zone)
+      m.set(iso, { price_close: price, state, zone_label: zoneLabel, residual_z: first.residual_z })
     }
     const prices = [...m.values()].map((z) => z.price_close).filter((v) => v != null)
     return { byIso: m, priceMin: prices.length ? Math.min(...prices) : 0, priceMax: prices.length ? Math.max(...prices) : 1 }

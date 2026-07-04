@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import useZones from '../hooks/useZones'
 
 const API = '/api'
-
-// Bidding zones (mirrors ZoneSelector / backend POWER_ZONES). Small + stable.
-const ZONES = [
-  { key: 'DE_LU', label: 'DE-LU' },
-  { key: 'FR', label: 'FR' },
-  { key: 'NL', label: 'NL' },
-]
 
 // Subsequence fuzzy match: every char of `q` appears in order in `text`.
 // Returns a score (lower = better: earlier + tighter match) or null if no match.
@@ -35,6 +29,7 @@ function fuzzyScore(text, q) {
  * SettingsPanel backdrop+panel pattern (no portal).
  */
 export default function CommandPalette({ onClose, tabs, setActiveTab, setEnergyZone, openSettings, authed }) {
+  const { zones } = useZones()
   const [query, setQuery] = useState('')
   const [sel, setSel] = useState(0)
   const [catalog, setCatalog] = useState([]) // [{kind,key,label}]
@@ -69,7 +64,7 @@ export default function CommandPalette({ onClose, tabs, setActiveTab, setEnergyZ
     for (const t of tabs) {
       cmds.push({ id: `tab:${t.key}`, label: `Go to ${t.label}`, hint: 'view', run: () => setActiveTab(t.key) })
     }
-    for (const z of ZONES) {
+    for (const z of zones) {
       cmds.push({
         id: `zone:${z.key}`,
         label: `Power zone: ${z.label}`,
@@ -97,7 +92,7 @@ export default function CommandPalette({ onClose, tabs, setActiveTab, setEnergyZ
       }
     }
     return cmds
-  }, [tabs, catalog, authed, setActiveTab, setEnergyZone, openSettings])
+  }, [tabs, zones, catalog, authed, setActiveTab, setEnergyZone, openSettings])
 
   const results = useMemo(() => {
     const scored = []

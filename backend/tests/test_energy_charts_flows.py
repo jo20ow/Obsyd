@@ -15,8 +15,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+import backend.power.energy_charts_flows as flows
 from backend.models.energy import PowerFlow
 from backend.power.energy_charts_flows import parse_cbpf
+
+
+def test_country_code_to_zone_covers_all_base_countries():
+    """The generalized reverse map must resolve EVERY base country — the exact
+    invariant the old hardcoded {de,fr,nl} map violated for any 4th flow zone."""
+    assert flows.COUNTRY_CODE_TO_ZONE == {v: k for k, v in flows.ZONE_TO_COUNTRY.items()}
+    assert set(flows.BASE_COUNTRIES) <= set(flows.COUNTRY_CODE_TO_ZONE)
 
 # ─── autouse: clear dependency overrides between tests ───────────────────────
 
