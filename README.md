@@ -19,21 +19,30 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 
 ## Features
 
-- **Live Tanker Tracking** — Real-time AIS positions on a deck.gl globe with 6 geofence zones (Hormuz, Suez, Malacca, Panama, Cape, Houston)
-- **Dual AIS Feed** — AISStream WebSocket (primary) + AISHub HTTP polling (fallback) with automatic failover
-- **Chokepoint Monitor** — IMF PortWatch transit counts with historical averages, anomaly detection, and Brent price overlay
-- **Floating Storage Detection** — Identifies tankers stationary for 7+ days (potential floating storage plays)
-- **Voyage Detection** — Zone-to-zone transit tracking with flow matrix visualization
-- **Vessel Enrichment** — Ship class classification (VLCC/Suezmax/Aframax) and DWT estimation from AIS dimensions
-- **STS Detection** — Ship-to-ship transfer candidates in 5 known hotspots, proximity pairs, and dark vessel tracking
-- **Commodity Prices** — WTI, Brent, Natural Gas, TTF, Gold, Silver, Copper with intraday OHLCV charts
-- **Market Structure** — Contango/backwardation detection with futures curve spread analysis
-- **Correlation Engine** — Chokepoint traffic vs. Brent price (Pearson r with lag optimization up to 7 days)
-- **Rerouting Index** — Cape vs. Suez traffic ratio to detect Red Sea/Suez disruption patterns
-- **Signal Alerts** — Automated rule-based alerts for flow anomalies, anchored vessel surges, Cushing drawdowns, crack spread extremes
-- **Morning Briefing** — Daily anomaly summary with historical Brent price impact context
-- **EIA Fundamentals** — Crude inventories, refinery utilization, SPR levels, imports/exports
-- **Experimental: SAR Backscatter** — Sentinel-1 synthetic aperture radar index for Cushing tank farm monitoring
+- **9 European bidding zones** — DE-LU, FR, NL, BE, AT, ES, PT, PL, CZ (config-only to extend toward all ~27 ENTSO-E zones)
+- **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load, and forecasts, per zone (~7M points and growing)
+- **Near-real-time** — actual load/generation/flows refresh every 30 min; today fills in hour by hour (the honest ~1h ceiling of free ENTSO-E data)
+- **Day-ahead forecasts** — load, wind/solar and residual-load forecast vs actual, incl. tomorrow's hourly residual curve
+- **Cross-border flows** — physical net flows between zones (Fraunhofer Energy-Charts, CC BY 4.0)
+- **Gas fuel side** — EU storage (AGSI), LNG send-out (ALSI), ENTSOG flows, power-burn, demand model and the residual balance signal
+- **Spark spread** — CCGT margin per zone (power − gas × heat-rate)
+- **Anomaly radar** — negative prices, Dunkelflaute and gas-balance moves flagged vs each zone's own history (descriptive, not a forecast)
+- **Europe map** — bidding-zone choropleth by day-ahead price or grid state
+- **Public data API** — `GET /api/v1/series` (JSON/CSV export), catalog, meta and an honest coverage/status endpoint — see [docs/API.md](docs/API.md)
+- **Interactive series explorer** — query any series/zone/range in the browser and download the exact query as CSV
+
+## Public data API
+
+A free, versioned HTTP API over the canonical power record: `GET /api/v1/series?series=&zone=&start=&end=&resolution=&format=json|csv`, plus `/api/v1/{catalog,meta,status}`. Interactive docs at `/api/docs`. Full reference: **[docs/API.md](docs/API.md)**.
+
+## Roadmap / deferred
+
+Investigated and deliberately deferred (with their blockers), not silently dropped:
+
+- **Imbalance / balancing prices (ENTSO-E A85)** — returned as a ZIP archive and keyed by control area, not bidding zone (Germany has 4 control areas); needs a control-area↔zone mapping layer + long/short 15-min handling.
+- **Installed capacity, curtailment, reserves, interconnector nominations** — additional ENTSO-E doctypes; capacity is annual (a different shape from the hourly store).
+- **Parquet export** and a **pip-installable Python client** — CSV + JSON cover most needs today; these are additive follow-ups.
+- **Continuous intraday prices** — no clean, free, redistributable source.
 
 ## Tech Stack
 
@@ -66,12 +75,19 @@ uvicorn backend.main:app
 
 ## API Keys
 
-All keys are free. The dashboard works with partial data — each missing key disables only its data source.
+All keys are free. **For the electricity+gas desk the two that matter are `ENTSOE_API_TOKEN`
+(ENTSO-E day-ahead/load/generation/forecasts — request "Restful API" access at
+transparency.entsoe.eu) and `GIE_API_KEY` (AGSI storage + ALSI LNG).** Cross-border flows
+(Energy-Charts) need no key. `ENABLED_ZONES` (comma list, e.g. `DE_LU,FR,NL,BE,AT,ES,PT,PL,CZ`)
+selects the zones. Also set `SECRET_KEY` and `JWT_SECRET`. The keys below are legacy/optional —
+they power the dormant non-power modules being split into a sibling project.
 
 | Environment Variable | Source | Required | Notes |
 |---------------------|--------|----------|-------|
-| `AISSTREAM_API_KEY` | [aisstream.io](https://aisstream.io/) | **Yes** | Real-time AIS WebSocket feed |
-| `EIA_API_KEY` | [eia.gov](https://www.eia.gov/opendata/register.php) | **Yes** | US energy inventories and prices |
+| `ENTSOE_API_TOKEN` | [transparency.entsoe.eu](https://transparency.entsoe.eu/) | **Yes (power/gas)** | Day-ahead prices, load, generation, forecasts |
+| `GIE_API_KEY` | [gie.eu](https://www.gie.eu/) | **Yes (gas)** | AGSI storage + ALSI LNG (one key, both) |
+| `AISSTREAM_API_KEY` | [aisstream.io](https://aisstream.io/) | Legacy | Real-time AIS WebSocket feed (dormant non-power) |
+| `EIA_API_KEY` | [eia.gov](https://www.eia.gov/opendata/register.php) | Legacy | US energy inventories and prices (dormant) |
 | `FRED_API_KEY` | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) | **Yes** | Historical oil prices, macro indicators |
 | `AISHUB_API_KEY` | [aishub.net](https://www.aishub.net/) | Optional | Fallback AIS source (requires own AIS station) |
 | `ALPHA_VANTAGE_API_KEY` | [alphavantage.co](https://www.alphavantage.co/support/#api-key) | Optional | Price fallback provider |

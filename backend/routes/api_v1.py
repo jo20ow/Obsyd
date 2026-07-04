@@ -15,6 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth.ratelimit import allow, client_ip
+from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
 from backend.models.energy import PowerHourly, SeriesDim
 from backend.power.hourly_store import read_hourly
@@ -77,6 +78,29 @@ async def meta(db: Session = Depends(get_db)):
         "attribution": ATTRIBUTION,
         "license": "AGPL-3.0-or-later",
         "disclaimer": DISCLAIMER,
+    }
+
+
+@router.get("/status")
+async def status(db: Session = Depends(get_db)):
+    """Honest data-coverage view: per-source + per-zone freshness for the power/gas
+    desk (from the shared freshness spec). `healthy` is true when every product-critical
+    source is within its window. The transparency answer to a black-box feed — 'here is
+    exactly what is fresh and what is stale right now.'"""
+    fr = evaluate_freshness(db)
+    # Only the power/gas desk's own sources (the dormant non-power probes stay internal).
+    keep = {"power_flows", "gas_balance", "ttf"}
+    items = [
+        {"key": k, "fresh": v["fresh"], "last_seen": v["last_seen"], "max_age_days": v["max_age_days"]}
+        for k, v in sorted(fr.items())
+        if k in keep or k.startswith("power_dayahead:") or k.startswith("power_grid:")
+    ]
+    healthy = all(i["fresh"] for i in items) if items else False
+    return {
+        "healthy": healthy,
+        "fresh_count": sum(1 for i in items if i["fresh"]),
+        "total": len(items),
+        "sources": items,
     }
 
 

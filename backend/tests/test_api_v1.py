@@ -97,6 +97,32 @@ def test_catalog_reports_coverage(db_session):
     assert body["series_count"] >= 1
 
 
+def test_status_reports_coverage(db_session):
+    from datetime import timedelta
+
+    from backend.models.energy import PowerPriceDaily
+    # A recent DE_LU day-ahead row → its per-zone freshness probe is fresh.
+    recent = (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
+    db_session.add(PowerPriceDaily(date=recent, zone="DE_LU", mean_price=50.0,
+                                   min_price=10.0, max_price=90.0, negative_hours=0))
+    db_session.commit()
+    body = _client(db_session).get("/api/v1/status").json()
+    keys = {s["key"]: s for s in body["sources"]}
+    assert "power_dayahead:DE_LU" in keys
+    assert keys["power_dayahead:DE_LU"]["fresh"] is True
+    assert keys["power_dayahead:DE_LU"]["last_seen"] == recent
+    # Other zones have no data → overall not healthy, but the view lists them.
+    assert body["healthy"] is False
+    assert body["total"] >= 6  # 3 zones × (dayahead+grid) + flows/gas/ttf
+
+
+def test_status_empty_is_not_healthy(db_session):
+    body = _client(db_session).get("/api/v1/status").json()
+    assert body["healthy"] is False
+    assert body["fresh_count"] == 0
+    assert body["total"] > 0
+
+
 def test_rate_limit_returns_429(db_session, monkeypatch):
     import backend.routes.api_v1 as v1
     monkeypatch.setattr(v1, "RATE_PER_MIN", 2)

@@ -7,6 +7,7 @@ import SentimentPanel from './components/SentimentPanel'
 import CriticalMaterialsView from './components/CriticalMaterialsView'
 import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
+import CoveragePanel from './components/CoveragePanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
 import ChokePointMonitor, { DisruptionBanner } from './components/ChokePointMonitor'
@@ -654,9 +655,14 @@ function Dashboard() {
 
         {/* EXPLORE TAB — interactive query over the public data API (/api/v1/series) */}
         {activeTab === 'explore' && (
-          <ErrorBoundary name="series-explorer">
-            <SeriesExplorer />
-          </ErrorBoundary>
+          <div className="space-y-3">
+            <ErrorBoundary name="series-explorer">
+              <SeriesExplorer />
+            </ErrorBoundary>
+            <ErrorBoundary name="coverage">
+              <CoveragePanel />
+            </ErrorBoundary>
+          </div>
         )}
 
         {/* ALERTS TAB (Pro feature; panel itself handles the gate) */}
