@@ -155,6 +155,14 @@ async def _run_power_daily():
             except Exception as exc:
                 logger.error("power daily ingest_load_forecast [%s] failed: %s", zone_key, exc)
 
+            try:
+                from backend.power.entsoe_imbalance import ingest_imbalance
+
+                result = await ingest_imbalance(db, days, zone=zone_key, overwrite=True)
+                logger.info("power daily imbalance ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_imbalance [%s] failed: %s", zone_key, exc)
+
         # Cross-border physical flows (Energy-Charts CBPF, CC BY 4.0).
         try:
             from backend.power.energy_charts_flows import ingest_cbpf

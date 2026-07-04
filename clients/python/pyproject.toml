@@ -1,0 +1,21 @@
+[project]
+name = "obsyd"
+version = "0.1.0"
+description = "Python client for the OBSYD European power data API — a free gridstatus for Europe"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "AGPL-3.0-or-later" }
+authors = [{ name = "OBSYD" }]
+keywords = ["energy", "electricity", "entso-e", "power", "europe", "gridstatus"]
+dependencies = ["requests>=2", "pandas>=1.5"]
+
+[project.urls]
+Homepage = "https://obsyd.dev"
+Documentation = "https://obsyd.dev/api/docs"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["obsyd"]

@@ -23,13 +23,14 @@ from datetime import date, datetime, timedelta
 
 from backend.database import SessionLocal
 from backend.power.entsoe_grid import ingest_grid, ingest_load_forecast
+from backend.power.entsoe_imbalance import ingest_imbalance
 from backend.power.entsoe_prices import ingest_day_ahead
 from backend.power.zones import POWER_ZONES
 
 logger = logging.getLogger("power_backfill")
 
 BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --start
-ALL_SOURCES = ("price", "grid", "forecast")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -108,6 +109,8 @@ async def run_backfill(
                 await _with_retry(lambda d=days: ingest_grid(db, d, eic=eic, zone=zone, overwrite=overwrite), f"grid {tag}")
             if "forecast" in sources:
                 await _with_retry(lambda d=days: ingest_load_forecast(db, d, eic=eic, zone=zone, overwrite=overwrite), f"forecast {tag}")
+            if "imbalance" in sources:
+                await _with_retry(lambda d=days: ingest_imbalance(db, d, zone=zone, overwrite=overwrite), f"imbalance {tag}")
             done += 1
             logger.info("power_backfill: %s done (%d/%d)", tag, done, plan)
             if throttle:

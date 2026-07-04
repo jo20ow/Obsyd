@@ -54,6 +54,20 @@ ZONE_REGISTRY: dict[str, dict] = {
     "FI": {"eic": "10YFI-1--------U", "price_symbol": "POWER_FI", "label": "FI", "ec_country": "fi"},
     "DK1": {"eic": "10YDK-1--------W", "price_symbol": "POWER_DK1", "label": "DK1", "ec_country": None},
     "DK2": {"eic": "10YDK-2--------M", "price_symbol": "POWER_DK2", "label": "DK2", "ec_country": None},
+    # Non-EU neighbours (ENTSO-E members) — "all of Europe" on the map. CH is single-zone
+    # (flows via ec_country "ch"); NO/SE are sub-zoned so, like IT/DK, they carry
+    # prices/load/gen but no per-sub-zone CBPF flows (country-level only). GB left ENTSO-E's
+    # day-ahead publication post-Brexit (A44 returns an Acknowledgement) → not added.
+    "CH": {"eic": "10YCH-SWISSGRIDZ", "price_symbol": "POWER_CH", "label": "CH", "ec_country": "ch"},
+    "NO1": {"eic": "10YNO-1--------2", "price_symbol": "POWER_NO1", "label": "NO1", "ec_country": None},
+    "NO2": {"eic": "10YNO-2--------T", "price_symbol": "POWER_NO2", "label": "NO2", "ec_country": None},
+    "NO3": {"eic": "10YNO-3--------J", "price_symbol": "POWER_NO3", "label": "NO3", "ec_country": None},
+    "NO4": {"eic": "10YNO-4--------9", "price_symbol": "POWER_NO4", "label": "NO4", "ec_country": None},
+    "NO5": {"eic": "10Y1001A1001A48H", "price_symbol": "POWER_NO5", "label": "NO5", "ec_country": None},
+    "SE1": {"eic": "10Y1001A1001A44P", "price_symbol": "POWER_SE1", "label": "SE1", "ec_country": None},
+    "SE2": {"eic": "10Y1001A1001A45N", "price_symbol": "POWER_SE2", "label": "SE2", "ec_country": None},
+    "SE3": {"eic": "10Y1001A1001A46L", "price_symbol": "POWER_SE3", "label": "SE3", "ec_country": None},
+    "SE4": {"eic": "10Y1001A1001A47J", "price_symbol": "POWER_SE4", "label": "SE4", "ec_country": None},
 }
 
 

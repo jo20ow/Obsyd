@@ -19,8 +19,10 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 
 ## Features
 
-- **9 European bidding zones** — DE-LU, FR, NL, BE, AT, ES, PT, PL, CZ (config-only to extend toward all ~27 ENTSO-E zones)
-- **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load, and forecasts, per zone (~7M points and growing)
+- **~37 European bidding zones** — all 27 EU zones plus non-EU neighbours CH, NO1–5, SE1–4 (config-only via `ENABLED_ZONES`)
+- **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load, forecasts and imbalance prices, per zone
+- **Imbalance prices** — 15-min settlement prices → hourly, per zone (single-TSO zones; DE excluded — four control areas)
+- **Installed capacity** — generation capacity by fuel per zone (ENTSO-E A68), annual context
 - **Near-real-time** — actual load/generation/flows refresh every 30 min; today fills in hour by hour (the honest ~1h ceiling of free ENTSO-E data)
 - **Day-ahead forecasts** — load, wind/solar and residual-load forecast vs actual, incl. tomorrow's hourly residual curve
 - **Cross-border flows** — physical net flows between zones (Fraunhofer Energy-Charts, CC BY 4.0)
@@ -28,20 +30,23 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 - **Spark spread** — CCGT margin per zone (power − gas × heat-rate)
 - **Anomaly radar** — negative prices, Dunkelflaute and gas-balance moves flagged vs each zone's own history (descriptive, not a forecast)
 - **Europe map** — bidding-zone choropleth by day-ahead price or grid state
-- **Public data API** — `GET /api/v1/series` (JSON/CSV export), catalog, meta and an honest coverage/status endpoint — see [docs/API.md](docs/API.md)
-- **Interactive series explorer** — query any series/zone/range in the browser and download the exact query as CSV
+- **Public data API + Python client** — `GET /api/v1/series` (JSON/CSV/**Parquet** export), catalog, zones, capacity, meta and an honest coverage/status endpoint — see [docs/API.md](docs/API.md); pip-installable client in [clients/python](clients/python)
+- **Interactive series explorer** — query any series/zone/range, **compare two zones** on one chart, download as CSV
 
 ## Public data API
 
-A free, versioned HTTP API over the canonical power record: `GET /api/v1/series?series=&zone=&start=&end=&resolution=&format=json|csv`, plus `/api/v1/{catalog,meta,status}`. Interactive docs at `/api/docs`. Full reference: **[docs/API.md](docs/API.md)**.
+A free, versioned HTTP API over the canonical power record: `GET /api/v1/series?series=&zone=&start=&end=&resolution=&format=json|csv|parquet`, plus `/api/v1/{zones,catalog,capacity,meta,status}`. Interactive docs at `/api/docs`. Full reference: **[docs/API.md](docs/API.md)**.
 
 ## Roadmap / deferred
 
+Shipped since the first cut: imbalance prices (A85), installed capacity (A68), Parquet export,
+the pip-installable Python client, and the non-EU neighbour zones (CH, NO, SE).
+
 Investigated and deliberately deferred (with their blockers), not silently dropped:
 
-- **Imbalance / balancing prices (ENTSO-E A85)** — returned as a ZIP archive and keyed by control area, not bidding zone (Germany has 4 control areas); needs a control-area↔zone mapping layer + long/short 15-min handling.
-- **Installed capacity, curtailment, reserves, interconnector nominations** — additional ENTSO-E doctypes; capacity is annual (a different shape from the hourly store).
-- **Parquet export** and a **pip-installable Python client** — CSV + JSON cover most needs today; these are additive follow-ups.
+- **Great Britain** — left ENTSO-E's day-ahead publication post-Brexit (A44 returns an Acknowledgement); not addable as a priced zone from the free feed.
+- **Germany imbalance** — four control areas with a combined reBAP not exposed under a single A85 control-area EIC; DE-LU is skipped for imbalance only.
+- **Curtailment / redispatch / reserves** (ENTSO-E A63/A80/…) — fragmented, border-specific congestion-management data, not a clean pan-EU series.
 - **Continuous intraday prices** — no clean, free, redistributable source.
 
 ## Tech Stack
