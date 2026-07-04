@@ -69,6 +69,22 @@ def test_series_csv_streams_download(db_session):
     assert len(lines) == 7  # header + 6 rows
 
 
+def test_series_parquet_roundtrip(db_session):
+    pytest.importorskip("pyarrow")
+    import io
+
+    import pyarrow.parquet as pq
+    _seed(db_session)
+    resp = _client(db_session).get(
+        "/api/v1/series?series=load.actual&zone=DE_LU&start=2026-06-01&end=2026-06-02&format=parquet"
+    )
+    assert resp.status_code == 200
+    assert "parquet" in resp.headers["content-disposition"]
+    table = pq.read_table(io.BytesIO(resp.content))
+    assert table.num_rows == 6
+    assert set(table.column_names) == {"datetime_utc", "value"}
+
+
 def test_series_unknown_returns_empty(db_session):
     body = _client(db_session).get("/api/v1/series?series=nope&zone=DE_LU").json()
     assert body["available"] is False

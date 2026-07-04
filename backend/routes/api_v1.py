@@ -151,7 +151,7 @@ async def series(
     start: str | None = Query(None, description="YYYY-MM-DD or ISO 8601 (default: 30 days ago)"),
     end: str | None = Query(None, description="YYYY-MM-DD or ISO 8601 (default: now)"),
     resolution: str = Query("hourly", pattern="^(hourly|daily)$"),
-    format: str = Query("json", pattern="^(json|csv)$"),
+    format: str = Query("json", pattern="^(json|csv|parquet)$"),
     db: Session = Depends(get_db),
     _rl: None = Depends(_rate_limit),
 ):
@@ -194,11 +194,34 @@ async def series(
             },
         )
 
+    if format == "parquet":
+        try:
+            import io
+
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+        except ImportError:
+            raise HTTPException(
+                status_code=501, detail="Parquet export is unavailable on this server; use format=csv."
+            ) from None
+        table = pa.table({tkey: [t for t, _ in rows], "value": [v for _, v in rows]})
+        buf = io.BytesIO()
+        pq.write_table(table, buf)
+        zsafe = zone.replace("/", "_")
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="application/vnd.apache.parquet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{series}_{zsafe}_{resolution}.parquet"',
+                "X-Attribution": "ENTSO-E; Energy-Charts CC BY 4.0; GIE",
+            },
+        )
+
     if len(rows) > MAX_JSON_POINTS:
         return {
             "available": False,
             "series": series, "zone": zone, "resolution": resolution,
-            "reason": f"{len(rows)} points exceed the JSON cap ({MAX_JSON_POINTS}); narrow the range or use format=csv.",
+            "reason": f"{len(rows)} points exceed the JSON cap ({MAX_JSON_POINTS}); narrow the range or use format=csv or parquet.",
         }
     return {
         "available": bool(rows),
