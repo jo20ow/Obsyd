@@ -6,6 +6,7 @@ import MacroPanel from './components/MacroPanel'
 import SentimentPanel from './components/SentimentPanel'
 import CriticalMaterialsView from './components/CriticalMaterialsView'
 import AlertsPanel from './components/AlertsPanel'
+import SeriesExplorer from './components/SeriesExplorer'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
 import ChokePointMonitor, { DisruptionBanner } from './components/ChokePointMonitor'
@@ -56,6 +57,7 @@ import { useAuth } from './context/AuthContext'
 // tabs — lazy-load them so the default POWER desk doesn't ship the mapping stack.
 const VesselMap = lazy(() => import('./components/VesselMap'))
 const AtlasMap = lazy(() => import('./components/AtlasMap'))
+const PowerMap = lazy(() => import('./components/PowerMap'))
 
 const MAP_FALLBACK = (
   <div className="border border-border bg-surface rounded px-4 py-8 text-center font-mono text-xs text-neutral-500">
@@ -75,6 +77,8 @@ const API = '/api'
 const TABS = [
   { key: 'energy', label: 'POWER', primary: true },
   { key: 'gas', label: 'GAS', primary: true },
+  { key: 'map', label: 'MAP', primary: true },
+  { key: 'explore', label: 'EXPLORE', primary: true },
   { key: 'alerts', label: 'ALERTS', primary: true },
 ]
 
@@ -636,6 +640,22 @@ function Dashboard() {
             <Suspense fallback={MAP_FALLBACK}>
               <AtlasMap />
             </Suspense>
+          </ErrorBoundary>
+        )}
+
+        {/* MAP TAB — Europe bidding-zone choropleth (price / grid state) */}
+        {activeTab === 'map' && (
+          <ErrorBoundary name="power-map">
+            <Suspense fallback={MAP_FALLBACK}>
+              <PowerMap />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+
+        {/* EXPLORE TAB — interactive query over the public data API (/api/v1/series) */}
+        {activeTab === 'explore' && (
+          <ErrorBoundary name="series-explorer">
+            <SeriesExplorer />
           </ErrorBoundary>
         )}
 
