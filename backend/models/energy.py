@@ -240,3 +240,22 @@ class PowerHourly(Base):
 
     # WITHOUT ROWID: the composite PK becomes the table's clustering key.
     __table_args__ = {"sqlite_with_rowid": False}
+
+
+class InstalledCapacity(Base):
+    """ENTSO-E installed generation capacity per production type (A68/A33) — annual, per
+    zone. Reference/context data (how much wind/solar/gas/etc. a zone has), not a time
+    series; kept out of power_hourly because it's yearly."""
+
+    __tablename__ = "installed_capacity"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    psr_type: Mapped[str] = mapped_column(String, nullable=False)  # readable label (PSR_LABELS)
+    capacity_mw: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("zone", "year", "psr_type", name="uq_installed_capacity_zone_year_psr"),
+    )

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
-from backend.models.energy import PowerHourly, SeriesDim
+from backend.models.energy import InstalledCapacity, PowerHourly, SeriesDim
 from backend.power.hourly_store import read_hourly
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
@@ -122,6 +122,36 @@ async def zones():
             }
             for k, v in ZONE_REGISTRY.items()
         ],
+    }
+
+
+@router.get("/capacity")
+async def capacity(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    year: int | None = Query(None, description="Year (default: latest available)"),
+    db: Session = Depends(get_db),
+):
+    """Installed generation capacity per production type (MW) for a zone-year — ENTSO-E
+    A68 annual reference data. Defaults to the latest available year. Pan-EU context
+    (how much wind/solar/gas/etc. a zone has), descriptive."""
+    z = zone if zone in POWER_ZONES else DEFAULT_ZONE
+    if year is None:
+        year = db.query(func.max(InstalledCapacity.year)).filter(InstalledCapacity.zone == z).scalar()
+    if year is None:
+        return {"available": False, "zone": z, "reason": "No installed-capacity data yet."}
+    rows = (
+        db.query(InstalledCapacity)
+        .filter(InstalledCapacity.zone == z, InstalledCapacity.year == year)
+        .order_by(InstalledCapacity.capacity_mw.desc())
+        .all()
+    )
+    return {
+        "available": bool(rows),
+        "zone": z,
+        "year": year,
+        "unit": "MW",
+        "total_mw": round(sum(r.capacity_mw for r in rows), 1),
+        "data": [{"psr_type": r.psr_type, "capacity_mw": r.capacity_mw} for r in rows],
     }
 
 

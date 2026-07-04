@@ -132,6 +132,25 @@ def test_status_reports_coverage(db_session):
     assert body["total"] >= 6  # 3 zones × (dayahead+grid) + flows/gas/ttf
 
 
+def test_capacity_endpoint(db_session):
+    from backend.models.energy import InstalledCapacity
+    db_session.add_all([
+        InstalledCapacity(zone="DE_LU", year=2025, psr_type="Solar", capacity_mw=50_000.0),
+        InstalledCapacity(zone="DE_LU", year=2025, psr_type="Wind Onshore", capacity_mw=60_000.0),
+    ])
+    db_session.commit()
+    body = _client(db_session).get("/api/v1/capacity?zone=DE_LU").json()  # latest year
+    assert body["available"] is True
+    assert body["year"] == 2025
+    assert body["total_mw"] == 110_000.0
+    assert body["data"][0]["psr_type"] == "Wind Onshore"  # sorted desc by capacity
+
+
+def test_capacity_endpoint_empty(db_session):
+    body = _client(db_session).get("/api/v1/capacity?zone=FR").json()
+    assert body["available"] is False
+
+
 def test_zones_lists_registry_with_flags(db_session):
     body = _client(db_session).get("/api/v1/zones").json()
     assert body["default"] == "DE_LU"

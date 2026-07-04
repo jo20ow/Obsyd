@@ -240,6 +240,28 @@ async def _run_power_prices_midday():
         db.close()
 
 
+async def _run_capacity_monthly():
+    """Refresh installed generation capacity (ENTSO-E A68) for the current year across
+    all enabled zones — monthly (capacity changes ~yearly). Feeds /api/v1/capacity."""
+    from datetime import datetime, timezone
+
+    from backend.power.entsoe_capacity import ingest_installed_capacity
+    from backend.power.zones import POWER_ZONES
+
+    year = datetime.now(timezone.utc).year
+    db = SessionLocal()
+    try:
+        for zone_key, cfg in POWER_ZONES.items():
+            try:
+                await ingest_installed_capacity(db, year, eic=cfg["eic"], zone=zone_key, overwrite=True)
+            except Exception as exc:
+                logger.error("capacity monthly [%s] failed: %s", zone_key, exc)
+    except Exception as exc:
+        logger.error("_run_capacity_monthly outer failed: %s", exc)
+    finally:
+        db.close()
+
+
 def scheduler_role_enabled(role: str) -> bool:
     """True if this process role should run the scheduler / be a DB writer.
 
@@ -261,6 +283,8 @@ def start_scheduler():
     # Midday day-ahead price refresh: 12:00 UTC (after the ~12:45 CET auction) so
     # tomorrow's prices appear hours before the nightly run.
     scheduler.add_job(_run_power_prices_midday, CronTrigger(hour=12, minute=0), id="power_prices_midday", **JOB_DEFAULTS)
+    # Installed capacity (A68): monthly, 2nd @ 03:00 UTC — annual data, cheap to refresh.
+    scheduler.add_job(_run_capacity_monthly, CronTrigger(day=2, hour=3, minute=0), id="capacity_monthly", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)
