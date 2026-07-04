@@ -17,6 +17,7 @@ from backend.observability import TraceIDMiddleware, setup_logging
 from backend.routes import alert_rules as alert_rules_routes
 from backend.routes import alerts, health, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import analytics as analytics_routes
+from backend.routes import api_v1
 from backend.routes import atlas as atlas_routes
 from backend.routes import auth as auth_routes
 from backend.routes import briefing as briefing_routes
@@ -122,14 +123,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="OBSYD",
+    title="OBSYD — European electricity data API",
     description=(
         "The European electricity desk — gridstatus.io for Europe. Day-ahead prices, "
         "load & residual load, generation mix, cross-border flows, forecasts and the "
-        "gas that fuels them, from the official record (ENTSO-E, Energy-Charts, GIE)."
+        "gas that fuels them, from the official record (ENTSO-E, Energy-Charts, GIE). "
+        "Programmatic access: GET /api/v1/series (JSON/CSV). Free, descriptive, AGPL-3.0."
     ),
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
+    # Serve interactive docs under /api/* so the existing reverse-proxy exposes them
+    # publicly without a Caddy change (the proxy already forwards /api/*).
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 app.add_middleware(
@@ -184,5 +191,6 @@ app.include_router(gas_routes.router)
 app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)
 app.include_router(power_routes.router)
+app.include_router(api_v1.router)  # public data API v1 (/api/v1/series, catalog, meta)
 app.include_router(situation_routes.router)
 app.include_router(watchlist_routes.router)
