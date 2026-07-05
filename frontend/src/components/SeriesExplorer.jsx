@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
 import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
@@ -29,6 +29,7 @@ export default function SeriesExplorer() {
   const [series, setSeries] = useState('price.dayahead')
   const [zone, setZone] = useState('DE_LU')
   const [compareZone, setCompareZone] = useState('')  // '' = off
+  const [spread, setSpread] = useState(false)  // Δ (A−B) instead of two lines
   const [range, setRange] = useState('30d')
   const [resolution, setResolution] = useState('daily')
 
@@ -50,8 +51,13 @@ export default function SeriesExplorer() {
     const base = (resp?.data || []).map((p) => ({ t: p[tkey], a: p.value }))
     if (!comparing) return base
     const bByT = new Map((cmpResp?.data || []).map((p) => [p[tkey], p.value]))
-    return base.map((row) => ({ ...row, b: bByT.get(row.t) ?? null }))
+    return base.map((row) => {
+      const b = bByT.get(row.t) ?? null
+      const d = row.a != null && b != null ? Math.round((row.a - b) * 100) / 100 : null
+      return { ...row, b, d }
+    })
   }, [resp, cmpResp, comparing, tkey])
+  const showSpread = comparing && spread
 
   const csvUrl = `${url}&format=csv`
   const seriesList = catalog?.series || [{ key: 'price.dayahead', unit: 'EUR/MWh' }]
@@ -88,6 +94,13 @@ export default function SeriesExplorer() {
           <option value="">vs … compare</option>
           {zoneList.filter((z) => z.key !== zone).map((z) => <option key={z.key} value={z.key}>vs {z.label || z.key}</option>)}
         </select>
+        {comparing && (
+          <button onClick={() => setSpread((s) => !s)}
+            className={`font-mono text-[9px] px-2 py-0.5 rounded border ${spread ? 'text-amber-300 border-amber-400/40 bg-amber-400/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}
+            title="Show the A−B spread instead of two lines">
+            Δ A−B
+          </button>
+        )}
         <div className="flex items-center gap-1">
           {RANGES.map((r) => (
             <button key={r.key} onClick={() => setRange(r.key)}
@@ -117,8 +130,14 @@ export default function SeriesExplorer() {
           <>
             <div className="px-2 pb-2 flex items-center gap-3 font-mono text-[10px] text-neutral-500">
               <span>{resp.count} points · {resp.unit || ''} · {resolution}</span>
-              <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: COLOR_A }} />{zoneLabel(zone)}</span>
-              {comparing && <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: COLOR_B }} />{zoneLabel(compareZone)}</span>}
+              {showSpread ? (
+                <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: '#fbbf24' }} />{zoneLabel(zone)} − {zoneLabel(compareZone)}</span>
+              ) : (
+                <>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: COLOR_A }} />{zoneLabel(zone)}</span>
+                  {comparing && <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: COLOR_B }} />{zoneLabel(compareZone)}</span>}
+                </>
+              )}
             </div>
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={data} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
@@ -126,9 +145,18 @@ export default function SeriesExplorer() {
                 <XAxis dataKey="t" tickFormatter={fmtT} tick={{ fontSize: 8, fill: '#737373' }} minTickGap={40} />
                 <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={44} domain={['auto', 'auto']} />
                 <Tooltip {...CHART_TOOLTIP_STYLE} labelFormatter={fmtT}
-                  formatter={(v, n) => [v != null ? Number(v).toFixed(1) : '—', n === 'a' ? zoneLabel(zone) : zoneLabel(compareZone)]} />
-                <Line type="monotone" dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.4} connectNulls />
-                {comparing && <Line type="monotone" dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.4} connectNulls />}
+                  formatter={(v, n) => [v != null ? Number(v).toFixed(1) : '—', n === 'd' ? `${zoneLabel(zone)} − ${zoneLabel(compareZone)}` : n === 'a' ? zoneLabel(zone) : zoneLabel(compareZone)]} />
+                {showSpread ? (
+                  <>
+                    <ReferenceLine y={0} stroke="#444" />
+                    <Line type="monotone" dataKey="d" stroke="#fbbf24" dot={false} strokeWidth={1.4} connectNulls />
+                  </>
+                ) : (
+                  <>
+                    <Line type="monotone" dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.4} connectNulls />
+                    {comparing && <Line type="monotone" dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.4} connectNulls />}
+                  </>
+                )}
               </LineChart>
             </ResponsiveContainer>
           </>

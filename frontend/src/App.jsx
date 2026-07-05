@@ -8,6 +8,10 @@ import CriticalMaterialsView from './components/CriticalMaterialsView'
 import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
+import DurationCurvePanel from './components/DurationCurvePanel'
+import MeritOrderScatter from './components/MeritOrderScatter'
+import GenMixHistoryPanel from './components/GenMixHistoryPanel'
+import TrendsPanel from './components/TrendsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
 import ChokePointMonitor, { DisruptionBanner } from './components/ChokePointMonitor'
@@ -78,6 +82,7 @@ const API = '/api'
 const TABS = [
   { key: 'europe', label: 'EUROPE', primary: true },
   { key: 'energy', label: 'POWER', primary: true },
+  { key: 'analytics', label: 'ANALYTICS', primary: true },
   { key: 'gas', label: 'GAS', primary: true },
   { key: 'explore', label: 'EXPLORE', primary: true },
   { key: 'alerts', label: 'ALERTS', primary: true },
@@ -644,6 +649,34 @@ function Dashboard() {
               <AtlasMap />
             </Suspense>
           </ErrorBoundary>
+        )}
+
+        {/* ANALYTICS TAB — exploit the 5y hourly history for the analyst audience */}
+        {activeTab === 'analytics' && (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// ANALYTICS · deep history</span>
+              <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
+            </div>
+            <ErrorBoundary name="duration-curve">
+              <DurationCurvePanel zone={energyZone} />
+            </ErrorBoundary>
+            <div className="mt-3">
+              <ErrorBoundary name="genmix-history">
+                <GenMixHistoryPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="trends">
+                <TrendsPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="merit-order">
+                <MeritOrderScatter zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+          </>
         )}
 
         {/* EUROPE TAB (default front door) — bidding-zone choropleth; the sortable

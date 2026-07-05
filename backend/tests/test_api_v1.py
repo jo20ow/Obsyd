@@ -132,6 +132,26 @@ def test_status_reports_coverage(db_session):
     assert body["total"] >= 6  # 3 zones × (dayahead+grid) + flows/gas/ttf
 
 
+def test_genmix_wide_by_fuel(db_session):
+    # 24h of solar (B16) + wind onshore (B19) on one UTC day → one daily row, readable fuels.
+    upsert_hourly(db_session, "gen.B16", "DE_LU", [(_BASE + i * _H, 5_000.0) for i in range(24)], unit="MW")
+    upsert_hourly(db_session, "gen.B19", "DE_LU", [(_BASE + i * _H, 10_000.0) for i in range(24)], unit="MW")
+    body = _client(db_session).get(
+        "/api/v1/genmix?zone=DE_LU&start=2026-06-01&end=2026-06-02&resolution=daily"
+    ).json()
+    assert body["available"] is True
+    assert set(body["fuels"]) == {"Solar", "Wind Onshore"}
+    row = body["data"][0]
+    assert row["t"] == "2026-06-01"
+    assert row["Solar"] == 5_000.0
+    assert row["Wind Onshore"] == 10_000.0
+
+
+def test_genmix_empty_zone(db_session):
+    body = _client(db_session).get("/api/v1/genmix?zone=FR").json()
+    assert body["available"] is False
+
+
 def test_capacity_endpoint(db_session):
     from backend.models.energy import InstalledCapacity
     db_session.add_all([

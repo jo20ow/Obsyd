@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
-from backend.models.energy import InstalledCapacity, PowerHourly, SeriesDim
+from backend.models.energy import InstalledCapacity, PowerHourly, SeriesDim, ZoneDim
+from backend.power.entsoe_grid import PSR_LABELS
 from backend.power.hourly_store import read_hourly
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
@@ -122,6 +123,59 @@ async def zones():
             }
             for k, v in ZONE_REGISTRY.items()
         ],
+    }
+
+
+@router.get("/genmix")
+async def genmix(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    start: str | None = Query(None, description="YYYY-MM-DD / ISO 8601 (default: 1 year ago)"),
+    end: str | None = Query(None, description="default: now"),
+    resolution: str = Query("monthly", pattern="^(daily|monthly)$"),
+    db: Session = Depends(get_db),
+):
+    """Generation mix over time — every fuel (gen.<psr>) for one zone, aggregated to
+    daily or monthly mean MW, in a wide shape ({t, <fuel>: mw, ...}) for a stacked area.
+    Shows the energy transition per zone. Descriptive."""
+    z = zone if zone in POWER_ZONES else DEFAULT_ZONE
+    end_dt = _parse_ts(end, datetime.now(UTC))
+    start_dt = _parse_ts(start, end_dt - timedelta(days=365))
+    zid = db.query(ZoneDim.id).filter(ZoneDim.key == z).scalar()
+    gen = db.query(SeriesDim.id, SeriesDim.key).filter(SeriesDim.key.like("gen.%")).all()
+    if zid is None or not gen:
+        return {"available": False, "zone": z, "reason": "No generation-mix data yet."}
+    sid_label = {sid: PSR_LABELS.get(key.split(".", 1)[1], key) for sid, key in gen}
+    rows = (
+        db.query(PowerHourly.series_id, PowerHourly.ts_utc, PowerHourly.value)
+        .filter(
+            PowerHourly.zone_id == zid,
+            PowerHourly.series_id.in_(list(sid_label)),
+            PowerHourly.ts_utc >= int(start_dt.timestamp()),
+            PowerHourly.ts_utc < int(end_dt.timestamp()),
+        )
+        .all()
+    )
+    fmt = "%Y-%m-%d" if resolution == "daily" else "%Y-%m"
+    buckets: dict[str, dict[str, list[float]]] = {}
+    for sid, ts, v in rows:
+        pk = datetime.fromtimestamp(ts, UTC).strftime(fmt)
+        buckets.setdefault(pk, {}).setdefault(sid_label[sid], []).append(v)
+    data = []
+    for pk in sorted(buckets):
+        row: dict = {"t": pk}
+        for label, vals in buckets[pk].items():
+            row[label] = round(sum(vals) / len(vals), 1)
+        data.append(row)
+    fuels = sorted({label for per in buckets.values() for label in per})
+    return {
+        "available": bool(data),
+        "zone": z,
+        "resolution": resolution,
+        "unit": "MW",
+        "fuels": fuels,
+        "from": start_dt.isoformat(),
+        "to": end_dt.isoformat(),
+        "data": data,
     }
 
 
