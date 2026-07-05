@@ -197,6 +197,15 @@ function Dashboard() {
     return TABS.find((t) => t.key === hash) ? hash : DEFAULT_TAB
   })
 
+  // Navigate to a tab AND bring the desk nav (zone/range + tabs) to the viewport
+  // top, so the tab's content is actually in view. Without this a jump (e.g. ⌘K
+  // "Power zone: AT" or an overview-row click) only switches the tab and leaves you
+  // scrolled above the always-on chrome, having to scroll down to reach the section.
+  const goToTab = (key) => {
+    setActiveTab(key)
+    requestAnimationFrame(() => scrollToSection('desk-nav'))
+  }
+
   // Selected bidding zone — now the global navigation spine (ViewStateContext):
   // one zone drives the hero, POWER, ANALYTICS and the explorer, is mirrored into
   // the URL (?zone=) and persists. Aliased to the old local names so the ~14
@@ -361,7 +370,7 @@ function Dashboard() {
         <ErrorBoundary name="terminal-bar">
           <TerminalBar
             onOpenPalette={() => setPaletteOpen(true)}
-            setActiveTab={setActiveTab}
+            setActiveTab={goToTab}
             setEnergyZone={setEnergyZone}
             refreshKey={wlRefresh}
           />
@@ -390,7 +399,7 @@ function Dashboard() {
       </div>
 
       {/* ===== ZONE SPINE + DISRUPTIONS + TAB NAVIGATION ===== */}
-      <div className="mt-4">
+      <div id="desk-nav" className="mt-4 scroll-mt-2">
         <DisruptionBanner disruptions={disruptions} />
         {/* Region-first: the one global zone drives the hero, POWER, ANALYTICS and
             EXPLORE. Tabs below are the views *within* the selected zone. */}
@@ -742,7 +751,7 @@ function Dashboard() {
               <ErrorBoundary name="power-overview">
                 <PowerOverviewMatrix
                   selectedZone={energyZone}
-                  onSelect={(z) => { setEnergyZone(z); setActiveTab('energy') }}
+                  onSelect={(z) => { setEnergyZone(z); goToTab('energy') }}
                 />
               </ErrorBoundary>
             )}
@@ -798,7 +807,7 @@ function Dashboard() {
         <CommandPalette
           onClose={() => { setPaletteOpen(false); setWlRefresh((n) => n + 1) }}
           tabs={TABS}
-          setActiveTab={setActiveTab}
+          setActiveTab={goToTab}
           setEnergyZone={setEnergyZone}
           authed={!!user?.authenticated}
         />
