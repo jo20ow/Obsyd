@@ -50,15 +50,15 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
   const arrow = (key) => (sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '')
 
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden">
-      <div className="px-3 py-1.5 border-b border-border/60 flex items-center gap-2">
-        <span className="font-mono text-[10px] tracking-wider text-neutral-500">EUROPEAN POWER · ALL ZONES</span>
+    <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
+      <div className="px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
+        <span className="font-mono text-[12px] font-semibold text-neutral-300">European power · all zones</span>
         <span className="font-mono text-[9px] text-neutral-700 ml-auto">sort ↕ · click a zone for detail →</span>
       </div>
       <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
         <table className="w-full font-mono text-[11px]">
           <thead className="sticky top-0 bg-surface">
-            <tr className="text-[9px] text-neutral-600 uppercase tracking-wider">
+            <tr className="text-[9px] text-neutral-500">
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
@@ -80,24 +80,24 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
                   onClick={() => onSelect?.(z.zone)}
                   className={`cursor-pointer border-t border-border/40 hover:bg-white/[0.03] ${sel ? 'bg-cyan-glow/5' : ''}`}
                 >
-                  <td className="px-3 py-1.5 text-neutral-200 whitespace-nowrap">
+                  <td className="px-3 py-2 text-neutral-200 whitespace-nowrap">
                     {z.zone_label}
                     {sel && <span className="text-cyan-glow"> ‹</span>}
                     {z.stale && <span className="text-orange-400/70 text-[8px]"> stale</span>}
                   </td>
-                  <td className="px-2 py-1.5">
+                  <td className="px-2 py-2">
                     <span className={`inline-flex items-center gap-1 font-bold ${st.t}`}>
                       <span className={`w-1.5 h-1.5 rounded-sm ${st.d}`} />
                       {z.state}
                     </span>
                   </td>
-                  <td className={`px-2 py-1.5 text-right ${zColor(z.price_z)}`}>
+                  <td className={`px-2 py-2 text-right ${zColor(z.price_z)}`}>
                     {z.price_close != null ? `€${z.price_close.toFixed(0)}` : '—'}
                   </td>
-                  <td className={`px-2 py-1.5 text-right ${zColor(z.residual_z)}`}>
+                  <td className={`px-2 py-2 text-right ${zColor(z.residual_z)}`}>
                     {z.residual_gw != null ? `${z.residual_gw.toFixed(0)} GW` : '—'}
                   </td>
-                  <td className="px-3 py-1.5 text-right text-neutral-300 whitespace-nowrap">
+                  <td className="px-3 py-2 text-right text-neutral-300 whitespace-nowrap">
                     {z.renewable_reliable === false ? '—' : z.renewable_share != null ? `${Math.round(z.renewable_share * 100)}%` : '—'}
                     {z.dunkelflaute && <span className="text-yellow-400" title="Dunkelflaute"> ⚠</span>}
                   </td>

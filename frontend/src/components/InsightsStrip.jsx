@@ -18,16 +18,16 @@ export default function InsightsStrip({ onMore }) {
   const items = (Array.isArray(data) ? data : []).slice(0, 8)
   if (items.length === 0) return null
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
-        <span className="font-mono text-[10px] text-neutral-500 tracking-wider">// ANOMALY RADAR · latest</span>
+    <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
+        <span className="font-mono text-[12px] font-semibold text-neutral-300">Anomaly radar</span>
         <button onClick={onMore} className="font-mono text-[10px] text-neutral-500 hover:text-cyan-glow transition-colors">
           More →
         </button>
       </div>
       <div className="flex gap-2 overflow-x-auto scrollbar-hidden p-3">
         {items.map((a) => (
-          <div key={a.id} className="shrink-0 w-56 border border-border rounded p-2.5 bg-[#0a0a12]">
+          <div key={a.id} className="shrink-0 w-56 border border-border rounded p-2.5 bg-surface-light">
             <div className="font-mono text-[9px] text-neutral-600">
               {timeAgo(a.created_at)}{a.zone ? ` · ${String(a.zone).toUpperCase()}` : (a.vertical ? ` · ${a.vertical}` : '')}
             </div>

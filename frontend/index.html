@@ -3,14 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Apply the saved theme (default light) before paint to avoid a flash. -->
+    <script>
+      try { if (localStorage.getItem('obsyd-theme') !== 'dark') document.documentElement.classList.add('light') } catch (e) {}
+    </script>
     <meta name="description" content="OBSYD — the European electricity desk, a free 'gridstatus for Europe'. Day-ahead prices, load &amp; residual load, generation mix, wind/solar and cross-border flows for DE-LU, FR &amp; NL — plus forecasts, the gas that fuels the marginal price, and a live anomaly radar. From the official record (ENTSO-E, Energy-Charts, GIE). Descriptive, auditable, free." />
     <meta name="robots" content="index, follow" />
-    <meta name="theme-color" content="#0f1923" />
+    <meta name="theme-color" content="#f6f7f9" />
     <link rel="canonical" href="https://obsyd.dev/" />
     <link rel="alternate" type="application/rss+xml" title="OBSYD Anomaly Radar" href="https://obsyd.dev/api/alerts/rss" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>OBSYD — The European Electricity Desk</title>
 
     <!-- Open Graph / Twitter — link previews on Slack/Discord/LinkedIn/X. -->

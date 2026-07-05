@@ -37,9 +37,9 @@ export default function MiniMixCard({ title, zone }) {
   const colorFor = (fuel, i) => FUEL_COLORS[fuel] || CYCLE[i % CYCLE.length]
 
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
-        <span className="font-mono text-[11px] text-neutral-300 truncate">{title}</span>
+    <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/50">
+        <span className="font-mono text-[11px] font-medium text-neutral-300 truncate">{title}</span>
         <a
           href={`${url}&format=csv`}
           title="Download CSV"

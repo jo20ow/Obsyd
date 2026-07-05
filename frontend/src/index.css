@@ -1,11 +1,13 @@
 @import "tailwindcss";
 
 @theme {
-  --color-cyan-glow: #00e5ff;
-  --color-green-glow: #00ff9d;
-  --color-surface: #0a0a0f;
-  --color-surface-light: #12121a;
-  --color-border: #1e1e2e;
+  /* Accent is a de-neoned teal (was neon cyan #00e5ff). Token name kept — ~350
+     `*-cyan-glow` usages flip from here; html.light overrides it darker for white. */
+  --color-cyan-glow: #2dd4bf;
+  --color-green-glow: #34d399;
+  --color-surface: #0f1115;
+  --color-surface-light: #171a21;
+  --color-border: #262a33;
   /* The desk switched from a monospace terminal face to a clean system sans
      (gridstatus-like, more readable). The UI tags text with `font-mono` everywhere,
      so this token stays the single lever — pointing it at the sans flips the whole
@@ -22,14 +24,18 @@
    panels; add breathing room via line-height. These are unlayered rules, so they
    win over Tailwind's @layer utilities of the same specificity. (Recharts axis
    ticks use inline SVG fontSize and are intentionally left small.) */
-.text-\[8px\]  { font-size: 9px; }
-.text-\[9px\]  { font-size: 10px; line-height: 1.45; }
-.text-\[10px\] { line-height: 1.5; }
-.text-\[11px\] { line-height: 1.55; }
+.text-\[8px\]  { font-size: 10px; }
+.text-\[9px\]  { font-size: 11px; line-height: 1.4; }
+.text-\[10px\] { font-size: 12px; line-height: 1.45; }
+.text-\[11px\] { font-size: 13px; line-height: 1.5; }
+.text-\[12px\] { font-size: 13px; line-height: 1.5; }
+
+/* Softer, more modern corners app-wide (gridstatus-like); pills keep rounded-full. */
+.rounded { border-radius: 0.5rem; }
 
 body {
   margin: 0;
-  background-color: #050508;
+  background-color: #0a0c10;
   color: #c8c8d0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -51,15 +57,15 @@ body {
    the rules below then handle the hardcoded neutral/near-black utilities and the
    recharts gridlines that don't read from tokens. */
 html.light {
-  --color-cyan-glow: #0891b2;   /* darker cyan/teal for contrast on white */
-  --color-green-glow: #059669;
+  --color-cyan-glow: #0d9488;   /* de-neoned teal, readable on white */
+  --color-green-glow: #16a34a;
   --color-surface: #ffffff;
-  --color-surface-light: #eef1f6;
-  --color-border: #d7dbe3;
+  --color-surface-light: #f1f3f7;
+  --color-border: #e5e7eb;
 }
 html.light body {
-  background-color: #eef0f4;
-  color: #23262e;
+  background-color: #f6f7f9;
+  color: #111827;
 }
 /* Neutral text scale, inverted for a light background. */
 html.light .text-neutral-100 { color: #0b0d12; }
@@ -73,10 +79,22 @@ html.light .text-neutral-700 { color: #9aa1ad; }
 html.light .bg-\[\#0a0a12\],
 html.light .bg-\[\#0a0a0f\],
 html.light .bg-\[\#06060a\] { background-color: #ffffff; }
+/* Dark neutral chip/track/skeleton backgrounds → light gray on white. */
+html.light .bg-neutral-800 { background-color: #eef1f6; }
+html.light .bg-neutral-900 { background-color: #f3f4f7; }
 /* Light-palette accents that are too pale on white → darker equivalents. */
-html.light .text-cyan-300 { color: #0e7490; }
-html.light .text-cyan-400 { color: #0891b2; }
+html.light .text-cyan-300 { color: #0f766e; }
+html.light .text-cyan-400 { color: #0d9488; }
 html.light .text-violet-300 { color: #6d28d9; }
 html.light .text-amber-300 { color: #b45309; }
 /* Chart gridlines are drawn with a white-alpha stroke (invisible on white). */
 html.light .recharts-cartesian-grid line { stroke: #0000000f; }
+/* Recharts tooltips carry a dark inline contentStyle → force light in light theme. */
+html.light .recharts-default-tooltip {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+}
+html.light .recharts-default-tooltip .recharts-tooltip-label,
+html.light .recharts-default-tooltip .recharts-tooltip-item { color: #111827 !important; }

@@ -23,9 +23,9 @@ export default function MiniSeriesCard({ title, series, zone, unit, scale = 1, c
   const latest = rows.length ? rows[rows.length - 1].v : null
 
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
-        <span className="font-mono text-[11px] text-neutral-300 truncate">{title}</span>
+    <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/50">
+        <span className="font-mono text-[11px] font-medium text-neutral-300 truncate">{title}</span>
         <div className="flex items-center gap-2 shrink-0">
           {latest != null && (
             <span className="font-mono text-[11px] font-bold text-cyan-glow">{latest.toFixed(1)} {unit}</span>

@@ -205,10 +205,10 @@ export default function PowerMap() {
   const count = view === 'points' ? points.length : covered
 
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden">
+    <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-xs text-neutral-500 tracking-wider">EUROPE · POWER MAP</span>
+          <span className="font-mono text-[12px] font-semibold text-neutral-300">Europe · power map</span>
           <InfoPopover text="European bidding zones shaded by today's day-ahead price (relative: cheapest→priciest across covered zones) or grid state (CALM/ELEVATED/STRESSED). Grey = zone not enabled. From the official record (ENTSO-E). Descriptive, not a forecast." />
         </div>
         <div className="flex flex-wrap items-center gap-2">

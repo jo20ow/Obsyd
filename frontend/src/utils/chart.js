@@ -4,7 +4,7 @@ export function fmtDate(d) {
   return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export const CHART_TOOLTIP_STYLE = { background: '#0a0a12', border: '1px solid #2a2a3a', fontFamily: 'monospace', fontSize: 10 }
+export const CHART_TOOLTIP_STYLE = { background: '#0f1115', border: '1px solid #262a33', fontFamily: 'inherit', fontSize: 12, borderRadius: 8 }
 
 // Hour-of-day label for the hourly day-ahead curve (0 → "00h", 13 → "13h").
 export function fmtHour(h) {

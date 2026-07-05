@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
-// ThemeContext — dark (default) vs light. Applies `class="light"` on <html>; the
-// light palette + neutral/recharts remaps live in index.css. Persists to
-// localStorage. Follows the ModeContext pattern.
+// ThemeContext — light (default, gridstatus-like) vs dark. Applies `class="light"`
+// on <html>; the light palette + neutral/recharts remaps live in index.css. Persists
+// to localStorage. A pre-paint inline script in index.html sets the class before React
+// mounts to avoid a flash. Follows the ModeContext pattern.
 
 const ThemeContext = createContext()
 
@@ -11,7 +12,7 @@ function readInitial() {
     const t = localStorage.getItem('obsyd-theme')
     if (t === 'light' || t === 'dark') return t
   } catch { /* storage blocked */ }
-  return 'dark'
+  return 'light'
 }
 
 export function ThemeProvider({ children }) {

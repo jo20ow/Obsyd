@@ -94,6 +94,9 @@ const TABS = [
 // always-on hero + the choropleth map here), not a single-zone desk.
 const DEFAULT_TAB = 'europe'
 
+// Page heading per section (gridstatus-style "Live monitoring" title on the content).
+const PAGE_TITLES = { europe: 'Live monitoring', energy: 'Power', analytics: 'Analytics', gas: 'Gas', explore: 'Data explorer', alerts: 'Alerts' }
+
 function Disclaimer() {
   return (
     <footer className="mt-4 mb-4 px-4 text-center font-mono text-[9px] text-neutral-700 leading-relaxed max-w-2xl mx-auto">
@@ -105,7 +108,7 @@ function Disclaimer() {
 // In-page section header for the grouped POWER tab (PRICES / GRID / FLOWS).
 function SectionLabel({ children }) {
   return (
-    <div className="font-mono text-[10px] text-cyan-glow/80 tracking-wider pt-1">// {children}</div>
+    <div className="font-mono text-[12px] font-semibold text-neutral-400 pt-1">{children}</div>
   )
 }
 
@@ -340,6 +343,7 @@ function Dashboard() {
 
         {/* Region pills (Everywhere + zones) + global range */}
         <div id="desk-nav" className="scroll-mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pb-3 mb-1 border-b border-border">
+          <h1 className="font-mono text-[15px] font-semibold text-neutral-200 shrink-0 mr-1">{PAGE_TITLES[activeTab] || 'Obsyd'}</h1>
           <RegionPills
             activeTab={activeTab}
             onEverywhere={() => goToTab('europe')}
@@ -549,7 +553,7 @@ function Dashboard() {
             {/* Sticky sub-nav — jump between the grouped sections instead of one long
                 scroll (gridstatus "Grid Conditions / Trends & Profile" analog). */}
             <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 py-1.5 bg-surface/95 backdrop-blur border-b border-border/60">
-              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// POWER · {energyZone}</span>
+              <span className="font-mono text-[12px] font-semibold text-neutral-300">Power · {energyZone}</span>
               <div className="flex items-center gap-1">
                 {[['section-power-prices', 'PRICES'], ['section-power-grid', 'GRID'], ['section-power-flows', 'FLOWS']].map(([id, label]) => (
                   <button key={id} onClick={() => scrollToSection(id)}
@@ -656,7 +660,7 @@ function Dashboard() {
             the choropleth map, then the anomaly radar + orientation. */}
         {activeTab === 'europe' && (
           <div className="space-y-3">
-            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// EUROPEAN POWER DESK · all zones</span>
+            <h2 className="font-mono text-[15px] font-semibold text-neutral-200">European power desk · all zones</h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
               <ErrorBoundary name="power-overview">
                 <PowerOverviewMatrix

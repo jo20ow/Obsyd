@@ -11,8 +11,8 @@ function Pill({ active, onClick, children }) {
   return (
     <button
       onClick={onClick}
-      className={`font-mono text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-        active ? 'bg-cyan-glow/10 text-cyan-glow border-cyan-glow/40' : 'text-neutral-500 border-border hover:text-neutral-300'
+      className={`font-mono text-[11px] px-3 py-1 rounded-full border transition-colors ${
+        active ? 'bg-cyan-glow text-surface border-transparent font-medium' : 'text-neutral-500 border-border hover:text-neutral-300 hover:border-neutral-400'
       }`}
     >
       {children}

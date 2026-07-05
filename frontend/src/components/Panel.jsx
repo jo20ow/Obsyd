@@ -23,7 +23,7 @@ export function InfoPopover({ text }) {
         i
       </button>
       {open && (
-        <div className="absolute top-5 left-0 z-50 w-64 max-w-[calc(100vw-2rem)] border border-border bg-[#0a0a12] rounded px-3 py-2.5 font-mono text-[10px] text-neutral-400 leading-relaxed shadow-xl shadow-black/50">
+        <div className="absolute top-5 left-0 z-50 w-64 max-w-[calc(100vw-2rem)] border border-border bg-surface rounded px-3 py-2.5 font-mono text-[10px] text-neutral-400 leading-relaxed shadow-xl shadow-black/20">
           {text}
         </div>
       )}
@@ -51,14 +51,14 @@ export default function Panel({ id, title, info, collapsible = false, defaultCol
   }, [collapsed, id, collapsible])
 
   return (
-    <div id={id ? `panel-${id}` : undefined} className="border border-border bg-surface rounded overflow-hidden">
+    <div id={id ? `panel-${id}` : undefined} className="border border-border bg-surface rounded overflow-hidden shadow-sm">
       <div
-        className={`flex items-center justify-between px-4 py-2 ${
+        className={`flex items-center justify-between px-4 py-2.5 ${
           !collapsed ? 'border-b border-border/50' : ''
         }`}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[10px] text-neutral-600 tracking-wider">
+          <span className="font-mono text-[11px] font-semibold text-neutral-300 truncate">
             {title}
           </span>
           {info && <InfoPopover text={info} />}
