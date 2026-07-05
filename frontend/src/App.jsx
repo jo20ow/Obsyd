@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
-import Header from './components/Header'
+import Sidebar from './components/Sidebar'
 import CompactView from './components/CompactView'
 import PriceChart from './components/PriceChart'
 import MacroPanel from './components/MacroPanel'
@@ -14,7 +14,7 @@ import GenMixHistoryPanel from './components/GenMixHistoryPanel'
 import TrendsPanel from './components/TrendsPanel'
 import FundamentalsPanel from './components/FundamentalsPanel'
 import JODIPanel from './components/JODIPanel'
-import ChokePointMonitor, { DisruptionBanner } from './components/ChokePointMonitor'
+import ChokePointMonitor from './components/ChokePointMonitor'
 import CorrelationPanel from './components/CorrelationPanel'
 import BriefingPanel from './components/BriefingPanel'
 import MarketStructure from './components/MarketStructure'
@@ -46,7 +46,7 @@ import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import CopperPanel from './components/CopperPanel'
-import ZoneSelector from './components/ZoneSelector'
+import RegionPills from './components/RegionPills'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
@@ -54,12 +54,9 @@ import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
 import BriefSubscribe from './components/BriefSubscribe'
 import CommandPalette from './components/CommandPalette'
-import TerminalBar from './components/TerminalBar'
-import PhysicalSituationBar from './components/PhysicalSituationBar'
 import NewsPanel from './components/NewsPanel'
 import { useAuth } from './context/AuthContext'
 import { ViewStateProvider, useViewState } from './context/ViewStateContext'
-import { useTheme } from './context/ThemeContext'
 
 // Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
 // tabs — lazy-load them so the default POWER desk doesn't ship the mapping stack.
@@ -116,39 +113,6 @@ function scrollToSection(id) {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-function TabButton({ tab, active, onChange, dim }) {
-  return (
-    <button
-      onClick={() => onChange(tab.key)}
-      className={`font-mono text-[11px] tracking-wider px-4 py-2.5 transition-colors shrink-0 border-b-2 -mb-px ${
-        active === tab.key
-          ? 'text-cyan-glow border-cyan-glow bg-cyan-glow/5'
-          : `${dim ? 'text-neutral-700' : 'text-neutral-600'} hover:text-neutral-400 border-transparent`
-      }`}
-    >
-      {tab.label}
-    </button>
-  )
-}
-
-function TabBar({ active, onChange }) {
-  const primary = TABS.filter((t) => t.primary)
-  const secondary = TABS.filter((t) => !t.primary)
-  return (
-    <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hidden border-b border-border">
-      {primary.map((tab) => (
-        <TabButton key={tab.key} tab={tab} active={active} onChange={onChange} />
-      ))}
-      {secondary.length > 0 && (
-        <span className="mx-2 text-neutral-800 select-none shrink-0" aria-hidden>·</span>
-      )}
-      {secondary.map((tab) => (
-        <TabButton key={tab.key} tab={tab} active={active} onChange={onChange} dim />
-      ))}
-    </div>
-  )
-}
-
 /**
  * Top-level router. Anonymous visitors hitting `/` see the marketing
  * Landing; signed-in users, the dashboard. Any `/app` path always
@@ -179,8 +143,7 @@ function App() {
 
 function Dashboard() {
   const [compactMode, setCompactMode] = useState(false)
-  // EUROPE (front-door) overview view: the all-zones table or the choropleth map.
-  const [overviewView, setOverviewView] = useState('table')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)
   const [, setLiveSource] = useState(null)
@@ -188,7 +151,6 @@ function Dashboard() {
   const [aisActive, setAisActive] = useState(false)
   const [gdeltActive, setGdeltActive] = useState(false)
   const [weatherAlerts, setWeatherAlerts] = useState([])
-  const [disruptions, setDisruptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -211,7 +173,6 @@ function Dashboard() {
   // the URL (?zone=) and persists. Aliased to the old local names so the ~14
   // downstream consumers stay untouched. SparkSpreadHistory is DE-LU-only in-panel.
   const { zone: energyZone, setZone: setEnergyZone } = useViewState()
-  const { theme, toggle: toggleTheme } = useTheme()
 
   // URL hash sync — keep the default (POWER) tab off the URL so the bare
   // homepage stays clean (`/`); only non-default tabs get a shareable hash.
@@ -235,7 +196,6 @@ function Dashboard() {
   // Terminal command palette (⌘K / Ctrl-K toggles it). First global key handler.
   const { user } = useAuth()
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [wlRefresh, setWlRefresh] = useState(0)
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
@@ -291,12 +251,6 @@ function Dashboard() {
             if (e.name !== 'AbortError') console.error('Weather alerts fetch:', e)
           })
 
-        fetch(`${API}/portwatch/summary`, { signal })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => { if (d?.disruptions) setDisruptions(d.disruptions) })
-          .catch((e) => {
-            if (e.name !== 'AbortError') console.error('PortWatch summary fetch:', e)
-          })
       } catch (e) {
         if (e.name === 'AbortError') return
         setError(e.message)
@@ -354,80 +308,49 @@ function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen p-3 lg:p-4">
-      {/* ===== ALWAYS VISIBLE ===== */}
+    <div className="min-h-screen lg:flex">
+      {/* ===== LEFT SIDEBAR (nav + utilities) ===== */}
+      <Sidebar
+        tabs={TABS}
+        activeTab={activeTab}
+        onNavigate={(k) => { goToTab(k); setSidebarOpen(false) }}
+        onOpenPalette={() => setPaletteOpen(true)}
+        aisActive={aisActive}
+        gdeltActive={gdeltActive}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      {/* HEADER */}
-      <Header aisActive={aisActive} gdeltActive={gdeltActive} compactMode={compactMode} onToggleCompact={() => setCompactMode(true)} />
-
-      {/* PRICE TICKER */}
-      <div className="mt-3">
-        <PriceTicker />
-      </div>
-
-      {/* TERMINAL BAR — ⌘K command palette trigger + cross-asset watchlist */}
-      <div className="mt-3">
-        <ErrorBoundary name="terminal-bar">
-          <TerminalBar
-            onOpenPalette={() => setPaletteOpen(true)}
-            setActiveTab={goToTab}
-            setEnergyZone={setEnergyZone}
-            refreshKey={wlRefresh}
-          />
-        </ErrorBoundary>
-      </div>
-
-      {/* PHYSICAL ENERGY SYSTEM — molecules + electrons in one glance (the niche top-line) */}
-      <div className="mt-3">
-        <ErrorBoundary name="physical-situation">
-          <PhysicalSituationBar onNavigate={setActiveTab} />
-        </ErrorBoundary>
-      </div>
-
-      {/* ORIENTATION (collapsed by default) + ALWAYS-ON ANOMALY RADAR. The all-zones
-          overview now lives in the default EUROPE tab (table⇄map) so it is no longer
-          duplicated here — the always-on stack is lighter. */}
-      <ErrorBoundary name="how-to-read">
-        <div className="mt-3">
-          <HowToRead />
+      {/* ===== MAIN CONTENT ===== */}
+      <main className="flex-1 min-w-0 p-3 lg:p-4">
+        {/* Mobile top bar: hamburger + brand (sidebar is a drawer below lg) */}
+        <div className="lg:hidden flex items-center justify-between mb-3 pb-2 border-b border-border">
+          <button onClick={() => setSidebarOpen(true)} aria-label="Open menu"
+            className="font-mono text-lg text-neutral-400 hover:text-cyan-glow">☰</button>
+          <span className="font-mono font-bold tracking-widest text-cyan-glow">OBSYD</span>
+          <span className="w-5" />
         </div>
-      </ErrorBoundary>
-      <div className="mt-3 lg:max-h-[420px] lg:overflow-y-auto scrollbar-hidden">
-        <ErrorBoundary name="alerts">
-          <AlertsPanel weatherAlerts={weatherAlerts} />
-        </ErrorBoundary>
-      </div>
 
-      {/* ===== ZONE SPINE + DISRUPTIONS + TAB NAVIGATION ===== */}
-      <div id="desk-nav" className="mt-4 scroll-mt-2">
-        <DisruptionBanner disruptions={disruptions} />
-        {/* Region-first: the one global zone drives the hero, POWER, ANALYTICS and
-            EXPLORE. Tabs below are the views *within* the selected zone. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">ZONE</span>
-            <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
-          </div>
-          <div className="flex items-center gap-2">
+        {/* Slim price ticker */}
+        <div className="mb-3">
+          <PriceTicker />
+        </div>
+
+        {/* Region pills (Everywhere + zones) + global range */}
+        <div id="desk-nav" className="scroll-mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pb-3 mb-1 border-b border-border">
+          <RegionPills
+            activeTab={activeTab}
+            onEverywhere={() => goToTab('europe')}
+            onPickZone={(z) => { setEnergyZone(z); if (activeTab === 'europe') goToTab('energy') }}
+          />
+          <div className="flex items-center gap-2 ml-auto">
             <span className="font-mono text-[10px] text-neutral-600 tracking-wider">RANGE</span>
             <RangeSelector />
           </div>
-          <span className="font-mono text-[9px] text-neutral-700 tracking-wider hidden md:inline">
-            one zone + one window drive the whole desk
-          </span>
-          <button
-            onClick={toggleTheme}
-            title="Toggle light / dark theme"
-            className="ml-auto font-mono text-[10px] px-2 py-0.5 rounded border border-border text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors shrink-0"
-          >
-            {theme === 'light' ? '☾ Dark' : '☀ Light'}
-          </button>
         </div>
-        <TabBar active={activeTab} onChange={setActiveTab} />
-      </div>
 
-      {/* ===== TAB CONTENT ===== */}
-      <div className="mt-3">
+        {/* ===== TAB CONTENT ===== */}
+        <div className="mt-3">
 
         {/* CRITICAL MATERIALS TAB — supply concentration for critical minerals */}
         {activeTab === 'critical' && (
@@ -727,34 +650,30 @@ function Dashboard() {
           </>
         )}
 
-        {/* EUROPE TAB (default front door) — the all-zones overview as a sortable
-            table or a bidding-zone choropleth (toggle). Single home for the overview
-            (no longer duplicated in the always-on hero). */}
+        {/* LIVE (default front door) — the all-zones overview: sortable table BESIDE
+            the choropleth map, then the anomaly radar + orientation. */}
         {activeTab === 'europe' && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <span className="font-mono text-[10px] text-neutral-600 tracking-wider mr-1">// EUROPEAN POWER DESK · all zones</span>
-              {[['table', 'TABLE'], ['map', 'MAP']].map(([v, label]) => (
-                <button key={v} onClick={() => setOverviewView(v)}
-                  className={`font-mono text-[9px] px-2 py-0.5 rounded border ${overviewView === v ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            {overviewView === 'map' ? (
-              <ErrorBoundary name="power-map">
-                <Suspense fallback={MAP_FALLBACK}>
-                  <PowerMap />
-                </Suspense>
-              </ErrorBoundary>
-            ) : (
+          <div className="space-y-3">
+            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// EUROPEAN POWER DESK · all zones</span>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
               <ErrorBoundary name="power-overview">
                 <PowerOverviewMatrix
                   selectedZone={energyZone}
                   onSelect={(z) => { setEnergyZone(z); goToTab('energy') }}
                 />
               </ErrorBoundary>
-            )}
+              <ErrorBoundary name="power-map">
+                <Suspense fallback={MAP_FALLBACK}>
+                  <PowerMap />
+                </Suspense>
+              </ErrorBoundary>
+            </div>
+            <ErrorBoundary name="alerts">
+              <AlertsPanel weatherAlerts={weatherAlerts} />
+            </ErrorBoundary>
+            <ErrorBoundary name="how-to-read">
+              <HowToRead />
+            </ErrorBoundary>
           </div>
         )}
 
@@ -800,12 +719,13 @@ function Dashboard() {
         )}
       </div>
 
-      {/* ===== FOOTER ===== */}
-      <Disclaimer />
+        {/* ===== FOOTER ===== */}
+        <Disclaimer />
+      </main>
 
       {paletteOpen && (
         <CommandPalette
-          onClose={() => { setPaletteOpen(false); setWlRefresh((n) => n + 1) }}
+          onClose={() => setPaletteOpen(false)}
           tabs={TABS}
           setActiveTab={goToTab}
           setEnergyZone={setEnergyZone}
