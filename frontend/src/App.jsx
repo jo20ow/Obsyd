@@ -47,6 +47,7 @@ import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import CopperPanel from './components/CopperPanel'
 import RegionPills from './components/RegionPills'
+import LiveCharts from './components/LiveCharts'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
@@ -670,6 +671,9 @@ function Dashboard() {
             </div>
             <ErrorBoundary name="alerts">
               <AlertsPanel weatherAlerts={weatherAlerts} />
+            </ErrorBoundary>
+            <ErrorBoundary name="live-charts">
+              <LiveCharts />
             </ErrorBoundary>
             <ErrorBoundary name="how-to-read">
               <HowToRead />
