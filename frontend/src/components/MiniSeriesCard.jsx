@@ -28,7 +28,7 @@ export default function MiniSeriesCard({ title, series, zone, unit, scale = 1, c
         <span className="font-mono text-[11px] font-medium text-neutral-300 truncate">{title}</span>
         <div className="flex items-center gap-2 shrink-0">
           {latest != null && (
-            <span className="font-mono text-[11px] font-bold text-cyan-glow">{latest.toFixed(1)} {unit}</span>
+            <span className="num text-[11px] font-bold text-cyan-glow">{latest.toFixed(1)} {unit}</span>
           )}
           <a
             href={`${url}&format=csv`}

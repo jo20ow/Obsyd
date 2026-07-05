@@ -49,6 +49,7 @@ import CopperPanel from './components/CopperPanel'
 import RegionPills from './components/RegionPills'
 import LiveCharts from './components/LiveCharts'
 import InsightsStrip from './components/InsightsStrip'
+import NarrativeHero from './components/NarrativeHero'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
@@ -660,6 +661,9 @@ function Dashboard() {
             the choropleth map, then the anomaly radar + orientation. */}
         {activeTab === 'europe' && (
           <div className="space-y-3">
+            <ErrorBoundary name="narrative">
+              <NarrativeHero />
+            </ErrorBoundary>
             <h2 className="font-mono text-[15px] font-semibold text-neutral-200">European power desk · all zones</h2>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
               <ErrorBoundary name="power-overview">

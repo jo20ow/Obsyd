@@ -33,6 +33,11 @@
 /* Softer, more modern corners app-wide (gridstatus-like); pills keep rounded-full. */
 .rounded { border-radius: 0.5rem; }
 
+/* Obsyd identity: crisp monospace + tabular figures for DATA values on the sans UI
+   (a clean-UI + terminal-numbers signature that reads more "analyst desk" than
+   gridstatus' all-round-sans). Applied via `.num` to numeric cells/values. */
+.num { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
 body {
   margin: 0;
   background-color: #0a0c10;

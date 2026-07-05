@@ -91,13 +91,13 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
                       {z.state}
                     </span>
                   </td>
-                  <td className={`px-2 py-2 text-right ${zColor(z.price_z)}`}>
+                  <td className={`px-2 py-2 text-right num ${zColor(z.price_z)}`}>
                     {z.price_close != null ? `€${z.price_close.toFixed(0)}` : '—'}
                   </td>
-                  <td className={`px-2 py-2 text-right ${zColor(z.residual_z)}`}>
+                  <td className={`px-2 py-2 text-right num ${zColor(z.residual_z)}`}>
                     {z.residual_gw != null ? `${z.residual_gw.toFixed(0)} GW` : '—'}
                   </td>
-                  <td className="px-3 py-2 text-right text-neutral-300 whitespace-nowrap">
+                  <td className="px-3 py-2 text-right num text-neutral-300 whitespace-nowrap">
                     {z.renewable_reliable === false ? '—' : z.renewable_share != null ? `${Math.round(z.renewable_share * 100)}%` : '—'}
                     {z.dunkelflaute && <span className="text-yellow-400" title="Dunkelflaute"> ⚠</span>}
                   </td>
