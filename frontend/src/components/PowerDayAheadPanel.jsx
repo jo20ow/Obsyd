@@ -2,6 +2,8 @@ import { useState } from 'react'
 import Panel from './Panel'
 import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
@@ -17,10 +19,11 @@ function NegativeDot({ cx, cy, payload }) {
 }
 
 export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
-  const url = `${API}/power/day-ahead?days=120&zone=${zone}`
-  const { data, loading, error } = useFetchWithError(url, { deps: [zone] })
-  // The 24h shape behind the daily mean (peak/off-peak). Fetched alongside; the
-  // toggle just swaps which series is charted.
+  const { range } = useViewState()
+  const url = `${API}/power/day-ahead?days=${rangeDays(range)}&zone=${zone}`
+  const { data, loading, error } = useFetchWithError(url, { deps: [zone, range] })
+  // The 24h shape behind the daily mean (peak/off-peak). Latest day only, so it is
+  // independent of the global range. The toggle just swaps which series is charted.
   const { data: hourlyData } = useFetchWithError(`${API}/power/day-ahead/hourly?zone=${zone}`, { deps: [zone] })
   const [view, setView] = useState('daily')
 
@@ -53,6 +56,7 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
       title={`POWER DAY-AHEAD · ${zoneLabel}`}
       info="ENTSO-E day-ahead electricity prices for the selected bidding zone (EUR/MWh). Daily view = the mean of 24 hourly auction results (A44); red markers flag days with a negative-price hour (renewable oversupply). Toggle to HOURLY for the 24h peak/off-peak shape of the latest day. Free, official redistributable data."
       collapsible
+      downloadUrl={`${API}/v1/series?series=price.dayahead&zone=${zone}&start=${rangeStart(range)}&resolution=daily&format=csv`}
       headerRight={
         close != null && (
           <span className="font-mono text-[10px] text-cyan-glow font-bold">

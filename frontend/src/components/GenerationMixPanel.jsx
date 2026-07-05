@@ -1,5 +1,7 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
@@ -30,8 +32,9 @@ const TYPE_COLORS = {
 const DEFAULT_COLOR = '#64748b'
 
 export default function GenerationMixPanel({ zone = 'DE_LU' }) {
-  const url = `${API}/power/generation-mix?days=30&zone=${zone}`
-  const { data, loading, error } = useFetchWithError(url, { deps: [zone] })
+  const { range } = useViewState()
+  const url = `${API}/power/generation-mix?days=${rangeDays(range)}&zone=${zone}`
+  const { data, loading, error } = useFetchWithError(url, { deps: [zone, range] })
 
   if (error)
     return (
@@ -66,6 +69,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
       info="Full ENTSO-E A75 generation breakdown by production type (daily mean MW). Covers nuclear, coal, gas, hydro, biomass, wind, solar and more. Source: ENTSO-E Transparency Platform, processType A16."
       collapsible
       defaultCollapsed
+      downloadUrl={`${API}/v1/genmix?zone=${zone}&start=${rangeStart(range)}&resolution=daily&format=csv`}
       headerRight={
         totalGW != null && (
           <span className="font-mono text-[10px] font-bold text-cyan-400">

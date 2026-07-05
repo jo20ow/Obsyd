@@ -3,17 +3,17 @@ import { useAuth } from '../context/AuthContext'
 
 const API = '/api'
 
-// Which view a watchlist chip jumps to when clicked.
+// Which view a watchlist chip jumps to when clicked. The non-power verticals
+// (market/crypto/critical) are split out, so only power/gas destinations remain;
+// legacy kinds fall back to the overview rather than a dead tab.
 function navFor(item, setActiveTab, setEnergyZone) {
-  if (item.kind === 'symbol') return () => setActiveTab('market')
-  if (item.kind === 'crypto') return () => setActiveTab('crypto')
-  if (item.kind === 'material') return () => setActiveTab('critical')
   if (item.kind === 'zone') {
     // Any zone watchlist item routes to the power desk (the backend resolves
     // unknown/disabled zones to the default zone). Data-driven — no hardcoded set.
     return () => { setEnergyZone(item.key); setActiveTab('energy') }
   }
-  return () => {}
+  if (item.kind === 'symbol') return () => setActiveTab('gas')
+  return () => setActiveTab('europe')
 }
 
 /**

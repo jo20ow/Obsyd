@@ -132,11 +132,13 @@ async def genmix(
     start: str | None = Query(None, description="YYYY-MM-DD / ISO 8601 (default: 1 year ago)"),
     end: str | None = Query(None, description="default: now"),
     resolution: str = Query("monthly", pattern="^(daily|monthly)$"),
+    format: str = Query("json", pattern="^(json|csv)$"),
     db: Session = Depends(get_db),
 ):
     """Generation mix over time — every fuel (gen.<psr>) for one zone, aggregated to
     daily or monthly mean MW, in a wide shape ({t, <fuel>: mw, ...}) for a stacked area.
-    Shows the energy transition per zone. Descriptive."""
+    `format=csv` streams the same wide table as a download. Shows the energy transition
+    per zone. Descriptive."""
     z = zone if zone in POWER_ZONES else DEFAULT_ZONE
     end_dt = _parse_ts(end, datetime.now(UTC))
     start_dt = _parse_ts(start, end_dt - timedelta(days=365))
@@ -167,6 +169,26 @@ async def genmix(
             row[label] = round(sum(vals) / len(vals), 1)
         data.append(row)
     fuels = sorted({label for per in buckets.values() for label in per})
+
+    if format == "csv":
+        zsafe = z.replace("/", "_")
+        fname = f"genmix_{zsafe}_{resolution}.csv"
+        header = "t" + ("," + ",".join(fuels) if fuels else "") + "\n"
+
+        def _gen():
+            yield header
+            for row in data:
+                yield ",".join([row["t"]] + [str(row.get(f, "")) for f in fuels]) + "\n"
+
+        return StreamingResponse(
+            _gen(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{fname}"',
+                "X-Attribution": "ENTSO-E",
+            },
+        )
+
     return {
         "available": bool(data),
         "zone": z,

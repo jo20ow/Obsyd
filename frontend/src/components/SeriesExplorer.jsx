@@ -4,38 +4,23 @@ import {
 } from 'recharts'
 import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeStart } from '../utils/ranges'
 import { CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
 const COLOR_A = '#22d3ee'
 const COLOR_B = '#a78bfa'
 
-const RANGES = [
-  { key: '7d', label: '7D', days: 7 },
-  { key: '30d', label: '30D', days: 30 },
-  { key: '90d', label: '90D', days: 90 },
-  { key: '1y', label: '1Y', days: 365 },
-  { key: '5y', label: '5Y', days: 1826 },
-]
-
-function isoDaysAgo(n) {
-  // Build a YYYY-MM-DD n days before today without Date.now gymnastics in render.
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - n)
-  return d.toISOString().slice(0, 10)
-}
-
 export default function SeriesExplorer() {
   const [series, setSeries] = useState('price.dayahead')
-  const [zone, setZone] = useState('DE_LU')
-  const [compareZone, setCompareZone] = useState('')  // '' = off
+  const { zone, setZone, range } = useViewState()  // primary zone + range = the global spine
+  const [compareZone, setCompareZone] = useState('')  // '' = off (local to the explorer)
   const [spread, setSpread] = useState(false)  // Δ (A−B) instead of two lines
-  const [range, setRange] = useState('30d')
   const [resolution, setResolution] = useState('daily')
 
   const { data: catalog } = useFetchWithError(`${API}/v1/series/catalog`)
-  const rangeDays = RANGES.find((r) => r.key === range)?.days ?? 30
-  const start = useMemo(() => isoDaysAgo(rangeDays), [rangeDays])
+  const start = rangeStart(range)
 
   const enc = encodeURIComponent(series)
   const url = `${API}/v1/series?series=${enc}&zone=${zone}&start=${start}&resolution=${resolution}`
@@ -101,14 +86,6 @@ export default function SeriesExplorer() {
             Δ A−B
           </button>
         )}
-        <div className="flex items-center gap-1">
-          {RANGES.map((r) => (
-            <button key={r.key} onClick={() => setRange(r.key)}
-              className={`font-mono text-[9px] px-2 py-0.5 rounded border ${range === r.key ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>
-              {r.label}
-            </button>
-          ))}
-        </div>
         <div className="flex items-center gap-1">
           {['hourly', 'daily'].map((rz) => (
             <button key={rz} onClick={() => setResolution(rz)}

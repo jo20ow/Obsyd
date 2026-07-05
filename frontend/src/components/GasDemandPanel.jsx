@@ -1,5 +1,7 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
@@ -36,8 +38,9 @@ function mergeRows(demand, power) {
 }
 
 export default function GasDemandPanel() {
-  const demand = useFetchWithError(`${API}/gas/demand?days=120`)
-  const power = useFetchWithError(`${API}/gas/power-burn?days=120`)
+  const { range } = useViewState()
+  const demand = useFetchWithError(`${API}/gas/demand?days=${rangeDays(range)}`, { deps: [range] })
+  const power = useFetchWithError(`${API}/gas/power-burn?days=${rangeDays(range)}`, { deps: [range] })
 
   const loading = demand.loading || power.loading
   const error = demand.error // demand is the required source; power may be unavailable

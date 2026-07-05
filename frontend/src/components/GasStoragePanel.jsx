@@ -1,5 +1,7 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
@@ -8,7 +10,8 @@ import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
 const API = '/api'
 
 export default function GasStoragePanel() {
-  const { data, loading, error } = useFetchWithError(`${API}/gas/storage?days=120`)
+  const { range } = useViewState()
+  const { data, loading, error } = useFetchWithError(`${API}/gas/storage?days=${rangeDays(range)}`, { deps: [range] })
 
   if (error)
     return (

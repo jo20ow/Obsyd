@@ -1,5 +1,7 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
@@ -9,8 +11,9 @@ import TrackRecordBadge from './TrackRecordBadge'
 const API = '/api'
 
 export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
+  const { range } = useViewState()
   const { data, loading, error } = useFetchWithError(
-    `${API}/power/spark-spread?days=120&zone=${zone}`, { deps: [zone] },
+    `${API}/power/spark-spread?days=${rangeDays(range)}&zone=${zone}`, { deps: [zone, range] },
   )
   const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
 

@@ -147,6 +147,21 @@ def test_genmix_wide_by_fuel(db_session):
     assert row["Wind Onshore"] == 10_000.0
 
 
+def test_genmix_csv_streams_wide_download(db_session):
+    # Same wide shape as the JSON view, streamed as a CSV download: header = t + sorted fuels.
+    upsert_hourly(db_session, "gen.B16", "DE_LU", [(_BASE + i * _H, 5_000.0) for i in range(24)], unit="MW")
+    upsert_hourly(db_session, "gen.B19", "DE_LU", [(_BASE + i * _H, 10_000.0) for i in range(24)], unit="MW")
+    resp = _client(db_session).get(
+        "/api/v1/genmix?zone=DE_LU&start=2026-06-01&end=2026-06-02&resolution=daily&format=csv"
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert "attachment" in resp.headers["content-disposition"]
+    lines = resp.text.strip().splitlines()
+    assert lines[0] == "t,Solar,Wind Onshore"
+    assert lines[1] == "2026-06-01,5000.0,10000.0"
+
+
 def test_genmix_empty_zone(db_session):
     body = _client(db_session).get("/api/v1/genmix?zone=FR").json()
     assert body["available"] is False

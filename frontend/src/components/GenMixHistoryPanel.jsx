@@ -1,24 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from 'recharts'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeStart } from '../utils/ranges'
 import { CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
-
-function isoDaysAgo(n) {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - n)
-  return d.toISOString().slice(0, 10)
-}
-
-const RANGES = [
-  { key: '1y', label: '1Y', days: 365 },
-  { key: '3y', label: '3Y', days: 1096 },
-  { key: '5y', label: '5Y', days: 1826 },
-]
 
 // Readable ENTSO-E fuel label → colour; anything unmapped falls back to the cycle.
 const FUEL_COLORS = {
@@ -31,9 +21,9 @@ const FUEL_COLORS = {
 const CYCLE = ['#f472b6', '#fb923c', '#34d399', '#818cf8', '#e879f9', '#fbbf24']
 
 export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
-  const [range, setRange] = useState('3y')
-  const days = RANGES.find((r) => r.key === range)?.days ?? 1096
-  const start = useMemo(() => isoDaysAgo(days), [days])
+  const { range } = useViewState()
+  // Monthly buckets need >= 1y to be meaningful, so a short global range floors here.
+  const start = rangeStart(range, 365)
 
   const url = `${API}/v1/genmix?zone=${zone}&start=${start}&resolution=monthly`
   const { data: resp, loading } = useFetchWithError(url, { deps: [zone, start] })
@@ -58,16 +48,9 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
       title="GENERATION MIX · over time"
       info="Monthly-mean generation by fuel (ENTSO-E A75), stacked over years — the energy transition per zone. GW. Descriptive, from the official record."
       collapsible
-      headerRight={<span className="font-mono text-[9px] text-neutral-600">GW</span>}
+      downloadUrl={`${url}&format=csv`}
+      headerRight={<span className="font-mono text-[9px] text-neutral-600">GW · ≥1Y</span>}
     >
-      <div className="flex items-center gap-1 px-4 pt-3">
-        {RANGES.map((r) => (
-          <button key={r.key} onClick={() => setRange(r.key)}
-            className={`font-mono text-[9px] px-2 py-0.5 rounded border ${range === r.key ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>
-            {r.label}
-          </button>
-        ))}
-      </div>
       {loading && <div className="px-4 py-8 text-center font-mono text-[10px] text-neutral-600 animate-pulse">Loading…</div>}
       {chart.length > 0 && (
         <div className="px-2 pt-2 pb-1">

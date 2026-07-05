@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -35,7 +37,8 @@ function FlagDot({ cx, cy, payload }) {
 }
 
 export default function GasBalancePanel() {
-  const { data, loading, error } = useFetchWithError(`${API}/gas/balance?days=120`)
+  const { range } = useViewState()
+  const { data, loading, error } = useFetchWithError(`${API}/gas/balance?days=${rangeDays(range)}`, { deps: [range] })
   const [view, setView] = useState('residual') // 'residual' | 'decomp'
 
   if (error)

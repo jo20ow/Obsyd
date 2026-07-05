@@ -5,22 +5,12 @@ import {
 import Panel from './Panel'
 import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeStart } from '../utils/ranges'
 import { CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
 const MAX_POINTS = 2000
-
-function isoDaysAgo(n) {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - n)
-  return d.toISOString().slice(0, 10)
-}
-
-const RANGES = [
-  { key: '90d', label: '90D', days: 90 },
-  { key: '1y', label: '1Y', days: 365 },
-  { key: '5y', label: '5Y', days: 1826 },
-]
 
 const METRICS = {
   price: { key: 'price.dayahead', label: 'Day-ahead price', unit: '€/MWh', scale: 1, color: '#22d3ee' },
@@ -29,10 +19,9 @@ const METRICS = {
 
 export default function DurationCurvePanel({ zone = 'DE_LU' }) {
   const [metric, setMetric] = useState('price')
-  const [range, setRange] = useState('1y')
+  const { range } = useViewState()
   const m = METRICS[metric]
-  const days = RANGES.find((r) => r.key === range)?.days ?? 365
-  const start = useMemo(() => isoDaysAgo(days), [days])
+  const start = rangeStart(range)
 
   const url = `${API}/v1/series?series=${m.key}&zone=${zone}&start=${start}&resolution=hourly`
   const { data: resp, loading } = useFetchWithError(url, { deps: [m.key, zone, start] })
@@ -58,6 +47,7 @@ export default function DurationCurvePanel({ zone = 'DE_LU' }) {
       title={`DURATION CURVE · ${m.label}`}
       info="Every hour in the range sorted from highest to lowest, plotted against the % of hours. Reads 'how many hours sit above a given level' — the classic load/price-duration curve. Descriptive, from the official hourly record."
       collapsible
+      downloadUrl={`${url}&format=csv`}
       headerRight={<span className="font-mono text-[9px] text-neutral-600">{stats ? `${stats.n} h` : ''}</span>}
     >
       <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
@@ -66,14 +56,6 @@ export default function DurationCurvePanel({ zone = 'DE_LU' }) {
             <button key={k} onClick={() => setMetric(k)}
               className={`font-mono text-[9px] px-2 py-0.5 rounded border ${metric === k ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>
               {v.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1">
-          {RANGES.map((r) => (
-            <button key={r.key} onClick={() => setRange(r.key)}
-              className={`font-mono text-[9px] px-2 py-0.5 rounded border ${range === r.key ? 'text-violet-300 border-violet-400/40 bg-violet-400/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>
-              {r.label}
             </button>
           ))}
         </div>

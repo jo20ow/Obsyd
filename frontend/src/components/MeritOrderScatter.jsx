@@ -1,30 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
 import Panel from './Panel'
 import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeStart } from '../utils/ranges'
 import { CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
 const MAX_POINTS = 4000
 
-function isoDaysAgo(n) {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - n)
-  return d.toISOString().slice(0, 10)
-}
-
-const RANGES = [
-  { key: '90d', label: '90D', days: 90 },
-  { key: '1y', label: '1Y', days: 365 },
-]
-
 export default function MeritOrderScatter({ zone = 'DE_LU' }) {
-  const [range, setRange] = useState('90d')
-  const days = RANGES.find((r) => r.key === range)?.days ?? 90
-  const start = useMemo(() => isoDaysAgo(days), [days])
+  const { range } = useViewState()
+  const start = rangeStart(range)
 
   const priceUrl = `${API}/v1/series?series=price.dayahead&zone=${zone}&start=${start}&resolution=hourly`
   const resUrl = `${API}/v1/series?series=residual.actual&zone=${zone}&start=${start}&resolution=hourly`
@@ -62,14 +52,6 @@ export default function MeritOrderScatter({ zone = 'DE_LU' }) {
       collapsible
       defaultCollapsed
     >
-      <div className="flex items-center gap-1 px-4 pt-3">
-        {RANGES.map((r) => (
-          <button key={r.key} onClick={() => setRange(r.key)}
-            className={`font-mono text-[9px] px-2 py-0.5 rounded border ${range === r.key ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>
-            {r.label}
-          </button>
-        ))}
-      </div>
       {corr != null && (
         <div className="px-4 pt-2">
           <PanelTakeaway>

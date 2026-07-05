@@ -1,5 +1,7 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
@@ -17,7 +19,8 @@ function Stat({ label, value }) {
 }
 
 export default function GasSupplyPanel() {
-  const { data, loading, error } = useFetchWithError(`${API}/gas/supply?days=120`)
+  const { range } = useViewState()
+  const { data, loading, error } = useFetchWithError(`${API}/gas/supply?days=${rangeDays(range)}`, { deps: [range] })
 
   if (error)
     return (

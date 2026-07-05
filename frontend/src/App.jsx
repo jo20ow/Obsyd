@@ -47,6 +47,7 @@ import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import CopperPanel from './components/CopperPanel'
 import ZoneSelector from './components/ZoneSelector'
+import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
@@ -57,6 +58,7 @@ import TerminalBar from './components/TerminalBar'
 import PhysicalSituationBar from './components/PhysicalSituationBar'
 import NewsPanel from './components/NewsPanel'
 import { useAuth } from './context/AuthContext'
+import { ViewStateProvider, useViewState } from './context/ViewStateContext'
 
 // Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
 // tabs — lazy-load them so the default POWER desk doesn't ship the mapping stack.
@@ -98,6 +100,19 @@ function Disclaimer() {
       OBSYD is an open-source market observation tool. It does not provide investment advice, trading signals, or recommendations. All data is provided as-is for informational purposes only. AIS data is self-reported and unverified. Correlations shown are statistical observations, not causal predictions. Past correlations do not indicate future results. Not regulated by BaFin or any financial authority.
     </footer>
   )
+}
+
+// In-page section header for the grouped POWER tab (PRICES / GRID / FLOWS).
+function SectionLabel({ children }) {
+  return (
+    <div className="font-mono text-[10px] text-cyan-glow/80 tracking-wider pt-1">// {children}</div>
+  )
+}
+
+// Smooth-scroll to an in-page section anchor (the POWER sub-nav).
+function scrollToSection(id) {
+  const el = document.getElementById(id)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function TabButton({ tab, active, onChange, dim }) {
@@ -152,11 +167,19 @@ function App() {
     return <Landing />
   }
 
-  return <Dashboard />
+  // ViewStateProvider (zone+range spine + URL sync) wraps only the Dashboard, so the
+  // anonymous Landing route is never rewritten with ?zone=&range=.
+  return (
+    <ViewStateProvider>
+      <Dashboard />
+    </ViewStateProvider>
+  )
 }
 
 function Dashboard() {
   const [compactMode, setCompactMode] = useState(false)
+  // EUROPE (front-door) overview view: the all-zones table or the choropleth map.
+  const [overviewView, setOverviewView] = useState('table')
   const [eiaData, setEiaData] = useState([])
   const [liveData, setLiveData] = useState(null)
   const [, setLiveSource] = useState(null)
@@ -173,9 +196,11 @@ function Dashboard() {
     return TABS.find((t) => t.key === hash) ? hash : DEFAULT_TAB
   })
 
-  // Selected bidding zone for the ENERGY tab (DE_LU / FR / NL).
-  // SparkSpreadHistory has no zone column and stays DE-LU only (intentional).
-  const [energyZone, setEnergyZone] = useState('DE_LU')
+  // Selected bidding zone — now the global navigation spine (ViewStateContext):
+  // one zone drives the hero, POWER, ANALYTICS and the explorer, is mirrored into
+  // the URL (?zone=) and persists. Aliased to the old local names so the ~14
+  // downstream consumers stay untouched. SparkSpreadHistory is DE-LU-only in-panel.
+  const { zone: energyZone, setZone: setEnergyZone } = useViewState()
 
   // URL hash sync — keep the default (POWER) tab off the URL so the bare
   // homepage stays clean (`/`); only non-default tabs get a shareable hash.
@@ -348,32 +373,38 @@ function Dashboard() {
         </ErrorBoundary>
       </div>
 
-      {/* POWER DESK HERO + ANOMALY RADAR — the always-on front door */}
+      {/* ORIENTATION (collapsed by default) + ALWAYS-ON ANOMALY RADAR. The all-zones
+          overview now lives in the default EUROPE tab (table⇄map) so it is no longer
+          duplicated here — the always-on stack is lighter. */}
       <ErrorBoundary name="how-to-read">
         <div className="mt-3">
           <HowToRead />
         </div>
       </ErrorBoundary>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-3 mt-3">
-        <div className="space-y-2">
-          <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// EUROPEAN POWER DESK</span>
-          <ErrorBoundary name="power-overview">
-            <PowerOverviewMatrix
-              selectedZone={energyZone}
-              onSelect={(z) => { setEnergyZone(z); setActiveTab('energy') }}
-            />
-          </ErrorBoundary>
-        </div>
-        <div className="lg:max-h-[600px] lg:overflow-y-auto scrollbar-hidden">
-          <ErrorBoundary name="alerts">
-            <AlertsPanel weatherAlerts={weatherAlerts} />
-          </ErrorBoundary>
-        </div>
+      <div className="mt-3 lg:max-h-[420px] lg:overflow-y-auto scrollbar-hidden">
+        <ErrorBoundary name="alerts">
+          <AlertsPanel weatherAlerts={weatherAlerts} />
+        </ErrorBoundary>
       </div>
 
-      {/* ===== DISRUPTIONS + TAB NAVIGATION ===== */}
+      {/* ===== ZONE SPINE + DISRUPTIONS + TAB NAVIGATION ===== */}
       <div className="mt-4">
         <DisruptionBanner disruptions={disruptions} />
+        {/* Region-first: the one global zone drives the hero, POWER, ANALYTICS and
+            EXPLORE. Tabs below are the views *within* the selected zone. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">ZONE</span>
+            <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-neutral-600 tracking-wider">RANGE</span>
+            <RangeSelector />
+          </div>
+          <span className="font-mono text-[9px] text-neutral-700 tracking-wider hidden md:inline">
+            one zone + one window drive the whole desk
+          </span>
+        </div>
         <TabBar active={activeTab} onChange={setActiveTab} />
       </div>
 
@@ -571,58 +602,58 @@ function Dashboard() {
             zone-aware, complete free panels (price, residual) lead; the DE-LU-only
             spark spread follows. */}
         {activeTab === 'energy' && (
-          <>
-            {/* Selected-zone detail (the deep-dive under the all-zones overview above) */}
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// POWER DETAIL</span>
-              <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
+          <div className="space-y-3">
+            {/* Sticky sub-nav — jump between the grouped sections instead of one long
+                scroll (gridstatus "Grid Conditions / Trends & Profile" analog). */}
+            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 py-1.5 bg-[#050508]/95 backdrop-blur border-b border-border/60">
+              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// POWER · {energyZone}</span>
+              <div className="flex items-center gap-1">
+                {[['section-power-prices', 'PRICES'], ['section-power-grid', 'GRID'], ['section-power-flows', 'FLOWS']].map(([id, label]) => (
+                  <button key={id} onClick={() => scrollToSection(id)}
+                    className="font-mono text-[9px] px-2 py-0.5 rounded border text-neutral-500 border-border hover:text-cyan-glow hover:border-cyan-glow/40">
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
+
             <ErrorBoundary name="power-situation">
               <PowerSituationHeader zone={energyZone} />
             </ErrorBoundary>
 
-            {/* Row 1: Day-Ahead price + negative-price flags (free, zoned) */}
-            <div className="mt-3">
+            {/* PRICES — day-ahead + spark spread */}
+            <div id="section-power-prices" className="scroll-mt-16 space-y-3">
+              <SectionLabel>PRICES</SectionLabel>
               <ErrorBoundary name="power-dayahead">
                 <PowerDayAheadPanel zone={energyZone} />
               </ErrorBoundary>
-            </div>
-
-            {/* Row 2: Residual Load + Dunkelflaute (free, zoned) */}
-            <div className="mt-3">
-              <ErrorBoundary name="power-grid">
-                <PowerGridPanel zone={energyZone} />
-              </ErrorBoundary>
-            </div>
-
-            {/* Row 2b: Day-ahead load forecast vs actual + tomorrow (forward-looking) */}
-            <div className="mt-3">
-              <ErrorBoundary name="power-load-forecast">
-                <PowerLoadForecastPanel zone={energyZone} />
-              </ErrorBoundary>
-            </div>
-
-            {/* Row 3: Spark Spread — DE-LU only, gas-derived */}
-            <div className="mt-3">
               <ErrorBoundary name="power-spark">
                 <SparkSpreadPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
 
-            {/* Row 4: Generation Mix (free) */}
-            <div className="mt-3">
+            {/* GRID & GENERATION — residual/Dunkelflaute, load forecast, generation mix */}
+            <div id="section-power-grid" className="scroll-mt-16 space-y-3">
+              <SectionLabel>GRID &amp; GENERATION</SectionLabel>
+              <ErrorBoundary name="power-grid">
+                <PowerGridPanel zone={energyZone} />
+              </ErrorBoundary>
+              <ErrorBoundary name="power-load-forecast">
+                <PowerLoadForecastPanel zone={energyZone} />
+              </ErrorBoundary>
               <ErrorBoundary name="generation-mix">
                 <GenerationMixPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
 
-            {/* Row 5: Cross-Border Physical Flows (free) */}
-            <div className="mt-3">
+            {/* FLOWS — cross-border physical flows */}
+            <div id="section-power-flows" className="scroll-mt-16 space-y-3">
+              <SectionLabel>CROSS-BORDER FLOWS</SectionLabel>
               <ErrorBoundary name="cross-border-flows">
                 <CrossBorderFlowPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
-          </>
+          </div>
         )}
 
         {/* METALS TAB */}
@@ -654,9 +685,8 @@ function Dashboard() {
         {/* ANALYTICS TAB — exploit the 5y hourly history for the analyst audience */}
         {activeTab === 'analytics' && (
           <>
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// ANALYTICS · deep history</span>
-              <ZoneSelector zone={energyZone} onChange={setEnergyZone} />
+            <div className="mb-2">
+              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// ANALYTICS · deep history · {energyZone}</span>
             </div>
             <ErrorBoundary name="duration-curve">
               <DurationCurvePanel zone={energyZone} />
@@ -679,14 +709,35 @@ function Dashboard() {
           </>
         )}
 
-        {/* EUROPE TAB (default front door) — bidding-zone choropleth; the sortable
-            all-zones matrix sits in the always-on hero above. */}
+        {/* EUROPE TAB (default front door) — the all-zones overview as a sortable
+            table or a bidding-zone choropleth (toggle). Single home for the overview
+            (no longer duplicated in the always-on hero). */}
         {activeTab === 'europe' && (
-          <ErrorBoundary name="power-map">
-            <Suspense fallback={MAP_FALLBACK}>
-              <PowerMap />
-            </Suspense>
-          </ErrorBoundary>
+          <div className="space-y-2">
+            <div className="flex items-center gap-1">
+              <span className="font-mono text-[10px] text-neutral-600 tracking-wider mr-1">// EUROPEAN POWER DESK · all zones</span>
+              {[['table', 'TABLE'], ['map', 'MAP']].map(([v, label]) => (
+                <button key={v} onClick={() => setOverviewView(v)}
+                  className={`font-mono text-[9px] px-2 py-0.5 rounded border ${overviewView === v ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {overviewView === 'map' ? (
+              <ErrorBoundary name="power-map">
+                <Suspense fallback={MAP_FALLBACK}>
+                  <PowerMap />
+                </Suspense>
+              </ErrorBoundary>
+            ) : (
+              <ErrorBoundary name="power-overview">
+                <PowerOverviewMatrix
+                  selectedZone={energyZone}
+                  onSelect={(z) => { setEnergyZone(z); setActiveTab('energy') }}
+                />
+              </ErrorBoundary>
+            )}
+          </div>
         )}
 
         {/* EXPLORE TAB — interactive query over the public data API (/api/v1/series) */}

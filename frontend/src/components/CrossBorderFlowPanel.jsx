@@ -1,5 +1,7 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer,
   LineChart,
@@ -119,8 +121,9 @@ function BorderRow({ border, data }) {
 }
 
 export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
-  const url = `${API}/power/flows?days=30`
-  const { data, loading, error } = useFetchWithError(url)
+  const { range } = useViewState()
+  const url = `${API}/power/flows?days=${rangeDays(range)}`
+  const { data, loading, error } = useFetchWithError(url, { deps: [range] })
 
   if (error) {
     return (
@@ -146,7 +149,7 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
     <Panel
       id="cross-border-flows"
       title={`CROSS-BORDER FLOWS · ${zl}`}
-      info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the last 30 days signed. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
+      info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the selected window, signed. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
       collapsible
       defaultCollapsed
       headerRight={

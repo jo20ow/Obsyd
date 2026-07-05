@@ -1,5 +1,7 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { useViewState } from '../context/ViewStateContext'
+import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
@@ -21,8 +23,9 @@ function DunkelDot({ cx, cy, payload }) {
 }
 
 export default function PowerGridPanel({ zone = 'DE_LU' }) {
-  const url = `${API}/power/grid?days=120&zone=${zone}`
-  const { data, loading, error } = useFetchWithError(url, { deps: [zone] })
+  const { range } = useViewState()
+  const url = `${API}/power/grid?days=${rangeDays(range)}&zone=${zone}`
+  const { data, loading, error } = useFetchWithError(url, { deps: [zone, range] })
 
   if (error)
     return (
@@ -57,6 +60,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
       info="Residual load = total electricity demand − wind − solar (MW daily mean). This is the demand that dispatchable plants (gas, coal, nuclear, hydro) must cover. Dunkelflaute = day when renewable share < 15% of total load — a physical stress signal, not a price forecast."
       collapsible
       defaultCollapsed
+      downloadUrl={`${API}/v1/series?series=residual.actual&zone=${zone}&start=${rangeStart(range)}&resolution=daily&format=csv`}
       headerRight={
         residualGW != null && (
           <span className="font-mono text-[10px] font-bold" style={{ color: headerColor }}>

@@ -31,7 +31,7 @@ export function InfoPopover({ text }) {
   )
 }
 
-export default function Panel({ id, title, info, collapsible = false, defaultCollapsed = false, headerRight, children }) {
+export default function Panel({ id, title, info, collapsible = false, defaultCollapsed = false, headerRight, downloadUrl, children }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (!collapsible) return false
     try {
@@ -64,6 +64,16 @@ export default function Panel({ id, title, info, collapsible = false, defaultCol
           {info && <InfoPopover text={info} />}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {downloadUrl && (
+            <a
+              href={downloadUrl}
+              onClick={(e) => e.stopPropagation()}
+              className="font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+              title="Download this panel's data as CSV"
+            >
+              ↓ CSV
+            </a>
+          )}
           {headerRight}
           {collapsible && (
             <button

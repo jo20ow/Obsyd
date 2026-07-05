@@ -12,6 +12,17 @@
 .scrollbar-hidden { scrollbar-width: none; }
 .scrollbar-hidden::-webkit-scrollbar { display: none; }
 
+/* --- Readability pass (dark terminal identity kept) ---
+   The UI leaned on 8–11px mono, which read as fatiguing/overloaded. Lift the two
+   smallest tiers one notch app-wide from a single place instead of editing ~40
+   panels; add breathing room via line-height. These are unlayered rules, so they
+   win over Tailwind's @layer utilities of the same specificity. (Recharts axis
+   ticks use inline SVG fontSize and are intentionally left small.) */
+.text-\[8px\]  { font-size: 9px; }
+.text-\[9px\]  { font-size: 10px; line-height: 1.45; }
+.text-\[10px\] { line-height: 1.5; }
+.text-\[11px\] { line-height: 1.55; }
+
 body {
   margin: 0;
   background-color: #050508;
