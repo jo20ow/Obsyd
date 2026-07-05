@@ -59,6 +59,7 @@ import PhysicalSituationBar from './components/PhysicalSituationBar'
 import NewsPanel from './components/NewsPanel'
 import { useAuth } from './context/AuthContext'
 import { ViewStateProvider, useViewState } from './context/ViewStateContext'
+import { useTheme } from './context/ThemeContext'
 
 // Heavy deck.gl/maplibre maps (~2 MB) render only on the secondary OVERVIEW/ATLAS
 // tabs — lazy-load them so the default POWER desk doesn't ship the mapping stack.
@@ -201,6 +202,7 @@ function Dashboard() {
   // the URL (?zone=) and persists. Aliased to the old local names so the ~14
   // downstream consumers stay untouched. SparkSpreadHistory is DE-LU-only in-panel.
   const { zone: energyZone, setZone: setEnergyZone } = useViewState()
+  const { theme, toggle: toggleTheme } = useTheme()
 
   // URL hash sync — keep the default (POWER) tab off the URL so the bare
   // homepage stays clean (`/`); only non-default tabs get a shareable hash.
@@ -404,6 +406,13 @@ function Dashboard() {
           <span className="font-mono text-[9px] text-neutral-700 tracking-wider hidden md:inline">
             one zone + one window drive the whole desk
           </span>
+          <button
+            onClick={toggleTheme}
+            title="Toggle light / dark theme"
+            className="ml-auto font-mono text-[10px] px-2 py-0.5 rounded border border-border text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors shrink-0"
+          >
+            {theme === 'light' ? '☾ Dark' : '☀ Light'}
+          </button>
         </div>
         <TabBar active={activeTab} onChange={setActiveTab} />
       </div>
@@ -605,7 +614,7 @@ function Dashboard() {
           <div className="space-y-3">
             {/* Sticky sub-nav — jump between the grouped sections instead of one long
                 scroll (gridstatus "Grid Conditions / Trends & Profile" analog). */}
-            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 py-1.5 bg-[#050508]/95 backdrop-blur border-b border-border/60">
+            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 py-1.5 bg-surface/95 backdrop-blur border-b border-border/60">
               <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// POWER · {energyZone}</span>
               <div className="flex items-center gap-1">
                 {[['section-power-prices', 'PRICES'], ['section-power-grid', 'GRID'], ['section-power-flows', 'FLOWS']].map(([id, label]) => (

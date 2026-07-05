@@ -6,7 +6,11 @@
   --color-surface: #0a0a0f;
   --color-surface-light: #12121a;
   --color-border: #1e1e2e;
-  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
+  /* The desk switched from a monospace terminal face to a clean system sans
+     (gridstatus-like, more readable). The UI tags text with `font-mono` everywhere,
+     so this token stays the single lever — pointing it at the sans flips the whole
+     app from one place. Numbers stay column-aligned via tabular-nums on body. */
+  --font-mono: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 .scrollbar-hidden { scrollbar-width: none; }
@@ -28,6 +32,7 @@ body {
   background-color: #050508;
   color: #c8c8d0;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   width: 100%;
   max-width: 100%;
@@ -39,3 +44,39 @@ body {
   width: 100%;
   max-width: 100%;
 }
+
+/* --- Light theme --- toggled by ThemeContext adding class="light" to <html>.
+   Dark stays the default. Remapping the color tokens flips every token-based utility
+   (bg-surface / border-border / text-cyan-glow and their /alpha variants) at once;
+   the rules below then handle the hardcoded neutral/near-black utilities and the
+   recharts gridlines that don't read from tokens. */
+html.light {
+  --color-cyan-glow: #0891b2;   /* darker cyan/teal for contrast on white */
+  --color-green-glow: #059669;
+  --color-surface: #ffffff;
+  --color-surface-light: #eef1f6;
+  --color-border: #d7dbe3;
+}
+html.light body {
+  background-color: #eef0f4;
+  color: #23262e;
+}
+/* Neutral text scale, inverted for a light background. */
+html.light .text-neutral-100 { color: #0b0d12; }
+html.light .text-neutral-200 { color: #0f1116; }
+html.light .text-neutral-300 { color: #21242c; }
+html.light .text-neutral-400 { color: #3b414b; }
+html.light .text-neutral-500 { color: #59606b; }
+html.light .text-neutral-600 { color: #757c88; }
+html.light .text-neutral-700 { color: #9aa1ad; }
+/* Near-black surface utilities → white/near-white. */
+html.light .bg-\[\#0a0a12\],
+html.light .bg-\[\#0a0a0f\],
+html.light .bg-\[\#06060a\] { background-color: #ffffff; }
+/* Light-palette accents that are too pale on white → darker equivalents. */
+html.light .text-cyan-300 { color: #0e7490; }
+html.light .text-cyan-400 { color: #0891b2; }
+html.light .text-violet-300 { color: #6d28d9; }
+html.light .text-amber-300 { color: #b45309; }
+/* Chart gridlines are drawn with a white-alpha stroke (invisible on white). */
+html.light .recharts-cartesian-grid line { stroke: #0000000f; }

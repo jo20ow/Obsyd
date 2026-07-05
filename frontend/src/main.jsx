@@ -4,13 +4,16 @@ import './index.css'
 import App from './App.jsx'
 import { ModeProvider } from './context/ModeContext.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
+import { ThemeProvider } from './context/ThemeContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <AuthProvider>
-      <ModeProvider>
-        <App />
-      </ModeProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <ModeProvider>
+          <App />
+        </ModeProvider>
+      </AuthProvider>
+    </ThemeProvider>
   </StrictMode>,
 )
