@@ -37,10 +37,19 @@ const METRICS = [
   { key: 'state', label: 'GRID STATE' },
 ]
 
+function fmtTs(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
+  })
+}
+
 export default function PowerMap() {
   const [geo, setGeo] = useState(null)
   const [rows, setRows] = useState(null)
   const [metric, setMetric] = useState('price')
+  const [snap, setSnap] = useState(null) // hourly day-ahead price matrix (scrubber)
+  const [idx, setIdx] = useState(null)   // selected hour index; null = latest/live
 
   useEffect(() => {
     fetch('/geo/world-110m.geojson').then((r) => r.json()).then(setGeo).catch((e) => console.error('PowerMap geo:', e))
@@ -53,12 +62,33 @@ export default function PowerMap() {
       .catch((e) => console.error('PowerMap overview:', e))
     return () => { alive = false }
   }, [])
+  useEffect(() => {
+    let alive = true
+    fetch(`${API}/v1/snapshot?series=price.dayahead&hours=168`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d?.available) setSnap(d) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
 
-  // Index overview rows by ISO3 (aggregating sub-zoned countries: mean price, worst
-  // state) + normalize price across the covered countries.
+  const ts = snap?.timestamps || []
+  const effIdx = idx == null ? ts.length - 1 : idx
+  // When scrubbing (price metric + snapshot loaded), override each zone's price with
+  // the day-ahead price at the selected hour; otherwise use the live overview.
+  const effRows = useMemo(() => {
+    if (metric !== 'price' || !snap?.zones || ts.length === 0) return rows || []
+    return (rows || []).map((z) => {
+      const col = snap.zones[z.zone]
+      const v = col ? col[effIdx] : undefined
+      return v == null ? z : { ...z, price_close: v }
+    })
+  }, [rows, snap, effIdx, metric, ts.length])
+
+  // Index rows by ISO3 (aggregating sub-zoned countries: mean price, worst state)
+  // + normalize price across the covered countries.
   const { byIso, priceMin, priceMax } = useMemo(() => {
     const groups = new Map() // iso -> rows[]
-    for (const z of rows || []) {
+    for (const z of effRows) {
       const iso = ZONE_TO_ISO3[z.zone]
       if (!iso) continue
       if (!groups.has(iso)) groups.set(iso, [])
@@ -76,7 +106,7 @@ export default function PowerMap() {
     }
     const prices = [...m.values()].map((z) => z.price_close).filter((v) => v != null)
     return { byIso: m, priceMin: prices.length ? Math.min(...prices) : 0, priceMax: prices.length ? Math.max(...prices) : 1 }
-  }, [rows])
+  }, [effRows])
 
   const layers = useMemo(() => {
     if (!geo) return []
@@ -99,10 +129,10 @@ export default function PowerMap() {
         getFillColor: (f) => fill(f.properties.iso3),
         getLineColor: [120, 128, 150, 140],
         lineWidthMinPixels: 0.5,
-        updateTriggers: { getFillColor: [metric, rows] },
+        updateTriggers: { getFillColor: [metric, effRows] },
       }),
     ]
-  }, [geo, metric, rows, byIso, priceMin, priceMax])
+  }, [geo, metric, effRows, byIso, priceMin, priceMax])
 
   const getTooltip = ({ object }) => {
     if (!object) return null
@@ -144,6 +174,27 @@ export default function PowerMap() {
       <div className="relative" style={{ height: 460, background: '#06060a' }}>
         <DeckGL initialViewState={INITIAL_VIEW} controller={true} layers={layers} getTooltip={getTooltip} />
       </div>
+
+      {/* Time scrubber — slide the map through the last 7 days of day-ahead prices. */}
+      {metric === 'price' && ts.length > 1 && (
+        <div className="flex items-center gap-2 px-4 py-2 border-t border-border">
+          <span className="font-mono text-[9px] text-neutral-500 shrink-0 w-32">
+            {fmtTs(ts[effIdx])}{effIdx === ts.length - 1 ? ' · LATEST' : ' UTC'}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={ts.length - 1}
+            value={effIdx}
+            onChange={(e) => setIdx(Number(e.target.value))}
+            className="flex-1 accent-cyan-500"
+            aria-label="Time scrubber"
+          />
+          {effIdx !== ts.length - 1 && (
+            <button onClick={() => setIdx(null)} className="font-mono text-[9px] text-neutral-500 hover:text-cyan-glow shrink-0">↺ live</button>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-2 px-4 py-2 border-t border-border font-mono text-[9px] text-neutral-600">
         {metric === 'price' ? (

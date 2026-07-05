@@ -167,6 +167,24 @@ def test_genmix_empty_zone(db_session):
     assert body["available"] is False
 
 
+def test_snapshot_aligned_matrix(db_session):
+    # Per-zone hourly values aligned to one timestamp grid, for the map scrubber.
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(_BASE + i * _H, 40.0 + i) for i in range(3)], unit="EUR/MWh")
+    upsert_hourly(db_session, "price.dayahead", "FR", [(_BASE + i * _H, 30.0 + i) for i in range(3)], unit="EUR/MWh")
+    body = _client(db_session).get(
+        "/api/v1/snapshot?series=price.dayahead&start=2026-06-01&end=2026-06-02"
+    ).json()
+    assert body["available"] is True
+    assert len(body["timestamps"]) == 3
+    assert body["zones"]["DE_LU"] == [40.0, 41.0, 42.0]
+    assert body["zones"]["FR"] == [30.0, 31.0, 32.0]
+
+
+def test_snapshot_unknown_series_empty(db_session):
+    body = _client(db_session).get("/api/v1/snapshot?series=nope.nope").json()
+    assert body["available"] is False
+
+
 def test_capacity_endpoint(db_session):
     from backend.models.energy import InstalledCapacity
     db_session.add_all([

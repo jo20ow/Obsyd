@@ -1,17 +1,17 @@
 import { useState } from 'react'
 import useZones from '../hooks/useZones'
 import MiniSeriesCard from './MiniSeriesCard'
+import MiniMixCard from './MiniMixCard'
 
 // gridstatus "Live monitoring" grid: section tabs (which metric) + a responsive
 // multi-zone card grid (the metric per core zone), all driven by the global range.
-// Single-series metrics only (each reads cleanly as one line); Fuel Mix (stacked)
-// stays on the per-zone POWER page.
 const CORE = ['DE_LU', 'FR', 'NL', 'BE', 'ES', 'AT']
 
 const SECTIONS = [
-  { key: 'prices', label: 'Prices', series: 'price.dayahead', unit: '€/MWh', scale: 1, color: '#22d3ee' },
-  { key: 'load', label: 'Load', series: 'load.actual', unit: 'GW', scale: 1 / 1000, color: '#a78bfa' },
-  { key: 'residual', label: 'Residual', series: 'residual.actual', unit: 'GW', scale: 1 / 1000, color: '#f59e0b' },
+  { key: 'prices', label: 'Prices', kind: 'series', series: 'price.dayahead', unit: '€/MWh', scale: 1, color: '#22d3ee' },
+  { key: 'mix', label: 'Fuel Mix', kind: 'mix' },
+  { key: 'load', label: 'Load', kind: 'series', series: 'load.actual', unit: 'GW', scale: 1 / 1000, color: '#a78bfa' },
+  { key: 'residual', label: 'Residual', kind: 'series', series: 'residual.actual', unit: 'GW', scale: 1 / 1000, color: '#f59e0b' },
 ]
 
 export default function LiveCharts() {
@@ -39,15 +39,19 @@ export default function LiveCharts() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
         {gridZones.map((z) => (
-          <MiniSeriesCard
-            key={z}
-            title={`${s.label} · ${labelFor(z)}`}
-            series={s.series}
-            zone={z}
-            unit={s.unit}
-            scale={s.scale}
-            color={s.color}
-          />
+          s.kind === 'mix' ? (
+            <MiniMixCard key={z} title={`Fuel Mix · ${labelFor(z)}`} zone={z} />
+          ) : (
+            <MiniSeriesCard
+              key={z}
+              title={`${s.label} · ${labelFor(z)}`}
+              series={s.series}
+              zone={z}
+              unit={s.unit}
+              scale={s.scale}
+              color={s.color}
+            />
+          )
         ))}
       </div>
     </div>

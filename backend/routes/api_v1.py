@@ -201,6 +201,56 @@ async def genmix(
     }
 
 
+@router.get("/snapshot")
+async def snapshot(
+    series: str = Query("price.dayahead", description="Series key to snapshot"),
+    hours: int = Query(168, ge=1, le=744, description="Lookback window (default 7 days)"),
+    start: str | None = Query(None, description="Override window start (ISO / YYYY-MM-DD)"),
+    end: str | None = Query(None, description="Override window end (default: now)"),
+    db: Session = Depends(get_db),
+):
+    """Per-zone hourly values for one series over a window, aligned to a common
+    timestamp grid ({timestamps: [...], zones: {zone: [v, ...]}}). Powers the map
+    time-scrubber — one call, then the client slides the index. Descriptive."""
+    end_dt = _parse_ts(end, datetime.now(UTC))
+    start_dt = _parse_ts(start, end_dt - timedelta(hours=hours))
+    sid = db.query(SeriesDim.id).filter(SeriesDim.key == series).scalar()
+    unit = db.query(SeriesDim.unit).filter(SeriesDim.key == series).scalar()
+    if sid is None:
+        return {"available": False, "series": series, "reason": "Unknown series."}
+    zid_key = {zid: k for k, zid in db.query(ZoneDim.key, ZoneDim.id).all() if k in POWER_ZONES}
+    rows = (
+        db.query(PowerHourly.zone_id, PowerHourly.ts_utc, PowerHourly.value)
+        .filter(
+            PowerHourly.series_id == sid,
+            PowerHourly.ts_utc >= int(start_dt.timestamp()),
+            PowerHourly.ts_utc < int(end_dt.timestamp()),
+        )
+        .all()
+    )
+    by: dict[tuple[str, int], float] = {}
+    ts_set: set[int] = set()
+    for zid, ts, v in rows:
+        key = zid_key.get(zid)
+        if key is None:
+            continue
+        by[(key, ts)] = v
+        ts_set.add(ts)
+    timestamps = sorted(ts_set)
+    zones: dict[str, list] = {}
+    for key in zid_key.values():
+        col = [round(by[(key, ts)], 2) if (key, ts) in by else None for ts in timestamps]
+        if any(x is not None for x in col):
+            zones[key] = col
+    return {
+        "available": bool(timestamps and zones),
+        "series": series,
+        "unit": unit,
+        "timestamps": [datetime.fromtimestamp(ts, UTC).isoformat() for ts in timestamps],
+        "zones": zones,
+    }
+
+
 @router.get("/capacity")
 async def capacity(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),

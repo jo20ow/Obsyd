@@ -48,6 +48,7 @@ import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import CopperPanel from './components/CopperPanel'
 import RegionPills from './components/RegionPills'
 import LiveCharts from './components/LiveCharts'
+import InsightsStrip from './components/InsightsStrip'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
@@ -669,8 +670,8 @@ function Dashboard() {
                 </Suspense>
               </ErrorBoundary>
             </div>
-            <ErrorBoundary name="alerts">
-              <AlertsPanel weatherAlerts={weatherAlerts} />
+            <ErrorBoundary name="insights">
+              <InsightsStrip onMore={() => goToTab('alerts')} />
             </ErrorBoundary>
             <ErrorBoundary name="live-charts">
               <LiveCharts />
@@ -695,14 +696,17 @@ function Dashboard() {
 
         {/* ALERTS TAB (Pro feature; panel itself handles the gate) */}
         {activeTab === 'alerts' && (
-          <>
+          <div className="space-y-3">
+            <ErrorBoundary name="radar">
+              <AlertsPanel weatherAlerts={weatherAlerts} />
+            </ErrorBoundary>
             <ErrorBoundary name="brief-subscribe">
               <BriefSubscribe />
             </ErrorBoundary>
             <ErrorBoundary name="alert-rules">
               <AlertRulesPanel />
             </ErrorBoundary>
-          </>
+          </div>
         )}
 
         {/* SENTIMENT TAB */}
