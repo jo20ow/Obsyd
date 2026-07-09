@@ -30,6 +30,23 @@ def _make_db(path: Path, rows: int = 5) -> None:
     con.close()
 
 
+def _make_wal_db(path: Path, rows: int = 5) -> None:
+    """Production's obsyd.db runs in WAL mode, so `.backup` yields a WAL database
+    too — and opening one, even read-only, materialises -shm/-wal beside it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(path)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("CREATE TABLE t (x INTEGER)")
+    con.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(rows)])
+    con.commit()
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    con.close()
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{path}{suffix}")
+        if sidecar.exists():
+            sidecar.unlink()
+
+
 def _stub(stub_dir: Path, name: str, body: str) -> None:
     stub_dir.mkdir(parents=True, exist_ok=True)
     p = stub_dir / name
@@ -48,7 +65,7 @@ def dirs(tmp_path):
     return app, backups, stubs
 
 
-def _run(app, backups, stubs=None, **env):
+def _run(app, backups, stubs=None, cwd=None, **env):
     e = dict(os.environ)
     e["OBSYD_APP_DIR"] = str(app)
     e["OBSYD_BACKUP_DIR"] = str(backups)
@@ -57,15 +74,18 @@ def _run(app, backups, stubs=None, **env):
     if stubs is not None and stubs.exists():
         e["PATH"] = f"{stubs}:{e['PATH']}"
     return subprocess.run(
-        ["bash", str(SCRIPT)], env=e, capture_output=True, text=True, timeout=60
+        ["bash", str(SCRIPT)],
+        env=e,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
 
 
 def _strays(backups: Path) -> list[str]:
-    """Uncompressed leftovers — the thing that filled the disk."""
-    return sorted(p.name for p in backups.glob("*.db")) + sorted(
-        p.name for p in backups.glob("*.db-journal")
-    )
+    """Anything the run left behind that is not a finished archive."""
+    return sorted(p.name for p in backups.iterdir() if not p.name.endswith(".gz"))
 
 
 # ── happy path ───────────────────────────────────────────────────────────────
@@ -253,6 +273,58 @@ def test_orphaned_sidecar_without_a_database_is_removed(dirs):
     debris.write_bytes(b"\x00" * 512)
     _run(app, backups)
     assert not debris.exists()
+
+
+# ── the script must clean up after its own inspection ────────────────────────
+
+
+def test_wal_database_backup_leaves_no_sidecars_behind(tmp_path):
+    """Validating the fresh backup opens it; for a WAL database that creates
+    -shm/-wal next to the archive. They must not survive the run."""
+    app = tmp_path / "app"
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    _make_wal_db(app / "obsyd.db")
+    _make_wal_db(app / "data" / "portwatch.db")
+
+    r = _run(app, backups)
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert list(backups.glob("obsyd-*.db.gz")), r.stdout
+    assert _strays(backups) == []
+
+
+# ── the script must not care where it was started ────────────────────────────
+
+
+def test_prune_does_not_depend_on_the_callers_working_directory(dirs, tmp_path):
+    """GNU `find -delete` implies -depth and restores its initial cwd. Started
+    from a directory the running user cannot read — say another user's home —
+    it aborts. Production hit exactly this.
+    """
+    app, backups, _ = dirs
+    old = backups / "obsyd-2020-01-01.db.gz"
+    old.write_bytes(b"x")
+    os.utime(old, (0, 0))
+
+    cage = tmp_path / "cage"
+    cage.mkdir()
+    cage.chmod(0o111)  # enterable, not readable
+    try:
+        r = _run(app, backups, cwd=cage)
+    finally:
+        cage.chmod(0o755)
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not old.exists(), "retention did not run"
+
+
+def test_relative_paths_are_rejected(dirs):
+    """cd'ing to a safe directory would silently relocate a relative target."""
+    app, backups, _ = dirs
+    r = _run(app, "relative/backups")
+    assert r.returncode != 0
+    assert "absolute" in (r.stdout + r.stderr).lower()
 
 
 # ── retention ────────────────────────────────────────────────────────────────
