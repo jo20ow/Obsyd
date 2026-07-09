@@ -197,6 +197,64 @@ def test_orphaned_zero_byte_backup_is_removed(dirs):
     assert not (backups / "obsyd-2026-07-08.db.gz").exists()
 
 
+# ── never destroy what you are inspecting ────────────────────────────────────
+#
+# `sqlite3 file 'PRAGMA ...'` is NOT a read-only operation. If a hot journal sits
+# next to the database, opening it runs rollback recovery. For a leftover from an
+# interrupted `.backup` the journal records "originally 0 pages", so the open
+# truncates the file to nothing. That is how the 2026-07-06 leftover was lost —
+# by a diagnostic command that looked like a read.
+
+
+def _recording_sqlite3(stubs: Path, calls: Path) -> None:
+    real = shutil.which("sqlite3")
+    assert real, "sqlite3 CLI required for this test"
+    _stub(stubs, "sqlite3", f'echo "$@" >> "{calls}"\nexec "{real}" "$@"')
+
+
+def test_leftover_with_a_hot_journal_is_discarded_never_opened(dirs, tmp_path):
+    app, backups, stubs = dirs
+    calls = tmp_path / "sqlite-calls"
+    _recording_sqlite3(stubs, calls)
+
+    orphan = backups / "obsyd-2026-07-06.db"
+    _make_db(orphan, rows=3)
+    (backups / "obsyd-2026-07-06.db-journal").write_bytes(b"\x00" * 1024)
+
+    _run(app, backups, stubs)
+
+    assert not orphan.exists(), "interrupted backup must be discarded"
+    assert not (backups / "obsyd-2026-07-06.db-journal").exists()
+    assert not (backups / "obsyd-2026-07-06.db.gz").exists(), (
+        "a torn backup must never be preserved as if it were good"
+    )
+    opened = calls.read_text() if calls.exists() else ""
+    assert orphan.name not in opened, "the script opened a database with a hot journal"
+
+
+def test_backup_artifacts_are_only_ever_opened_readonly(dirs, tmp_path):
+    app, backups, stubs = dirs
+    calls = tmp_path / "sqlite-calls"
+    _recording_sqlite3(stubs, calls)
+    orphan = backups / "obsyd-2026-07-06.db"
+    _make_db(orphan, rows=3)
+
+    r = _run(app, backups, stubs)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    for line in calls.read_text().splitlines():
+        if str(backups) in line and ".backup" not in line:
+            assert "-readonly" in line, f"backup artifact opened writably: {line}"
+
+
+def test_orphaned_sidecar_without_a_database_is_removed(dirs):
+    app, backups, _ = dirs
+    debris = backups / "obsyd-2026-07-07.db-journal"
+    debris.write_bytes(b"\x00" * 512)
+    _run(app, backups)
+    assert not debris.exists()
+
+
 # ── retention ────────────────────────────────────────────────────────────────
 
 
