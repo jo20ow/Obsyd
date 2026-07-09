@@ -33,6 +33,15 @@ DATE=$(date +%Y-%m-%d)
 DOW=$(date +%u)
 DBS=("$APP_DIR/obsyd.db" "$APP_DIR/data/portwatch.db")
 
+# `find -delete` implies -depth and restores its initial working directory; if it
+# cannot open that directory it refuses to run at all. Starting the script from
+# another user's home (`sudo -u obsyd ... ` out of /home/jo) is enough to trip it.
+# So don't depend on the caller's cwd — but reject relative paths first, or the
+# chdir would silently relocate them.
+case "$APP_DIR" in /*) ;; *) echo "[backup] FAIL: OBSYD_APP_DIR must be absolute" >&2; exit 1 ;; esac
+case "$BACKUP_DIR" in /*) ;; *) echo "[backup] FAIL: OBSYD_BACKUP_DIR must be absolute" >&2; exit 1 ;; esac
+cd /
+
 # Artifacts this run created; removed if we bail out half-way.
 partial=()
 
@@ -66,9 +75,16 @@ trap 'fail "unexpected error on line $LINENO"' ERR
 # `.backup` the journal records "originally 0 pages", so the open truncates the
 # artifact to nothing. `-readonly` makes SQLite refuse instead (SQLITE_READONLY_
 # ROLLBACK) and leaves the file alone. Never drop the flag.
+# Callers must guarantee the file has no sidecars (discard_interrupted runs first),
+# because opening a WAL database — even read-only — materialises -shm/-wal beside
+# it, and we clean those up again on the way out.
 is_sqlite_db() {
     [ -s "$1" ] || return 1
-    sqlite3 -readonly "$1" 'PRAGMA quick_check(1);' 2>/dev/null | head -1 | grep -qx 'ok'
+    local out rc=0
+    out=$(sqlite3 -readonly "$1" 'PRAGMA quick_check(1);' 2>/dev/null) || rc=1
+    [ "${out%%$'\n'*}" = "ok" ] || rc=1
+    rm -f "$1-shm" "$1-wal"
+    return "$rc"
 }
 
 has_sidecar() {
