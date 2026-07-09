@@ -61,18 +61,41 @@ No usable snapshot was written for ${DATE}. Investigate before the next run." ||
 
 trap 'fail "unexpected error on line $LINENO"' ERR
 
+# `sqlite3 <file> 'PRAGMA ...'` is NOT a read-only operation: if a hot journal
+# sits next to the file, opening it runs rollback recovery. For an interrupted
+# `.backup` the journal records "originally 0 pages", so the open truncates the
+# artifact to nothing. `-readonly` makes SQLite refuse instead (SQLITE_READONLY_
+# ROLLBACK) and leaves the file alone. Never drop the flag.
 is_sqlite_db() {
-    [ -s "$1" ] && sqlite3 "$1" 'PRAGMA schema_version;' >/dev/null 2>&1
+    [ -s "$1" ] || return 1
+    sqlite3 -readonly "$1" 'PRAGMA quick_check(1);' 2>/dev/null | head -1 | grep -qx 'ok'
 }
 
-# ── 1. discard worthless leftovers (pure filesystem, no sqlite3, no space) ────
+has_sidecar() {
+    [ -e "$1-journal" ] || [ -e "$1-wal" ] || [ -e "$1-shm" ]
+}
+
+# ── 1. an interrupted `.backup` is not a backup — discard it, never open it ───
+discard_interrupted() {
+    local db side
+    for db in "$BACKUP_DIR"/*.db; do
+        [ -e "$db" ] || continue
+        if has_sidecar "$db"; then
+            echo "[backup] discarding interrupted backup (hot journal): $(basename "$db")"
+            rm -f "$db" "$db-journal" "$db-wal" "$db-shm"
+        fi
+    done
+    # sidecars whose database is already gone are debris
+    for side in "$BACKUP_DIR"/*.db-journal "$BACKUP_DIR"/*.db-wal "$BACKUP_DIR"/*.db-shm; do
+        [ -e "$side" ] || continue
+        echo "[backup] removing orphaned sqlite sidecar: $(basename "$side")"
+        rm -f "$side"
+    done
+}
+
+# ── 2. discard worthless leftovers (pure filesystem, no sqlite3, no space) ────
 discard_junk() {
     local f
-    for f in "$BACKUP_DIR"/*.db-journal "$BACKUP_DIR"/*.db-wal; do
-        [ -e "$f" ] || continue
-        echo "[backup] removing stale sqlite sidecar: $(basename "$f")"
-        rm -f "$f"
-    done
     for f in "$BACKUP_DIR"/*.db; do
         [ -e "$f" ] || continue
         if [ ! -s "$f" ]; then
@@ -82,7 +105,7 @@ discard_junk() {
     done
 }
 
-# ── 2. recover good-but-uncompressed leftovers, freeing space before preflight ─
+# ── 3. recover good-but-uncompressed leftovers, freeing space before preflight ─
 recover_leftovers() {
     local f
     for f in "$BACKUP_DIR"/*.db; do
@@ -100,7 +123,7 @@ recover_leftovers() {
     done
 }
 
-# ── 3. never start a backup that cannot fit ──────────────────────────────────
+# ── 4. never start a backup that cannot fit ──────────────────────────────────
 preflight() {
     local db bytes=0 need_kb free_kb
     for db in "${DBS[@]}"; do
@@ -114,7 +137,7 @@ preflight() {
     echo "[backup] preflight ok — ${free_kb} KB free, ${need_kb} KB required"
 }
 
-# ── 4. back up, verifying every step ─────────────────────────────────────────
+# ── 5. back up, verifying every step ─────────────────────────────────────────
 backup_one() {
     local db="$1" name out
     name=$(basename "$db" .db)
@@ -124,8 +147,8 @@ backup_one() {
     fi
 
     out="$BACKUP_DIR/${name}-${DATE}.db"
-    rm -f "$out" "$out.gz"
-    partial+=("$out" "$out.gz")
+    rm -f "$out" "$out.gz" "$out-journal" "$out-wal" "$out-shm"
+    partial+=("$out" "$out.gz" "$out-journal" "$out-wal" "$out-shm")
 
     sqlite3 "$db" ".backup '$out'" || fail "sqlite3 .backup failed for $db"
     [ -s "$out" ] || fail "backup of $db is empty"
@@ -143,7 +166,7 @@ backup_one() {
     echo "[backup] ok: $db -> $(basename "$out").gz ($(du -h "$out.gz" | cut -f1))"
 }
 
-# ── 5. retention: dailies, weeklies — and any stray .db a crash left behind ───
+# ── 6. retention: dailies, weeklies — and any stray .db a crash left behind ───
 prune() {
     find "$BACKUP_DIR" -maxdepth 1 -name '*.db.gz' ! -name 'weekly-*' \
         -mtime +"$RETENTION_DAYS" -delete
@@ -152,6 +175,7 @@ prune() {
 }
 
 mkdir -p "$BACKUP_DIR"
+discard_interrupted
 discard_junk
 recover_leftovers
 preflight
