@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gzip
+import json
 from datetime import date
 
 import pytest
@@ -17,6 +19,11 @@ def cache_root(tmp_path, monkeypatch):
 
 def test_cache_path_is_month_bucketed(cache_root):
     p = raw_cache.cache_path("entsog", "flows_2026-06-01", date(2026, 6, 1))
+    assert p == cache_root / "entsog" / "2026-06" / "flows_2026-06-01.json.gz"
+
+
+def test_legacy_path_is_the_uncompressed_sibling(cache_root):
+    p = raw_cache.legacy_path("entsog", "flows_2026-06-01", date(2026, 6, 1))
     assert p == cache_root / "entsog" / "2026-06" / "flows_2026-06-01.json"
 
 
@@ -50,6 +57,74 @@ def test_no_tmp_file_left_behind(cache_root):
     raw_cache.write_cached("entsog", "k", dt, {"v": 1})
     leftovers = list(cache_root.rglob("*.tmp"))
     assert leftovers == []
+
+
+# ── compression ──────────────────────────────────────────────────────────────
+#
+# The raw cache reached 9.1 GB on the VPS and helped fill the disk. These blobs
+# are ENTSO-E/ENTSOG JSON and compress ~24x, so they are stored gzipped. The
+# uncompressed form stays readable so an existing cache keeps working before and
+# during the one-off migration.
+
+
+def test_write_stores_a_gzipped_blob(cache_root):
+    dt = date(2026, 6, 1)
+    raw_cache.write_cached("entsog", "k", dt, {"v": 1})
+
+    gz = raw_cache.cache_path("entsog", "k", dt)
+    assert gz.exists()
+    assert not raw_cache.legacy_path("entsog", "k", dt).exists()
+    assert gz.read_bytes()[:2] == b"\x1f\x8b", "not a gzip stream"
+    assert json.loads(gzip.decompress(gz.read_bytes())) == {"v": 1}
+
+
+def test_reads_a_legacy_uncompressed_entry(cache_root):
+    dt = date(2026, 6, 1)
+    legacy = raw_cache.legacy_path("agsi", "k", dt)
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps({"v": "old"}))
+
+    assert raw_cache.read_cached("agsi", "k", dt) == {"v": "old"}
+
+
+def test_write_once_also_respects_a_legacy_entry(cache_root):
+    dt = date(2026, 6, 1)
+    legacy = raw_cache.legacy_path("agsi", "k", dt)
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps({"v": "old"}))
+
+    raw_cache.write_cached("agsi", "k", dt, {"v": "new"})  # must be ignored
+    assert raw_cache.read_cached("agsi", "k", dt) == {"v": "old"}
+
+
+def test_overwrite_replaces_a_legacy_entry_and_removes_it(cache_root):
+    dt = date(2026, 6, 1)
+    legacy = raw_cache.legacy_path("agsi", "k", dt)
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps({"v": "old"}))
+
+    raw_cache.write_cached("agsi", "k", dt, {"v": "new"}, overwrite=True)
+
+    assert raw_cache.read_cached("agsi", "k", dt) == {"v": "new"}
+    assert not legacy.exists(), "stale uncompressed copy left behind"
+
+
+def test_the_compressed_blob_wins_over_a_stale_legacy_one(cache_root):
+    dt = date(2026, 6, 1)
+    raw_cache.write_cached("agsi", "k", dt, {"v": "fresh"})
+    legacy = raw_cache.legacy_path("agsi", "k", dt)
+    legacy.write_text(json.dumps({"v": "stale"}))
+
+    assert raw_cache.read_cached("agsi", "k", dt) == {"v": "fresh"}
+
+
+def test_a_corrupt_compressed_blob_is_a_miss_not_a_crash(cache_root):
+    dt = date(2026, 6, 1)
+    gz = raw_cache.cache_path("entsog", "k", dt)
+    gz.parent.mkdir(parents=True)
+    gz.write_bytes(b"this is not gzip")
+
+    assert raw_cache.read_cached("entsog", "k", dt) is None
 
 
 async def test_fetch_or_cache_only_fetches_on_miss(cache_root):
