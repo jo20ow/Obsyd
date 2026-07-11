@@ -39,11 +39,15 @@
 
     <!--
       Plausible Analytics — privacy-friendly, no cookies, GDPR-ready.
-      No-op until you add obsyd.dev to a Plausible account
-      (https://plausible.io — Free for OSS projects via their plan, or self-hosted).
-      If you don't want analytics at all, just delete the script tag.
+      Account-specific snippet (new "pa-" script format) from the obsyd.dev
+      dashboard; extensions like outbound links are configured there.
+      If you don't want analytics at all, just delete these two script tags.
     -->
-    <script defer data-domain="obsyd.dev" src="https://plausible.io/js/script.outbound-links.js"></script>
+    <script async src="https://plausible.io/js/pa-8zzBoFwIXHS4Y5B2bDFaV.js"></script>
+    <script>
+      window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+      plausible.init()
+    </script>
   </head>
   <body>
     <div id="root"></div>
