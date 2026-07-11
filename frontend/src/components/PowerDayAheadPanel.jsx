@@ -25,6 +25,9 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
   // The 24h shape behind the daily mean (peak/off-peak). Latest day only, so it is
   // independent of the global range. The toggle just swaps which series is charted.
   const { data: hourlyData } = useFetchWithError(`${API}/power/day-ahead/hourly?zone=${zone}`, { deps: [zone] })
+  // The raw 96-point auction curve — SDAC trades 15-minute MTUs since 2025-10-01,
+  // so the hourly view is a smoothed picture of what the market actually cleared.
+  const { data: qhData } = useFetchWithError(`${API}/power/day-ahead/hourly?zone=${zone}&resolution=qh`, { deps: [zone] })
   const [view, setView] = useState('daily')
 
   if (error)
@@ -49,13 +52,15 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
   const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
   const hourlyAvail = !!hourlyData?.available && Array.isArray(hourlyData?.data) && hourlyData.data.length > 0
   const hourly = hourlyAvail ? hourlyData.data : []
+  const qhAvail = !!qhData?.available && Array.isArray(qhData?.data) && qhData.data.length > 0
+  const qh = qhAvail ? qhData.data : []
 
   return (
     <Panel
       id="power-day-ahead"
       freshness={data}
       title={`POWER DAY-AHEAD · ${zoneLabel}`}
-      info="ENTSO-E day-ahead electricity prices for the selected bidding zone (EUR/MWh). Daily view = the mean of 24 hourly auction results (A44); red markers flag days with a negative-price hour (renewable oversupply). Toggle to HOURLY for the 24h peak/off-peak shape of the latest day. Free, official redistributable data."
+      info="ENTSO-E day-ahead electricity prices for the selected bidding zone (EUR/MWh). Daily view = the mean of the day's auction results (A44); red markers flag days with a negative-price hour (renewable oversupply). HOURLY shows the 24h peak/off-peak shape; 15-MIN shows the raw 96-point auction exactly as traded — SDAC has traded 15-minute products since 1 Oct 2025. Free, official redistributable data."
       collapsible
       downloadUrl={`${API}/v1/series?series=price.dayahead&zone=${zone}&start=${rangeStart(range)}&resolution=daily&format=csv`}
       headerRight={
@@ -98,10 +103,11 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
                 : ''}
             </PanelTakeaway>
           </div>
-          {/* Daily-mean ⇄ hourly-shape toggle (hourly = the 24h peak/off-peak curve). */}
+          {/* Daily mean ⇄ hourly shape ⇄ raw 15-min auction. The 15-MIN button only
+              appears once QH data exists (SDAC switch: 2025-10-01). */}
           {hourlyAvail && (
             <div className="flex items-center gap-1 px-4 pt-2">
-              {['daily', 'hourly'].map((v) => (
+              {['daily', 'hourly', ...(qhAvail ? ['qh'] : [])].map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -111,16 +117,52 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
                       : 'text-neutral-500 border-border hover:text-neutral-300'
                   }`}
                 >
-                  {v === 'daily' ? 'DAILY MEAN' : 'HOURLY'}
+                  {v === 'daily' ? 'DAILY MEAN' : v === 'hourly' ? 'HOURLY' : '15-MIN'}
                 </button>
               ))}
               {view === 'hourly' && hourlyData?.date && (
                 <span className="font-mono text-[9px] text-neutral-600 ml-1">{hourlyData.date} · UTC</span>
               )}
+              {view === 'qh' && qhData?.date && (
+                <span className="font-mono text-[9px] text-neutral-600 ml-1">
+                  {qhData.date} · UTC · as traded (15-min MTU)
+                </span>
+              )}
             </div>
           )}
 
-          {view === 'hourly' && hourlyAvail ? (
+          {view === 'qh' && qhAvail ? (
+            <div className="px-2 py-2">
+              <ResponsiveContainer width="100%" height={120}>
+                <AreaChart data={qh} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <XAxis
+                    dataKey="time"
+                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    interval={7}
+                  />
+                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={30} />
+                  <Tooltip
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    formatter={(v) => [`${Number(v).toFixed(1)} €/MWh`, '15-min']}
+                    labelFormatter={(t) => `${t} UTC`}
+                  />
+                  {/* stepAfter: each auction price holds for its full 15-min slot —
+                      a smoothed spline would misrepresent discrete clearing prices */}
+                  <Area
+                    type="stepAfter"
+                    dataKey="price"
+                    stroke="#22d3ee"
+                    fill="#22d3ee"
+                    fillOpacity={0.06}
+                    strokeWidth={1}
+                    dot={false}
+                    activeDot={{ r: 3, fill: '#22d3ee' }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : view === 'hourly' && hourlyAvail ? (
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={120}>
                 <AreaChart data={hourly} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>

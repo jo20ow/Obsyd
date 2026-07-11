@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
-from backend.power.hourly_store import upsert_day_hours
+from backend.power.hourly_store import upsert_day_hours, upsert_hourly
 from backend.power.zones import ZONE_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,51 @@ def parse_imbalance_prices(xml_text: str) -> dict[str, dict[int, float]]:
     }
 
 
+def parse_imbalance_quarter_hourly(xml_text: str) -> list[tuple[int, float]]:
+    """Parse an A85 document into raw settlement-period points [(epoch_sec, EUR/MWh)].
+
+    Imbalance settles in 15-minute periods — that resolution IS the product; the
+    hourly mean above dilutes exactly the ±1000 €/MWh quarter-hours imbalance
+    watchers care about. Only PT15M TimeSeries contribute (hourly documents are
+    ignored rather than duplicated onto slots); overlapping series are averaged
+    per timestamp, matching the hourly parser.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"ENTSO-E A85 XML parse error: {exc}") from exc
+
+    by_ts: dict[int, list[float]] = {}
+    for ts in root.iter():
+        if _localname(ts.tag) != "TimeSeries":
+            continue
+        for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
+            start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
+            res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
+            if start_el is None or res_el is None:
+                continue
+            if (res_el.text or "").strip() != "PT15M":
+                continue
+            start = _parse_utc(start_el.text)
+            if start is None:
+                continue
+            for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
+                pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
+                # DIRECT child only — not the nested Financial_Price amounts.
+                amt = next((e.text for e in point if _localname(e.tag) == "imbalance_Price.amount"), None)
+                if pos is None or amt is None:
+                    continue
+                try:
+                    slot = start + timedelta(minutes=15 * (int(pos) - 1))
+                    v = float(amt)
+                except (ValueError, TypeError):
+                    continue
+                epoch = int(slot.astimezone(timezone.utc).timestamp())
+                by_ts.setdefault(epoch, []).append(v)
+
+    return [(t, sum(vs) / len(vs)) for t, vs in sorted(by_ts.items())]
+
+
 async def _fetch_imbalance_month(ca_eic: str, month_start: date, *, overwrite: bool = False) -> str:
     """Fetch one control area's A85 for a calendar month; unzip the archive to inner XML (cached)."""
     nxt = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -129,6 +174,7 @@ async def ingest_imbalance(
     wanted = set(days)
     months = sorted({datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days})
     by_day: dict[str, dict[int, float]] = {}
+    qh_points: list[tuple[int, float]] = []
     for month_start in months:
         try:
             xml = await _fetch_imbalance_month(ca_eic, month_start, overwrite=overwrite)
@@ -140,6 +186,14 @@ async def ingest_imbalance(
         for day, hours in parse_imbalance_prices(xml).items():
             if day in wanted:
                 by_day[day] = hours
+        qh_points.extend(
+            (t, v)
+            for t, v in parse_imbalance_quarter_hourly(xml)
+            if datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d") in wanted
+        )
 
     written = upsert_day_hours(db, "imbalance.price", zone, by_day, unit="EUR/MWh") if by_day else 0
+    # Raw 15-min settlement points alongside the hourly mean (roadmap Block 2).
+    if qh_points:
+        upsert_hourly(db, "imbalance.price.qh", zone, qh_points, unit="EUR/MWh")
     return {"days": len(by_day), "written": written}

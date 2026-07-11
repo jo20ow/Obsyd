@@ -208,3 +208,117 @@ async def test_ingest_filters_to_requested_days(db_session, monkeypatch):
     result = await entsoe_prices.ingest_day_ahead(db_session, ["2026-05-01"])
     assert result == {"days": 1, "written": 1}
     assert db_session.query(EnergyPrice).filter_by(date="2026-05-02").first() is None
+
+
+# ─── quarter-hourly parse + ingest (SDAC trades 15-min MTUs since 2025-10-01) ──
+#
+# The hourly pipeline averages PT15M points into hours — fine for the legacy
+# series, but it renders a smoothed picture of a market that has traded in
+# 15-minute products since 1 October 2025. The QH series keeps the raw points.
+
+
+def _epoch(iso: str) -> int:
+    from datetime import datetime, timezone
+
+    return int(datetime.fromisoformat(iso).replace(tzinfo=timezone.utc).timestamp())
+
+
+def test_parse_qh_returns_raw_quarter_hour_points():
+    from backend.power.entsoe_prices import parse_day_ahead_quarter_hourly
+
+    prices = [float(10 + i) for i in range(96)]
+    xml = _a44(_ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", prices, res="PT15M"))
+    pts = parse_day_ahead_quarter_hourly(xml)
+
+    assert len(pts) == 96
+    assert pts[0] == (_epoch("2026-05-01T00:00"), 10.0)
+    assert pts[1] == (_epoch("2026-05-01T00:15"), 11.0)
+    assert pts[-1] == (_epoch("2026-05-01T23:45"), 105.0)
+
+
+def test_parse_qh_ignores_hourly_timeseries_entirely():
+    """PT60M points must never be duplicated onto four QH slots — a chart built
+    from that would fake a granularity the market did not trade."""
+    from backend.power.entsoe_prices import parse_day_ahead_quarter_hourly
+
+    xml = _a44(
+        _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [50.0] * 24, res="PT60M")
+        + _ts("2026-05-02T00:00Z", "2026-05-03T00:00Z", [60.0] * 96, res="PT15M")
+    )
+    pts = parse_day_ahead_quarter_hourly(xml)
+
+    assert len(pts) == 96
+    assert all(_epoch("2026-05-02T00:00") <= ts for ts, _ in pts)
+
+
+def test_parse_qh_hourly_only_document_yields_nothing():
+    """Before 2025-10-01 the auction was hourly — the QH series simply starts
+    at the switch, no synthetic backfill."""
+    from backend.power.entsoe_prices import parse_day_ahead_quarter_hourly
+
+    xml = _a44(_ts("2025-05-01T00:00Z", "2025-05-02T00:00Z", [50.0] * 24, res="PT60M"))
+    assert parse_day_ahead_quarter_hourly(xml) == []
+
+
+def test_parse_qh_overlapping_series_are_averaged_per_timestamp():
+    from backend.power.entsoe_prices import parse_day_ahead_quarter_hourly
+
+    xml = _a44(
+        _ts("2026-05-01T00:00Z", "2026-05-01T01:00Z", [40.0] * 4, res="PT15M")
+        + _ts("2026-05-01T00:00Z", "2026-05-01T01:00Z", [60.0] * 4, res="PT15M")
+    )
+    pts = parse_day_ahead_quarter_hourly(xml)
+
+    assert len(pts) == 4
+    assert all(p == 50.0 for _, p in pts)
+
+
+async def test_ingest_writes_qh_series_alongside_legacy(db_session, monkeypatch):
+    from pydantic import SecretStr
+
+    from backend.power import entsoe_prices
+    from backend.power.hourly_store import read_hourly
+
+    xml = _a44(_ts("2026-05-01T00:00Z", "2026-05-02T00:00Z",
+                   [-5.0 if i < 4 else 80.0 for i in range(96)], res="PT15M"))
+
+    async def fake_fetch(eic, month_start, *, overwrite=False):
+        return xml
+
+    monkeypatch.setattr(entsoe_prices, "_fetch_zone_month", fake_fetch)
+    monkeypatch.setattr(entsoe_prices.settings, "entsoe_api_token", SecretStr("tok"))
+
+    await entsoe_prices.ingest_day_ahead(db_session, ["2026-05-01"])
+
+    qh = read_hourly(db_session, "price.dayahead.qh", "DE_LU")
+    assert len(qh) == 96
+    assert qh[0] == (_epoch("2026-05-01T00:00"), -5.0)
+    assert qh[4][1] == 80.0
+    # legacy hourly series keeps its averaged shape, untouched
+    hourly = read_hourly(db_session, "price.dayahead", "DE_LU")
+    assert len(hourly) == 24
+    assert hourly[0][1] == pytest.approx(-5.0)  # 4 × −5.0 averaged
+
+
+async def test_ingest_qh_respects_the_requested_days(db_session, monkeypatch):
+    from pydantic import SecretStr
+
+    from backend.power import entsoe_prices
+    from backend.power.hourly_store import read_hourly
+
+    xml = _a44(
+        _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [10.0] * 96, res="PT15M")
+        + _ts("2026-05-02T00:00Z", "2026-05-03T00:00Z", [20.0] * 96, res="PT15M")
+    )
+
+    async def fake_fetch(eic, month_start, *, overwrite=False):
+        return xml
+
+    monkeypatch.setattr(entsoe_prices, "_fetch_zone_month", fake_fetch)
+    monkeypatch.setattr(entsoe_prices.settings, "entsoe_api_token", SecretStr("tok"))
+
+    await entsoe_prices.ingest_day_ahead(db_session, ["2026-05-01"])
+
+    qh = read_hourly(db_session, "price.dayahead.qh", "DE_LU")
+    assert len(qh) == 96
+    assert all(v == 10.0 for _, v in qh)

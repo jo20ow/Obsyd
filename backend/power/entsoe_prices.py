@@ -26,7 +26,7 @@ from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
 from backend.models.energy import EnergyPrice, PowerPriceDaily
-from backend.power.hourly_store import upsert_day_hours
+from backend.power.hourly_store import upsert_day_hours, upsert_hourly
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,55 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
     return result
 
 
+def parse_day_ahead_quarter_hourly(xml_text: str) -> list[tuple[int, float]]:
+    """Parse an A44 document into raw quarter-hour points [(epoch_sec, EUR/MWh)].
+
+    SDAC has traded 15-minute MTUs since delivery day 2025-10-01; the hourly
+    pipeline above averages those points away. This keeps them.
+
+    Only PT15M TimeSeries contribute. PT60M/PT30M series are ignored entirely —
+    duplicating an hourly price onto four QH slots would fake a granularity the
+    market did not trade. Before the switch this simply returns [] (the QH
+    series starts at the switch, no synthetic backfill). Overlapping PT15M
+    series for the same timestamp are averaged, matching the hourly parser's
+    handling of ENTSO-E duplicate TimeSeries.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"ENTSO-E A44 XML parse error: {exc}") from exc
+
+    by_ts: dict[int, list[float]] = {}
+
+    for ts in root.iter():
+        if _localname(ts.tag) != "TimeSeries":
+            continue
+        for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
+            start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
+            res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
+            if start_el is None or res_el is None:
+                continue
+            if (res_el.text or "").strip() != "PT15M":
+                continue
+            start = _parse_utc(start_el.text)
+            if start is None:
+                continue
+            for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
+                pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
+                price_str = next((e.text for e in point if _localname(e.tag) == "price.amount"), None)
+                if pos is None or price_str is None:
+                    continue
+                try:
+                    slot = start + timedelta(minutes=15 * (int(pos) - 1))
+                    price = float(price_str)
+                except (ValueError, TypeError):
+                    continue
+                epoch = int(slot.astimezone(timezone.utc).timestamp())
+                by_ts.setdefault(epoch, []).append(price)
+
+    return [(t, sum(ps) / len(ps)) for t, ps in sorted(by_ts.items())]
+
+
 # ─── fetch ────────────────────────────────────────────────────────────────────
 
 
@@ -229,6 +278,7 @@ async def ingest_day_ahead(
     )
 
     stats_by_day: dict[str, dict] = {}
+    qh_points: list[tuple[int, float]] = []
     for month_start in months:
         try:
             xml = await _fetch_zone_month(eic, month_start, overwrite=overwrite)
@@ -240,6 +290,11 @@ async def ingest_day_ahead(
         for day, stats in parse_day_ahead_stats(xml).items():
             if day in wanted:
                 stats_by_day[day] = stats
+        qh_points.extend(
+            (t, p)
+            for t, p in parse_day_ahead_quarter_hourly(xml)
+            if datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d") in wanted
+        )
 
     written = 0
     for day, stats in stats_by_day.items():
@@ -259,6 +314,12 @@ async def ingest_day_ahead(
     }
     if price_by_day:
         upsert_day_hours(db, "price.dayahead", zone, price_by_day, unit="EUR/MWh")
+
+    # ── Raw 15-min auction points → price.dayahead.qh (roadmap Block 2) ──
+    # Present only for delivery days since the SDAC 15-min switch (2025-10-01);
+    # the hourly series above stays the averaged view for legacy consumers.
+    if qh_points:
+        upsert_hourly(db, "price.dayahead.qh", zone, qh_points, unit="EUR/MWh")
 
     logger.info(
         "entsoe_prices.ingest_day_ahead: %d/%d days written (symbol=%s)",

@@ -79,3 +79,64 @@ async def test_ingest_de_skipped(db_session, monkeypatch):
     monkeypatch.setattr(imb.settings, "entsoe_api_token", "x")
     r = await imb.ingest_imbalance(db_session, ["2026-06-01"], zone="DE_LU")
     assert r == {"skipped": "no control area (DE has 4)"}
+
+
+# ─── quarter-hourly: imbalance settles in 15-min periods — that IS the native truth ─
+#
+# The hourly mean erases exactly what imbalance watchers care about: single
+# ±1000 €/MWh quarter-hours vanish into a bland average.
+
+
+def _epoch(iso: str) -> int:
+    from datetime import datetime, timezone
+
+    return int(datetime.fromisoformat(iso).replace(tzinfo=timezone.utc).timestamp())
+
+
+def test_parse_qh_keeps_raw_quarter_hours():
+    from backend.power.entsoe_imbalance import parse_imbalance_quarter_hourly
+
+    amounts = [50.0] * 95 + [-990.0]  # one extreme settlement period
+    xml = _a85(amounts, res="PT15M")
+    pts = parse_imbalance_quarter_hourly(xml)
+
+    assert len(pts) == 96
+    assert pts[0] == (_epoch("2026-06-01T00:00"), 50.0)
+    assert pts[-1] == (_epoch("2026-06-01T23:45"), -990.0)
+
+
+def test_parse_qh_ignores_hourly_documents():
+    from backend.power.entsoe_imbalance import parse_imbalance_quarter_hourly
+
+    assert parse_imbalance_quarter_hourly(_a85([50.0] * 24, res="PT60M")) == []
+
+
+def test_parse_qh_takes_point_amount_not_financial(db_session):
+    from backend.power.entsoe_imbalance import parse_imbalance_quarter_hourly
+
+    pts = parse_imbalance_quarter_hourly(_a85([70.0] * 96, res="PT15M", financial=True))
+    assert len(pts) == 96
+    assert all(v == 70.0 for _, v in pts)
+
+
+async def test_ingest_writes_qh_series_alongside_hourly(db_session, monkeypatch):
+    from pydantic import SecretStr
+
+    amounts = [50.0] * 95 + [-990.0]
+    xml = _a85(amounts, res="PT15M")
+
+    async def fake_fetch(ca_eic, month_start, *, overwrite=False):
+        return xml
+
+    monkeypatch.setattr(imb, "_fetch_imbalance_month", fake_fetch)
+    monkeypatch.setattr(imb.settings, "entsoe_api_token", SecretStr("tok"))
+
+    await imb.ingest_imbalance(db_session, ["2026-06-01"], zone="FR")
+
+    qh = read_hourly(db_session, "imbalance.price.qh", "FR")
+    assert len(qh) == 96
+    assert qh[-1][1] == -990.0
+    # hourly stays the averaged view: the extreme quarter-hour is diluted there
+    hourly = read_hourly(db_session, "imbalance.price", "FR")
+    assert len(hourly) == 24
+    assert hourly[-1][1] == pytest.approx((50.0 * 3 - 990.0) / 4)

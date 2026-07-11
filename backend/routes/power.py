@@ -28,7 +28,8 @@ throughout the gas vertical (see backend/routes/gas.py).
 
 import json
 from datetime import date as _date
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from datetime import datetime as _dt
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -196,17 +197,70 @@ def _dedupe_hourly(points: list) -> list[dict]:
     return [{"hour": h, "price": round(sum(vs) / len(vs), 2)} for h, vs in sorted(acc.items())]
 
 
+def _day_ahead_qh(db: Session, zone: str, date: str | None) -> dict:
+    """The raw 96-point 15-min auction curve for one delivery day, from the
+    canonical store (series price.dayahead.qh)."""
+    from backend.power.hourly_store import read_hourly
+
+    if date:
+        try:
+            day_start = int(_dt.fromisoformat(date + "T00:00").replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            return {"available": False, "zone": zone, "zones": _ZONE_KEYS,
+                    "reason": "Invalid date — expected YYYY-MM-DD."}
+        points = read_hourly(db, "price.dayahead.qh", zone, day_start, day_start + 86_400)
+    else:
+        # Latest delivery day that has any QH data: read the series tail and
+        # trim to the newest UTC day it covers.
+        points = read_hourly(db, "price.dayahead.qh", zone)
+        if points:
+            newest_day = _dt.fromtimestamp(points[-1][0], tz=timezone.utc).strftime("%Y-%m-%d")
+            day_start = int(_dt.fromisoformat(newest_day + "T00:00").replace(tzinfo=timezone.utc).timestamp())
+            points = [(t, v) for t, v in points if t >= day_start]
+
+    if not points:
+        return {
+            "available": False,
+            "zone": zone,
+            "zones": _ZONE_KEYS,
+            "reason": "No 15-min day-ahead data for this day — SDAC trades 15-minute products since 2025-10-01.",
+        }
+
+    day = _dt.fromtimestamp(points[0][0], tz=timezone.utc).strftime("%Y-%m-%d")
+    data = [
+        {"time": _dt.fromtimestamp(t, tz=timezone.utc).strftime("%H:%M"), "price": round(v, 2)}
+        for t, v in points
+    ]
+    return {
+        "available": True,
+        "zone": zone,
+        "zones": _ZONE_KEYS,
+        "date": day,
+        "unit": "EUR/MWh",
+        "resolution": "qh",
+        "data": data,
+    }
+
+
 @router.get("/day-ahead/hourly")
 async def get_day_ahead_hourly(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     date: str = Query(None, description="YYYY-MM-DD; default = latest day with hourly data"),
+    resolution: str = Query("hourly", pattern="^(hourly|qh)$",
+                            description="hourly = 24 averaged points; qh = the raw 96-point 15-min auction (since 2025-10-01)"),
     db: Session = Depends(get_db),
 ):
-    """The 24 hourly day-ahead prices for one day — the peak/off-peak shape behind
-    the daily mean. Free tier. Defaults to the most recent day that has an hourly
-    series. Returns {available, zone, date, unit, data:[{"hour","price"}]}.
+    """The intraday day-ahead price shape for one day. Free tier.
+
+    resolution=hourly (default): the 24 per-hour means — unchanged legacy shape.
+    resolution=qh: the raw 96 quarter-hour auction points, exactly as traded —
+    SDAC has traded 15-minute MTUs since delivery day 2025-10-01, so the hourly
+    view is a smoothed picture of the real curve. Days before the switch have
+    no qh series.
     """
     resolved_zone = _resolve_zone(zone)
+    if resolution == "qh":
+        return _day_ahead_qh(db, resolved_zone, date)
     q = db.query(PowerPriceDaily).filter(
         PowerPriceDaily.zone == resolved_zone,
         PowerPriceDaily.hourly_prices.isnot(None),
