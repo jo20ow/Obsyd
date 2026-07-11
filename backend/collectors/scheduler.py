@@ -278,6 +278,24 @@ async def _run_capacity_monthly():
         db.close()
 
 
+async def _run_hydro_weekly():
+    """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
+    Current year with overwrite=True — the raw cache is write-once and would
+    otherwise freeze the year at its first fetch."""
+    from datetime import datetime, timezone
+
+    from backend.power.entsoe_hydro import ingest_hydro
+
+    db = SessionLocal()
+    try:
+        result = await ingest_hydro(db, years=[datetime.now(timezone.utc).year], overwrite=True)
+        logger.info("hydro weekly: %s", result)
+    except Exception as exc:
+        logger.error("_run_hydro_weekly failed: %s", exc)
+    finally:
+        db.close()
+
+
 def scheduler_role_enabled(role: str) -> bool:
     """True if this process role should run the scheduler / be a DB writer.
 
@@ -301,6 +319,10 @@ def start_scheduler():
     scheduler.add_job(_run_power_prices_midday, CronTrigger(hour=12, minute=0), id="power_prices_midday", **JOB_DEFAULTS)
     # Installed capacity (A68): monthly, 2nd @ 03:00 UTC — annual data, cheap to refresh.
     scheduler.add_job(_run_capacity_monthly, CronTrigger(day=2, hour=3, minute=0), id="capacity_monthly", **JOB_DEFAULTS)
+    # Reservoir filling (A72): weekly data, refreshed twice a week (publication day
+    # varies by TSO) — Mon+Thu 06:30 UTC. Current year with overwrite, else the
+    # write-once cache would freeze January's frontier.
+    scheduler.add_job(_run_hydro_weekly, CronTrigger(day_of_week="mon,thu", hour=6, minute=30), id="hydro_weekly", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)

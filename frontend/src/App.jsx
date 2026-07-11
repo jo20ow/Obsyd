@@ -52,6 +52,7 @@ import InsightsStrip from './components/InsightsStrip'
 import NarrativeHero from './components/NarrativeHero'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
+import HydroReservoirPanel from './components/HydroReservoirPanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
@@ -680,6 +681,9 @@ function Dashboard() {
             </div>
             <ErrorBoundary name="insights">
               <InsightsStrip onMore={() => goToTab('alerts')} />
+            </ErrorBoundary>
+            <ErrorBoundary name="hydro">
+              <HydroReservoirPanel />
             </ErrorBoundary>
             <ErrorBoundary name="live-charts">
               <LiveCharts />

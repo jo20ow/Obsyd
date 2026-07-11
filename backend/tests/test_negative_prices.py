@@ -295,8 +295,8 @@ def test_stats_negative_hours_not_double_counted_across_overlapping_series():
 
 
 def test_stats_mean_unaffected_by_duplicate_series():
-    from backend.tests.test_power_prices import _a44, _ts
     from backend.power.entsoe_prices import parse_day_ahead_stats
+    from backend.tests.test_power_prices import _a44, _ts
 
     xml = _a44(
         _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [100.0] * 24)

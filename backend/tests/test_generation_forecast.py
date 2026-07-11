@@ -7,7 +7,6 @@ differ. Feeds the forecast-vs-actual view (roadmap Block 4.3).
 
 from __future__ import annotations
 
-import pytest
 from pydantic import SecretStr
 
 from backend.power import entsoe_grid as grid_mod
