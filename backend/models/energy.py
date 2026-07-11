@@ -298,3 +298,25 @@ class PowerOutage(Base):
     __table_args__ = (
         UniqueConstraint("mrid", "revision", name="uq_power_outage_mrid_revision"),
     )
+
+
+class PowerRecord(Base):
+    """All-time extreme per (series, zone, kind) — descriptive records like
+    "highest DE-LU day-ahead hour". Recomputed nightly by SQL min/max over
+    power_hourly (always correct, no incremental state); one row per key,
+    updated in place. ts_utc points at the evidence."""
+
+    __tablename__ = "power_record"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    series_key: Mapped[str] = mapped_column(String, nullable=False)
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # max | min
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    ts_utc: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec of the record point
+    unit: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("series_key", "zone", "kind", name="uq_power_record_series_zone_kind"),
+    )

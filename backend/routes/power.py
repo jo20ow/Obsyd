@@ -1051,6 +1051,115 @@ async def get_flows(
     }
 
 
+# ─── Forecast error (free) ────────────────────────────────────────────────────
+
+#: forecast series → the series whose SUM is the realised counterpart.
+#: There is no wind.actual/solar.actual — realised wind/solar live in the
+#: generation mix (B18+B19 / B16), same derivation the residual ingest uses.
+_FORECAST_PAIRS: dict[str, tuple[str, list[str]]] = {
+    "load": ("load.forecast", ["load.actual"]),
+    "residual": ("residual.forecast", ["residual.actual"]),
+    "wind": ("wind.forecast", ["gen.B18", "gen.B19"]),
+    "solar": ("solar.forecast", ["gen.B16"]),
+}
+
+
+@router.get("/forecast-error")
+async def get_forecast_error(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    series: str = Query("load", pattern="^(load|residual|wind|solar)$"),
+    days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    """How good was the published TSO day-ahead forecast, in numbers. Free tier.
+
+    bias_mw = mean(actual − forecast): positive means the forecast leaned LOW
+    (demand surprise / renewables over-delivered). mae_mw is the typical
+    per-hour miss. Only hours where both sides exist count. Posture B: this
+    describes ENTSO-E's OWN published forecast — no forecast claim of ours.
+    """
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    fc_key, actual_keys = _FORECAST_PAIRS[series]
+    start_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+
+    forecast = dict(read_hourly(db, fc_key, resolved_zone, start_ts))
+    actual: dict[int, float] = {}
+    for key in actual_keys:
+        for t, v in read_hourly(db, key, resolved_zone, start_ts):
+            actual[t] = actual.get(t, 0.0) + v
+
+    common = sorted(set(forecast) & set(actual))
+    if not common:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "series": series,
+            "reason": "No overlapping forecast/actual hours in the window yet.",
+        }
+
+    errors = [actual[t] - forecast[t] for t in common]
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "series": series,
+        "days": days,
+        "n_hours": len(common),
+        "bias_mw": round(sum(errors) / len(errors), 1),
+        "mae_mw": round(sum(abs(e) for e in errors) / len(errors), 1),
+        "note": "bias = mean(actual − forecast); describes the published TSO forecast",
+    }
+
+
+# ─── Records (free) ───────────────────────────────────────────────────────────
+
+#: A record set within this many days is "the story", not archive trivia.
+RECORD_FRESH_DAYS = 7
+
+
+@router.get("/records")
+async def get_records(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    db: Session = Depends(get_db),
+):
+    """All-time extremes per series for a zone — "highest day-ahead hour on
+    record", with the evidence date. Descriptive archive facts, recomputed
+    nightly; `fresh` flags records set in the last week. Free tier."""
+    from backend.models.energy import PowerRecord
+
+    resolved_zone = _resolve_zone(zone)
+    rows = db.query(PowerRecord).filter(PowerRecord.zone == resolved_zone).all()
+    if not rows:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": "No records computed yet — check back shortly.",
+        }
+
+    fresh_cutoff = int((datetime.utcnow() - timedelta(days=RECORD_FRESH_DAYS)).timestamp())
+    records = [
+        {
+            "series": r.series_key,
+            "kind": r.kind,
+            "value": round(r.value, 2),
+            "unit": r.unit,
+            "date": _dt.fromtimestamp(r.ts_utc, tz=timezone.utc).strftime("%Y-%m-%d"),
+            "fresh": r.ts_utc >= fresh_cutoff,
+        }
+        for r in sorted(rows, key=lambda r: (r.series_key, r.kind))
+    ]
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "records": records,
+    }
+
+
 # ─── Outages (free) ───────────────────────────────────────────────────────────
 
 _OUTAGE_KIND = {"A53": "planned", "A54": "forced"}

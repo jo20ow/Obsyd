@@ -278,6 +278,22 @@ async def _run_capacity_monthly():
         db.close()
 
 
+async def _run_records_nightly():
+    """Recompute all-time records per series × zone (SQL min/max over
+    power_hourly). Runs after the nightly power ingest so a record day is
+    crowned the same night it happens."""
+    from backend.power.records import compute_records
+
+    db = SessionLocal()
+    try:
+        records = compute_records(db)
+        logger.info("records nightly: %d rows refreshed", len(records))
+    except Exception as exc:
+        logger.error("_run_records_nightly failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_outages():
     """Refresh the rolling generation-unavailability window (ENTSO-E A77) for all
     enabled zones. Every 6 h: forced outages land intraday, and the desk's whole
@@ -342,6 +358,8 @@ def start_scheduler():
     # Generation unavailability (A77): rolling window, every 6 h — forced outages
     # land intraday and are the desk's reason to exist.
     scheduler.add_job(_run_outages, CronTrigger(hour="1,7,13,19", minute=15), id="outages_6h", **JOB_DEFAULTS)
+    # All-time records: nightly at 23:45, after the 22:30 power ingest.
+    scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)

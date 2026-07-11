@@ -54,6 +54,7 @@ import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import HydroReservoirPanel from './components/HydroReservoirPanel'
 import OutagePanel from './components/OutagePanel'
+import RecordChip from './components/RecordChip'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
@@ -569,6 +570,9 @@ function Dashboard() {
 
             <ErrorBoundary name="power-situation">
               <PowerSituationHeader zone={energyZone} />
+            </ErrorBoundary>
+            <ErrorBoundary name="record-chip">
+              <RecordChip zone={energyZone} />
             </ErrorBoundary>
 
             {/* PRICES — day-ahead + spark spread */}
