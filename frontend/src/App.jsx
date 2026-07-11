@@ -53,6 +53,7 @@ import NarrativeHero from './components/NarrativeHero'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import HydroReservoirPanel from './components/HydroReservoirPanel'
+import OutagePanel from './components/OutagePanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
@@ -581,9 +582,12 @@ function Dashboard() {
               </ErrorBoundary>
             </div>
 
-            {/* GRID & GENERATION — residual/Dunkelflaute, load forecast, generation mix */}
+            {/* GRID & GENERATION — outages, residual/Dunkelflaute, load forecast, generation mix */}
             <div id="section-power-grid" className="scroll-mt-16 space-y-3">
               <SectionLabel>GRID &amp; GENERATION</SectionLabel>
+              <ErrorBoundary name="power-outages">
+                <OutagePanel zone={energyZone} />
+              </ErrorBoundary>
               <ErrorBoundary name="power-grid">
                 <PowerGridPanel zone={energyZone} />
               </ErrorBoundary>

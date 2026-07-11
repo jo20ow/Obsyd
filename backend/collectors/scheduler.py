@@ -278,6 +278,22 @@ async def _run_capacity_monthly():
         db.close()
 
 
+async def _run_outages():
+    """Refresh the rolling generation-unavailability window (ENTSO-E A77) for all
+    enabled zones. Every 6 h: forced outages land intraday, and the desk's whole
+    point is showing them before the price does."""
+    from backend.power.entsoe_outages import ingest_outages
+
+    db = SessionLocal()
+    try:
+        result = await ingest_outages(db)
+        logger.info("outages: %s", result)
+    except Exception as exc:
+        logger.error("_run_outages failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_hydro_weekly():
     """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
     Current year with overwrite=True — the raw cache is write-once and would
@@ -323,6 +339,9 @@ def start_scheduler():
     # varies by TSO) — Mon+Thu 06:30 UTC. Current year with overwrite, else the
     # write-once cache would freeze January's frontier.
     scheduler.add_job(_run_hydro_weekly, CronTrigger(day_of_week="mon,thu", hour=6, minute=30), id="hydro_weekly", **JOB_DEFAULTS)
+    # Generation unavailability (A77): rolling window, every 6 h — forced outages
+    # land intraday and are the desk's reason to exist.
+    scheduler.add_job(_run_outages, CronTrigger(hour="1,7,13,19", minute=15), id="outages_6h", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)

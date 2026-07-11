@@ -259,3 +259,42 @@ class InstalledCapacity(Base):
     __table_args__ = (
         UniqueConstraint("zone", "year", "psr_type", name="uq_installed_capacity_zone_year_psr"),
     )
+
+
+class PowerOutage(Base):
+    """ENTSO-E unavailability of generation/production units (A77/A78/A80).
+
+    An EVENT, not a time series: one row per (mRID, revision) of an
+    Unavailability_MarketDocument. Revision semantics are the core — messages
+    are updated and withdrawn (docStatus A09); of 31 live DE_LU documents
+    sampled 2026-07-11, 26 were withdrawn. The read side must always take the
+    HIGHEST revision per mRID and hide withdrawn events; ingest keeps every
+    revision as history.
+
+    available_mw is the MINIMUM quantity over the Available_Period step
+    function (curveType A03) — the worst case, which is what the desk
+    headline should count. offline = nominal_mw − available_mw.
+    """
+
+    __tablename__ = "power_outage"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    mrid: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    doc_type: Mapped[str] = mapped_column(String, nullable=False, default="A77")  # A77/A78/A80
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    business_type: Mapped[str] = mapped_column(String, nullable=False)  # A53 planned / A54 forced
+    psr_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)   # raw B-code
+    unit_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    unit_eic: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    nominal_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    available_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    start_utc: Mapped[str] = mapped_column(String, nullable=False, index=True)  # ISO "YYYY-MM-DDTHH:MMZ"
+    end_utc: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")  # active | withdrawn
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("mrid", "revision", name="uq_power_outage_mrid_revision"),
+    )

@@ -46,6 +46,7 @@ from backend.models.energy import (
 )
 from backend.power.coverage import renewable_share_reliable
 from backend.power.energy_charts_flows import ATTRIBUTION
+from backend.power.entsoe_grid import PSR_LABELS
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
 from backend.signals.detectors.base import severity_from_zscore, trailing_zscore
 
@@ -1047,6 +1048,95 @@ async def get_flows(
         "to": date_to,
         "data": data,
         **_panel_freshness(data, "flows"),
+    }
+
+
+# ─── Outages (free) ───────────────────────────────────────────────────────────
+
+_OUTAGE_KIND = {"A53": "planned", "A54": "forced"}
+
+
+@router.get("/outages")
+async def get_outages(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    horizon_days: int = Query(30, ge=1, le=400,
+                              description="Include outages starting up to this many days out"),
+    db: Session = Depends(get_db),
+):
+    """Generation unavailability (ENTSO-E A77) for a bidding zone. Free tier.
+
+    Revision semantics: only the HIGHEST revision per message counts, and
+    withdrawn messages (docStatus A09) hide the event — of 31 live documents
+    sampled, 26 were withdrawn. `total_offline_mw` counts only outages running
+    RIGHT NOW; the list also includes ones starting within `horizon_days`.
+    Descriptive: what capacity is off and why, not a price call.
+    """
+    from backend.models.energy import PowerOutage
+
+    resolved_zone = _resolve_zone(zone)
+    now = datetime.utcnow()
+    now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
+    horizon_iso = (now + timedelta(days=horizon_days)).strftime("%Y-%m-%dT%H:%MZ")
+
+    rows = db.query(PowerOutage).filter(PowerOutage.zone == resolved_zone).all()
+    if not rows:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"No outage messages for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
+        }
+
+    # Highest revision per mRID wins; withdrawn events disappear.
+    latest: dict[str, PowerOutage] = {}
+    for r in rows:
+        if r.mrid not in latest or r.revision > latest[r.mrid].revision:
+            latest[r.mrid] = r
+
+    outages: list[dict] = []
+    total_offline = 0.0
+    forced_offline = 0.0
+    for r in latest.values():
+        if r.status != "active":
+            continue
+        if r.end_utc < now_iso or r.start_utc > horizon_iso:
+            continue
+        offline = (
+            round(r.nominal_mw - (r.available_mw or 0.0), 1)
+            if r.nominal_mw is not None else None
+        )
+        running_now = r.start_utc <= now_iso <= r.end_utc
+        if running_now and offline:
+            total_offline += offline
+            if r.business_type == "A54":
+                forced_offline += offline
+        outages.append({
+            "mrid": r.mrid,
+            "unit_name": r.unit_name,
+            "location": r.location,
+            "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
+            "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
+            "nominal_mw": r.nominal_mw,
+            "available_mw": r.available_mw,
+            "offline_mw": offline,
+            "start_utc": r.start_utc,
+            "end_utc": r.end_utc,
+            "running_now": running_now,
+        })
+
+    outages.sort(key=lambda o: (not o["running_now"], -(o["offline_mw"] or 0.0)))
+    newest_msg = max((r.created_at for r in rows if r.created_at), default=None)
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "unit": "MW",
+        "total_offline_mw": round(total_offline, 1),
+        "forced_offline_mw": round(forced_offline, 1),
+        "horizon_days": horizon_days,
+        "outages": outages,
+        **_freshness(newest_msg.strftime("%Y-%m-%d") if newest_msg else None,
+                     now.date(), 2),
     }
 
 
