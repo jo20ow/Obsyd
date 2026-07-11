@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { POLL_FAST_MS } from '../utils/poll'
 
 // Single-glance overview — read all bidding zones at once, colour-first, like
 // Electricity Maps / Grid Status. Colour encodes how far each metric sits from its
@@ -26,7 +27,7 @@ const COLUMNS = [
 ]
 
 export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
-  const { data } = useFetchWithError(`${API}/power/overview`)
+  const { data } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
   const [sort, setSort] = useState({ key: 'zone', dir: 'asc' })
 
   const sorted = useMemo(() => {

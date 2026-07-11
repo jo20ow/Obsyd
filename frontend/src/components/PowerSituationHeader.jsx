@@ -1,4 +1,5 @@
 import useFetchWithError from '../hooks/useFetchWithError'
+import { POLL_FAST_MS } from '../utils/poll'
 import { InfoPopover } from './Panel'
 import PanelTakeaway from './PanelTakeaway'
 import ReferenceBand from './ReferenceBand'
@@ -60,7 +61,7 @@ function Metric({ label, value, sub, color, band, comp }) {
  * drill-down evidence). Always-on hero across every tab.
  */
 export default function PowerSituationHeader({ zone = 'DE_LU' }) {
-  const { data, loading } = useFetchWithError(`${API}/power/situation?zone=${zone}`, { deps: [zone] })
+  const { data, loading } = useFetchWithError(`${API}/power/situation?zone=${zone}`, { deps: [zone], pollMs: POLL_FAST_MS })
 
   if (loading && !data) {
     return (

@@ -1,6 +1,7 @@
 import Panel from './Panel'
 import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { POLL_SLOW_MS } from '../utils/poll'
 
 const API = '/api'
 
@@ -23,7 +24,7 @@ function fmtEnd(iso) {
  * that — most raw messages are withdrawn revisions).
  */
 export default function OutagePanel({ zone = 'DE_LU' }) {
-  const { data, loading } = useFetchWithError(`${API}/power/outages?zone=${zone}`, { deps: [zone] })
+  const { data, loading } = useFetchWithError(`${API}/power/outages?zone=${zone}`, { deps: [zone], pollMs: POLL_SLOW_MS })
 
   if (!data?.available && !loading) {
     return (

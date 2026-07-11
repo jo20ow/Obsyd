@@ -20,9 +20,14 @@ const swrCache = new Map() // url -> last successful (transformed) payload
  *
  * `opts.deps` extends the dependency list so callers can refetch
  * when their own state changes.
+ *
+ * `opts.pollMs` re-fetches on an interval so today-views keep filling in
+ * without a reload (the ingest runs every 30 min; panels poll slower).
+ * Polling pauses while the tab is hidden and resumes — with an immediate
+ * refresh — when it becomes visible again.
  */
 export default function useFetchWithError(url, opts = {}) {
-  const { transform, deps = [], headers, signalRef } = opts
+  const { transform, deps = [], headers, signalRef, pollMs } = opts
   const [data, setData] = useState(() => (swrCache.has(url) ? swrCache.get(url) : null))
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(() => !swrCache.has(url))
@@ -82,6 +87,25 @@ export default function useFetchWithError(url, opts = {}) {
     run(controller)
     return () => controller.abort()
   }, [run, signalRef])
+
+  useEffect(() => {
+    if (!pollMs) return
+    let controller = null
+    const tick = () => {
+      if (document.hidden) return // don't burn requests for a backgrounded tab
+      controller = new AbortController()
+      run(controller)
+    }
+    const interval = setInterval(tick, pollMs)
+    // Coming back to the tab: refresh immediately instead of waiting a full cycle.
+    const onVisible = () => { if (!document.hidden) tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisible)
+      controller?.abort()
+    }
+  }, [run, pollMs])
 
   return { data, loading, error, refetch }
 }
