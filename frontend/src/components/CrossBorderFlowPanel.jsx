@@ -148,6 +148,7 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
   return (
     <Panel
       id="cross-border-flows"
+      freshness={data}
       title={`CROSS-BORDER FLOWS · ${zl}`}
       info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the selected window, signed. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
       collapsible

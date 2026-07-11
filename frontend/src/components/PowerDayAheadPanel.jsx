@@ -53,6 +53,7 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
   return (
     <Panel
       id="power-day-ahead"
+      freshness={data}
       title={`POWER DAY-AHEAD · ${zoneLabel}`}
       info="ENTSO-E day-ahead electricity prices for the selected bidding zone (EUR/MWh). Daily view = the mean of 24 hourly auction results (A44); red markers flag days with a negative-price hour (renewable oversupply). Toggle to HOURLY for the 24h peak/off-peak shape of the latest day. Free, official redistributable data."
       collapsible

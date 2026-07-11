@@ -42,7 +42,6 @@ from backend.models.energy import (
     PowerGrid,
     PowerLoadForecast,
     PowerPriceDaily,
-    SparkSpreadHistory,
 )
 from backend.power.coverage import renewable_share_reliable
 from backend.power.energy_charts_flows import ATTRIBUTION
@@ -145,6 +144,7 @@ async def get_day_ahead(
             "negative_days": negative_days,
             "latest": latest,
             "data": data,
+            **_panel_freshness(data, "day_ahead"),
         }
 
     # Fallback: legacy EnergyPrice rows (no min/negative_hours available)
@@ -177,6 +177,7 @@ async def get_day_ahead(
         "negative_days": 0,
         "latest": data[-1],
         "data": data,
+        **_panel_freshness(data, "day_ahead"),
     }
 
 
@@ -301,6 +302,7 @@ async def get_spark_spread(
         "from": date_from,
         "to": date_to,
         "data": data,
+        **_panel_freshness(data, "spark"),
     }
 
 
@@ -385,6 +387,7 @@ async def get_grid(
         "from": date_from,
         "to": date_to,
         "data": data,
+        **_panel_freshness(data, "grid"),
     }
 
 
@@ -456,6 +459,7 @@ async def get_load_forecast(
         "forward": forward,
         "from": date_from,
         "data": data,
+        **_panel_freshness(data, "load_forecast"),
     }
 
 
@@ -568,6 +572,46 @@ def _worst_state(severities: list[str]) -> str:
     return _STATE_LABEL[rank]
 
 
+# Panel-caption freshness thresholds. Values mirror the per-source windows in
+# backend/collectors/freshness.py::SPECS (enforced by test_power_panel_freshness),
+# so the UI captions and /api/health/collectors can never disagree. generation_mix
+# shares the grid window (same A75 ingest); load_forecast is frontier-based.
+PANEL_MAX_AGE_DAYS = {
+    "day_ahead": 2,
+    "grid": 3,
+    "generation_mix": 3,
+    "flows": 3,
+    "spark": 4,  # gas leg is yfinance TTF — ~3 trading days plus weekends
+    "load_forecast": 2,
+}
+
+
+def _freshness(as_of: str | None, today: _date | None,
+               max_age_days: int = SITUATION_STALE_DAYS) -> dict:
+    """as_of/age_days/stale triple for ONE component. Inert without `today`.
+
+    Every component carries its own freshness because a fresh series must never
+    mask a stale one: after the 2026-07-07 outage, prices resumed a day before
+    the grid series did, and the old top-level `as_of = max(...)` presented
+    days-old residual/renewables figures as current.
+    """
+    age_days: int | None = None
+    stale = False
+    if today is not None and as_of is not None:
+        try:
+            age_days = (today - _date.fromisoformat(as_of)).days
+            stale = age_days > max_age_days
+        except ValueError:
+            age_days = None
+    return {"as_of": as_of, "age_days": age_days, "stale": stale}
+
+
+def _panel_freshness(data: list[dict], panel: str) -> dict:
+    """Freshness triple for a detail endpoint from its ascending `data` rows."""
+    latest = data[-1]["date"] if data else None
+    return _freshness(latest, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS[panel])
+
+
 def build_power_situation(
     zone: str,
     price_series: list[dict],
@@ -609,6 +653,7 @@ def build_power_situation(
         "z": price_z["z"] if price_z else None,
         "baseline_mean": price_z["baseline_mean"] if price_z else None,
         "baseline_n": price_z["baseline_n"] if price_z else None,
+        **_freshness(price_latest["date"] if price_latest else None, today),
     }
 
     # ── grid block (residual load + Dunkelflaute) ──
@@ -629,6 +674,7 @@ def build_power_situation(
         "z": resid_z["z"] if resid_z else None,
         "baseline_mean": resid_z["baseline_mean"] if resid_z else None,
         "baseline_n": resid_z["baseline_n"] if resid_z else None,
+        **_freshness(grid_latest["date"] if grid_latest else None, today),
     }
 
     # ── spark block (DE-LU only; signpost on FR/NL) ──
@@ -641,6 +687,7 @@ def build_power_situation(
         if has_spark and spark_latest.get("power_price") is not None else None,
         "gas_price": round(spark_latest["gas_price"], 2)
         if has_spark and spark_latest.get("gas_price") is not None else None,
+        **_freshness(spark_latest.get("date") if has_spark else None, today),
     }
 
     # ── flags + descriptive state ──
@@ -666,29 +713,30 @@ def build_power_situation(
     as_of = max(date_candidates) if date_candidates else None
 
     # ── staleness (vs wall-clock) — never assert a confident state on days-old data ──
-    age_days: int | None = None
-    stale = False
-    if today is not None and as_of is not None:
-        try:
-            age_days = (today - _date.fromisoformat(as_of)).days
-            stale = age_days > SITUATION_STALE_DAYS
-        except ValueError:
-            age_days = None
+    # Top-level as_of stays the NEWEST component date, but stale is worst-of: any
+    # available component lagging makes the whole situation stale. `max()` alone
+    # would let a fresh price mask a days-old grid series.
+    top = _freshness(as_of, today)
+    age_days = top["age_days"]
+    stale = any(c["stale"] for c in (price, grid, spark) if c["available"])
 
     # ── headline (descriptive one-liner) ──
+    def _age_suffix(comp: dict) -> str:
+        return f" ({comp['age_days']}d old)" if comp["stale"] else ""
+
     parts: list[str] = []
     if price["available"]:
         seg = f"day-ahead €{price['close']:.0f}/MWh"
         if price["z"] is not None:
             seg += f" ({price['z']:+.1f}σ)"
-        parts.append(seg)
+        parts.append(seg + _age_suffix(price))
     if grid["available"]:
         seg = f"residual {grid['residual_gw']:.0f} GW"
         if grid["z"] is not None:
             seg += f" ({grid['z']:+.1f}σ)"
-        parts.append(seg)
+        parts.append(seg + _age_suffix(grid))
     if spark["available"]:
-        parts.append(f"spark €{spark['spark_spread']:+.0f}/MWh")
+        parts.append(f"spark €{spark['spark_spread']:+.0f}/MWh" + _age_suffix(spark))
     headline = f"{zone_label} · " + " · ".join(parts) if parts else f"{zone_label} · no power data yet"
 
     return {
@@ -705,6 +753,39 @@ def build_power_situation(
         "spark": spark,
         "flags": flags,
         "headline": headline,
+    }
+
+
+def _latest_spark(db: Session, zone: str) -> dict | None:
+    """Latest live spark for `zone` — the same derivation as /spark-spread
+    (power − TTF × heat_rate on the newest day both series cover), so the
+    situation hero and the panel can never disagree. None when either leg
+    has no recent data."""
+    symbol = POWER_ZONES[zone]["price_symbol"]
+    heat_rate = round(1.0 / settings.gas_ccgt_efficiency, 4)
+    date_from, date_to = _window(14)
+
+    def _closes(sym: str) -> dict[str, float]:
+        return {
+            r.date: r.close
+            for r in db.query(EnergyPrice).filter(
+                EnergyPrice.symbol == sym,
+                EnergyPrice.date >= date_from,
+                EnergyPrice.date <= date_to,
+            )
+        }
+
+    power_by = _closes(symbol)
+    ttf_by = _closes("TTF")
+    common = sorted(set(power_by) & set(ttf_by))
+    if not common:
+        return None
+    d = common[-1]
+    return {
+        "date": d,
+        "power_price": power_by[d],
+        "gas_price": ttf_by[d],
+        "spark_spread": round(power_by[d] - ttf_by[d] * heat_rate, 4),
     }
 
 
@@ -753,27 +834,18 @@ def load_power_situation(db: Session, zone: str) -> dict:
             db, latest_grid.date, resolved_zone, latest_grid.load_mw
         )
 
-    spark_supported = resolved_zone == DEFAULT_ZONE
-    spark_latest = None
-    if spark_supported:
-        srow = (
-            db.query(SparkSpreadHistory)
-            .order_by(SparkSpreadHistory.date.desc())
-            .first()
-        )
-        if srow is not None:
-            spark_latest = {
-                "spark_spread": srow.spark_spread,
-                "power_price": srow.power_price,
-                "gas_price": srow.gas_price,
-            }
+    # Derive the spark live from the price series — the exact same computation as
+    # /spark-spread (gas leg = TTF for every zone), so the hero and the panel below
+    # it can never disagree. The old SparkSpreadHistory read was DE-only and made
+    # the hero claim "DE-LU only" while the panel showed a real FR/NL spark.
+    spark_latest = _latest_spark(db, resolved_zone)
 
     return build_power_situation(
         resolved_zone,
         price_series,
         grid_series,
         spark_latest,
-        spark_supported=spark_supported,
+        spark_supported=True,
         grid_coverage_ok=grid_coverage_ok,
         today=datetime.utcnow().date(),
     )
@@ -920,6 +992,7 @@ async def get_flows(
         "from": date_from,
         "to": date_to,
         "data": data,
+        **_panel_freshness(data, "flows"),
     }
 
 
@@ -992,4 +1065,5 @@ async def get_generation_mix(
         "from": date_from,
         "to": date_to,
         "data": data,
+        **_panel_freshness(data, "generation_mix"),
     }

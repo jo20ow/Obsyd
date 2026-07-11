@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 
 // Refocus 2026-07-03 (electricity desk): the fuels that set the marginal power
 // price — TTF gas and NG. Oil/metals moved to the sibling project.
+// `unit` is mandatory context, not decoration: TTF quotes in EUR/MWh while
+// Henry-Hub NG quotes in USD/MMBtu — bare numbers side by side are unreadable.
 const TICKERS = [
-  { key: 'TTF', label: 'TTF', color: 'text-pink-400' },
-  { key: 'NG', label: 'NG', color: 'text-purple-400' },
+  { key: 'TTF', label: 'TTF', unit: '€/MWh', color: 'text-pink-400' },
+  { key: 'NG', label: 'NG', unit: '$/MMBtu', color: 'text-purple-400' },
 ]
 
 export default function PriceTicker() {
@@ -54,6 +56,7 @@ export default function PriceTicker() {
             <span className={`font-mono text-xs font-bold ${t.color}`}>
               {price != null ? price.toFixed(2) : '--'}
             </span>
+            <span className="font-mono text-[9px] text-neutral-600">{t.unit}</span>
             {pct != null && (
               <span className={`font-mono text-[10px] ${pct >= 0 ? 'text-green-glow' : 'text-red-400'}`}>
                 {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%

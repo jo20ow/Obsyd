@@ -60,6 +60,7 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
   return (
     <Panel
       id="power-load-forecast"
+      freshness={data}
       title="LOAD FORECAST vs ACTUAL // ENTSO-E"
       info="ENTSO-E day-ahead forecasts (processType A01): total load (A65) and wind+solar (A69). The headline is tomorrow's RESIDUAL load = load − wind − solar — the demand dispatchable plants must cover, and the quantity that most drives the day-ahead price. DAILY view tracks the load forecast (violet) vs realised (cyan) — the gap is the forecast error. HOURLY view shows tomorrow's residual shape (evening ramp, midday solar trough, Dunkelflaute windows). Descriptive — higher residual tends to firm prices, but this is not a price call."
       collapsible

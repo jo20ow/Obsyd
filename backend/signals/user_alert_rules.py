@@ -505,6 +505,7 @@ TEMPLATES: dict[str, dict] = {
                 "default": "either",
             },
         },
+        "vertical": "maritime",
         "evaluator": evaluate_chokepoint_anomaly,
     },
     "floating_storage_surge": {
@@ -519,6 +520,7 @@ TEMPLATES: dict[str, dict] = {
             "min_vessels": {"type": "number", "min": 1, "max": 100, "default": 3},
             "window_days": {"type": "number", "min": 1, "max": 30, "default": 7},
         },
+        "vertical": "maritime",
         "evaluator": evaluate_floating_storage_surge,
     },
     "crack_spread_breach": {
@@ -532,6 +534,7 @@ TEMPLATES: dict[str, dict] = {
             },
             "threshold_usd": {"type": "number", "min": 0, "max": 100, "required": True},
         },
+        "vertical": "oil",
         "evaluator": evaluate_crack_spread_breach,
     },
     "negative_prices": {
@@ -540,12 +543,14 @@ TEMPLATES: dict[str, dict] = {
         "params_schema": {
             "zone": {"type": "enum", "options": list(POWER_ZONES), "required": True},
         },
+        "vertical": "power",
         "evaluator": evaluate_negative_prices,
     },
     "gas_balance": {
         "label": "EU gas balance signal",
         "summary": "Notify me when the EU gas-balance residual flags a WATCH or SIGNAL deviation vs its 90d norm.",
         "params_schema": {},
+        "vertical": "gas",
         "evaluator": evaluate_gas_balance,
     },
     "dunkelflaute": {
@@ -555,6 +560,7 @@ TEMPLATES: dict[str, dict] = {
             "zone": {"type": "enum", "options": list(POWER_ZONES), "required": True},
             "threshold_pct": {"type": "number", "min": 5, "max": 40, "default": 15},
         },
+        "vertical": "power",
         "evaluator": evaluate_dunkelflaute,
     },
     "dayahead_spike": {
@@ -565,6 +571,7 @@ TEMPLATES: dict[str, dict] = {
             "direction": {"type": "enum", "options": ["above", "below"], "required": True},
             "threshold_eur": {"type": "number", "min": -50, "max": 1000, "required": True},
         },
+        "vertical": "power",
         "evaluator": evaluate_dayahead_spike,
     },
     "spark_spread_breach": {
@@ -574,6 +581,7 @@ TEMPLATES: dict[str, dict] = {
             "direction": {"type": "enum", "options": ["above", "below"], "required": True},
             "threshold_eur": {"type": "number", "min": -100, "max": 200, "required": True},
         },
+        "vertical": "power",
         "evaluator": evaluate_spark_spread_breach,
     },
 }

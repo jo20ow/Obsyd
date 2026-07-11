@@ -65,6 +65,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
   return (
     <Panel
       id="generation-mix"
+      freshness={data}
       title={`GENERATION MIX · ${zoneLabel}`}
       info="Full ENTSO-E A75 generation breakdown by production type (daily mean MW). Covers nuclear, coal, gas, hydro, biomass, wind, solar and more. Source: ENTSO-E Transparency Platform, processType A16."
       collapsible

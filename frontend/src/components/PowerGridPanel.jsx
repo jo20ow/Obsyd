@@ -56,6 +56,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
   return (
     <Panel
       id="power-grid"
+      freshness={data}
       title={`RESIDUAL LOAD · ${zoneLabel}`}
       info="Residual load = total electricity demand − wind − solar (MW daily mean). This is the demand that dispatchable plants (gas, coal, nuclear, hydro) must cover. Dunkelflaute = day when renewable share < 15% of total load — a physical stress signal, not a price forecast."
       collapsible
