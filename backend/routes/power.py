@@ -1251,8 +1251,9 @@ async def get_outages(
 
 # ─── Hydro reservoirs (free) ──────────────────────────────────────────────────
 
-#: A72 publishes weekly; allow one late week before flagging.
-HYDRO_STALE_DAYS = 10
+#: A72 weekly points arrive up to ~2 weeks after the week starts (verified in
+#: prod: current data read as 12 days old). Flag only beyond that lag.
+HYDRO_STALE_DAYS = 16
 
 
 def _same_week_band(points: list[tuple[int, float]]) -> dict:

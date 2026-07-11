@@ -162,3 +162,17 @@ def test_route_empty_is_honest(db_session):
     body = _client(db_session).get("/api/power/hydro").json()
     assert body["available"] is False
     assert "reason" in body
+
+
+def test_normal_publication_lag_is_not_stale(db_session):
+    """A72 weekly points arrive up to ~2 weeks after the week starts — prod
+    showed STALE on perfectly current data with a 10-day threshold."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.hourly_store import upsert_hourly
+
+    ts = int((datetime.now(timezone.utc) - timedelta(days=12)).timestamp())
+    upsert_hourly(db_session, "hydro.reservoir", "NO2", [(ts, 2.0e7)], unit="MWh")
+    db_session.commit()
+    body = _client(db_session).get("/api/power/hydro").json()
+    assert body["stale"] is False
