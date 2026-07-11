@@ -13,8 +13,14 @@ either serve stale revisions or need its own retention machinery — the
 2026-07-07 disk incident says keep transient payloads off the disk. The DB
 row per (mrid, revision) IS the idempotency layer.
 
-Pagination: ENTSO-E caps unavailability responses at 200 documents; further
-pages via offset=200, 400, … We page until a page returns fewer than 200.
+Pagination — learned from the live API, both the hard way:
+  * >200 documents WITHOUT an offset param is HTTP 400 ("number of instances
+    exceeds the allowed maximum"); the API only paginates when offset is sent
+    EXPLICITLY, including offset=0. DE_LU alone had 362 documents in a
+    362-day window.
+  * The request window must span less than one year, or HTTP 400
+    ("must not span more than one year").
+We page in 200s until a page comes back non-full.
 """
 
 from __future__ import annotations
@@ -36,6 +42,10 @@ from backend.power.zones import POWER_ZONES
 logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 200
+
+# Window must stay under the API's one-year span limit.
+DEFAULT_LOOKBACK_DAYS = 7
+DEFAULT_LOOKAHEAD_DAYS = 355
 
 #: docStatus values that mean "this message no longer stands".
 _WITHDRAWN_STATUSES = {"A09", "A13"}  # cancelled / withdrawn
@@ -117,12 +127,19 @@ async def _fetch_outages_page(
         "biddingZone_Domain": eic,
         "periodStart": window_start,
         "periodEnd": window_end,
+        # ALWAYS explicit, including 0 — without it the API refuses to paginate
+        # and answers >200-document windows with HTTP 400.
+        "offset": str(offset),
     }
-    if offset:
-        params["offset"] = str(offset)
     async with httpx.AsyncClient(timeout=120) as client:
         resp = await client.get(ENTSOE_BASE, params=params)
-        if resp.status_code == 400:  # past the last page / no data
+        if resp.status_code == 400:
+            # Past the last page is a 400/ACK; on the FIRST page it is a real
+            # error (bad window, bad domain) that must not be silent — the
+            # initial prod run wrote 0 documents without a single log line.
+            if offset == 0:
+                logger.warning("entsoe_outages [%s]: HTTP 400 on first page: %.200s",
+                               eic, resp.text)
             return None
         resp.raise_for_status()
         return resp.content if resp.content[:2] == b"PK" else None
@@ -133,8 +150,8 @@ async def ingest_outages(
     *,
     zones: list[str] | None = None,
     doc_type: str = "A77",
-    lookahead_days: int = 365,
-    lookback_days: int = 7,
+    lookahead_days: int = DEFAULT_LOOKAHEAD_DAYS,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
 ) -> dict:
     """Fetch the rolling outage window for `zones` and store new (mrid, revision)
     rows. No deep backfill by design — active + upcoming messages are the
