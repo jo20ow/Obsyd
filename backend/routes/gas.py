@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from backend.collectors.freshness import freshness_meta
 from backend.database import get_db
 from backend.gas import validation
 from backend.models.gas import GasBalance, GasDemandModel, GasLng, GasPowerBurn, GasStorage
@@ -28,6 +29,21 @@ def _window(days: int) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
+# Gas confirms 1-2 days late (ENTSOG provisional window, AGSI evening publish),
+# so 3 days is a hung feed, not a normal lag. Matches the gas_balance SPECS entry.
+GAS_STALE_DAYS = 3
+
+
+def _panel_freshness(rows) -> dict:
+    """as_of/age_days/stale from the newest row's delivery date. `rows` are
+    ascending model rows or dicts with a `date` field."""
+    if not rows:
+        return freshness_meta(None, None, GAS_STALE_DAYS)
+    last = rows[-1]
+    as_of = last["date"] if isinstance(last, dict) else last.date
+    return freshness_meta(as_of, datetime.utcnow().date(), GAS_STALE_DAYS)
+
+
 @router.get("/supply")
 async def get_supply(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
     """Daily supply (GWh/d) decomposed into pipeline imports, LNG, net UK."""
@@ -35,7 +51,7 @@ async def get_supply(days: int = Query(90, ge=1, le=1500), db: Session = Depends
     rows = validation.compute_daily_supply(db, date_from, date_to)
     if not rows:
         return {"available": False, "reason": "no flow/lng data yet — run gas_backfill"}
-    return {"available": True, "from": date_from, "to": date_to, "data": rows}
+    return {"available": True, "from": date_from, "to": date_to, "data": rows, **_panel_freshness(rows)}
 
 
 @router.get("/storage")
@@ -55,6 +71,7 @@ async def get_storage(days: int = Query(90, ge=1, le=1500), db: Session = Depend
             {"date": r.date, "stock_twh": r.stock_twh, "injection_gwh": r.injection_gwh, "withdrawal_gwh": r.withdrawal_gwh, "fill_pct": r.fill_pct}
             for r in rows
         ],
+        **_panel_freshness(rows),
     }
 
 
@@ -69,7 +86,7 @@ async def get_lng(days: int = Query(90, ge=1, le=1500), db: Session = Depends(ge
     )
     if not rows:
         return {"available": False, "reason": "no ALSI data yet"}
-    return {"available": True, "data": [{"date": r.date, "send_out_gwh": r.send_out_gwh, "inventory_twh": r.inventory_twh} for r in rows]}
+    return {"available": True, "data": [{"date": r.date, "send_out_gwh": r.send_out_gwh, "inventory_twh": r.inventory_twh} for r in rows], **_panel_freshness(rows)}
 
 
 @router.get("/power-burn")
@@ -91,6 +108,7 @@ async def get_power_burn(days: int = Query(90, ge=1, le=1500), db: Session = Dep
             {"date": r.date, "gen_gwh_el": r.gen_gwh_el, "implied_gas_gwh": r.implied_gas_gwh, "efficiency": r.efficiency}
             for r in rows
         ],
+        **_panel_freshness(rows),
     }
 
 
@@ -120,6 +138,7 @@ async def get_demand(days: int = Query(90, ge=1, le=1500), db: Session = Depends
             {"date": r.date, "heat_gwh": r.heat_gwh, "industrial_gwh": r.industrial_gwh, "model_version": r.model_version}
             for r in rows
         ],
+        **_panel_freshness(rows),
     }
 
 
@@ -157,6 +176,7 @@ async def get_balance(days: int = Query(120, ge=1, le=1500), db: Session = Depen
             }
             for r in rows
         ],
+        **_panel_freshness(rows),
     }
 
 

@@ -3,8 +3,8 @@
   <rect x="0" y="0" width="1200" height="6" fill="#5bbfb5"/>
   <text x="72" y="150" font-family="'JetBrains Mono', monospace" font-size="34" letter-spacing="10" fill="#5bbfb5" font-weight="700">OBSYD</text>
   <text x="72" y="300" font-family="'JetBrains Mono', monospace" font-size="76" fill="#e8eaed" font-weight="700">European Power Desk</text>
-  <text x="72" y="370" font-family="'JetBrains Mono', monospace" font-size="25" fill="#9aa0a6">Day-ahead · residual load &amp; Dunkelflaute · spark · flows</text>
-  <text x="72" y="414" font-family="'JetBrains Mono', monospace" font-size="25" fill="#9aa0a6">DE-LU · FR · NL — from the official record. Free &amp; open.</text>
+  <text x="72" y="370" font-family="'JetBrains Mono', monospace" font-size="25" fill="#9aa0a6">15-min day-ahead · outages · residual load · reservoirs · flows</text>
+  <text x="72" y="414" font-family="'JetBrains Mono', monospace" font-size="25" fill="#9aa0a6">37 European bidding zones — from the official record. Free &amp; open.</text>
   <g font-family="'JetBrains Mono', monospace" font-size="26" font-weight="700">
     <rect x="72" y="470" width="150" height="52" rx="6" fill="none" stroke="#34a853" stroke-opacity="0.5"/>
     <text x="147" y="504" fill="#34a853" text-anchor="middle">CALM</text>

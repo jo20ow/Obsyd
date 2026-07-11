@@ -36,6 +36,7 @@ export default function GasSupplyPanel() {
   return (
     <Panel
       id="gas-supply"
+      freshness={data}
       title="EU GAS SUPPLY · ENTSOG"
       info="Daily EU gas supply (GWh/d) from ENTSOG physical flows: pipeline imports + LNG send-out + net UK interconnector. Free, official data."
       collapsible

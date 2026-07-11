@@ -58,6 +58,7 @@ export default function GasBalancePanel() {
   return (
     <Panel
       id="gas-balance"
+      freshness={data}
       title="EU GAS BALANCE · RESIDUAL"
       info="The residual = implied ΔStorage (supply − demand − exports) vs actual ΔStorage (AGSI), 7d-smoothed and z-scored. Persistent deviation = demand destruction or unexpected flows the market hasn't priced. Descriptive, not predictive."
       collapsible

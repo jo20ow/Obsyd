@@ -6,25 +6,25 @@ const PILLARS = [
     label: '01',
     title: 'See the whole grid at a glance',
     body:
-      'Day-ahead prices, load & residual load, the generation mix, wind/solar and 20 cross-border flows across DE-LU, FR and NL — plus tomorrow’s load & residual forecast and the gas that fuels the marginal price. One desk, not a dozen ENTSO-E queries to reconcile by hand.',
+      'Day-ahead prices at the market’s real 15-minute resolution, load & residual load, the generation mix, cross-border flows and a live generation-outage board — across 37 European bidding zones, plus Nordic & Alpine reservoir levels and the gas that fuels the marginal price. One desk, not a dozen ENTSO-E queries to reconcile by hand.',
   },
   {
     label: '02',
     title: 'Catch grid stress as it happens',
     body:
-      'A live radar flags negative prices, Dunkelflaute (wind+solar below 15% of load), day-ahead spikes and gas-balance anomalies the moment they deviate from each zone’s own history — with a plain-language "what this means". A deviation vs history, not a forecast.',
+      'A live radar flags forced power-plant outages, negative prices, Dunkelflaute (wind+solar below 15% of load) and gas-balance anomalies the moment they deviate from each zone’s own history — with a plain-language "what this means". A deviation vs history, not a forecast.',
   },
   {
     label: '03',
-    title: 'Read every rule on GitHub',
+    title: 'Honest about its own data',
     body:
-      'Every threshold, every anomaly check runs in code you can audit. No black-box ML, no proprietary scoring, no "trust us". Run OBSYD on your own infra (AGPL-3.0), or skip the ops and use obsyd.dev — same code either way.',
+      'Every number carries its age — a stalled feed says STALE instead of pretending. Every threshold and anomaly check runs in code you can audit (AGPL-3.0): no black-box ML, no "trust us". Run OBSYD on your own infra, or use obsyd.dev — same code either way.',
   },
 ]
 
 const STATS = [
-  { label: 'bidding zones (DE-LU · FR · NL)', value: '3' },
-  { label: 'cross-border flows tracked', value: '20' },
+  { label: 'European bidding zones', value: '37' },
+  { label: 'day-ahead resolution (as traded)', value: '15 min' },
   { label: 'official public-domain data', value: '100%' },
   { label: 'license', value: 'AGPL-3.0' },
 ]
@@ -72,7 +72,7 @@ export default function Landing() {
         </h1>
         <p className="text-sm sm:text-base text-neutral-400 max-w-2xl leading-relaxed mb-8">
           A free “gridstatus for Europe”: day-ahead prices, load & residual load, generation mix,
-          wind/solar and cross-border flows for DE-LU, FR and NL — plus tomorrow’s load & residual
+          wind/solar and cross-border flows across 37 European bidding zones — plus tomorrow’s load & residual
           forecast and the gas that fuels the marginal price — from the official record (ENTSO-E,
           Fraunhofer Energy-Charts, GIE), with a live anomaly radar. Descriptive, auditable, open
           source under AGPL-3.0 — run it yourself, or use the hosted cloud.
@@ -141,7 +141,7 @@ export default function Landing() {
           </button>
           {glanceOpen && (
             <ul className="space-y-1.5 mt-2">
-              <li>· ENTSO-E — day-ahead prices, load, generation mix &amp; wind/solar forecast (DE-LU, FR, NL)</li>
+              <li>· ENTSO-E — day-ahead prices (15-min), load, generation mix, outages, reservoirs &amp; forecasts (37 zones)</li>
               <li>· Fraunhofer Energy-Charts — cross-border physical power flows (CC BY 4.0)</li>
               <li>· GIE (AGSI/ALSI) + ENTSOG — European gas storage, LNG send-out &amp; pipeline flows</li>
               <li>· TTF / NG — the gas that sets the marginal power price (spark spread)</li>

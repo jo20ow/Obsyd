@@ -675,6 +675,7 @@ def build_power_situation(
     *,
     spark_supported: bool = True,
     grid_coverage_ok: bool = True,
+    forced_outage_mw: float | None = None,
     today: _date | None = None,
 ) -> dict:
     """Compose day-ahead price, residual load and spark spread into one descriptive
@@ -760,6 +761,12 @@ def build_power_situation(
     if price["negative"]:
         flags.append({"key": "negative_prices", "severity": "warning",
                       "label": f"{neg_hours}h of negative day-ahead prices"})
+        severities.append("warning")
+    # None = the outage feed was not consulted; only a real figure can flag.
+    # Threshold mirrors the radar detector (FORCED_OUTAGE_WARN_MW).
+    if forced_outage_mw is not None and forced_outage_mw >= 1_000.0:
+        flags.append({"key": "forced_outages", "severity": "warning",
+                      "label": f"{forced_outage_mw / 1000:.1f} GW forced outages"})
         severities.append("warning")
 
     state = _worst_state(severities)
@@ -895,6 +902,12 @@ def load_power_situation(db: Session, zone: str) -> dict:
     # the hero claim "DE-LU only" while the panel showed a real FR/NL spark.
     spark_latest = _latest_spark(db, resolved_zone)
 
+    # Forced-outage aggregate via the radar detector's helper — hero flag and
+    # radar alert share one derivation (highest revision, withdrawals hidden).
+    from backend.signals.detectors.power import forced_outage_mw_now
+
+    forced_mw, _ = forced_outage_mw_now(db, resolved_zone)
+
     return build_power_situation(
         resolved_zone,
         price_series,
@@ -902,6 +915,7 @@ def load_power_situation(db: Session, zone: str) -> dict:
         spark_latest,
         spark_supported=True,
         grid_coverage_ok=grid_coverage_ok,
+        forced_outage_mw=forced_mw,
         today=datetime.utcnow().date(),
     )
 

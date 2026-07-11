@@ -269,7 +269,7 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
 
 
 def test_detector_registry_count(db_session):
-    assert len(DETECTORS) == 3  # refocus: gas_balance + negative_prices + dunkelflaute
+    assert len(DETECTORS) == 4  # gas_balance + negative_prices + dunkelflaute + forced_outages
 
 
 # ─── flow_anomaly (legacy maritime check) — baseline + onset cure ─────────────
@@ -484,3 +484,59 @@ def test_dunkelflaute_suppressed_when_no_generation_mix(db_session):
     db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60))
     db_session.commit()
     assert detect_dunkelflaute(db_session) == []
+
+
+# ─── forced outages (power) ───────────────────────────────────────────────────
+
+
+def _outage(db, *, mrid="o1", revision=1, zone="DE_LU", business_type="A54",
+            nominal=1400.0, available=0.0, status="active",
+            start_days=-1, end_days=5, unit="Block A"):
+    from datetime import datetime, timedelta, timezone
+
+    from backend.models.energy import PowerOutage
+
+    now = datetime.now(timezone.utc)
+    db.add(PowerOutage(
+        mrid=mrid, revision=revision, doc_type="A77", zone=zone,
+        business_type=business_type, psr_type="B14", unit_name=unit,
+        unit_eic="11WX", location="X", nominal_mw=nominal, available_mw=available,
+        start_utc=(now + timedelta(days=start_days)).strftime("%Y-%m-%dT%H:%MZ"),
+        end_utc=(now + timedelta(days=end_days)).strftime("%Y-%m-%dT%H:%MZ"),
+        status=status,
+    ))
+    db.commit()
+
+
+def test_forced_outages_above_a_gigawatt_alert(db_session):
+    from backend.signals.detectors.power import detect_forced_outages
+
+    _outage(db_session, mrid="a", nominal=900.0, available=0.0)
+    _outage(db_session, mrid="b", nominal=400.0, available=100.0, unit="Block B")
+    results = detect_forced_outages(db_session)
+
+    assert len(results) == 1
+    r = results[0]
+    assert r.rule == "forced_outages" and r.vertical == "power" and r.zone == "DE_LU"
+    assert r.severity == "warning"
+    assert "1.2 GW" in r.title
+    assert "Block A" in r.detail, "the largest unit is the story"
+
+
+def test_forced_outages_critical_at_three_gigawatts(db_session):
+    from backend.signals.detectors.power import detect_forced_outages
+
+    for i in range(3):
+        _outage(db_session, mrid=f"m{i}", nominal=1200.0, available=0.0)
+    assert detect_forced_outages(db_session)[0].severity == "critical"
+
+
+def test_forced_outages_ignore_planned_withdrawn_ended_and_higher_revisions(db_session):
+    from backend.signals.detectors.power import detect_forced_outages
+
+    _outage(db_session, mrid="planned", business_type="A53", nominal=5000.0)
+    _outage(db_session, mrid="ended", end_days=-1, nominal=5000.0)
+    _outage(db_session, mrid="future", start_days=3, nominal=5000.0)
+    _outage(db_session, mrid="wd", revision=1, nominal=5000.0)
+    _outage(db_session, mrid="wd", revision=2, nominal=5000.0, status="withdrawn")
+    assert detect_forced_outages(db_session) == []

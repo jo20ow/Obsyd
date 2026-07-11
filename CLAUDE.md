@@ -1,5 +1,26 @@
 # OBSYD — Strategischer Kontext & Arbeitsprinzipien
 
+> ## ⇒ IST-STAND-UPDATE 2026-07-11 (Datentiefe-Roadmap KOMPLETT LIVE, PRs #56–#59)
+> Die „gridstatus-Lücke"-Roadmap ist umgesetzt und deployed. Für Sessions ab jetzt:
+> - **37 Zonen sind enabled und befüllt** (Prod-`.env` ENABLED_ZONES = volle Registry) — nicht 3.
+>   Default-Tab ist **EUROPE** (All-Zonen-Übersicht), nicht POWER.
+> - **Neue Serien in `power_hourly`:** `price.dayahead.qh` + `imbalance.price.qh` (rohe 15-min-
+>   Auflösung — SDAC handelt seit 2025-10-01 in 15-min-MTUs), `generation.forecast` (A71),
+>   `hydro.reservoir` (A72 wöchentlich, eigene Zonenliste in `entsoe_hydro.HYDRO_ZONES`).
+>   DE_LU-Imbalance läuft über den LÄNDER-EIC `10Y1001A1001A83F` (reBAP).
+> - **Neue Vertikale: Ausfälle (A77)** — `PowerOutage`-Events mit Revisions-Semantik (höchste
+>   Revision je mRID zählt, Withdrawals verschwinden; die meisten Roh-Meldungen sind withdrawn!).
+>   `/api/power/outages`, OutagePanel, `forced_outages`-Detektor im Radar, Hero-Flag.
+>   ENTSO-E-Fallen: `offset`-Param IMMER explizit senden (auch 0), Fenster < 1 Jahr.
+> - **Neue Endpoints:** `/api/power/{hydro,outages,records,forecast-error}`,
+>   `/day-ahead/hourly?resolution=qh`.
+> - **Eindeutigkeits-Konventionen (verbindlich):** jede Response trägt `as_of`/`age_days`/`stale`
+>   (Schwellen gekoppelt an `collectors/freshness.py::SPECS` — auch die neuen Serien sind dort
+>   überwacht); alle Zeiten UTC; per-Komponenten-Staleness im Situation-Hero (worst-of);
+>   Panels verschwinden nie kommentarlos. Auto-Refresh via `useFetchWithError({pollMs})`.
+> - Details + offene Follow-ons: Memory `project_obsyd_datentiefe_roadmap`, Plan-Doc
+>   `wir-brauchen-f-r-obsyd-enumerated-otter.md`. Der „Build-Stand"-Abschnitt unten ist HISTORIE.
+
 > ## ⇒ AKTUELLE AUSRICHTUNG 2026-07-03 (überschreibt ALLE Positionierungs-Absätze unten)
 > **Endziel (Owner-Entscheidung 2026-07-03): Obsyd = „gridstatus.io für Europa" — ein fokussierter
 > europäischer STROM-Desk. Alles Nicht-Strom wird in ein ZWEITPROJEKT aufgespalten.**

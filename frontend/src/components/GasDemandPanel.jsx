@@ -60,6 +60,7 @@ export default function GasDemandPanel() {
   return (
     <Panel
       id="gas-demand"
+      freshness={demand.data}
       title="EU GAS DEMAND"
       info="Modeled EU gas demand = gas-fired power burn (ENTSO-E) + HDD-driven heating + flat industrial baseline. model_version flags whether power burn is separated."
       collapsible
