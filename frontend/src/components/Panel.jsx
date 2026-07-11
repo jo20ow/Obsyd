@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
+import FreshnessCaption from './FreshnessCaption'
+
 export function InfoPopover({ text }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -31,7 +33,7 @@ export function InfoPopover({ text }) {
   )
 }
 
-export default function Panel({ id, title, info, collapsible = false, defaultCollapsed = false, headerRight, downloadUrl, children }) {
+export default function Panel({ id, title, info, collapsible = false, defaultCollapsed = false, headerRight, downloadUrl, freshness, children }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (!collapsible) return false
     try {
@@ -64,6 +66,7 @@ export default function Panel({ id, title, info, collapsible = false, defaultCol
           {info && <InfoPopover text={info} />}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {freshness && <FreshnessCaption meta={freshness} />}
           {downloadUrl && (
             <a
               href={downloadUrl}

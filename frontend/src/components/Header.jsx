@@ -39,6 +39,7 @@ export default function Header({ aisActive, gdeltActive, compactMode, onToggleCo
           </div>
           <div className="text-neutral-500 font-mono text-xs hidden md:block">
             // THE EUROPEAN ELECTRICITY DESK
+            <span className="text-neutral-700 ml-2" title="Every date and time on this desk is UTC — delivery dates, chart axes, data-age stamps.">· ALL TIMES UTC</span>
           </div>
         </div>
 

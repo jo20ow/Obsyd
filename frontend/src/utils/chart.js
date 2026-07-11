@@ -1,7 +1,12 @@
 // Shared chart helpers for the EU gas panels.
 
+// Delivery-date labels are UTC dates. Without an explicit timeZone the browser
+// renders UTC midnight in local time, which shifts every label a day backwards
+// for viewers west of UTC.
 export function fmtDate(d) {
-  return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', timeZone: 'UTC',
+  })
 }
 
 export const CHART_TOOLTIP_STYLE = { background: '#0f1115', border: '1px solid #262a33', fontFamily: 'inherit', fontSize: 12, borderRadius: 8 }

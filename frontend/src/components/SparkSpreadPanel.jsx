@@ -26,7 +26,15 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
         <div className="font-mono text-[10px] text-red-400">SPARK SPREAD // FETCH ERROR</div>
       </div>
     )
-  if (authError || (!data?.available && !loading)) return null
+  // Never vanish silently: say why there is no chart instead of rendering nothing.
+  if (authError || (!data?.available && !loading))
+    return (
+      <div className="border border-border bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-neutral-500">
+          SPARK SPREAD · {zoneLabel} — no overlapping power/TTF price days yet.
+        </div>
+      </div>
+    )
 
   const rows = data?.data ?? []
   const latest = data?.latest
@@ -36,6 +44,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
   return (
     <Panel
       id="spark-spread"
+      freshness={data}
       title={`SPARK SPREAD · ${zoneLabel} · CCGT MARGIN`}
       info="Spark spread = power − gas × heat-rate (CCGT generation margin). Measures the theoretical profitability of gas-fired power generation. Positive = burning gas to generate electricity is profitable. Gas leg = TTF (the European benchmark hub) for every zone. Clean spark (− CO₂ cost) coming once EUA data is wired."
       collapsible

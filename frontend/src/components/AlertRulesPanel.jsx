@@ -414,7 +414,9 @@ function RuleRow({ rule, templates, onToggle, onDelete, disabled }) {
           <div className="font-mono text-[9px] text-neutral-700 mt-1">
             last triggered {fmtAgo(rule.last_triggered_at)}
             {rule.cooldown_until && new Date(rule.cooldown_until) > new Date() && (
-              <> · cooldown until {new Date(rule.cooldown_until).toLocaleTimeString()}</>
+              <> · cooldown until {new Date(rule.cooldown_until).toLocaleTimeString('en-GB', {
+                hour: '2-digit', minute: '2-digit', timeZone: 'UTC',
+              })} UTC</>
             )}
           </div>
         )}

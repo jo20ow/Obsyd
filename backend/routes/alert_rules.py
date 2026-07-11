@@ -111,6 +111,13 @@ class PatchRuleBody(BaseModel):
 # ---------- public-ish: templates ----------
 
 
+#: Verticals offered in the rule builder. The maritime/oil templates run on
+#: dormant data since the electricity refocus (2026-07-03) — offering rules on
+#: feeds that never fire misleads users. Their evaluators stay registered so
+#: existing rules keep evaluating; widen this set when the data returns.
+ACTIVE_TEMPLATE_VERTICALS = {"power", "gas"}
+
+
 @router.get("/templates")
 async def list_templates():
     """Schema discovery for the frontend rule-builder. Not behind require_pro
@@ -122,6 +129,7 @@ async def list_templates():
             "params_schema": t["params_schema"],
         }
         for rule_type, t in TEMPLATES.items()
+        if t.get("vertical") in ACTIVE_TEMPLATE_VERTICALS
     }
 
 

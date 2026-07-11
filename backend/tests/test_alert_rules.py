@@ -388,22 +388,32 @@ def test_user_cannot_delete_someone_elses_rule(client, db_session):
 
 
 def test_templates_endpoint_public(client):
+    """Only power/gas templates are offered. The maritime/oil ones (chokepoint,
+    floating storage, crack spread) live on dormant data since the electricity
+    refocus — offering rules on feeds that never fire misleads users. Evaluators
+    and existing rules stay untouched (reversible; extraction pending)."""
     resp = client.get("/api/alerts/templates")
     assert resp.status_code == 200
     body = resp.json()
     assert set(body) == {
-        "chokepoint_anomaly",
-        "floating_storage_surge",
-        "crack_spread_breach",
         "negative_prices",
         "gas_balance",
         "dunkelflaute",
         "dayahead_spike",
         "spark_spread_breach",
     }
-    assert body["chokepoint_anomaly"]["params_schema"]["zone"]["type"] == "enum"
     # gas_balance is a no-param template (whole-EU signal).
     assert body["gas_balance"]["params_schema"] == {}
+
+
+def test_dormant_maritime_templates_still_evaluate_existing_rules():
+    """Hiding a template from the builder must not orphan rules users already have."""
+    from backend.signals.user_alert_rules import TEMPLATES
+
+    for dormant in ("chokepoint_anomaly", "floating_storage_surge", "crack_spread_breach"):
+        assert dormant in TEMPLATES, "evaluator registry must keep dormant types"
+        assert callable(TEMPLATES[dormant]["evaluator"])
+        assert TEMPLATES[dormant]["vertical"] not in ("power", "gas")
 
 
 # ---------- runner / cooldown ----------

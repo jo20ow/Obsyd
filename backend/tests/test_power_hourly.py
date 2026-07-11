@@ -112,3 +112,71 @@ def test_hourly_endpoint_unavailable_when_missing(db_session):
     with _Client(db_session) as c:
         body = c.get("/api/power/day-ahead/hourly?zone=DE_LU").json()
     assert body["available"] is False
+
+
+# ─── resolution=qh: the raw 15-min auction curve (SDAC 15-min since 2025-10-01) ─
+
+
+def _seed_qh(db, day: str, prices: list[float]) -> None:
+    from datetime import datetime, timezone
+
+    from backend.power.hourly_store import upsert_hourly
+
+    base = int(datetime.fromisoformat(day + "T00:00").replace(tzinfo=timezone.utc).timestamp())
+    upsert_hourly(db, "price.dayahead.qh", "DE_LU",
+                  [(base + i * 900, p) for i, p in enumerate(prices)], unit="EUR/MWh")
+    db.commit()
+
+
+def test_qh_endpoint_returns_96_point_curve(db_session):
+    _seed_qh(db_session, "2026-05-01", [float(10 + i) for i in range(96)])
+    with _Client(db_session) as c:
+        body = c.get("/api/power/day-ahead/hourly?zone=DE_LU&resolution=qh").json()
+    assert body["available"] is True
+    assert body["resolution"] == "qh"
+    assert body["date"] == "2026-05-01"
+    assert len(body["data"]) == 96
+    assert body["data"][0] == {"time": "00:00", "price": 10.0}
+    assert body["data"][1] == {"time": "00:15", "price": 11.0}
+    assert body["data"][-1] == {"time": "23:45", "price": 105.0}
+
+
+def test_qh_endpoint_picks_latest_day_with_qh_data(db_session):
+    _seed_qh(db_session, "2026-05-01", [10.0] * 96)
+    _seed_qh(db_session, "2026-05-02", [20.0] * 96)
+    with _Client(db_session) as c:
+        body = c.get("/api/power/day-ahead/hourly?zone=DE_LU&resolution=qh").json()
+    assert body["date"] == "2026-05-02"
+    assert all(p["price"] == 20.0 for p in body["data"])
+
+
+def test_qh_endpoint_explicit_date(db_session):
+    _seed_qh(db_session, "2026-05-01", [10.0] * 96)
+    _seed_qh(db_session, "2026-05-02", [20.0] * 96)
+    with _Client(db_session) as c:
+        body = c.get("/api/power/day-ahead/hourly?zone=DE_LU&resolution=qh&date=2026-05-01").json()
+    assert body["date"] == "2026-05-01"
+    assert all(p["price"] == 10.0 for p in body["data"])
+
+
+def test_qh_endpoint_signposts_pre_switch_days(db_session):
+    """No QH data (e.g. any day before 2025-10-01) → honest reason, not an error."""
+    with _Client(db_session) as c:
+        body = c.get("/api/power/day-ahead/hourly?zone=DE_LU&resolution=qh").json()
+    assert body["available"] is False
+    assert "15-min" in body["reason"]
+
+
+def test_hourly_endpoint_default_resolution_unchanged(db_session):
+    """resolution defaults to hourly — existing consumers see the same shape."""
+    hourly = [{"hour": h, "price": 40.0 + h} for h in range(24)]
+    db_session.add(PowerPriceDaily(
+        date="2026-05-01", zone="DE_LU", mean_price=51.5, min_price=40, max_price=63,
+        negative_hours=0, hourly_prices=json.dumps(hourly),
+    ))
+    db_session.commit()
+    with _Client(db_session) as c:
+        body = c.get("/api/power/day-ahead/hourly?zone=DE_LU").json()
+    assert body["available"] is True
+    assert len(body["data"]) == 24
+    assert body["data"][0] == {"hour": 0, "price": 40.0}

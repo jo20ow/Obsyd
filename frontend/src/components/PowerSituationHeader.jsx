@@ -22,10 +22,28 @@ const STATE_STYLE = {
   STRESSED: { text: 'text-red-400', dot: 'bg-red-400', border: 'border-red-500/30' },
 }
 
-function Metric({ label, value, sub, color, band }) {
+// Per-component age tag: each metric carries its own freshness so a fresh
+// day-ahead price can never make a days-old residual/renewables figure look
+// current (the backend flags each block separately).
+function StaleTag({ comp }) {
+  if (!comp?.stale) return null
+  return (
+    <span
+      className="font-mono text-[8px] tracking-wide text-orange-400 border border-orange-500/30 rounded px-1 py-px ml-1.5 align-middle"
+      title={`Latest data ${comp.as_of} — this series may be stalled`}
+    >
+      {comp.age_days}d old
+    </span>
+  )
+}
+
+function Metric({ label, value, sub, color, band, comp }) {
   return (
     <div className="min-w-0">
-      <div className="font-mono text-[9px] text-neutral-600 tracking-wider uppercase">{label}</div>
+      <div className="font-mono text-[9px] text-neutral-600 tracking-wider uppercase">
+        {label}
+        <StaleTag comp={comp} />
+      </div>
       <div className={`font-mono text-xl font-bold leading-tight truncate ${color || 'text-neutral-200'}`}>
         {value}
       </div>
@@ -89,12 +107,20 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
           <span className={`font-mono text-[11px] font-bold tracking-wider ${st.text}`}>{data.state}</span>
           <InfoPopover text={STATE_LEGEND} />
           {data.stale ? (
-            <span
-              className="font-mono text-[9px] tracking-wide text-orange-400 border border-orange-500/30 rounded px-1 py-0.5"
-              title={`Latest data ${data.as_of} — source may be stalled`}
-            >
-              STALE · {data.age_days}d
-            </span>
+            // Show the age of the OLDEST lagging component — top-level age_days
+            // tracks the newest date, which reads "0d" when only one series hangs.
+            (() => {
+              const worst = Math.max(
+                ...[price, grid, spark].filter((c) => c?.stale).map((c) => c.age_days ?? 0), 0)
+              return (
+                <span
+                  className="font-mono text-[9px] tracking-wide text-orange-400 border border-orange-500/30 rounded px-1 py-0.5"
+                  title="At least one series is lagging — see the metric tags below"
+                >
+                  STALE · {worst}d
+                </span>
+              )
+            })()
           ) : (
             data.as_of && <span className="font-mono text-[9px] text-neutral-600 hidden sm:inline">{data.as_of}</span>
           )}
@@ -127,6 +153,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
             value={price.close != null ? `€${price.close.toFixed(0)}` : '—'}
             sub="EUR/MWh"
             color={priceColor}
+            comp={price}
             band={price.z != null && <ReferenceBand z={price.z} baselineN={price.baseline_n} className="mt-1.5" />}
           />
           <Metric
@@ -134,16 +161,19 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
             value={grid.residual_gw != null ? `${grid.residual_gw.toFixed(0)} GW` : '—'}
             sub="load − wind − solar"
             color={residColor}
+            comp={grid}
             band={grid.z != null && <ReferenceBand z={grid.z} baselineN={grid.baseline_n} className="mt-1.5" />}
           />
           <Metric
             label="Spark spread"
             value={spark.spark_spread != null ? `${spark.spark_spread >= 0 ? '+' : ''}€${spark.spark_spread.toFixed(0)}` : '—'}
-            sub={spark.supported ? 'CCGT margin' : 'DE-LU only'}
+            sub={spark.available ? 'CCGT margin' : 'no data yet'}
             color={sparkColor}
+            comp={spark}
           />
           <Metric
             label="Renewables"
+            comp={grid}
             value={
               grid.renewable_share_reliable === false ? '—'
                 : grid.renewable_share != null ? `${(grid.renewable_share * 100).toFixed(0)}%` : '—'
