@@ -399,3 +399,34 @@ def test_power_empty_states_are_user_facing(db_session):
         assert body["available"] is False, path
         reason = (body.get("reason") or "").lower()
         assert "ingest" not in reason and "backfill" not in reason and "run " not in reason, (path, reason)
+
+
+# ─── forced-outage flag: the flagship surfaces in the hero ────────────────────
+
+
+def test_large_forced_outages_flag_the_situation():
+    price = _price_series([50.0, 51.0, 52.0])
+    grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
+    s = build_power_situation("DE_LU", price, grid, None, forced_outage_mw=2_400.0)
+
+    flag = next((f for f in s["flags"] if f["key"] == "forced_outages"), None)
+    assert flag is not None
+    assert "2.4 GW" in flag["label"]
+    assert s["state"] == "ELEVATED"
+
+
+def test_small_forced_outages_do_not_flag():
+    price = _price_series([50.0, 51.0, 52.0])
+    grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
+    s = build_power_situation("DE_LU", price, grid, None, forced_outage_mw=300.0)
+    assert all(f["key"] != "forced_outages" for f in s["flags"])
+    assert s["state"] == "CALM"
+
+
+def test_forced_outage_default_is_absent_not_zero():
+    """Call sites without outage data must not imply '0 MW forced' — absence
+    of the feed and a calm grid are different statements."""
+    price = _price_series([50.0, 51.0, 52.0])
+    grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
+    s = build_power_situation("DE_LU", price, grid, None)
+    assert all(f["key"] != "forced_outages" for f in s["flags"])

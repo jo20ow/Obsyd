@@ -18,7 +18,15 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 
-from backend.models.energy import EnergyPrice, PowerFlow, PowerGrid, PowerPriceDaily
+from backend.models.energy import (
+    EnergyPrice,
+    PowerFlow,
+    PowerGrid,
+    PowerHourly,
+    PowerOutage,
+    PowerPriceDaily,
+    SeriesDim,
+)
 from backend.models.gas import GasBalance
 from backend.models.prices import EIAPrice, FREDSeries
 from backend.models.sentiment import GDELTVolume
@@ -35,6 +43,10 @@ class FreshnessSpec:
     is_date_string: bool = False # True → column is "YYYY-MM-DD" delivery-date string
     filter_col: str | None = None
     filter_val: str | None = None
+    #: Set for canonical-store series: probe max(power_hourly.ts_utc) for this
+    #: series key across ALL zones ("is the collector alive at all"), instead
+    #: of a model column. model/column are ignored then.
+    hourly_series: str | None = None
 
 
 # Windows are matched to each source's publication cadence (day-ahead is daily but
@@ -54,6 +66,24 @@ SPECS: list[FreshnessSpec] = [
                   is_date_string=True, filter_col="symbol", filter_val="COPPER"),
 ]
 
+# Canonical-store series added by the 2026-07 depth roadmap — a stalled
+# collector here would have gone unnoticed exactly like the July incident.
+# Windows: QH prices publish daily; imbalance confirms late; A72 is weekly
+# with ~2 weeks publication lag (mirrors HYDRO_STALE_DAYS); A71 is nightly.
+SPECS += [
+    FreshnessSpec("price_qh", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="price.dayahead.qh"),
+    FreshnessSpec("imbalance_qh", PowerPriceDaily, "", timedelta(days=4),
+                  hourly_series="imbalance.price.qh"),
+    FreshnessSpec("generation_forecast", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="generation.forecast"),
+    FreshnessSpec("hydro_reservoir", PowerPriceDaily, "", timedelta(days=16),
+                  hourly_series="hydro.reservoir"),
+    # Outage messages land continuously across 37 zones; a silent day means
+    # the collector is dead, not that Europe stopped breaking.
+    FreshnessSpec("power_outages", PowerOutage, "created_at", timedelta(days=2)),
+]
+
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled
 # zone is now monitored). Keys are suffixed with the zone, e.g. "power_dayahead:FR".
 for _z in POWER_ZONES:
@@ -63,7 +93,31 @@ for _z in POWER_ZONES:
                                is_date_string=True, filter_col="zone", filter_val=_z))
 
 
+def freshness_meta(as_of: str | None, today: _date | None, max_age_days: int) -> dict:
+    """as_of/age_days/stale triple for one endpoint/component. Inert without
+    `today`. Shared by the power and gas route layers so every panel caption
+    derives data age the same way this health module does."""
+    age_days: int | None = None
+    stale = False
+    if today is not None and as_of is not None:
+        try:
+            age_days = (today - _date.fromisoformat(as_of[:10])).days
+            stale = age_days > max_age_days
+        except ValueError:
+            age_days = None
+    return {"as_of": as_of, "age_days": age_days, "stale": stale}
+
+
 def _spec_max(db, spec: FreshnessSpec):
+    if spec.hourly_series is not None:
+        sid = db.query(SeriesDim.id).filter(SeriesDim.key == spec.hourly_series).scalar()
+        if sid is None:
+            return None
+        return (
+            db.query(func.max(PowerHourly.ts_utc))
+            .filter(PowerHourly.series_id == sid)
+            .scalar()
+        )
     q = db.query(func.max(getattr(spec.model, spec.column)))
     if spec.filter_col is not None:
         q = q.filter(getattr(spec.model, spec.filter_col) == spec.filter_val)
@@ -85,7 +139,12 @@ def evaluate_freshness(db, *, now: datetime | None = None) -> dict[str, dict]:
         fresh = False
         last_seen = None
         if latest is not None:
-            if spec.is_date_string:
+            if spec.hourly_series is not None:
+                # epoch seconds from power_hourly
+                latest_dt = datetime.fromtimestamp(latest, tz=timezone.utc)
+                last_seen = latest_dt.isoformat()
+                fresh = (now - latest_dt) <= spec.max_age
+            elif spec.is_date_string:
                 last_seen = str(latest)
                 try:
                     d = _date.fromisoformat(last_seen[:10])

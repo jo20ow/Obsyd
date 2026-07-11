@@ -29,6 +29,7 @@ export default function GasStoragePanel() {
   return (
     <Panel
       id="gas-storage"
+      freshness={data}
       title="EU GAS STORAGE · AGSI"
       info="EU gas in storage (AGSI/GIE). Fill % of working capacity plus daily injection/withdrawal. Free, official redistributable data."
       collapsible

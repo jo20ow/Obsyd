@@ -25,7 +25,11 @@ from sqlalchemy.orm import Session
 
 from backend.signals.detectors.base import is_stale
 from backend.signals.detectors.gas import detect_gas_balance
-from backend.signals.detectors.power import detect_dunkelflaute, detect_negative_prices
+from backend.signals.detectors.power import (
+    detect_dunkelflaute,
+    detect_forced_outages,
+    detect_negative_prices,
+)
 from backend.signals.rules import _upsert_alert
 
 logger = logging.getLogger(__name__)
@@ -38,6 +42,7 @@ DETECTORS = [
     detect_gas_balance,
     detect_negative_prices,
     detect_dunkelflaute,
+    detect_forced_outages,
 ]
 
 

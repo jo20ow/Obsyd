@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from backend.models.energy import PowerGrid, PowerPriceDaily
 from backend.power.coverage import renewable_share_reliable
+from backend.power.entsoe_grid import PSR_LABELS
 from backend.signals.detectors.base import DetectorResult, trailing_zscore
 
 # Dunkelflaute = renewables carry an unusually small share of load (wind+solar < 15%),
@@ -97,6 +98,78 @@ def detect_dunkelflaute(db) -> list[DetectorResult]:
                     f"residual load carried by conventional generation."
                 ),
                 as_of=row.date,
+            )
+        )
+    return results
+
+
+# Forced (unplanned) outages are the intraday price mover. Absolute MW
+# thresholds are deliberate for v1: a >1 GW forced loss is news in any zone,
+# and large units are >500 MW everywhere. Capacity-relative thresholds are a
+# follow-on once InstalledCapacity coverage is verified per zone.
+FORCED_OUTAGE_WARN_MW = 1_000.0
+FORCED_OUTAGE_CRIT_MW = 3_000.0
+
+
+def forced_outage_mw_now(db, zone: str) -> tuple[float, list]:
+    """(total forced MW offline RIGHT NOW, contributing rows) for `zone`.
+
+    Highest revision per mRID wins, withdrawn events vanish — the same
+    semantics as /api/power/outages (26 of 31 live-sampled documents were
+    withdrawn revisions; counting them would fabricate gigawatts).
+    """
+    from datetime import datetime, timezone
+
+    from backend.models.energy import PowerOutage
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    rows = db.query(PowerOutage).filter(PowerOutage.zone == zone).all()
+    latest: dict[str, PowerOutage] = {}
+    for r in rows:
+        if r.mrid not in latest or r.revision > latest[r.mrid].revision:
+            latest[r.mrid] = r
+
+    running = [
+        r for r in latest.values()
+        if r.status == "active"
+        and r.business_type == "A54"
+        and r.nominal_mw is not None
+        and r.start_utc <= now_iso <= r.end_utc
+    ]
+    total = sum(r.nominal_mw - (r.available_mw or 0.0) for r in running)
+    return total, running
+
+
+def detect_forced_outages(db) -> list[DetectorResult]:
+    """Zones where forced (unplanned) generation loss is large right now."""
+    from datetime import datetime, timezone
+
+    from backend.models.energy import PowerOutage
+
+    zones = [z for (z,) in db.query(PowerOutage.zone).distinct().all()]
+    results: list[DetectorResult] = []
+    for zone in zones:
+        total, running = forced_outage_mw_now(db, zone)
+        if total < FORCED_OUTAGE_WARN_MW:
+            continue
+        biggest = max(running, key=lambda r: r.nominal_mw - (r.available_mw or 0.0))
+        biggest_mw = biggest.nominal_mw - (biggest.available_mw or 0.0)
+        results.append(
+            DetectorResult(
+                rule="forced_outages",
+                zone=zone,
+                vertical="power",
+                severity="critical" if total >= FORCED_OUTAGE_CRIT_MW else "warning",
+                title=f"{zone}: {total / 1000:.1f} GW forced outages",
+                detail=(
+                    f"{len(running)} unplanned unavailabilities running now; largest: "
+                    f"{biggest.unit_name or biggest.mrid} ({biggest_mw:.0f} MW, "
+                    f"{PSR_LABELS.get(biggest.psr_type, biggest.psr_type)}, until {biggest.end_utc[:10]})."
+                ),
+                # The running state is assessed against wall-clock, so it is
+                # current by construction; a stalled collector is the
+                # watchdog's job (power_outages freshness spec), not this one.
+                as_of=datetime.now(timezone.utc).date().isoformat(),
             )
         )
     return results
