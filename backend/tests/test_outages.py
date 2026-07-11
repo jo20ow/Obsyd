@@ -148,6 +148,68 @@ async def test_ingest_keeps_every_revision(db_session, monkeypatch):
     assert db_session.query(out.PowerOutage).count() == 2
 
 
+# ─── pagination + window limits (learned from the live API) ──────────────────
+
+
+def test_window_stays_under_the_one_year_api_limit():
+    """A 372-day window returns HTTP 400 'must not span more than one year' —
+    and DE_LU alone had 362 documents in a 362-day window, so the window must
+    fit AND pagination must work."""
+    assert out.DEFAULT_LOOKBACK_DAYS + out.DEFAULT_LOOKAHEAD_DAYS < 365
+
+
+async def test_ingest_pages_past_200_documents(db_session, monkeypatch):
+    """ENTSO-E does NOT paginate implicitly: >200 docs without an offset param
+    is HTTP 400. offset must be sent explicitly (even 0), and a full page
+    means there may be another."""
+    full_page = _zip(*[_doc(mrid=f"m{i}") for i in range(200)])
+    second_page = _zip(_doc(mrid="last"))
+    offsets = []
+
+    async def fake_fetch(eic, window_start, window_end, offset, *, doc_type="A77"):
+        offsets.append(offset)
+        return {0: full_page, 200: second_page}.get(offset)
+
+    monkeypatch.setattr(out, "_fetch_outages_page", fake_fetch)
+    monkeypatch.setattr(out.settings, "entsoe_api_token", SecretStr("tok"))
+    r = await out.ingest_outages(db_session, zones=["DE_LU"])
+
+    assert offsets == [0, 200], "a non-full page ends the paging"
+    assert r["written"] == 201
+
+
+async def test_fetch_always_sends_the_offset_param(monkeypatch):
+    """Live finding: >200 documents WITHOUT an offset param is HTTP 400 — the
+    API only paginates when offset is explicit, including offset=0."""
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+        content = b"PK\x03\x04fake"
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            captured.update(params or {})
+            return _FakeResponse()
+
+    monkeypatch.setattr(out.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(out.settings, "entsoe_api_token", SecretStr("tok"))
+    await out._fetch_outages_page("10Y1001A1001A82H", "202607040000", "202608040000", 0)
+    assert captured.get("offset") == "0"
+
+
 # ─── route: active outages, highest revision wins ─────────────────────────────
 
 
