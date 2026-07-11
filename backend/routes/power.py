@@ -46,6 +46,7 @@ from backend.models.energy import (
 )
 from backend.power.coverage import renewable_share_reliable
 from backend.power.energy_charts_flows import ATTRIBUTION
+from backend.power.entsoe_grid import PSR_LABELS
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
 from backend.signals.detectors.base import severity_from_zscore, trailing_zscore
 
@@ -1047,6 +1048,293 @@ async def get_flows(
         "to": date_to,
         "data": data,
         **_panel_freshness(data, "flows"),
+    }
+
+
+# ─── Forecast error (free) ────────────────────────────────────────────────────
+
+#: forecast series → the series whose SUM is the realised counterpart.
+#: There is no wind.actual/solar.actual — realised wind/solar live in the
+#: generation mix (B18+B19 / B16), same derivation the residual ingest uses.
+_FORECAST_PAIRS: dict[str, tuple[str, list[str]]] = {
+    "load": ("load.forecast", ["load.actual"]),
+    "residual": ("residual.forecast", ["residual.actual"]),
+    "wind": ("wind.forecast", ["gen.B18", "gen.B19"]),
+    "solar": ("solar.forecast", ["gen.B16"]),
+}
+
+
+@router.get("/forecast-error")
+async def get_forecast_error(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    series: str = Query("load", pattern="^(load|residual|wind|solar)$"),
+    days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    """How good was the published TSO day-ahead forecast, in numbers. Free tier.
+
+    bias_mw = mean(actual − forecast): positive means the forecast leaned LOW
+    (demand surprise / renewables over-delivered). mae_mw is the typical
+    per-hour miss. Only hours where both sides exist count. Posture B: this
+    describes ENTSO-E's OWN published forecast — no forecast claim of ours.
+    """
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    fc_key, actual_keys = _FORECAST_PAIRS[series]
+    start_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
+
+    forecast = dict(read_hourly(db, fc_key, resolved_zone, start_ts))
+    actual: dict[int, float] = {}
+    for key in actual_keys:
+        for t, v in read_hourly(db, key, resolved_zone, start_ts):
+            actual[t] = actual.get(t, 0.0) + v
+
+    common = sorted(set(forecast) & set(actual))
+    if not common:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "series": series,
+            "reason": "No overlapping forecast/actual hours in the window yet.",
+        }
+
+    errors = [actual[t] - forecast[t] for t in common]
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "series": series,
+        "days": days,
+        "n_hours": len(common),
+        "bias_mw": round(sum(errors) / len(errors), 1),
+        "mae_mw": round(sum(abs(e) for e in errors) / len(errors), 1),
+        "note": "bias = mean(actual − forecast); describes the published TSO forecast",
+    }
+
+
+# ─── Records (free) ───────────────────────────────────────────────────────────
+
+#: A record set within this many days is "the story", not archive trivia.
+RECORD_FRESH_DAYS = 7
+
+
+@router.get("/records")
+async def get_records(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    db: Session = Depends(get_db),
+):
+    """All-time extremes per series for a zone — "highest day-ahead hour on
+    record", with the evidence date. Descriptive archive facts, recomputed
+    nightly; `fresh` flags records set in the last week. Free tier."""
+    from backend.models.energy import PowerRecord
+
+    resolved_zone = _resolve_zone(zone)
+    rows = db.query(PowerRecord).filter(PowerRecord.zone == resolved_zone).all()
+    if not rows:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": "No records computed yet — check back shortly.",
+        }
+
+    fresh_cutoff = int((datetime.utcnow() - timedelta(days=RECORD_FRESH_DAYS)).timestamp())
+    records = [
+        {
+            "series": r.series_key,
+            "kind": r.kind,
+            "value": round(r.value, 2),
+            "unit": r.unit,
+            "date": _dt.fromtimestamp(r.ts_utc, tz=timezone.utc).strftime("%Y-%m-%d"),
+            "fresh": r.ts_utc >= fresh_cutoff,
+        }
+        for r in sorted(rows, key=lambda r: (r.series_key, r.kind))
+    ]
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "records": records,
+    }
+
+
+# ─── Outages (free) ───────────────────────────────────────────────────────────
+
+_OUTAGE_KIND = {"A53": "planned", "A54": "forced"}
+
+
+@router.get("/outages")
+async def get_outages(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    horizon_days: int = Query(30, ge=1, le=400,
+                              description="Include outages starting up to this many days out"),
+    db: Session = Depends(get_db),
+):
+    """Generation unavailability (ENTSO-E A77) for a bidding zone. Free tier.
+
+    Revision semantics: only the HIGHEST revision per message counts, and
+    withdrawn messages (docStatus A09) hide the event — of 31 live documents
+    sampled, 26 were withdrawn. `total_offline_mw` counts only outages running
+    RIGHT NOW; the list also includes ones starting within `horizon_days`.
+    Descriptive: what capacity is off and why, not a price call.
+    """
+    from backend.models.energy import PowerOutage
+
+    resolved_zone = _resolve_zone(zone)
+    now = datetime.utcnow()
+    now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
+    horizon_iso = (now + timedelta(days=horizon_days)).strftime("%Y-%m-%dT%H:%MZ")
+
+    rows = db.query(PowerOutage).filter(PowerOutage.zone == resolved_zone).all()
+    if not rows:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"No outage messages for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
+        }
+
+    # Highest revision per mRID wins; withdrawn events disappear.
+    latest: dict[str, PowerOutage] = {}
+    for r in rows:
+        if r.mrid not in latest or r.revision > latest[r.mrid].revision:
+            latest[r.mrid] = r
+
+    outages: list[dict] = []
+    total_offline = 0.0
+    forced_offline = 0.0
+    for r in latest.values():
+        if r.status != "active":
+            continue
+        if r.end_utc < now_iso or r.start_utc > horizon_iso:
+            continue
+        offline = (
+            round(r.nominal_mw - (r.available_mw or 0.0), 1)
+            if r.nominal_mw is not None else None
+        )
+        running_now = r.start_utc <= now_iso <= r.end_utc
+        if running_now and offline:
+            total_offline += offline
+            if r.business_type == "A54":
+                forced_offline += offline
+        outages.append({
+            "mrid": r.mrid,
+            "unit_name": r.unit_name,
+            "location": r.location,
+            "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
+            "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
+            "nominal_mw": r.nominal_mw,
+            "available_mw": r.available_mw,
+            "offline_mw": offline,
+            "start_utc": r.start_utc,
+            "end_utc": r.end_utc,
+            "running_now": running_now,
+        })
+
+    outages.sort(key=lambda o: (not o["running_now"], -(o["offline_mw"] or 0.0)))
+    newest_msg = max((r.created_at for r in rows if r.created_at), default=None)
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "unit": "MW",
+        "total_offline_mw": round(total_offline, 1),
+        "forced_offline_mw": round(forced_offline, 1),
+        "horizon_days": horizon_days,
+        "outages": outages,
+        **_freshness(newest_msg.strftime("%Y-%m-%d") if newest_msg else None,
+                     now.date(), 2),
+    }
+
+
+# ─── Hydro reservoirs (free) ──────────────────────────────────────────────────
+
+#: A72 publishes weekly; allow one late week before flagging.
+HYDRO_STALE_DAYS = 10
+
+
+def _same_week_band(points: list[tuple[int, float]]) -> dict:
+    """Compare the newest weekly filling against the SAME ISO week in prior years.
+
+    Reservoir levels are hard seasonal — a trailing window would flag every
+    spring melt as an anomaly. So the band is built from the nearest point
+    within ±4 days of (newest − i·52 weeks) for each prior year i.
+    """
+    import bisect
+
+    ts, value = points[-1]
+    keys = [t for t, _ in points]
+    band: list[float] = []
+    i = 1
+    while True:
+        target = ts - i * 364 * 86_400
+        if target < keys[0] - 4 * 86_400:
+            break
+        j = bisect.bisect_left(keys, target)
+        best = None
+        for k in (j - 1, j):
+            if 0 <= k < len(keys) and abs(keys[k] - target) <= 4 * 86_400:
+                if best is None or abs(keys[k] - target) < abs(keys[best] - target):
+                    best = k
+        if best is not None:
+            band.append(points[best][1])
+        i += 1
+
+    vs_band = None
+    if band:
+        vs_band = "below" if value < min(band) else "above" if value > max(band) else "within"
+    return {
+        "band_min_twh": round(min(band) / 1e6, 2) if band else None,
+        "band_max_twh": round(max(band) / 1e6, 2) if band else None,
+        "band_mean_twh": round(sum(band) / len(band) / 1e6, 2) if band else None,
+        "band_n": len(band),
+        "vs_band": vs_band,
+    }
+
+
+@router.get("/hydro")
+async def get_hydro(db: Session = Depends(get_db)):
+    """Weekly reservoir filling (ENTSO-E A72, MWh → TWh) for the hydro zones —
+    Nordics, Alps, Iberia, France — each compared against the same ISO week in
+    its own prior years. Descriptive: a filling level vs its seasonal norm,
+    not a price call. Free tier."""
+    from backend.power.entsoe_hydro import HYDRO_ZONES
+    from backend.power.hourly_store import read_hourly
+
+    zones_out: list[dict] = []
+    newest: str | None = None
+    for zone in HYDRO_ZONES:
+        points = read_hourly(db, "hydro.reservoir", zone)
+        if not points:
+            continue
+        ts, mwh = points[-1]
+        as_of = _dt.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        newest = max(newest, as_of) if newest else as_of
+        prev = points[-2][1] if len(points) >= 2 else None
+        zones_out.append({
+            "zone": zone,
+            "zone_label": POWER_ZONES.get(zone, {}).get("label", zone),
+            "reservoir_twh": round(mwh / 1e6, 2),
+            "wow_twh": round((mwh - prev) / 1e6, 2) if prev is not None else None,
+            "as_of": as_of,
+            **_same_week_band(points),
+        })
+
+    if not zones_out:
+        return {
+            "available": False,
+            "reason": "No reservoir data yet — check back shortly.",
+        }
+
+    zones_out.sort(key=lambda z: z["reservoir_twh"], reverse=True)
+    return {
+        "available": True,
+        "unit": "TWh",
+        "note": "ENTSO-E A72 weekly filling; band = same ISO week across prior years",
+        "zones": zones_out,
+        **_freshness(newest, datetime.utcnow().date(), HYDRO_STALE_DAYS),
     }
 
 

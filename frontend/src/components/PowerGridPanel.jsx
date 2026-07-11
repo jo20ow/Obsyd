@@ -1,5 +1,6 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { POLL_SLOW_MS } from '../utils/poll'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeDays, rangeStart } from '../utils/ranges'
 import {
@@ -25,7 +26,7 @@ function DunkelDot({ cx, cy, payload }) {
 export default function PowerGridPanel({ zone = 'DE_LU' }) {
   const { range } = useViewState()
   const url = `${API}/power/grid?days=${rangeDays(range)}&zone=${zone}`
-  const { data, loading, error } = useFetchWithError(url, { deps: [zone, range] })
+  const { data, loading, error } = useFetchWithError(url, { deps: [zone, range], pollMs: POLL_SLOW_MS })
 
   if (error)
     return (

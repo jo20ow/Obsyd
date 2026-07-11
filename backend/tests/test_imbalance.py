@@ -55,8 +55,12 @@ def test_parse_malformed_raises():
         parse_imbalance_prices("<not-xml")
 
 
-def test_control_area_eic_skips_de():
-    assert control_area_eic("DE_LU") is None  # 4 control areas, combined reBAP not exposed
+def test_control_area_eic_de_uses_country_code():
+    """Spike 2026-07-11 against the live API: the German reBAP is NOT published
+    under the four control-area EICs (Acknowledgement 999 for TenneT/Amprion)
+    nor under the DE_LU bidding-zone EIC — but the COUNTRY EIC returns the full
+    96-slot uniform reBAP. So DE_LU maps to the country code."""
+    assert control_area_eic("DE_LU") == "10Y1001A1001A83F"
     assert control_area_eic("FR") == "10YFR-RTE------C"
     assert control_area_eic("BE") == "10YBE----------2"
 
@@ -75,10 +79,20 @@ async def test_ingest_writes_series(db_session, monkeypatch):
     assert series[0][1] == 40.0
 
 
-async def test_ingest_de_skipped(db_session, monkeypatch):
+async def test_ingest_de_writes_rebap(db_session, monkeypatch):
+    """DE_LU was the only enabled zone without an imbalance series."""
     monkeypatch.setattr(imb.settings, "entsoe_api_token", "x")
-    r = await imb.ingest_imbalance(db_session, ["2026-06-01"], zone="DE_LU")
-    assert r == {"skipped": "no control area (DE has 4)"}
+    seen = {}
+
+    async def fake_fetch(ca_eic, month_start, **kw):
+        seen["eic"] = ca_eic
+        return _a85([40.0 + i for i in range(24)])
+
+    monkeypatch.setattr(imb, "_fetch_imbalance_month", fake_fetch)
+    r = await imb.ingest_imbalance(db_session, ["2026-06-01"], zone="DE_LU", overwrite=True)
+    assert r["written"] == 24
+    assert seen["eic"] == "10Y1001A1001A83F", "must query the country EIC, not a control area"
+    assert len(read_hourly(db_session, "imbalance.price", "DE_LU")) == 24
 
 
 # ─── quarter-hourly: imbalance settles in 15-min periods — that IS the native truth ─

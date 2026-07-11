@@ -497,6 +497,52 @@ async def ingest_load_forecast(
     return {"days": len(load_by_day), "written": written}
 
 
+async def ingest_generation_forecast(
+    db: Session,
+    days: list[str],
+    *,
+    eic: str = DE_LU_EIC,
+    zone: str = "DE_LU",
+    overwrite: bool = False,
+) -> dict:
+    """Fetch the ENTSO-E day-ahead TOTAL generation forecast (A71, processType A01)
+    and upsert it as the hourly series `generation.forecast`.
+
+    A71 shares the GL_MarketDocument shape with A65 (quantity points, no psrType),
+    so the load parsers do the work; only the document type, the domain param
+    (in_Domain, like A69) and the cache source differ. Complements load/wind/solar
+    forecast for the forecast-vs-actual view.
+    """
+    if not days:
+        return {"days": 0, "written": 0}
+    if not settings.entsoe_api_token:
+        logger.warning("entsoe_grid.ingest_generation_forecast: ENTSOE_API_TOKEN not set — skipping")
+        return {"skipped": "no token"}
+
+    wanted = set(days)
+    months = sorted({datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days})
+
+    by_day: dict[str, dict[int, float]] = {}
+    for month_start in months:
+        try:
+            xml = await _fetch_zone_month(
+                eic, month_start, "A71",
+                {"processType": "A01", "in_Domain": eic},
+                overwrite=overwrite, cache_source="entsoe_gen_total_forecast",
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("entsoe_grid: A71/A01 %s fetch failed: %s", month_start, exc)
+            continue
+        if not xml:
+            continue
+        for day, hours in parse_load_hourly(xml).items():
+            if day in wanted:
+                by_day[day] = hours
+
+    written = upsert_day_hours(db, "generation.forecast", zone, by_day, unit="MW") if by_day else 0
+    return {"days": len(by_day), "written": written}
+
+
 async def ingest_grid(
     db: Session,
     days: list[str],

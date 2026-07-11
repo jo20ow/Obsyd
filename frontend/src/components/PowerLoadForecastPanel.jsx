@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ForecastErrorStrip from './ForecastErrorStrip'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import {
@@ -154,6 +155,7 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
           </div>
         )
       )}
+      <ForecastErrorStrip zone={zone} />
       <div className="px-4 py-2 font-mono text-[9px] text-neutral-700">
         Source: ENTSO-E day-ahead load forecast (A65/A01) + wind/solar (A69/A01) · descriptive, not a forecast of price
       </div>

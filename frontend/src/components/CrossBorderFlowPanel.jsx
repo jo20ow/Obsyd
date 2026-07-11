@@ -1,5 +1,6 @@
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
+import { POLL_SLOW_MS } from '../utils/poll'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeDays } from '../utils/ranges'
 import {
@@ -123,7 +124,7 @@ function BorderRow({ border, data }) {
 export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
   const { range } = useViewState()
   const url = `${API}/power/flows?days=${rangeDays(range)}`
-  const { data, loading, error } = useFetchWithError(url, { deps: [range] })
+  const { data, loading, error } = useFetchWithError(url, { deps: [range], pollMs: POLL_SLOW_MS })
 
   if (error) {
     return (

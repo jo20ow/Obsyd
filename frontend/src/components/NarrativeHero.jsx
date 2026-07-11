@@ -1,4 +1,5 @@
 import useFetchWithError from '../hooks/useFetchWithError'
+import { POLL_FAST_MS } from '../utils/poll'
 import Provenance from './Provenance'
 
 const API = '/api'
@@ -11,7 +12,7 @@ const sig = (z) => `${z >= 0 ? '+' : ''}${z.toFixed(1)}σ`
 const list = (zs, n = 3) => zs.slice(0, n).map((z) => z.zone_label || z.zone).join(', ')
 
 export default function NarrativeHero() {
-  const { data } = useFetchWithError(`${API}/power/overview`)
+  const { data } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
   const zones = data?.zones || []
   if (!data?.available || zones.length === 0) return null
 

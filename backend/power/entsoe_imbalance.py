@@ -2,9 +2,9 @@
 
 A85 is delivered as a ZIP archive (one inner XML per request) and is keyed by CONTROL
 AREA, not bidding zone. For single-TSO countries the bidding-zone EIC works as the
-control-area domain; Germany (DE_LU) has four control areas with a combined reBAP that
-ENTSO-E does not expose under a single A85 control-area EIC, so DE_LU is skipped
-(documented). Prices are per 15-min settlement period → averaged to hourly-canonical UTC.
+control-area domain; Germany (DE_LU) has four control areas with one uniform reBAP,
+published under the COUNTRY EIC (see _CONTROL_AREA_OVERRIDE). Prices are per 15-min
+settlement period → averaged to hourly-canonical UTC, plus raw as imbalance.price.qh.
 """
 from __future__ import annotations
 
@@ -27,15 +27,17 @@ logger = logging.getLogger(__name__)
 
 _RESOLUTION_HOURS = {"PT60M": 1.0, "PT30M": 0.5, "PT15M": 0.25}
 
-# Zones whose imbalance is not fetchable via a single control-area EIC.
-# DE_LU = four German control areas, combined reBAP not exposed under one A85 EIC.
-_CONTROL_AREA_SKIP = {"DE_LU"}
+# Zones whose A85 domain differs from their bidding-zone EIC. Germany has four
+# control areas with one uniform reBAP; spiked 2026-07-11 against the live API:
+# the CA EICs and the DE_LU bidding-zone EIC all return Acknowledgement 999,
+# but the COUNTRY EIC serves the full 96-slot reBAP.
+_CONTROL_AREA_OVERRIDE = {"DE_LU": "10Y1001A1001A83F"}
 
 
 def control_area_eic(zone: str) -> str | None:
     """Control-area domain EIC for A85 (single-TSO zones = the bidding EIC)."""
-    if zone in _CONTROL_AREA_SKIP:
-        return None
+    if zone in _CONTROL_AREA_OVERRIDE:
+        return _CONTROL_AREA_OVERRIDE[zone]
     return ZONE_REGISTRY.get(zone, {}).get("eic")
 
 
@@ -167,7 +169,7 @@ async def ingest_imbalance(
         return {"days": 0, "written": 0}
     ca_eic = control_area_eic(zone)
     if ca_eic is None:
-        return {"skipped": "no control area (DE has 4)"}
+        return {"skipped": f"no A85 domain for zone {zone}"}
     if not settings.entsoe_api_token:
         return {"skipped": "no token"}
 

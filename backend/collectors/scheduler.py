@@ -156,6 +156,14 @@ async def _run_power_daily():
                 logger.error("power daily ingest_load_forecast [%s] failed: %s", zone_key, exc)
 
             try:
+                from backend.power.entsoe_grid import ingest_generation_forecast
+
+                result = await ingest_generation_forecast(db, days, eic=zone_cfg["eic"], zone=zone_key, overwrite=True)
+                logger.info("power daily generation-forecast ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_generation_forecast [%s] failed: %s", zone_key, exc)
+
+            try:
                 from backend.power.entsoe_imbalance import ingest_imbalance
 
                 result = await ingest_imbalance(db, days, zone=zone_key, overwrite=True)
@@ -270,6 +278,56 @@ async def _run_capacity_monthly():
         db.close()
 
 
+async def _run_records_nightly():
+    """Recompute all-time records per series × zone (SQL min/max over
+    power_hourly). Runs after the nightly power ingest so a record day is
+    crowned the same night it happens."""
+    from backend.power.records import compute_records
+
+    db = SessionLocal()
+    try:
+        records = compute_records(db)
+        logger.info("records nightly: %d rows refreshed", len(records))
+    except Exception as exc:
+        logger.error("_run_records_nightly failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _run_outages():
+    """Refresh the rolling generation-unavailability window (ENTSO-E A77) for all
+    enabled zones. Every 6 h: forced outages land intraday, and the desk's whole
+    point is showing them before the price does."""
+    from backend.power.entsoe_outages import ingest_outages
+
+    db = SessionLocal()
+    try:
+        result = await ingest_outages(db)
+        logger.info("outages: %s", result)
+    except Exception as exc:
+        logger.error("_run_outages failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _run_hydro_weekly():
+    """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
+    Current year with overwrite=True — the raw cache is write-once and would
+    otherwise freeze the year at its first fetch."""
+    from datetime import datetime, timezone
+
+    from backend.power.entsoe_hydro import ingest_hydro
+
+    db = SessionLocal()
+    try:
+        result = await ingest_hydro(db, years=[datetime.now(timezone.utc).year], overwrite=True)
+        logger.info("hydro weekly: %s", result)
+    except Exception as exc:
+        logger.error("_run_hydro_weekly failed: %s", exc)
+    finally:
+        db.close()
+
+
 def scheduler_role_enabled(role: str) -> bool:
     """True if this process role should run the scheduler / be a DB writer.
 
@@ -293,6 +351,15 @@ def start_scheduler():
     scheduler.add_job(_run_power_prices_midday, CronTrigger(hour=12, minute=0), id="power_prices_midday", **JOB_DEFAULTS)
     # Installed capacity (A68): monthly, 2nd @ 03:00 UTC — annual data, cheap to refresh.
     scheduler.add_job(_run_capacity_monthly, CronTrigger(day=2, hour=3, minute=0), id="capacity_monthly", **JOB_DEFAULTS)
+    # Reservoir filling (A72): weekly data, refreshed twice a week (publication day
+    # varies by TSO) — Mon+Thu 06:30 UTC. Current year with overwrite, else the
+    # write-once cache would freeze January's frontier.
+    scheduler.add_job(_run_hydro_weekly, CronTrigger(day_of_week="mon,thu", hour=6, minute=30), id="hydro_weekly", **JOB_DEFAULTS)
+    # Generation unavailability (A77): rolling window, every 6 h — forced outages
+    # land intraday and are the desk's reason to exist.
+    scheduler.add_job(_run_outages, CronTrigger(hour="1,7,13,19", minute=15), id="outages_6h", **JOB_DEFAULTS)
+    # All-time records: nightly at 23:45, after the 22:30 power ingest.
+    scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)
