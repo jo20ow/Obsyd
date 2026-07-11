@@ -156,6 +156,14 @@ async def _run_power_daily():
                 logger.error("power daily ingest_load_forecast [%s] failed: %s", zone_key, exc)
 
             try:
+                from backend.power.entsoe_grid import ingest_generation_forecast
+
+                result = await ingest_generation_forecast(db, days, eic=zone_cfg["eic"], zone=zone_key, overwrite=True)
+                logger.info("power daily generation-forecast ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_generation_forecast [%s] failed: %s", zone_key, exc)
+
+            try:
                 from backend.power.entsoe_imbalance import ingest_imbalance
 
                 result = await ingest_imbalance(db, days, zone=zone_key, overwrite=True)
