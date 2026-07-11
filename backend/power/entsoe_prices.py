@@ -140,14 +140,23 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
     for day, pairs in by_day.items():
         if not pairs:
             continue
-        pairs.sort(key=lambda x: x[0])  # order by time so the hourly series is ascending
-        prices = [p for _, p, _ in pairs]
-        # Collapse to ONE mean price per hour: ENTSO-E can return several
-        # overlapping TimeSeries and/or sub-hourly (PT15M) slots for the same day,
-        # so a raw per-point list would show multiple values per hour. Averaging
-        # per hour normalises both into a clean 0-23 curve.
+        # ENTSO-E returns overlapping TimeSeries for the same delivery day
+        # (contract revisions) and can mix resolutions. Stats computed over the
+        # raw point list double-count: prod 2026-07-07 reported 7.0 negative
+        # hours where the deduplicated auction had 4.5. So first the finest
+        # resolution wins the day, then duplicates are averaged per slot, and
+        # every stat is computed over those deduplicated slots.
+        finest = min(res for _, _, res in pairs)
+        slot_acc: dict[datetime, list[float]] = {}
+        for t, p, res in pairs:
+            if res == finest:
+                slot_acc.setdefault(t, []).append(p)
+        slots = sorted((t, sum(ps) / len(ps)) for t, ps in slot_acc.items())
+        prices = [p for _, p in slots]
+
+        # Collapse to ONE mean price per hour for the legacy 0-23 curve.
         hour_acc: dict[int, list[float]] = {}
-        for t, p, _ in pairs:
+        for t, p in slots:
             hour_acc.setdefault(t.astimezone(timezone.utc).hour, []).append(p)
         hourly = [
             {"hour": h, "price": round(sum(ps) / len(ps), 2)}
@@ -159,7 +168,7 @@ def parse_day_ahead_stats(xml_text: str) -> dict[str, dict]:
             "max": max(prices),
             # True hours: weight each negative slot by its resolution so PT15M
             # (96 slots/day) yields real hours (0.25 each), not raw interval counts.
-            "negative_hours": round(sum(res for _, p, res in pairs if p < 0), 2),
+            "negative_hours": round(sum(finest for _, p in slots if p < 0), 2),
             "hourly": hourly,
         }
     return result
