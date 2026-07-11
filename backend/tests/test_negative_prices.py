@@ -274,3 +274,35 @@ def test_route_latest_has_negative_hours(db_session):
     body = client.get("/api/power/day-ahead?days=120").json()
     assert body["latest"]["negative_hours"] == 5
     assert body["latest"]["negative"] is True
+
+
+def test_stats_negative_hours_not_double_counted_across_overlapping_series():
+    """ENTSO-E returns overlapping TimeSeries for the same delivery day (contract
+    revisions). Counting negative slots across ALL points double-counts them:
+    prod 2026-07-07 reported 7.0 negative hours where the deduplicated auction
+    had 4.5. Slots must be deduplicated per timestamp before counting."""
+    from backend.tests.test_power_prices import _a44, _ts
+
+    prices = [-5.0] * 4 + [50.0] * 92  # one negative hour in QH slots
+    xml = _a44(
+        _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", prices, res="PT15M")
+        + _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", prices, res="PT15M")
+    )
+    from backend.power.entsoe_prices import parse_day_ahead_stats
+
+    day = parse_day_ahead_stats(xml)["2026-05-01"]
+    assert day["negative_hours"] == 1.0, f"double-counted: {day['negative_hours']}"
+
+
+def test_stats_mean_unaffected_by_duplicate_series():
+    from backend.tests.test_power_prices import _a44, _ts
+    from backend.power.entsoe_prices import parse_day_ahead_stats
+
+    xml = _a44(
+        _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [100.0] * 24)
+        + _ts("2026-05-01T00:00Z", "2026-05-02T00:00Z", [110.0] * 24)
+    )
+    day = parse_day_ahead_stats(xml)["2026-05-01"]
+    assert day["mean"] == 105.0
+    assert day["min"] == 105.0  # min of per-slot means, not of raw duplicate points
+    assert day["max"] == 105.0
