@@ -15,13 +15,13 @@ OBSYD is **not** a Montel, EPEX or Bloomberg replacement — no intraday or sett
 OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid tier. Two ways to use it:
 
 - **Self-host (free):** Clone the repo, plug in your own API keys, run on your own infra. Full feature set, no usage limits.
-- **Cloud (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). The full energy desk, chokepoint map, anomaly radar, and market data need no account. Personal features (your watchlist, custom alerts, daily brief) just need a free magic-link login — no card, no payment.
+- **Cloud (free):** Use the hosted version at [obsyd.dev](https://obsyd.dev). The full power desk, Europe map, anomaly radar, and data explorer need no account. Personal features (your watchlist, custom alerts, daily brief) just need a free magic-link login — no card, no payment.
 
 ## Features
 
 - **~37 European bidding zones** — all 27 EU zones plus non-EU neighbours CH, NO1–5, SE1–4 (config-only via `ENABLED_ZONES`)
 - **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load, forecasts and imbalance prices, per zone
-- **Imbalance prices** — 15-min settlement prices → hourly, per zone (single-TSO zones; DE excluded — four control areas)
+- **Imbalance prices** — 15-min settlement prices → hourly, per zone (DE-LU included: the combined reBAP is served under the country EIC)
 - **Installed capacity** — generation capacity by fuel per zone (ENTSO-E A68), annual context
 - **Near-real-time** — actual load/generation/flows refresh every 30 min; today fills in hour by hour (the honest ~1h ceiling of free ENTSO-E data)
 - **Day-ahead forecasts** — load, wind/solar and residual-load forecast vs actual, incl. tomorrow's hourly residual curve
@@ -39,13 +39,14 @@ A free, versioned HTTP API over the canonical power record: `GET /api/v1/series?
 
 ## Roadmap / deferred
 
-Shipped since the first cut: imbalance prices (A85), installed capacity (A68), Parquet export,
-the pip-installable Python client, and the non-EU neighbour zones (CH, NO, SE).
+Shipped since the first cut: imbalance prices (A85, incl. Germany's reBAP via the country EIC),
+installed capacity (A68), hydro reservoirs (A72), the generation-outage board (A77,
+revision-aware), hourly cross-border flows, all-time records, Parquet export, the
+pip-installable Python client, and the non-EU neighbour zones (CH, NO, SE).
 
 Investigated and deliberately deferred (with their blockers), not silently dropped:
 
 - **Great Britain** — left ENTSO-E's day-ahead publication post-Brexit (A44 returns an Acknowledgement); not addable as a priced zone from the free feed.
-- **Germany imbalance** — four control areas with a combined reBAP not exposed under a single A85 control-area EIC; DE-LU is skipped for imbalance only.
 - **Curtailment / redispatch / reserves** (ENTSO-E A63/A80/…) — fragmented, border-specific congestion-management data, not a clean pan-EU series.
 - **Continuous intraday prices** — no clean, free, redistributable source.
 - **`power_hourly` retention** — the canonical store grows unbounded by design (all-time records need all-time history). If disk ever becomes the constraint, the 15-min `.qh` series are the thinning candidates (raw quarter-hours matter most recently; the hourly series keeps the long history) — documented option, deliberately not built.
@@ -55,10 +56,6 @@ Investigated and deliberately deferred (with their blockers), not silently dropp
 **Backend:** FastAPI · SQLAlchemy · SQLite (WAL mode) · APScheduler · Python 3.11+
 **Frontend:** React 19 · Vite · Tailwind CSS 4 · deck.gl · Recharts · Lightweight Charts
 **Deployment:** Ubuntu 24.04 · systemd · a reverse proxy for TLS. Self-host: the included `deploy/setup-vps.sh` provisions a standalone nginx + Let's Encrypt (certbot). Hosted obsyd.dev runs behind Caddy (shared with another app) via `deploy/install-caddy-integration.sh` — use whichever proxy you prefer.
-
-## Screenshots
-
-> Screenshots coming soon. Visit [obsyd.dev](https://obsyd.dev) for the live demo.
 
 ## Quick Start
 
@@ -104,38 +101,38 @@ they power the dormant non-power modules being split into a sibling project.
 
 ## Data Sources & Attribution
 
+The power desk runs on the official European record:
+
 | Source | Data | Update Frequency |
 |--------|------|-----------------|
-| [AISStream](https://aisstream.io/) | Real-time AIS vessel positions via WebSocket | Real-time |
-| [AISHub](https://www.aishub.net/) | Global AIS positions (contributor network) | Every 60s |
-| [IMF PortWatch](https://portwatch.imf.org/) | Chokepoint transit counts, disruption events | Daily (3-5 day lag) |
-| [EIA](https://www.eia.gov/) | Crude inventories, refinery utilization, SPR, prices | Weekly |
-| [FRED](https://fred.stlouisfed.org/) | Historical oil prices, DXY, yields, macro data | Daily |
-| [yfinance](https://github.com/ranaroussi/yfinance) | Live commodity futures (CL=F, BZ=F, NG=F, GC=F) | ~15 min delay |
-| [GDELT](https://www.gdeltproject.org/) | News volume and tone for energy keywords | Every 2h |
-| [Finnhub](https://finnhub.io/) | Financial and energy news headlines | Every 2h |
-| [NOAA NWS](https://www.weather.gov/) | Hurricane and tropical storm alerts (Gulf Coast) | Every 30 min |
-| [Open-Meteo](https://open-meteo.com/) | Marine conditions (wave height, wind) per zone | Every 30 min |
-| [JODI](https://www.jodidata.org/) | World oil production by country | Monthly |
-| [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) | VIIRS thermal hotspots near refineries | Every 6h |
-| [Alpha Vantage](https://www.alphavantage.co/) | Commodity price fallback | On demand |
-| [Copernicus/Sentinel-1](https://dataspace.copernicus.eu/) | SAR backscatter for Cushing tank farm (experimental) | ~12 day revisit |
+| [ENTSO-E Transparency](https://transparency.entsoe.eu/) | Day-ahead prices (A44, 15-min since 2025-10), load (A65), generation per fuel (A75), forecasts (A69/A71), imbalance (A85/reBAP), hydro reservoirs (A72), outages (A77), installed capacity (A68) | 30 min – daily per doc type |
+| [Fraunhofer Energy-Charts](https://www.energy-charts.info/) | Cross-border physical flows (CBPF), CC BY 4.0 | 30 min |
+| [GIE AGSI+/ALSI](https://agsi.gie.eu/) | EU gas storage and LNG send-out | Daily |
+| [ENTSOG](https://transparency.entsog.eu/) | Cross-border gas flows | Daily |
+| [Eurostat](https://ec.europa.eu/eurostat) | Gas demand calibration | Monthly |
+| [Open-Meteo](https://open-meteo.com/) | Heating-degree-days for the gas demand model | Daily |
+| [yfinance](https://github.com/ranaroussi/yfinance) | TTF gas price (spark-spread gas leg) | ~15 min delay |
+
+<details>
+<summary><b>Legacy sources (dormant)</b> — power the non-power modules being split into a sibling project; kept for the record, not part of the power desk.</summary>
+
+AISStream / AISHub (vessel AIS), IMF PortWatch (chokepoints), EIA (US oil), FRED (macro/oil), GDELT + Finnhub (news/sentiment), NOAA NWS (Gulf storms), JODI (oil production), NASA FIRMS (refinery thermal), Alpha Vantage (price fallback), Copernicus/Sentinel-1 (experimental SAR). Their known caveats: terrestrial-only AIS (self-reported, spoofable), PortWatch 3–5 day lag, unvalidated SAR index.
+
+</details>
 
 ## Architecture
 
-FastAPI backend with APScheduler running 20+ periodic data collection jobs. Dual-AIS ingestion pipeline: AISStream delivers real-time zone tracking via WebSocket, while AISHub provides a global vessel snapshot every 60 seconds as fallback. All data is stored in SQLite with WAL mode enabled for concurrent reads (busy_timeout=30s). The signal engine runs heuristic rule checks every 5 minutes against current database state to generate alerts.
+FastAPI backend with APScheduler running the collection jobs (nightly deep ingest, 30-min intraday refresh for load/generation/flows, 2h outage refresh, 5-min anomaly evaluation). Everything lands in a canonical hourly store (`power_hourly`, SQLite WAL, single writer) plus per-domain tables; every raw API payload is disk-cached so recalibrations never re-hit the sources. The anomaly radar runs pure, descriptive detectors against persisted state every 5 minutes.
 
-The React frontend uses deck.gl for GPU-accelerated map rendering of 40,000+ vessel positions, with Lightweight Charts for OHLCV price data and Recharts for time series visualizations. The UI follows a monospace terminal aesthetic.
+The React frontend renders the bidding-zone map with deck.gl (real zone geometry, © Electricity Maps contributors), time series with Recharts, and follows a monospace terminal aesthetic. Dormant non-power modules (AIS map, chokepoints, metals, sentiment) remain in the tree for extraction into a sibling project and are lazy-loaded out of the main bundle.
 
 ## Known Limitations
 
-- **No satellite AIS** — Terrestrial receivers only; vessels beyond ~50 km from coast are invisible. Suez and Panama have limited coverage.
-- **Vessel counts, not barrels** — Chokepoint data shows ship transits, not cargo volume or oil flow estimates.
-- **yfinance is unofficial** — Live prices may lag or temporarily fail; FRED daily prices serve as historical fallback.
-- **PortWatch publication delay** — IMF publishes transit data with a 3-5 day lag from actual transits.
-- **SQLite single-writer** — Sufficient for moderate traffic; not suitable for high-concurrency deployments.
-- **AIS is self-reported** — Vessels can spoof position, type, or disable transponders entirely. Data is unverified.
-- **SAR index is experimental** — Sentinel-1 backscatter correlation with Cushing inventory levels is unvalidated.
+- **~1h publication lag** — actual load/generation ride ENTSO-E's free publication cycle; "near-real-time" honestly means the last hour or two fills in as published.
+- **A75 coverage varies by zone** — some zones under-report generation (notably NL); renewable-share metrics are suppressed rather than shown when coverage is too low to trust.
+- **Energy-Charts flows are country-level** — Nordic/Italian sub-zones have no per-sub-zone border series.
+- **yfinance is unofficial** — the TTF leg of the spark spread may lag or temporarily fail.
+- **SQLite single-writer** — sufficient for moderate traffic; not suitable for high-concurrency deployments.
 
 ## License
 
@@ -143,7 +140,7 @@ The React frontend uses deck.gl for GPU-accelerated map rendering of 40,000+ ves
 
 ## Disclaimer
 
-OBSYD is an information tool for market observation, not financial advice. All data is aggregated from public sources and provided as-is without warranty. Correlations shown are statistical observations, not causal predictions. AIS data represents aggregated global network positions, not satellite telemetry. Not regulated by BaFin, SEC, or any financial authority.
+OBSYD is an information tool for market observation, not financial advice. All data is aggregated from public sources and provided as-is without warranty. Correlations shown are statistical observations, not causal predictions. AIS data (dormant legacy modules) is self-reported and unverified. Not regulated by BaFin, SEC, or any financial authority.
 
 ---
 

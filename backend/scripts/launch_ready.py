@@ -102,22 +102,19 @@ def _check_secrets_set() -> CheckResult:
 
 
 def _check_lemon_squeezy() -> CheckResult:
+    """Payments are DORMANT by decision (2026-06-25: Obsyd is fully free, the
+    LS checkout was rejected) — launch readiness must not depend on them. The
+    check now only flags the UNEXPECTED case: a checkout URL configured even
+    though nothing is for sale."""
     from backend.config import settings
 
-    secret = settings.lemonsqueezy_webhook_secret
-    secret_raw = secret.get_secret_value() if hasattr(secret, "get_secret_value") else (secret or "")
     url = settings.lemonsqueezy_checkout_url or ""
-
-    issues: list[str] = []
-    if not secret_raw:
-        issues.append("webhook_secret unset")
-    if "placeholder" in url.lower():
-        issues.append("checkout_url is still the placeholder")
-    if "lemonsqueezy.com/buy/" not in url:
-        issues.append("checkout_url doesn't look like a LS buy link")
-    if issues:
-        return CheckResult("lemon squeezy", False, "; ".join(issues))
-    return CheckResult("lemon squeezy", True, "webhook secret + checkout URL look real")
+    if url:
+        return CheckResult(
+            "lemon squeezy", False,
+            f"checkout_url is set ({url}) but Obsyd is free — leftover config?",
+        )
+    return CheckResult("lemon squeezy", True, "dormant by decision (free product)")
 
 
 def _check_resend() -> CheckResult:

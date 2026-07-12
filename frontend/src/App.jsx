@@ -1,10 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import Sidebar from './components/Sidebar'
 import CompactView from './components/CompactView'
-import PriceChart from './components/PriceChart'
-import MacroPanel from './components/MacroPanel'
-import SentimentPanel from './components/SentimentPanel'
-import CriticalMaterialsView from './components/CriticalMaterialsView'
 import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
@@ -12,28 +8,8 @@ import DurationCurvePanel from './components/DurationCurvePanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
 import GenMixHistoryPanel from './components/GenMixHistoryPanel'
 import TrendsPanel from './components/TrendsPanel'
-import FundamentalsPanel from './components/FundamentalsPanel'
-import JODIPanel from './components/JODIPanel'
-import ChokePointMonitor from './components/ChokePointMonitor'
-import CorrelationPanel from './components/CorrelationPanel'
-import BriefingPanel from './components/BriefingPanel'
-import MarketStructure from './components/MarketStructure'
-import ReroutingIndex from './components/ReroutingIndex'
-import EventTimeline from './components/EventTimeline'
-import ZoneActivityChart from './components/ZoneActivityChart'
-import VoyagesPanel from './components/VoyagesPanel'
-import FlowMatrixPanel from './components/FlowMatrixPanel'
-import STSPanel from './components/STSPanel'
-import CrackSpreadPanel from './components/CrackSpreadPanel'
-import RelatedEquitiesPanel from './components/RelatedEquitiesPanel'
 import ErrorBoundary from './components/ErrorBoundary'
 import PriceTicker from './components/PriceTicker'
-import TransitChart from './components/TransitChart'
-import TonneMilesPanel from './components/TonneMilesPanel'
-import DisruptionScorePanel from './components/DisruptionScorePanel'
-import MarketReportPanel from './components/MarketReportPanel'
-import EIAPredictionPanel, { EIAPredictionMini } from './components/EIAPredictionPanel'
-import FreightProxyPanel from './components/FreightProxyPanel'
 import AlertRulesPanel from './components/AlertRulesPanel'
 import GasBalancePanel from './components/GasBalancePanel'
 import GasStoragePanel from './components/GasStoragePanel'
@@ -45,7 +21,6 @@ import PowerLoadForecastPanel from './components/PowerLoadForecastPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
-import CopperPanel from './components/CopperPanel'
 import RegionPills from './components/RegionPills'
 import LiveCharts from './components/LiveCharts'
 import InsightsStrip from './components/InsightsStrip'
@@ -62,7 +37,6 @@ import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
 import BriefSubscribe from './components/BriefSubscribe'
 import CommandPalette from './components/CommandPalette'
-import NewsPanel from './components/NewsPanel'
 import { useAuth } from './context/AuthContext'
 import { ViewStateProvider, useViewState } from './context/ViewStateContext'
 
@@ -71,6 +45,39 @@ import { ViewStateProvider, useViewState } from './context/ViewStateContext'
 const VesselMap = lazy(() => import('./components/VesselMap'))
 const AtlasMap = lazy(() => import('./components/AtlasMap'))
 const PowerMap = lazy(() => import('./components/PowerMap'))
+
+// Dormant non-power verticals (oil/maritime/metals/news/atlas/sentiment): their
+// tabs left with the 2026-07-03 refocus, so these render blocks are unreachable —
+// but the code stays in the tree for the sibling-project extraction (Phase 2).
+// lazy() takes the ~30 components out of the initial bundle without deleting
+// anything; nothing renders them, so no Suspense boundary is required.
+const PriceChart = lazy(() => import('./components/PriceChart'))
+const MacroPanel = lazy(() => import('./components/MacroPanel'))
+const SentimentPanel = lazy(() => import('./components/SentimentPanel'))
+const CriticalMaterialsView = lazy(() => import('./components/CriticalMaterialsView'))
+const FundamentalsPanel = lazy(() => import('./components/FundamentalsPanel'))
+const JODIPanel = lazy(() => import('./components/JODIPanel'))
+const ChokePointMonitor = lazy(() => import('./components/ChokePointMonitor'))
+const CorrelationPanel = lazy(() => import('./components/CorrelationPanel'))
+const BriefingPanel = lazy(() => import('./components/BriefingPanel'))
+const MarketStructure = lazy(() => import('./components/MarketStructure'))
+const ReroutingIndex = lazy(() => import('./components/ReroutingIndex'))
+const EventTimeline = lazy(() => import('./components/EventTimeline'))
+const ZoneActivityChart = lazy(() => import('./components/ZoneActivityChart'))
+const VoyagesPanel = lazy(() => import('./components/VoyagesPanel'))
+const FlowMatrixPanel = lazy(() => import('./components/FlowMatrixPanel'))
+const STSPanel = lazy(() => import('./components/STSPanel'))
+const CrackSpreadPanel = lazy(() => import('./components/CrackSpreadPanel'))
+const RelatedEquitiesPanel = lazy(() => import('./components/RelatedEquitiesPanel'))
+const TransitChart = lazy(() => import('./components/TransitChart'))
+const TonneMilesPanel = lazy(() => import('./components/TonneMilesPanel'))
+const DisruptionScorePanel = lazy(() => import('./components/DisruptionScorePanel'))
+const MarketReportPanel = lazy(() => import('./components/MarketReportPanel'))
+const FreightProxyPanel = lazy(() => import('./components/FreightProxyPanel'))
+const CopperPanel = lazy(() => import('./components/CopperPanel'))
+const NewsPanel = lazy(() => import('./components/NewsPanel'))
+const EIAPredictionPanel = lazy(() => import('./components/EIAPredictionPanel'))
+const EIAPredictionMini = lazy(() => import('./components/EIAPredictionPanel').then((m) => ({ default: m.EIAPredictionMini })))
 
 const MAP_FALLBACK = (
   <div className="border border-border bg-surface rounded px-4 py-8 text-center font-mono text-xs text-neutral-500">

@@ -1,15 +1,26 @@
 # Signal Validation Framework — Design
 
-> **Status:** P1 shipped — `backend/analytics/validation/` (metrics, prices,
-> disruption weight backtest) + `backend/scripts/backtest_disruption_weights.py`,
-> 18 unit tests. P2–P4 (scorecard table, API, event-study generalization,
-> frontend badges) still open.
+> **Status (updated 2026-07-12):** P1–P3 largely shipped — `backend/analytics/
+> validation/` (metrics, prices, weights backtest), persisted scorecards
+> (`scorecards.py`, `SIGNAL_SPECS` target-aware, weekly job) and live routes
+> (`backend/routes/validation.py`). Open: the event-study generalization
+> beyond `alert_outcomes`, and a `/validation` methods page (the
+> `TrackRecordBadge` itself exists on the panels).
+>
+> **Posture-B reframe (2026-06-24):** everything below that reads "predictive
+> edge" is HISTORY. The engine's output is presented as *historical
+> co-movement — context, not a forecast* (see `TrackRecordBadge`); Obsyd makes
+> no predictive claim — the validated result so far (gas residual IC −0.17)
+> is exactly why. The rigor stays; the framing changed.
 >
 > **First run (2026-06-11):** found a dead component (backwardation bug, fixed
-> in #3) and showed no validated predictive edge yet. See
+> in #3) and showed no validated predictive edge. See
 > [findings/2026-06-11-disruption-score-backtest.md](findings/2026-06-11-disruption-score-backtest.md).
 
 ## Context & goal
+
+*(Historical framing: the "€15 price point" below predates the free-product
+decision of 2026-06-25; kept for the record.)*
 
 Obsyd has ~20 signals (disruption score, tonne-miles, rerouting index, crack
 spread, floating storage, EIA prediction, …). They look plausible but none

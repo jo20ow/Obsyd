@@ -331,10 +331,11 @@ Leitentscheidung.)
 5. ~~**Metall/Kupfer-Knoten (A4)**~~ — **erledigt (PRs #28–#30), live:** METALS-Tab, USGS-Angebot
    (Public Domain) + Preis (HG=F) + `copper_stocks`-Track-Record. **Danach** weitere Knoten (Solar …),
    jeder als fokussierter Zusatz.
-6. **Track B / Launch & Payment (parallel, Umsatz-Engpass):** Lemon-Squeezy-Checkout-URL +
-   Webhook-Secret in Prod setzen (heute ungesetzt → niemand kann zahlen); den **Anomalie-Radar +
-   das physische Lagebild** auf Landing/Pricing als Wert zeigen (deskriptiv, kein Edge-Claim);
-   Impressum/Datenschutz/AGB; Plausible/Mail-Erfassung.
+6. **Track B / Launch (Payment GESTRICHEN):** Obsyd ist komplett gratis (Entscheidung 2026-06-25) —
+   der frühere Punkt „LS-Checkout-URL + Webhook-Secret setzen" ist obsolet; `lemonsqueezy_checkout_url`
+   ist dormant (None-Default, `launch_ready.py` flaggt eine GESETZTE URL als Leiche). Verbleibend:
+   den **Anomalie-Radar + das physische Lagebild** auf der Landing als Wert zeigen (deskriptiv,
+   kein Edge-Claim); Impressum/Datenschutz; Plausible läuft seit #61.
 
 ---
 

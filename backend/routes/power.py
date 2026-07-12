@@ -752,7 +752,12 @@ def build_power_situation(
         if has_spark and spark_latest.get("power_price") is not None else None,
         "gas_price": round(spark_latest["gas_price"], 2)
         if has_spark and spark_latest.get("gas_price") is not None else None,
-        **_freshness(spark_latest.get("date") if has_spark else None, today),
+        # Spark's gas leg is yfinance TTF (~3 trading days + weekends) — judge it
+        # by the SAME window as the spark panel caption. With the 1-day default,
+        # every weekend flagged EVERY zone's situation stale (worst-of semantics),
+        # because TTF simply doesn't trade on Saturdays.
+        **_freshness(spark_latest.get("date") if has_spark else None, today,
+                     PANEL_MAX_AGE_DAYS["spark"]),
     }
 
     # ── flags + descriptive state ──
