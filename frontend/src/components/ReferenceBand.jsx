@@ -1,8 +1,10 @@
 // "Is this high or low?" — the single biggest legibility win from the comparable
 // dashboards (PortWatch / Trading Economics). A bare number teaches nothing; the
 // same number placed on its own recent range does. Given a z-score (deviation vs
-// the metric's ~90-day history), render a compact Low—Normal—High track with a
-// marker, so magnitude reads at a glance. Descriptive, never a forecast.
+// the metric's own trailing history) plus the baseline's ACTUAL n, render a
+// compact Low—Normal—High track with a marker, so magnitude reads at a glance.
+// The "vs Nd" caption prints the n the backend really used — never a guess.
+// Descriptive, never a forecast.
 
 // z → position across a −3σ…+3σ track (clamped).
 function pos(z) {
