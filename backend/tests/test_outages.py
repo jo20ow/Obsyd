@@ -285,3 +285,37 @@ def test_route_empty_is_honest(db_session):
     body = _client(db_session).get("/api/power/outages?zone=DE_LU").json()
     assert body["available"] is False
     assert "reason" in body
+
+
+def test_latest_revisions_ending_after_prunes_by_mrid_not_row(db_session):
+    """The shortened-revision case: r1 ends in the future, but the LATEST
+    revision r2 ends in the past. With ending_after=now the mRID must still be
+    ranked (some revision ends later) and r2 must win — a per-ROW end filter
+    would wrongly resurrect r1 and show an event that was cut short."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.models.energy import PowerOutage
+    from backend.signals.detectors.power import (
+        forced_outage_mw_now,
+        latest_outage_revisions,
+    )
+
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    common = dict(doc_type="A77", zone="DE_LU", business_type="A54", psr_type="B14",
+                  unit_name="U", unit_eic="11W", location="DE", status="active",
+                  start_utc=(now - timedelta(days=2)).strftime(fmt))
+    db_session.add(PowerOutage(mrid="cut", revision=1, nominal_mw=800.0, available_mw=0.0,
+                               end_utc=(now + timedelta(days=3)).strftime(fmt), **common))
+    db_session.add(PowerOutage(mrid="cut", revision=2, nominal_mw=800.0, available_mw=0.0,
+                               end_utc=(now - timedelta(hours=2)).strftime(fmt), **common))
+    # An event whose EVERY revision ended long ago is pruned entirely.
+    db_session.add(PowerOutage(mrid="old", revision=1, nominal_mw=900.0, available_mw=0.0,
+                               end_utc=(now - timedelta(days=30)).strftime(fmt), **common))
+    db_session.commit()
+
+    now_iso = now.strftime(fmt)
+    rows = latest_outage_revisions(db_session, "DE_LU", ending_after=now_iso)
+    assert {(r.mrid, r.revision) for r in rows} == {("cut", 2)}
+    total, running = forced_outage_mw_now(db_session, "DE_LU")
+    assert total == 0.0 and running == [], "the shortened event is over — no MW"
