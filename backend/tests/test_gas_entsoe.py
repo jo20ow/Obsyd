@@ -27,15 +27,20 @@ def _ts(start, end, mw, n=24, res="PT60M", psr="B04"):
     )
 
 
+# Power burn is a leg of the GAS balance, so it is bucketed on the GAS day
+# (06:00-06:00 local), like every other leg. In April (CEST) that boundary is
+# 04:00 UTC — so a gas-day-aligned window starts at 04:00Z.
+
+
 def test_parse_hourly_mw_to_daily_gwh():
-    xml = _a75(_ts("2026-04-01T00:00Z", "2026-04-02T00:00Z", 5000))  # 24×5000 MWh = 120 GWh
+    xml = _a75(_ts("2026-04-01T04:00Z", "2026-04-02T04:00Z", 5000))  # 24×5000 MWh = 120 GWh
     assert entsoe.parse_generation(xml) == {"2026-04-01": 120.0}
 
 
 def test_parse_buckets_multiple_days():
     xml = _a75(
-        _ts("2026-04-01T00:00Z", "2026-04-02T00:00Z", 5000)
-        + _ts("2026-04-02T00:00Z", "2026-04-03T00:00Z", 4000)
+        _ts("2026-04-01T04:00Z", "2026-04-02T04:00Z", 5000)
+        + _ts("2026-04-02T04:00Z", "2026-04-03T04:00Z", 4000)
     )
     out = entsoe.parse_generation(xml)
     assert out == {"2026-04-01": 120.0, "2026-04-02": 96.0}
@@ -43,20 +48,30 @@ def test_parse_buckets_multiple_days():
 
 def test_parse_quarter_hourly_resolution():
     # 96 × 15-min points of 4000 MW → 4000 × 0.25 × 96 = 96 GWh
-    xml = _a75(_ts("2026-04-01T00:00Z", "2026-04-02T00:00Z", 4000, n=96, res="PT15M"))
+    xml = _a75(_ts("2026-04-01T04:00Z", "2026-04-02T04:00Z", 4000, n=96, res="PT15M"))
     assert entsoe.parse_generation(xml) == {"2026-04-01": 96.0}
 
 
 def test_parse_ignores_non_gas_psr():
-    xml = _a75(_ts("2026-04-01T00:00Z", "2026-04-02T00:00Z", 5000, psr="B14"))  # nuclear
+    xml = _a75(_ts("2026-04-01T04:00Z", "2026-04-02T04:00Z", 5000, psr="B14"))  # nuclear
     assert entsoe.parse_generation(xml) == {}
 
 
-def test_parse_real_shape_fixture():
+def test_utc_aligned_document_splits_across_gas_days_without_losing_energy():
+    """THE regression test for the 2026-07-12 fix. The captured document is
+    UTC-day aligned (00:00Z), which is NOT how the gas market counts a day: in
+    CEST the gas day flips at 04:00 UTC, so the first four hours of each UTC day
+    belong to the PREVIOUS gas day. Energy is redistributed, never created or
+    lost — which is exactly what the old UTC bucketing got wrong, smearing ~a
+    sixth of each day's burn onto the neighbouring day of the balance."""
     xml = (FIXTURES / "entsoe_a75_b04.xml").read_text()
     out = entsoe.parse_generation(xml)
-    assert out["2026-04-01"] == 120.0
-    assert out["2026-04-02"] == 96.0
+
+    # day 1 = 24×5000 MWh, day 2 = 24×4000 MWh, both starting 00:00Z.
+    assert out["2026-03-31"] == 20.0   # hours 00-03Z of day 1 → previous gas day
+    assert out["2026-04-01"] == 116.0  # 20h of day 1 (100) + hours 00-03Z of day 2 (16)
+    assert out["2026-04-02"] == 80.0   # remaining 20h of day 2
+    assert sum(out.values()) == 216.0  # == 120 + 96: energy conserved, only re-filed
 
 
 def test_parse_malformed_raises():
@@ -67,9 +82,9 @@ def test_parse_malformed_raises():
 
 
 async def test_ingest_aggregates_zones_and_applies_efficiency(db_session, monkeypatch):
-    # Two zones each report 120 GWh on 2026-04-01 → 240 GWh total gen,
-    # implied gas = 240 / 0.5 = 480 GWh.
-    xml = _a75(_ts("2026-04-01T00:00Z", "2026-04-02T00:00Z", 5000))
+    # Two zones each report 120 GWh on gas day 2026-04-01 → 240 GWh total gen,
+    # implied gas = 240 / 0.5 = 480 GWh. (Window is gas-day aligned: 04:00Z in CEST.)
+    xml = _a75(_ts("2026-04-01T04:00Z", "2026-04-02T04:00Z", 5000))
     calls = {"n": 0}
 
     async def fake_fetch(eic, month_start, *, overwrite=False):

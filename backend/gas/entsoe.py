@@ -10,24 +10,32 @@ This carries a ~±5% SYSTEMATIC error — the fleet mixes efficient CCGTs with
 old OCGTs and CHP. We store gen_gwh_el AND implied_gas_gwh AND the efficiency
 used, so the assumption is auditable and re-derivable.
 
+Day bucketing is by GAS DAY (06:00-06:00 local), matching AGSI/ALSI/ENTSOG —
+the other legs of the balance. It was UTC calendar day until 2026-07-12, which
+meant the residual engine subtracted a UTC-day demand from a gas-day supply and
+smeared ~a quarter of each day's burn into the neighbouring day. See
+backend/gas/gasday.py.
+
+Residual misalignment, stated honestly: the HDD weather leg of the demand model
+(backend/gas/weather.py) is still a calendar-day aggregate. It is a modelled,
+slow-moving component, not a measured one, so it does not carry the same
+sign-flipping risk — but it is not gas-day aligned either.
+
 NOTE (token): the ENTSO-E token is granted manually (register + email request).
-This module is built against the documented XML schema and unit-tested with a
-captured-shape fixture; the parser/zone list should be re-checked against a
-live response once a token is available. Day bucketing is by UTC calendar day
-(ENTSO-E is UTC); gas-day alignment is a later refinement.
 """
 
 from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 import httpx
 from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.gas import raw_cache
+from backend.gas.gasday import gas_day
 from backend.models.gas import GasPowerBurn
 
 logger = logging.getLogger(__name__)
@@ -85,7 +93,7 @@ def _localname(tag: str) -> str:
 
 def parse_generation(xml_text: str) -> dict[str, float]:
     """Parse an A75 GL_MarketDocument into {YYYY-MM-DD: GWh_el}, summing all
-    B04 generation TimeSeries and bucketing each point by its UTC day.
+    B04 generation TimeSeries and bucketing each point by its GAS day.
 
     Namespace-agnostic (matches local tag names). Quantities are MW; energy =
     MW × resolution-hours = MWh; GWh = MWh / 1000.
@@ -122,7 +130,10 @@ def parse_generation(xml_text: str) -> dict[str, float]:
                     mwh = float(qty) * res_hours
                 except (ValueError, TypeError):
                     continue
-                day = ts_time.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                # GAS day, not UTC day: this number is a leg of the gas balance,
+                # and every other leg (AGSI/ALSI/ENTSOG) is reported on the gas
+                # day (06:00-06:00 local). See backend/gas/gasday.py.
+                day = gas_day(ts_time)
                 by_day_mwh[day] = by_day_mwh.get(day, 0.0) + mwh
 
     return {day: mwh / 1000.0 for day, mwh in by_day_mwh.items()}  # MWh → GWh
