@@ -157,8 +157,6 @@ function Dashboard() {
   const [liveData, setLiveData] = useState(null)
   const [, setLiveSource] = useState(null)
   const [zones, setZones] = useState([])
-  const [aisActive, setAisActive] = useState(false)
-  const [gdeltActive, setGdeltActive] = useState(false)
   const [weatherAlerts, setWeatherAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -221,12 +219,10 @@ function Dashboard() {
     const { signal } = controller
     async function fetchData() {
       try {
-        const [eiaRes, zonesRes, liveRes, aisRes, gdeltRes] = await Promise.all([
+        const [eiaRes, zonesRes, liveRes] = await Promise.all([
           fetch(`${API}/prices/eia?limit=500`, { signal }),
           fetch(`${API}/vessels/zones`, { signal }),
           fetch(`${API}/prices/live`, { signal }),
-          fetch(`${API}/vessels/positions?limit=1`, { signal }),
-          fetch(`${API}/sentiment/status`, { signal }),
         ])
         if (!eiaRes.ok) throw new Error(`EIA API: ${eiaRes.status}`)
         if (!zonesRes.ok) throw new Error(`Zones API: ${zonesRes.status}`)
@@ -241,16 +237,6 @@ function Dashboard() {
             setLiveData(live.prices)
             setLiveSource(live.source || null)
           }
-        }
-
-        if (aisRes.ok) {
-          const aisData = await aisRes.json()
-          setAisActive(aisData.length > 0)
-        }
-
-        if (gdeltRes.ok) {
-          const gdelt = await gdeltRes.json()
-          setGdeltActive(gdelt.active)
         }
 
         fetch(`${API}/weather/alerts`, { signal })
@@ -324,8 +310,6 @@ function Dashboard() {
         activeTab={activeTab}
         onNavigate={(k) => { goToTab(k); setSidebarOpen(false) }}
         onOpenPalette={() => setPaletteOpen(true)}
-        aisActive={aisActive}
-        gdeltActive={gdeltActive}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />

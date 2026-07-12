@@ -216,7 +216,7 @@ async def test_ingest_empty_days(db_session):
     from backend.power.energy_charts_flows import ingest_cbpf
 
     result = await ingest_cbpf(db_session, [])
-    assert result == {"days": 0, "borders": 0, "written": 0}
+    assert result == {"days": 0, "borders": 0, "written": 0, "hourly_written": 0}
 
 
 @pytest.mark.asyncio
@@ -423,3 +423,154 @@ def test_route_flows_wide_format_data(db_session):
     assert d1_row is not None
     assert "DE-LU→FR" in d1_row
     assert "DE-LU→NL" in d1_row
+
+
+# ─── hourly grain (roadmap Block 2.4) ────────────────────────────────────────
+
+
+def test_parse_hourly_means_sign_and_mw():
+    """15-min points average per UTC hour with the daily parser's sign/unit rules."""
+    from backend.power.energy_charts_flows import parse_cbpf_hourly
+
+    # Hour 0: 2,2,4,4 GW → 3 GW mean; hour 1: 1 GW flat. DE_LU sorted-first → sign -1.
+    vals = [2.0, 2.0, 4.0, 4.0] + [1.0] * 4 + [None] * 88
+    payload = _make_payload({"France": vals})
+    hourly = parse_cbpf_hourly(payload, "DE_LU")
+    border = hourly[("DE_LU", "FR")]
+    assert border[_BASE_TS] == pytest.approx(-3000.0)
+    assert border[_BASE_TS + 3600] == pytest.approx(-1000.0)
+    assert len(border) == 2, "hours with only None points must not appear"
+
+
+def test_parse_hourly_queried_is_to_zone_keeps_sign():
+    from backend.power.energy_charts_flows import parse_cbpf_hourly
+
+    payload = _make_payload({"Germany": [-2.86] * 96})
+    hourly = parse_cbpf_hourly(payload, "FR")
+    assert hourly[("DE_LU", "FR")][_BASE_TS] == pytest.approx(-2860.0, rel=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_ingest_writes_hourly_series(db_session):
+    """ingest_cbpf writes flow.<TO> under zone <FROM> into power_hourly, averaging
+    both-side estimates like the daily grain."""
+    import httpx
+
+    from backend.power.energy_charts_flows import ingest_cbpf
+    from backend.power.hourly_store import read_hourly
+
+    day = "2026-06-01"
+    de_payload = _make_payload({"France": [3.0] * 96}, base_ts=_BASE_TS)
+    fr_payload = _make_payload({"Germany": [-3.0] * 96}, base_ts=_BASE_TS)
+
+    async def mock_fetch(country, start, end):
+        if country == "de":
+            return de_payload
+        if country == "fr":
+            return fr_payload
+        raise httpx.HTTPStatusError("429", request=None, response=None)
+
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        result = await ingest_cbpf(db_session, [day])
+
+    points = read_hourly(db_session, "flow.FR", "DE_LU")
+    assert len(points) == 24
+    assert all(v == pytest.approx(-3000.0) for _, v in points)
+    assert points[0][0] == _BASE_TS
+    assert result["hourly_written"] >= 24
+
+
+@pytest.mark.asyncio
+async def test_ingest_hourly_respects_wanted_days(db_session):
+    """Hourly points outside the requested day list are dropped (same as daily)."""
+    import httpx
+
+    from backend.power.energy_charts_flows import ingest_cbpf
+    from backend.power.hourly_store import read_hourly
+
+    # Payload spans two days; only day 1 is requested.
+    all_ts = [_BASE_TS + i * 900 for i in range(192)]
+    payload = {"unix_seconds": all_ts,
+               "countries": [{"name": "France", "data": [2.0] * 192}]}
+
+    async def mock_fetch(country, start, end):
+        if country == "de":
+            return payload
+        raise httpx.HTTPStatusError("429", request=None, response=None)
+
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        await ingest_cbpf(db_session, ["2026-06-01"])
+
+    assert len(read_hourly(db_session, "flow.FR", "DE_LU")) == 24
+
+
+# ─── raw-cache month chunking (backfill path) ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_use_cache_month_chunks_and_never_refetches(db_session, tmp_path, monkeypatch):
+    """use_cache=True fetches completed months once, then serves them from disk."""
+    import backend.gas.raw_cache as rc
+    from backend.power.energy_charts_flows import ingest_cbpf
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(flows, "CACHE_THROTTLE_SECONDS", 0.0)
+    # A safely-completed month (June 2026 lies in the past for this repo's clock
+    # only if today > 2026-06-30 — keep the assertion time-independent by using
+    # a fixed historic month instead).
+    base = 1717200000  # 2024-06-01 00:00 UTC
+    payload = _make_payload({"France": [1.0] * 96}, base_ts=base)
+    calls = []
+
+    async def mock_fetch(country, start, end):
+        calls.append((country, start, end))
+        import httpx
+        if country == "de":
+            return payload
+        raise httpx.HTTPStatusError("429", request=None, response=None)
+
+    days = ["2024-06-01"]
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        r1 = await ingest_cbpf(db_session, days, use_cache=True)
+    assert r1["written"] >= 1
+    de_calls_first = [c for c in calls if c[0] == "de"]
+    assert de_calls_first == [("de", "2024-06-01", "2024-06-30")], \
+        "backfill path must request the full month so the cached blob is complete"
+
+    calls.clear()
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        r2 = await ingest_cbpf(db_session, days, use_cache=True)
+    assert [c for c in calls if c[0] == "de"] == [], "second run must hit the disk cache"
+    assert r2["written"] == r1["written"]
+
+
+@pytest.mark.asyncio
+async def test_use_cache_never_caches_the_current_month(db_session, tmp_path, monkeypatch):
+    """The running month is fetched live and NOT persisted — a mid-month blob
+    would freeze and starve later re-runs of the month's remainder."""
+    from datetime import datetime, timezone
+
+    import backend.gas.raw_cache as rc
+    from backend.power.energy_charts_flows import ingest_cbpf
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(flows, "CACHE_THROTTLE_SECONDS", 0.0)
+    today = datetime.now(timezone.utc).date()
+    day = today.replace(day=1).isoformat()
+    base = int(datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+    payload = _make_payload({"France": [1.0] * 96}, base_ts=base)
+    calls = []
+
+    async def mock_fetch(country, start, end):
+        calls.append(country)
+        import httpx
+        if country == "de":
+            return payload
+        raise httpx.HTTPStatusError("429", request=None, response=None)
+
+    for _ in range(2):
+        with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+            await ingest_cbpf(db_session, [day], use_cache=True)
+
+    assert calls.count("de") == 2, "current month must be re-fetched, never cached"
+    assert list(tmp_path.rglob("*.json.gz")) == []

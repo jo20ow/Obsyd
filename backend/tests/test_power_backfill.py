@@ -74,3 +74,42 @@ async def test_run_dispatches_each_source_per_zone_month(monkeypatch):
     assert calls["price"] == 2   # 1 zone × 2 months
     assert calls["grid"] == 2
     assert calls["forecast"] == 0  # not requested
+
+
+async def test_flows_source_runs_once_per_month_not_per_zone(monkeypatch):
+    """Flows are zone-independent: one cached /cbpf sweep per month, however
+    many zones the backfill targets."""
+    flow_calls = []
+
+    async def _flows(db, days, **kwargs):
+        flow_calls.append((days[0], days[-1], kwargs))
+
+    async def _noop(*a, **k):
+        pass
+
+    monkeypatch.setattr(pb, "ingest_cbpf", _flows)
+    monkeypatch.setattr(pb, "ingest_day_ahead", _noop)
+
+    res = await pb.run_backfill(
+        db=None, start=date(2026, 1, 1), end=date(2026, 2, 28),
+        zones=["DE_LU", "FR"], sources={"price", "flows"},
+        overwrite=False, dry_run=False, throttle=0,
+    )
+    assert res["flow_months"] == 2
+    assert [(c[0], c[1]) for c in flow_calls] == [
+        ("2026-01-01", "2026-01-31"), ("2026-02-01", "2026-02-28"),
+    ]
+    assert all(c[2].get("use_cache") is True for c in flow_calls)
+
+
+async def test_flows_dry_run_counts_without_fetching(monkeypatch):
+    async def _boom(*a, **k):
+        raise AssertionError("ingest called during dry run")
+
+    monkeypatch.setattr(pb, "ingest_cbpf", _boom)
+    res = await pb.run_backfill(
+        db=None, start=date(2026, 1, 1), end=date(2026, 3, 31),
+        zones=["DE_LU"], sources={"flows"},
+        overwrite=False, dry_run=True, throttle=0,
+    )
+    assert res["flow_months"] == 3

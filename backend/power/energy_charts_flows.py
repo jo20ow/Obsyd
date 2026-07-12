@@ -29,21 +29,28 @@ Auth:    None (free, no token).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from sqlalchemy.orm import Session
 
+from backend.gas import raw_cache
 from backend.models.energy import PowerFlow
+from backend.power.hourly_store import upsert_hourly
 from backend.power.zones import ENABLED_ZONES, ZONE_REGISTRY
 
 logger = logging.getLogger(__name__)
 
 CBPF_BASE = "https://api.energy-charts.info/cbpf"
 ATTRIBUTION = "Energy-Charts (CC BY 4.0)"
+CACHE_SOURCE = "energy_charts_cbpf"
+# Pause between cache-miss month fetches in the backfill path — Energy-Charts is
+# free and unauthenticated; don't hammer it with ~24 countries × months at once.
+CACHE_THROTTLE_SECONDS = 0.5
 
 # Energy-Charts country names -> OBSYD zone codes.
 # "Germany" maps to DE_LU because the DE ENTSO-E bidding zone is the DE-LU
@@ -129,6 +136,79 @@ async def fetch_cbpf(
 # -- parser -------------------------------------------------------------------
 
 
+def _border_series(
+    payload: dict[str, Any],
+    queried_zone: str,
+) -> tuple[list[int], list[tuple[tuple[str, str], float, list[float | None]]]]:
+    """Common series walk for the daily and hourly parsers: map each neighbour
+    series to its canonical border and sign multiplier (see module docstring).
+
+    Returns (unix_seconds, [(canon_border, sign, raw_values), ...]).
+    """
+    unix_seconds: list[int] = payload.get("unix_seconds", [])
+    out: list[tuple[tuple[str, str], float, list[float | None]]] = []
+    if not unix_seconds:
+        logger.debug("_border_series(%s): empty unix_seconds", queried_zone)
+        return unix_seconds, out
+
+    for series in payload.get("countries", []):
+        name: str = series.get("name", "")
+        if name == "sum":
+            continue  # aggregate series, not a real border
+        neighbor_zone = COUNTRY_TO_ZONE.get(name)
+        if neighbor_zone is None:
+            logger.debug(
+                "_border_series(%s): unmapped country name %r -- skipping",
+                queried_zone, name,
+            )
+            continue
+
+        raw_values: list[float | None] = series.get("data", [])
+        if len(raw_values) != len(unix_seconds):
+            logger.warning(
+                "_border_series(%s): length mismatch for %r -- %d values vs %d timestamps",
+                queried_zone, name, len(raw_values), len(unix_seconds),
+            )
+            continue
+
+        canon = tuple(sorted([queried_zone, neighbor_zone]))
+        # raw = import INTO queried_zone; net_mw(from->to) > 0 = from_zone exports.
+        sign = -1.0 if queried_zone == canon[0] else +1.0
+        out.append((canon, sign, raw_values))
+    return unix_seconds, out
+
+
+def parse_cbpf_hourly(
+    payload: dict[str, Any],
+    queried_zone: str,
+) -> dict[tuple[str, str], dict[int, float]]:
+    """Parse a /cbpf response into hourly-mean net_mw per canonical border.
+
+    Returns {(from_zone, to_zone): {top_of_hour_epoch_utc: net_mw}} — the shape
+    upsert_hourly consumes for the canonical store (roadmap Block 2.4). Sign and
+    unit conventions are identical to parse_cbpf (net_mw > 0 = from_zone exports,
+    GW → MW); the 15-min raw points are averaged per UTC hour.
+    """
+    unix_seconds, borders = _border_series(payload, queried_zone)
+    result: dict[tuple[str, str], dict[int, float]] = {}
+    for canon, sign, raw_values in borders:
+        hour_accum: dict[int, list[float]] = defaultdict(list)
+        for ts, raw_val in zip(unix_seconds, raw_values):
+            if raw_val is not None:
+                hour_accum[ts - ts % 3600].append(raw_val)
+        hourly = {
+            hour_ts: sign * (sum(vals) / len(vals)) * 1000.0
+            for hour_ts, vals in hour_accum.items()
+        }
+        if canon in result:
+            for hour_ts, val in hourly.items():
+                prev = result[canon].get(hour_ts)
+                result[canon][hour_ts] = val if prev is None else (prev + val) / 2.0
+        else:
+            result[canon] = hourly
+    return result
+
+
 def parse_cbpf(
     payload: dict[str, Any],
     queried_zone: str,
@@ -158,12 +238,7 @@ def parse_cbpf(
     Daily mean: average all 15-min (or hourly) data points that fall within
     each UTC calendar day. Values are in GW; converted to MW (* 1000).
     """
-    unix_seconds: list[int] = payload.get("unix_seconds", [])
-    countries: list[dict] = payload.get("countries", [])
-
-    if not unix_seconds:
-        logger.debug("parse_cbpf(%s): empty unix_seconds", queried_zone)
-        return {}
+    unix_seconds, borders = _border_series(payload, queried_zone)
 
     # Pre-bucket timestamps to UTC date strings
     ts_dates: list[str] = [
@@ -173,41 +248,7 @@ def parse_cbpf(
 
     result: dict[tuple[str, str], dict[str, float]] = {}
 
-    for series in countries:
-        name: str = series.get("name", "")
-        if name == "sum":
-            continue  # aggregate series, not a real border
-        neighbor_zone = COUNTRY_TO_ZONE.get(name)
-        if neighbor_zone is None:
-            logger.debug(
-                "parse_cbpf(%s): unmapped country name %r -- skipping",
-                queried_zone, name,
-            )
-            continue
-
-        raw_values: list[float | None] = series.get("data", [])
-        if len(raw_values) != len(unix_seconds):
-            logger.warning(
-                "parse_cbpf(%s): length mismatch for %r -- %d values vs %d timestamps",
-                queried_zone, name, len(raw_values), len(unix_seconds),
-            )
-            continue
-
-        # Determine canonical border direction (sorted lexicographic)
-        canon = tuple(sorted([queried_zone, neighbor_zone]))
-        from_zone, to_zone = canon
-
-        # Sign multiplier: raw = import INTO queried_zone.
-        # net_mw(from_zone->to_zone) > 0 = export from from_zone.
-        if queried_zone == from_zone:
-            # queried_zone is sorted-first (from_zone); raw positive = it imports.
-            # net_mw = -raw so that positive means from_zone EXPORTS.
-            sign = -1.0
-        else:
-            # queried_zone is sorted-second (to_zone); raw positive = to_zone imports
-            # from from_zone = export from from_zone = net_mw directly.
-            sign = +1.0
-
+    for canon, sign, raw_values in borders:
         # Bucket to daily means (GW -> MW)
         day_accum: dict[str, list[float]] = defaultdict(list)
         for day_str, raw_val in zip(ts_dates, raw_values):
@@ -269,39 +310,114 @@ def _upsert_flow(
 # -- ingest -------------------------------------------------------------------
 
 
+def _month_windows(start: date, end: date) -> list[tuple[date, date]]:
+    windows, cur = [], start.replace(day=1)
+    while cur <= end:
+        nxt = date(cur.year + 1, 1, 1) if cur.month == 12 else date(cur.year, cur.month + 1, 1)
+        windows.append((max(start, cur), min(end, nxt - timedelta(days=1))))
+        cur = nxt
+    return windows
+
+
+async def _fetch_range(
+    country_code: str,
+    start_date: date,
+    end_date: date,
+    *,
+    use_cache: bool,
+    overwrite: bool,
+) -> list[dict]:
+    """Fetch /cbpf payload(s) covering [start_date, end_date] for one country.
+
+    Live path (use_cache=False): one direct request for the exact range — the
+    scheduler's small rolling windows change intraday and must not be cached.
+    Backfill path (use_cache=True): month-chunked through raw_cache so a crashed
+    or re-run backfill never re-hits the API. Only COMPLETED months are written
+    to the cache — a current-month blob would freeze mid-month and starve later
+    re-runs of the month's remainder.
+    """
+    if not use_cache:
+        return [await fetch_cbpf(country_code, start_date.isoformat(), end_date.isoformat())]
+
+    today = datetime.now(timezone.utc).date()
+    payloads: list[dict] = []
+    for m_start, m_end in _month_windows(start_date, end_date):
+        month_first = m_start.replace(day=1)
+        nxt = (
+            date(month_first.year + 1, 1, 1)
+            if month_first.month == 12
+            else date(month_first.year, month_first.month + 1, 1)
+        )
+        month_last = nxt - timedelta(days=1)
+
+        if month_last >= today:
+            # Running (incomplete) month: fetch the requested window live, never
+            # persist — a mid-month blob would freeze and shadow the remainder.
+            payloads.append(
+                await fetch_cbpf(country_code, m_start.isoformat(), m_end.isoformat())
+            )
+            await asyncio.sleep(CACHE_THROTTLE_SECONDS)
+            continue
+
+        key = f"{country_code}_{month_first:%Y-%m}"
+        if not overwrite:
+            hit = raw_cache.read_cached(CACHE_SOURCE, key, month_first)
+            if hit is not None:
+                payloads.append(hit)
+                continue
+        # Cached blobs always span the FULL month, whatever day subset was
+        # requested — the key claims the month, so the content must deliver it.
+        payload = await fetch_cbpf(country_code, month_first.isoformat(), month_last.isoformat())
+        raw_cache.write_cached(CACHE_SOURCE, key, month_first, payload, overwrite=overwrite)
+        payloads.append(payload)
+        await asyncio.sleep(CACHE_THROTTLE_SECONDS)
+    return payloads
+
+
 async def ingest_cbpf(
     db: Session,
     days: list[str],
     *,
-    overwrite: bool = False,  # noqa: ARG001
+    overwrite: bool = False,
+    use_cache: bool = False,
 ) -> dict:
     """Ingest CBPF cross-border flows for every flow-mapped enabled base zone.
 
-    For each base country (derived from the enabled zones), fetches the full date range in one request
-    (Energy-Charts accepts arbitrary start/end).  Parses each response into
-    canonical (from_zone, to_zone) daily net_mw values.  Where a border is
-    seen from both queried sides (e.g. DE_LU/FR appears in both the DE and
-    FR queries), the two estimates are averaged before upserting.
+    For each base country (derived from the enabled zones), fetches the date
+    range (one request in the live path; month-chunked through raw_cache with
+    use_cache=True — the backfill path). Parses each response into canonical
+    (from_zone, to_zone) net_mw values. Where a border is seen from both
+    queried sides (e.g. DE_LU/FR appears in both the DE and FR queries), the
+    two estimates are averaged before upserting.
+
+    Writes two grains per border (roadmap Block 2.4):
+      * daily mean  → PowerFlow            (map + freshness, unchanged)
+      * hourly mean → power_hourly, series ``flow.<TO>`` under zone ``<FROM>``
+        (canonical sorted border, net_mw > 0 = <FROM> exports)
 
     Args:
         db:        SQLAlchemy session.
         days:      List of YYYY-MM-DD strings to ingest.
-        overwrite: Accepted for API compatibility; upsert is always unconditional.
+        overwrite: Re-fetch cached months (backfill path only).
+        use_cache: Month-chunk the fetches through raw_cache (backfill path).
 
     Returns:
-        {"days": n, "borders": n_borders, "written": n_rows}
-        or {"days": 0, "borders": 0, "written": 0} for empty input.
+        {"days": n, "borders": n_borders, "written": n_rows, "hourly_written": n}
+        or the zero dict for empty input.
     """
     if not days:
-        return {"days": 0, "borders": 0, "written": 0}
+        return {"days": 0, "borders": 0, "written": 0, "hourly_written": 0}
 
     wanted: set[str] = set(days)
-    start_date = min(days)
-    end_date = max(days)
+    start_date = datetime.strptime(min(days), "%Y-%m-%d").date()
+    end_date = datetime.strptime(max(days), "%Y-%m-%d").date()
 
-    # Accumulate: {canon_border: {date: [net_mw_estimate, ...]}}
+    # Accumulate: {canon_border: {date/hour_ts: [net_mw_estimate, ...]}}
     # Multiple queries (DE + FR) can provide estimates for the same border.
     accumulated: dict[tuple[str, str], dict[str, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    accumulated_hourly: dict[tuple[str, str], dict[int, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
 
@@ -310,7 +426,10 @@ async def ingest_cbpf(
         if zone is None:
             continue
         try:
-            payload = await fetch_cbpf(country_code, start_date, end_date)
+            payloads = await _fetch_range(
+                country_code, start_date, end_date,
+                use_cache=use_cache, overwrite=overwrite,
+            )
         except httpx.HTTPError as exc:
             logger.warning(
                 "energy_charts_flows: fetch_cbpf(%s, %s..%s) failed: %s",
@@ -318,12 +437,16 @@ async def ingest_cbpf(
             )
             continue
 
-        border_data = parse_cbpf(payload, zone)
-
-        for canon, daily in border_data.items():
-            for day, val in daily.items():
-                if day in wanted:
-                    accumulated[canon][day].append(val)
+        for payload in payloads:
+            for canon, daily in parse_cbpf(payload, zone).items():
+                for day, val in daily.items():
+                    if day in wanted:
+                        accumulated[canon][day].append(val)
+            for canon, hourly in parse_cbpf_hourly(payload, zone).items():
+                for hour_ts, val in hourly.items():
+                    hour_day = datetime.fromtimestamp(hour_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                    if hour_day in wanted:
+                        accumulated_hourly[canon][hour_ts].append(val)
 
     # Write deduped (averaged across both-side queries) values
     written = 0
@@ -341,8 +464,25 @@ async def ingest_cbpf(
             written += 1
 
     db.commit()
+
+    hourly_written = 0
+    for canon, hour_estimates in accumulated_hourly.items():
+        from_zone, to_zone = canon
+        points = [
+            (hour_ts, sum(vals) / len(vals))
+            for hour_ts, vals in sorted(hour_estimates.items())
+        ]
+        hourly_written += upsert_hourly(
+            db, f"flow.{to_zone}", from_zone, points, unit="MW"
+        )
+
     logger.info(
-        "energy_charts_flows.ingest_cbpf: %d rows written across %d borders (%s..%s)",
-        written, len(borders_seen), start_date, end_date,
+        "energy_charts_flows.ingest_cbpf: %d daily + %d hourly rows across %d borders (%s..%s)",
+        written, hourly_written, len(borders_seen), start_date, end_date,
     )
-    return {"days": len(days), "borders": len(borders_seen), "written": written}
+    return {
+        "days": len(days),
+        "borders": len(borders_seen),
+        "written": written,
+        "hourly_written": hourly_written,
+    }

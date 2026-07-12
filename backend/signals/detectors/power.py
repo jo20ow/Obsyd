@@ -103,12 +103,57 @@ def detect_dunkelflaute(db) -> list[DetectorResult]:
     return results
 
 
-# Forced (unplanned) outages are the intraday price mover. Absolute MW
-# thresholds are deliberate for v1: a >1 GW forced loss is news in any zone,
-# and large units are >500 MW everywhere. Capacity-relative thresholds are a
-# follow-on once InstalledCapacity coverage is verified per zone.
+# Forced (unplanned) outages are the intraday price mover. Where installed
+# capacity (A68) is known, thresholds are capacity-relative — the same 1 GW is
+# noise in DE_LU (295 GW fleet) and an emergency in DK2 (5 GW). Verified
+# 2026-07-12: A68 covers 19/37 zones (missing: Italian sub-zones, SK, CH, all
+# Nordic sub-zones), so the absolute v1 thresholds stay as the fallback there.
+# MW floors keep tiny zones from flagging a single mid-size unit trip.
+FORCED_OUTAGE_WARN_SHARE = 0.03
+FORCED_OUTAGE_CRIT_SHARE = 0.08
+FORCED_OUTAGE_WARN_FLOOR_MW = 300.0
+FORCED_OUTAGE_CRIT_FLOOR_MW = 500.0
 FORCED_OUTAGE_WARN_MW = 1_000.0
 FORCED_OUTAGE_CRIT_MW = 3_000.0
+
+
+def installed_capacity_mw(db, zone: str) -> float | None:
+    """Total installed generation capacity (MW) for `zone`, latest A68 year.
+    None when the zone has no capacity data (18/37 zones as of 2026-07)."""
+    from sqlalchemy import func
+
+    from backend.models.energy import InstalledCapacity
+
+    year = (
+        db.query(func.max(InstalledCapacity.year))
+        .filter(InstalledCapacity.zone == zone)
+        .scalar()
+    )
+    if year is None:
+        return None
+    total = (
+        db.query(func.sum(InstalledCapacity.capacity_mw))
+        .filter(InstalledCapacity.zone == zone, InstalledCapacity.year == year)
+        .scalar()
+    )
+    return float(total) if total else None
+
+
+def forced_outage_severity(total_mw: float, installed_mw: float | None) -> str | None:
+    """None / "warning" / "critical" for `total_mw` forced offline. Pure — shared
+    by the radar detector and the situation-hero flag so they cannot drift."""
+    if installed_mw:
+        share = total_mw / installed_mw
+        if share >= FORCED_OUTAGE_CRIT_SHARE and total_mw >= FORCED_OUTAGE_CRIT_FLOOR_MW:
+            return "critical"
+        if share >= FORCED_OUTAGE_WARN_SHARE and total_mw >= FORCED_OUTAGE_WARN_FLOOR_MW:
+            return "warning"
+        return None
+    if total_mw >= FORCED_OUTAGE_CRIT_MW:
+        return "critical"
+    if total_mw >= FORCED_OUTAGE_WARN_MW:
+        return "warning"
+    return None
 
 
 def forced_outage_mw_now(db, zone: str) -> tuple[float, list]:
@@ -150,8 +195,11 @@ def detect_forced_outages(db) -> list[DetectorResult]:
     results: list[DetectorResult] = []
     for zone in zones:
         total, running = forced_outage_mw_now(db, zone)
-        if total < FORCED_OUTAGE_WARN_MW:
+        installed = installed_capacity_mw(db, zone)
+        severity = forced_outage_severity(total, installed)
+        if severity is None:
             continue
+        share_txt = f" — {total / installed * 100:.0f}% of fleet" if installed else ""
         biggest = max(running, key=lambda r: r.nominal_mw - (r.available_mw or 0.0))
         biggest_mw = biggest.nominal_mw - (biggest.available_mw or 0.0)
         results.append(
@@ -159,8 +207,8 @@ def detect_forced_outages(db) -> list[DetectorResult]:
                 rule="forced_outages",
                 zone=zone,
                 vertical="power",
-                severity="critical" if total >= FORCED_OUTAGE_CRIT_MW else "warning",
-                title=f"{zone}: {total / 1000:.1f} GW forced outages",
+                severity=severity,
+                title=f"{zone}: {total / 1000:.1f} GW forced outages{share_txt}",
                 detail=(
                     f"{len(running)} unplanned unavailabilities running now; largest: "
                     f"{biggest.unit_name or biggest.mrid} ({biggest_mw:.0f} MW, "

@@ -6,8 +6,14 @@
 >   Default-Tab ist **EUROPE** (All-Zonen-Übersicht), nicht POWER.
 > - **Neue Serien in `power_hourly`:** `price.dayahead.qh` + `imbalance.price.qh` (rohe 15-min-
 >   Auflösung — SDAC handelt seit 2025-10-01 in 15-min-MTUs), `generation.forecast` (A71),
->   `hydro.reservoir` (A72 wöchentlich, eigene Zonenliste in `entsoe_hydro.HYDRO_ZONES`).
+>   `hydro.reservoir` (A72 wöchentlich, eigene Zonenliste in `entsoe_hydro.HYDRO_ZONES`),
+>   `flow.<COUNTERPARTY>` unter Zone `<FROM>` (stündliche Cross-Border-Flows, Block 2.4;
+>   kanonische sortierte Border, net_mw > 0 = `<FROM>` exportiert; Backfill via
+>   `power_backfill --sources flows`, /cbpf-Monatsblobs im raw_cache).
 >   DE_LU-Imbalance läuft über den LÄNDER-EIC `10Y1001A1001A83F` (reBAP).
+> - **Forced-Outage-Schwellen sind capacity-relativ** (warn ≥3 %/crit ≥8 % der A68-Fleet, Floors
+>   300/500 MW), absoluter 1/3-GW-Fallback für die 18/37 Zonen ohne A68 (IT-Subzonen, SK, CH,
+>   Nordics); eine Ableitung für Radar-Detektor UND Hero-Flag (`forced_outage_severity`).
 > - **Neue Vertikale: Ausfälle (A77)** — `PowerOutage`-Events mit Revisions-Semantik (höchste
 >   Revision je mRID zählt, Withdrawals verschwinden; die meisten Roh-Meldungen sind withdrawn!).
 >   `/api/power/outages`, OutagePanel, `forced_outages`-Detektor im Radar, Hero-Flag.
