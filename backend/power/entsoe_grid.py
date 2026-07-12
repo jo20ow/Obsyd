@@ -122,6 +122,41 @@ def parse_load(xml_text: str) -> dict[str, float]:
     return {day: sum(vals) / len(vals) for day, vals in by_day.items() if vals}
 
 
+#: Suffix marking a CONSUMPTION series in a parsed A75 result. ENTSO-E publishes
+#: storage technologies TWICE in the same document: once as generation
+#: (inBiddingZone_Domain) and once as consumption (outBiddingZone_Domain) —
+#: pumped storage (B10) pumping is the common case. Keying only on psrType, as
+#: this parser did until 2026-07-12, silently AVERAGED the two into one
+#: meaningless number (measured on DE-LU 2026-06: generation 1253 MW, pumping
+#: 1579 MW → stored 1416 MW) and let pumping inflate reported generation, which
+#: in turn made the A75 coverage guard (backend/power/coverage.py) too generous.
+CONSUMPTION_SUFFIX = "_CONS"
+
+
+def _series_psr_key(ts) -> str | None:
+    """psrType of one TimeSeries, suffixed when the series is CONSUMPTION.
+
+    Direction comes from the domain element: outBiddingZone_Domain = energy
+    leaving the zone's grid into the unit (pumping / charging).
+    """
+    psr = next((e.text for e in ts.iter() if _localname(e.tag) == "psrType"), None)
+    if psr is None:
+        return None
+    is_consumption = any(
+        _localname(e.tag).startswith("outBiddingZone_Domain") for e in ts.iter()
+    )
+    return f"{psr}{CONSUMPTION_SUFFIX}" if is_consumption else psr
+
+
+def is_consumption_key(psr_key: str) -> bool:
+    return psr_key.endswith(CONSUMPTION_SUFFIX)
+
+
+def base_psr(psr_key: str) -> str:
+    """'B10_CONS' → 'B10'."""
+    return psr_key[: -len(CONSUMPTION_SUFFIX)] if is_consumption_key(psr_key) else psr_key
+
+
 def parse_generation_by_type(xml_text: str) -> dict[str, dict[str, float]]:
     """Parse an A75 GL_MarketDocument into {YYYY-MM-DD: {psrType: daily_mean_mw}}.
 
@@ -147,9 +182,7 @@ def parse_generation_by_type(xml_text: str) -> dict[str, dict[str, float]]:
     for ts in root.iter():
         if _localname(ts.tag) != "TimeSeries":
             continue
-        psr = next(
-            (e.text for e in ts.iter() if _localname(e.tag) == "psrType"), None
-        )
+        psr = _series_psr_key(ts)
         if psr is None:
             continue
         for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
@@ -248,7 +281,7 @@ def parse_generation_hourly(xml_text: str) -> dict[str, dict[str, dict[int, floa
     for ts in root.iter():
         if _localname(ts.tag) != "TimeSeries":
             continue
-        psr = next((e.text for e in ts.iter() if _localname(e.tag) == "psrType"), None)
+        psr = _series_psr_key(ts)
         if psr is None:
             continue
         for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
@@ -657,12 +690,16 @@ async def ingest_grid(
     # range queries + export. Reuses build_hourly_forecast for the residual shape.
     if load_hourly_by_day:
         upsert_day_hours(db, "load.actual", zone, load_hourly_by_day, unit="MW")
-    gen_series: dict[str, dict[str, dict[int, float]]] = {}  # psr → {day → {hour → mw}}
+    # Generation and CONSUMPTION (pumped-storage pumping) are distinct series —
+    # the document publishes both under the same psrType and they must never be
+    # merged (see CONSUMPTION_SUFFIX).
+    gen_series: dict[str, dict[str, dict[int, float]]] = {}  # psr_key → {day → {hour → mw}}
     for day, by_psr in gen_hourly_by_day.items():
         for psr, hours in by_psr.items():
             gen_series.setdefault(psr, {})[day] = hours
-    for psr, day_hours in gen_series.items():
-        upsert_day_hours(db, f"gen.{psr}", zone, day_hours, unit="MW")
+    for psr_key, day_hours in gen_series.items():
+        prefix = "consumption" if is_consumption_key(psr_key) else "gen"
+        upsert_day_hours(db, f"{prefix}.{base_psr(psr_key)}", zone, day_hours, unit="MW")
     resid_by_day: dict[str, dict[int, float]] = {}
     for day, load_hours in load_hourly_by_day.items():
         if day not in gen_hourly_by_day:
@@ -698,11 +735,17 @@ def _upsert_generation_mix(
     new rows are inserted. Readable labels from PSR_LABELS are used; unknown
     codes fall back to the raw code string.
 
+    CONSUMPTION series (pumped-storage pumping) are EXCLUDED: the mix is what the
+    zone generated, and counting pumping as generation inflated both the mix and
+    the generation total that backend/power/coverage.py divides by load.
+
     Note: does NOT call db.commit() — the caller (ingest_grid) commits once
     after both _upsert_grid and _upsert_generation_mix complete.
     """
     for day, psr_map in gen_by_day.items():
         for code, mean_mw in psr_map.items():
+            if is_consumption_key(code):
+                continue
             label = PSR_LABELS.get(code, code)
             existing = (
                 db.query(PowerGenMix)
