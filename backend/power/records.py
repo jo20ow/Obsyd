@@ -37,6 +37,13 @@ IMBALANCE_MIN_PLAUSIBLE = -20_000.0
 IMBALANCE_MAX_PLAUSIBLE = 20_000.0
 MW_MIN_PLAUSIBLE = 0.0
 MW_MAX_PLAUSIBLE = 200_000.0
+# No European bidding zone's real load dips below this — a "0 MW load" hour is
+# an ENTSO-E gap artifact, and it produced a live bogus all-time-min record
+# (SI, 2026-07-11) that the radar dutifully celebrated.
+LOAD_MIN_PLAUSIBLE = 100.0
+# Negative residual load is REAL (renewables exceeding load) and exactly the
+# kind of record worth surfacing — the old 0-floor silently discarded it.
+RESIDUAL_MIN_PLAUSIBLE = -100_000.0
 
 
 def _bounds(series_key: str) -> tuple[float, float]:
@@ -44,6 +51,10 @@ def _bounds(series_key: str) -> tuple[float, float]:
         return IMBALANCE_MIN_PLAUSIBLE, IMBALANCE_MAX_PLAUSIBLE
     if series_key.startswith("price."):
         return PRICE_MIN_PLAUSIBLE, PRICE_MAX_PLAUSIBLE
+    if series_key.startswith("load."):
+        return LOAD_MIN_PLAUSIBLE, MW_MAX_PLAUSIBLE
+    if series_key.startswith("residual."):
+        return RESIDUAL_MIN_PLAUSIBLE, MW_MAX_PLAUSIBLE
     return MW_MIN_PLAUSIBLE, MW_MAX_PLAUSIBLE
 
 
