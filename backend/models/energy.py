@@ -16,7 +16,7 @@ is deferred until a reliable free source is confirmed.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Float, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -297,6 +297,10 @@ class PowerOutage(Base):
 
     __table_args__ = (
         UniqueConstraint("mrid", "revision", name="uq_power_outage_mrid_revision"),
+        # Revision-dedupe ("highest revision per (zone, mRID)") is a window/group
+        # scan on every /overview and radar run — this composite index turns it
+        # into an index-only walk. Existing DBs get it via migrations.py.
+        Index("ix_power_outage_zone_mrid_revision", "zone", "mrid", "revision"),
     )
 
 

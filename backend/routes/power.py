@@ -368,29 +368,36 @@ async def get_spark_spread(
 DUNKELFLAUTE_THRESHOLD = 0.15
 
 
-def _compute_grid_row(r: PowerGrid) -> dict:
+def _grid_row_values(
+    date: str, load_mw: float | None, wind_mw: float | None, solar_mw: float | None
+) -> dict:
     """Derive residual_mw, renewable_share, and dunkelflaute flag for one row.
 
     None wind_mw / solar_mw are treated as 0 (they can be stored None when
-    genuinely near-zero during ingest failures).
+    genuinely near-zero during ingest failures). Value-based so the bulk
+    overview loader can feed column tuples without hydrating ORM entities.
     """
-    wind = r.wind_mw or 0.0
-    solar = r.solar_mw or 0.0
-    load = r.load_mw or 0.0
+    wind = wind_mw or 0.0
+    solar = solar_mw or 0.0
+    load = load_mw or 0.0
 
     residual_mw = load - wind - solar
     renewable_share = (wind + solar) / load if load > 0 else 0.0
     dunkelflaute = renewable_share < DUNKELFLAUTE_THRESHOLD
 
     return {
-        "date": r.date,
-        "load_mw": r.load_mw,
-        "wind_mw": r.wind_mw,
-        "solar_mw": r.solar_mw,
+        "date": date,
+        "load_mw": load_mw,
+        "wind_mw": wind_mw,
+        "solar_mw": solar_mw,
         "residual_mw": round(residual_mw, 2),
         "renewable_share": round(renewable_share, 4),
         "dunkelflaute": dunkelflaute,
     }
+
+
+def _compute_grid_row(r: PowerGrid) -> dict:
+    return _grid_row_values(r.date, r.load_mw, r.wind_mw, r.solar_mw)
 
 
 @router.get("/grid")
@@ -959,16 +966,20 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
         if z in price_by_zone:
             price_by_zone[z].append({"date": d, "close": mean, "negative_hours": neg})
 
-    # 2. Grid rows (load/wind/solar), all zones in one scan.
-    grid_by_zone: dict[str, list] = {z: [] for z in POWER_ZONES}
-    for r in (
-        db.query(PowerGrid)
+    # 2. Grid rows (load/wind/solar), all zones in one scan. Column tuples, not
+    #    ORM entities — hydrating ~4.5k PowerGrid objects cost 0.17s on prod.
+    grid_by_zone: dict[str, list[dict]] = {z: [] for z in POWER_ZONES}
+    latest_grid: dict[str, tuple[str, float | None]] = {}  # zone -> (date, load_mw)
+    for zone_key, d, load, wind, solar in (
+        db.query(PowerGrid.zone, PowerGrid.date, PowerGrid.load_mw,
+                 PowerGrid.wind_mw, PowerGrid.solar_mw)
         .filter(PowerGrid.date >= date_from, PowerGrid.date <= date_to)
         .order_by(PowerGrid.date.asc())
         .all()
     ):
-        if r.zone in grid_by_zone:
-            grid_by_zone[r.zone].append(r)
+        if zone_key in grid_by_zone:
+            grid_by_zone[zone_key].append(_grid_row_values(d, load, wind, solar))
+            latest_grid[zone_key] = (d, load)
 
     # 3. Coverage guard for each zone's LATEST grid day. Query by the small set
     #    of distinct dates (usually 1-2: yesterday/today) — the date index makes
@@ -976,8 +987,7 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
     #    SQLite scan all ~640k genmix rows (measured 0.15s on prod). Extra
     #    (zone, date) combos in the result are harmless — lookups use exact pairs.
     #    Same semantics as renewable_share_reliable: no genmix row → untrusted.
-    latest_grid = {z: rows[-1] for z, rows in grid_by_zone.items() if rows}
-    dates = sorted({r.date for r in latest_grid.values()})
+    dates = sorted({d for d, _ in latest_grid.values()})
     gen_totals: dict[tuple[str, str], float] = {}
     if dates:
         for z, d, total in (
@@ -989,15 +999,16 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
             gen_totals[(z, d)] = float(total) if total is not None else None
 
     def _coverage_ok(zone: str) -> bool:
-        r = latest_grid.get(zone)
-        if r is None:
+        lg = latest_grid.get(zone)
+        if lg is None:
             return True  # no grid rows at all — matches the per-zone path
-        if not r.load_mw or r.load_mw <= 0:
+        d, load_mw = lg
+        if not load_mw or load_mw <= 0:
             return False
-        total = gen_totals.get((r.zone, r.date))
+        total = gen_totals.get((zone, d))
         if total is None:
             return False
-        return total >= coverage_min_ratio(zone) * r.load_mw
+        return total >= coverage_min_ratio(zone) * load_mw
 
     # 4. Spark legs: every zone's power symbol + TTF. Query by DATE RANGE only —
     #    the (date, symbol) unique index turns 14 days × ~50 symbols into a few
@@ -1056,7 +1067,7 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
             situations[zone] = build_power_situation(
                 zone,
                 price_by_zone[zone],
-                [_compute_grid_row(r) for r in grid_by_zone[zone]],
+                grid_by_zone[zone],
                 _spark(zone),
                 spark_supported=True,
                 grid_coverage_ok=_coverage_ok(zone),
