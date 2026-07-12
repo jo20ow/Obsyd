@@ -105,14 +105,23 @@ def _a75_gen(
     )
 
 
-def _gen_ts(psr: str, start: str, mw: float, n: int = 24, res: str = "PT60M") -> str:
+def _gen_ts(psr: str, start: str, mw: float, n: int = 24, res: str = "PT60M",
+            direction: str = "in") -> str:
+    """One A75 TimeSeries. `direction="out"` marks it as CONSUMPTION
+    (outBiddingZone_Domain) — how ENTSO-E publishes pumped-storage pumping."""
     pts = "".join(
         f"<Point><position>{i + 1}</position><quantity>{mw}</quantity></Point>"
         for i in range(n)
     )
+    domain = (
+        "<outBiddingZone_Domain.mRID>10Y1001A1001A82H</outBiddingZone_Domain.mRID>"
+        if direction == "out"
+        else "<inBiddingZone_Domain.mRID>10Y1001A1001A82H</inBiddingZone_Domain.mRID>"
+    )
     return (
         f"<TimeSeries>"
         f"<MktPSRType><psrType>{psr}</psrType></MktPSRType>"
+        f"{domain}"
         f"<Period>"
         f"<timeInterval><start>{start}</start></timeInterval>"
         f"<resolution>{res}</resolution>"
@@ -257,3 +266,79 @@ async def test_ingest_grid_empty_days(db_session, monkeypatch):
     monkeypatch.setattr(grid_mod.settings, "entsoe_api_token", SecretStr("test-token"))
     result = await grid_mod.ingest_grid(db_session, [])
     assert result == {"days": 0, "written": 0}
+
+
+# ── pumped storage: generation vs consumption must never be merged ────────────
+# ENTSO-E publishes B10 TWICE in one A75 document — inBiddingZone (generating)
+# and outBiddingZone (pumping). Keying only on psrType averaged them into one
+# meaningless number. Measured on the real cached DE-LU document (2026-06):
+# generation 1253 MW, pumping 1579 MW → the store held 1416 MW.
+
+
+def test_parse_genmix_splits_pumped_storage_generation_from_pumping():
+    xml = _a75_gen(
+        _gen_ts("B10", "2026-04-01T00:00Z", 1_253.0, direction="in")
+        + _gen_ts("B10", "2026-04-01T00:00Z", 1_579.0, direction="out")
+        + _gen_ts("B16", "2026-04-01T00:00Z", 8_000.0)
+    )
+    result = grid_mod.parse_generation_by_type(xml)["2026-04-01"]
+    assert result["B10"] == 1_253.0, "generation leg"
+    assert result["B10_CONS"] == 1_579.0, "pumping leg, kept separate"
+    assert result["B16"] == 8_000.0
+    assert 1_416.0 not in result.values(), "the old averaged-together value must be gone"
+
+
+def test_parse_generation_hourly_splits_pumped_storage():
+    xml = _a75_gen(
+        _gen_ts("B10", "2026-04-01T00:00Z", 1_253.0, direction="in")
+        + _gen_ts("B10", "2026-04-01T00:00Z", 1_579.0, direction="out")
+    )
+    day = grid_mod.parse_generation_hourly(xml)["2026-04-01"]
+    assert day["B10"][0] == 1_253.0
+    assert day["B10_CONS"][0] == 1_579.0
+
+
+def test_consumption_key_helpers():
+    assert grid_mod.is_consumption_key("B10_CONS") is True
+    assert grid_mod.is_consumption_key("B10") is False
+    assert grid_mod.base_psr("B10_CONS") == "B10"
+    assert grid_mod.base_psr("B16") == "B16"
+
+
+async def test_ingest_keeps_pumping_out_of_the_generation_mix(db_session, monkeypatch):
+    """Pumping is load on the grid, not generation. It must land in its own
+    series and must NOT enter PowerGenMix — counting it as generation inflated
+    the mix AND the generation total that coverage.py divides by load, making
+    the A75 coverage guard too generous."""
+    from pydantic import SecretStr
+
+    from backend.models.energy import PowerGenMix
+    from backend.power.coverage import generation_total_mw
+    from backend.power.hourly_store import read_hourly
+
+    load_xml = _a65(_load_ts("2026-04-01T00:00Z", 55_000.0))
+    gen_xml = _a75_gen(
+        _gen_ts("B16", "2026-04-01T00:00Z", 8_000.0)
+        + _gen_ts("B10", "2026-04-01T00:00Z", 1_253.0, direction="in")    # generating
+        + _gen_ts("B10", "2026-04-01T00:00Z", 1_579.0, direction="out")   # pumping
+    )
+
+    async def fake_fetch(eic, month_start, doctype, extra_params, *, overwrite=False):
+        return {"A65": load_xml, "A75": gen_xml}.get(doctype, "")
+
+    monkeypatch.setattr(grid_mod, "_fetch_zone_month", fake_fetch)
+    monkeypatch.setattr(grid_mod.settings, "entsoe_api_token", SecretStr("test-token"))
+    await grid_mod.ingest_grid(db_session, ["2026-04-01"])
+
+    mix = {
+        r.psr_type: r.gen_mw
+        for r in db_session.query(PowerGenMix).filter_by(date="2026-04-01", zone="DE_LU")
+    }
+    assert mix["Hydro Pumped Storage"] == 1_253.0, "generation leg only"
+    assert not any("_CONS" in k or "consumption" in k.lower() for k in mix), \
+        "pumping must not appear in the mix"
+    # Generation total (the coverage-guard numerator) counts 8000 + 1253, not the pumping.
+    assert generation_total_mw(db_session, "2026-04-01", "DE_LU") == 9_253.0
+
+    assert read_hourly(db_session, "gen.B10", "DE_LU")[0][1] == 1_253.0
+    assert read_hourly(db_session, "consumption.B10", "DE_LU")[0][1] == 1_579.0
