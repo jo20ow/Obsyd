@@ -111,6 +111,13 @@ def parse_generation(xml_text: str) -> dict[str, float]:
         psr = next((e.text for e in ts.iter() if _localname(e.tag) == "psrType"), None)
         if psr is not None and psr != PSR_FOSSIL_GAS:
             continue
+        # DIRECTION filter. A75 publishes B04 in BOTH directions for some zones
+        # (NL, PT, IE-SEM verified in prod): generation (inBiddingZone) and the
+        # plants' own consumption (outBiddingZone). Summing both inflated power
+        # burn — the MEASURED demand leg of the gas balance — by the consumption
+        # of the very plants whose burn we are counting.
+        if any(_localname(e.tag).startswith("outBiddingZone_Domain") for e in ts.iter()):
+            continue
         for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
             start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
             res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)

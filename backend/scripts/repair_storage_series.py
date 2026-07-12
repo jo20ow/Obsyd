@@ -37,16 +37,26 @@ from sqlalchemy import text
 
 from backend.database import SessionLocal
 from backend.gas import raw_cache
-from backend.models.energy import PowerGenMix
+from backend.models.energy import PowerGenMix, PowerGrid
 from backend.power.entsoe_grid import (
     PSR_LABELS,
+    PSR_SOLAR,
+    PSR_WIND_OFFSHORE,
+    PSR_WIND_ONSHORE,
     base_psr,
     is_consumption_key,
     parse_generation_by_type,
     parse_generation_hourly,
 )
-from backend.power.hourly_store import upsert_day_hours
+from backend.power.hourly_store import day_hour_ts, read_hourly, upsert_day_hours
 from backend.power.zones import POWER_ZONES
+
+#: Codes whose corruption propagated BEYOND the mix: wind and solar feed
+#: PowerGrid.wind_mw / solar_mw and hence residual load — and therefore the
+#: renewable share, the Dunkelflaute flag and every residual z-score. Verified in
+#: prod: IE-SEM carries 38,374 hourly wind-CONSUMPTION points (2021-2025), so its
+#: wind was averaged with a real consumption series for four straight years.
+RENEWABLE_CODES = {PSR_SOLAR, PSR_WIND_OFFSHORE, PSR_WIND_ONSHORE}
 
 logger = logging.getLogger("repair_storage_series")
 
@@ -124,17 +134,70 @@ def repair_zone_month(db, zone: str, eic: str, month: date, *, dry_run: bool = F
             else:
                 row.gen_mw = by_psr[code]
             daily_written += 1
+    # Wind/solar corruption propagated into residual load — repair that too, or
+    # the Dunkelflaute detector keeps reading a zone that never existed.
+    grid_days = 0
+    if codes & RENEWABLE_CODES:
+        grid_days = _repair_residual(db, zone, daily, hourly)
+
     db.commit()
     return {
         "cached": True, "storage": True,
-        "hourly": hourly_written, "daily": daily_written, "codes": sorted(codes),
+        "hourly": hourly_written, "daily": daily_written,
+        "grid_days": grid_days, "codes": sorted(codes),
     }
+
+
+def _repair_residual(db, zone: str, daily: dict, hourly: dict) -> int:
+    """Recompute wind/solar/residual from the corrected generation.
+
+    Load is untouched by the parser bug (A65 has no consumption twin), so it is
+    read back from the canonical store rather than re-parsed.
+    """
+    days = 0
+    for day, by_psr in daily.items():
+        row = (
+            db.query(PowerGrid)
+            .filter(PowerGrid.date == day, PowerGrid.zone == zone)
+            .first()
+        )
+        if row is None:
+            continue
+        wind = by_psr.get(PSR_WIND_OFFSHORE, 0.0) + by_psr.get(PSR_WIND_ONSHORE, 0.0)
+        solar = by_psr.get(PSR_SOLAR, 0.0)
+        row.wind_mw = wind or None
+        row.solar_mw = solar or None
+        row.residual_mw = (
+            round(row.load_mw - wind - solar, 2) if row.load_mw is not None else None
+        )
+        days += 1
+
+    # Hourly residual = load − wind − solar, hour by hour.
+    load_by_ts = dict(read_hourly(db, "load.actual", zone))
+    resid: dict[str, dict[int, float]] = {}
+    for day, by_psr in hourly.items():
+        hours: dict[int, float] = {}
+        for hour in range(24):
+            ts = day_hour_ts(day, hour)
+            load = load_by_ts.get(ts)
+            if load is None:
+                continue
+            renew = sum(
+                by_psr.get(code, {}).get(hour, 0.0)
+                for code in (PSR_WIND_OFFSHORE, PSR_WIND_ONSHORE, PSR_SOLAR)
+            )
+            hours[hour] = round(load - renew, 2)
+        if hours:
+            resid[day] = hours
+    if resid:
+        upsert_day_hours(db, "residual.actual", zone, resid, unit="MW")
+    return days
 
 
 def run(db, start: date, end: date, *, dry_run: bool = False) -> dict:
     months = _months(start, end)
     total = {"zone_months": 0, "missing_cache": 0, "no_storage": 0,
-             "repaired": 0, "hourly": 0, "daily": 0}
+             "repaired": 0, "hourly": 0, "daily": 0, "grid_days": 0}
     processed = 0
     for zone, cfg in POWER_ZONES.items():
         for month in months:
@@ -149,6 +212,7 @@ def run(db, start: date, end: date, *, dry_run: bool = False) -> dict:
             total["repaired"] += 1
             total["hourly"] += res.get("hourly", 0)
             total["daily"] += res.get("daily", 0)
+            total["grid_days"] += res.get("grid_days", 0)
             processed += 1
             if not dry_run and processed % CHECKPOINT_EVERY == 0:
                 # Bound the WAL: the API holds long-lived readers, so a long batch

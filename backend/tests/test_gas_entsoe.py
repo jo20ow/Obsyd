@@ -18,10 +18,16 @@ def _a75(ts_blocks: str, ns: str = "urn:iec62325.351:tc57wg16:451-6:generationlo
     return f'<?xml version="1.0"?><GL_MarketDocument xmlns="{ns}"><type>A75</type>{ts_blocks}</GL_MarketDocument>'
 
 
-def _ts(start, end, mw, n=24, res="PT60M", psr="B04"):
+def _ts(start, end, mw, n=24, res="PT60M", psr="B04", direction="in"):
+    """`direction="out"` = outBiddingZone_Domain, i.e. the plants' own CONSUMPTION."""
     pts = "".join(f"<Point><position>{i + 1}</position><quantity>{mw}</quantity></Point>" for i in range(n))
+    domain = (
+        "<outBiddingZone_Domain.mRID>10Y1001A1001A82H</outBiddingZone_Domain.mRID>"
+        if direction == "out"
+        else "<inBiddingZone_Domain.mRID>10Y1001A1001A82H</inBiddingZone_Domain.mRID>"
+    )
     return (
-        f"<TimeSeries><MktPSRType><psrType>{psr}</psrType></MktPSRType>"
+        f"<TimeSeries><MktPSRType><psrType>{psr}</psrType></MktPSRType>{domain}"
         f"<Period><timeInterval><start>{start}</start><end>{end}</end></timeInterval>"
         f"<resolution>{res}</resolution>{pts}</Period></TimeSeries>"
     )
@@ -130,3 +136,16 @@ def test_token_required(monkeypatch):
     monkeypatch.setattr(entsoe.settings, "entsoe_api_token", None)
     with pytest.raises(RuntimeError):
         entsoe._token()
+
+
+def test_power_burn_ignores_plant_own_consumption():
+    """A75 publishes B04 in BOTH directions for some zones (NL, PT, IE-SEM
+    verified in prod): generation and the plants' own consumption. Summing both
+    inflated power burn — the MEASURED demand leg of the gas balance — by the
+    consumption of the very plants whose burn we are counting."""
+    xml = _a75(
+        _ts("2026-04-01T04:00Z", "2026-04-02T04:00Z", 5000)                      # generation
+        + _ts("2026-04-01T04:00Z", "2026-04-02T04:00Z", 400, direction="out")    # own consumption
+    )
+    assert entsoe.parse_generation(xml) == {"2026-04-01": 120.0}, \
+        "120 GWh of generation — the 9.6 GWh of consumption must not be added to it"
