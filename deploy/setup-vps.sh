@@ -63,8 +63,11 @@ echo "nginx configured and reloaded"
 # below can't). Set the URL by editing the crontab env line after creating a
 # check at healthchecks.io / UptimeRobot; empty = no-op.
 echo "[6/7] Installing health-check cron..."
-(crontab -l 2>/dev/null | grep -v obsyd | grep -v '^HEALTHCHECKS_URL='; \
- echo 'HEALTHCHECKS_URL='; \
+# Dedupe filter matches ONLY this health line ('grep -v obsyd' would also wipe
+# the docker-prune line installed in step 9 — its path contains "obsyd"), and a
+# HEALTHCHECKS_URL the operator already configured survives a re-run.
+(crontab -l 2>/dev/null | grep -v 'systemctl restart obsyd' | grep -v '^HEALTHCHECKS_URL='; \
+ crontab -l 2>/dev/null | grep '^HEALTHCHECKS_URL=' || echo 'HEALTHCHECKS_URL='; \
  echo '*/5 * * * * if curl -sf http://127.0.0.1:8000/health >/dev/null; then [ -n "$HEALTHCHECKS_URL" ] && curl -fsS -m 10 --retry 2 "$HEALTHCHECKS_URL" >/dev/null 2>&1; else systemctl restart obsyd; fi') | crontab -
 echo "Cron health-check installed (set HEALTHCHECKS_URL in root crontab to enable off-box ping)"
 
@@ -78,6 +81,24 @@ sudo -u obsyd bash -c '(crontab -l 2>/dev/null | grep -v backup-db.sh | grep -v 
   echo "OBSYD_BACKUP_REMOTE="; \
   echo "30 3 * * * /home/obsyd/obsyd/deploy/backup-db.sh >> /home/obsyd/backups/backup.log 2>&1") | crontab -'
 echo "Daily backup cron installed (03:30, retention 14 days; set OBSYD_BACKUP_REMOTE for offsite)"
+
+# 8. Disk alarm cron (as obsyd user, every 15 min — the 2026-07-07 disk-full
+# incident took dockerd, Caddy and both sites down for two days before anyone
+# noticed; this is the script written as its post-mortem, so it MUST be wired).
+echo "[8/9] Installing disk-alarm cron..."
+chmod +x /home/obsyd/obsyd/deploy/disk-alarm.sh
+sudo -u obsyd bash -c 'mkdir -p /home/obsyd/obsyd/logs; (crontab -l 2>/dev/null | grep -v disk-alarm.sh; \
+  echo "*/15 * * * * /home/obsyd/obsyd/deploy/disk-alarm.sh >> /home/obsyd/obsyd/logs/disk-alarm.log 2>&1") | crontab -'
+echo "Disk-alarm cron installed (*/15 min, obsyd crontab)"
+
+# 9. Weekly docker prune (root — needs docker rights). Dangling images + build
+# cache only; never volumes (valuekick postgres) and never `image prune -a`
+# (would reap node:20 that valuekick's 30-min cron re-pulls). See script header.
+echo "[9/9] Installing docker-prune cron..."
+chmod +x /home/obsyd/obsyd/deploy/docker-prune.sh
+(crontab -l 2>/dev/null | grep -v docker-prune.sh; \
+ echo '15 4 * * 0 /home/obsyd/obsyd/deploy/docker-prune.sh >> /home/obsyd/obsyd/logs/docker-prune.log 2>&1') | crontab -
+echo "Docker-prune cron installed (Sun 04:15, root crontab)"
 
 echo ""
 echo "=== VPS base setup complete ==="

@@ -345,3 +345,15 @@ def test_weekly_backups_survive_daily_retention(dirs):
     weekly.write_bytes(b"x")
     _run(app, backups, OBSYD_BACKUP_RETENTION_DAYS=7)
     assert weekly.exists()
+
+
+def test_setup_vps_wires_disk_alarm_and_docker_prune_crons():
+    """The two post-mortem scripts of the 2026-07-07 disk-full incident must be
+    INSTALLED by setup-vps.sh, not just exist next to it — an unwired alarm is
+    how the incident went unnoticed for two days."""
+    text = (SCRIPT.parent / "setup-vps.sh").read_text()
+    assert "deploy/disk-alarm.sh >> /home/obsyd/obsyd/logs/disk-alarm.log" in text
+    assert "*/15 * * * *" in text
+    assert "deploy/docker-prune.sh >> /home/obsyd/obsyd/logs/docker-prune.log" in text
+    # health-line dedupe must not sweep the docker-prune line (path contains "obsyd")
+    assert "| grep -v obsyd |" not in text

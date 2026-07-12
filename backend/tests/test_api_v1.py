@@ -231,3 +231,19 @@ def test_rate_limit_returns_429(db_session, monkeypatch):
     assert c.get(url).status_code == 200
     assert c.get(url).status_code == 200
     assert c.get(url).status_code == 429  # third within the window
+
+
+def test_rate_limit_covers_genmix_and_snapshot(db_session, monkeypatch):
+    """The expensive aggregation endpoints share /series' per-IP budget — they
+    were the unthrottled ones."""
+    import backend.routes.api_v1 as v1
+    from backend.auth.ratelimit import reset_limits
+
+    reset_limits()
+    monkeypatch.setattr(v1, "RATE_PER_MIN", 2)
+    _seed(db_session)
+    c = _client(db_session)
+    assert c.get("/api/v1/genmix?zone=DE_LU").status_code == 200
+    assert c.get("/api/v1/snapshot?series=load.actual").status_code == 200
+    assert c.get("/api/v1/genmix?zone=DE_LU").status_code == 429
+    reset_limits()

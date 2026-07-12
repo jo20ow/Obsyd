@@ -48,6 +48,7 @@ Investigated and deliberately deferred (with their blockers), not silently dropp
 - **Germany imbalance** — four control areas with a combined reBAP not exposed under a single A85 control-area EIC; DE-LU is skipped for imbalance only.
 - **Curtailment / redispatch / reserves** (ENTSO-E A63/A80/…) — fragmented, border-specific congestion-management data, not a clean pan-EU series.
 - **Continuous intraday prices** — no clean, free, redistributable source.
+- **`power_hourly` retention** — the canonical store grows unbounded by design (all-time records need all-time history). If disk ever becomes the constraint, the 15-min `.qh` series are the thinning candidates (raw quarter-hours matter most recently; the hourly series keeps the long history) — documented option, deliberately not built.
 
 ## Tech Stack
 
