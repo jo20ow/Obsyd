@@ -111,3 +111,58 @@ def test_dry_run_writes_nothing(db_session, tmp_path, monkeypatch):
 ])
 def test_storage_psrs_detects_only_two_directional_types(codes, expected):
     assert rss.storage_psrs({"2026-04-01": codes}) == expected
+
+
+# ── the contamination reached residual load, not just the mix ─────────────────
+# Verified in prod: IE-SEM carries 38,374 hourly wind-CONSUMPTION points across
+# 2021-2025, so its wind was averaged with a real consumption series for four
+# years — and wind feeds PowerGrid.wind_mw → residual → renewable share →
+# the Dunkelflaute flag. Repairing gen.B19 alone would leave all of that wrong.
+
+
+def _doc_with_wind_consumption() -> str:
+    return _a75_gen(
+        _gen_ts("B19", "2026-04-01T00:00Z", 4_000.0, direction="in")    # wind generating
+        + _gen_ts("B19", "2026-04-01T00:00Z", 600.0, direction="out")   # wind farm consuming
+        + _gen_ts("B16", "2026-04-01T00:00Z", 1_000.0)                  # solar
+    )
+
+
+def test_repair_recomputes_wind_solar_and_residual(db_session, tmp_path, monkeypatch):
+    from backend.models.energy import PowerGrid
+    from backend.power.hourly_store import upsert_day_hours as upsert
+
+    # Corrupted state: wind stored as the mean of generation and consumption
+    # (4000+600)/2 = 2300 → residual overstated by 1700 MW.
+    db_session.add(PowerGrid(date="2026-04-01", zone="DE_LU", load_mw=50_000.0,
+                             wind_mw=2_300.0, solar_mw=1_000.0, residual_mw=46_700.0))
+    upsert(db_session, "load.actual", "DE_LU",
+           {"2026-04-01": {h: 50_000.0 for h in range(24)}}, unit="MW")
+    db_session.commit()
+    _cache_a75(tmp_path, monkeypatch, _doc_with_wind_consumption())
+
+    res = rss.repair_zone_month(db_session, "DE_LU", _DE_EIC, _MONTH)
+    assert res["grid_days"] == 1
+
+    row = db_session.query(PowerGrid).filter_by(date="2026-04-01", zone="DE_LU").one()
+    assert row.wind_mw == 4_000.0, "the generation leg, not the average"
+    assert row.solar_mw == 1_000.0
+    assert row.residual_mw == 45_000.0  # 50000 − 4000 − 1000
+    assert read_hourly(db_session, "residual.actual", "DE_LU")[0][1] == 45_000.0
+
+
+def test_repair_leaves_residual_alone_when_only_storage_is_affected(db_session, tmp_path, monkeypatch):
+    """A pumped-storage-only document must not touch wind/solar/residual —
+    pumping is not a renewable and never entered the residual."""
+    from backend.models.energy import PowerGrid
+
+    db_session.add(PowerGrid(date="2026-04-01", zone="DE_LU", load_mw=50_000.0,
+                             wind_mw=9_999.0, solar_mw=8_888.0, residual_mw=31_113.0))
+    db_session.commit()
+    _cache_a75(tmp_path, monkeypatch, _doc_with_pumping())
+
+    res = rss.repair_zone_month(db_session, "DE_LU", _DE_EIC, _MONTH)
+    assert res["grid_days"] == 0
+
+    row = db_session.query(PowerGrid).filter_by(date="2026-04-01", zone="DE_LU").one()
+    assert (row.wind_mw, row.solar_mw, row.residual_mw) == (9_999.0, 8_888.0, 31_113.0)
