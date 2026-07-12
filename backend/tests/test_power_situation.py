@@ -472,3 +472,34 @@ def test_weekend_old_spark_does_not_stale_the_situation():
     assert s["spark"]["age_days"] == 2
     assert s["spark"]["stale"] is False
     assert s["stale"] is False
+
+
+def test_situation_ships_the_baseline_window_it_actually_used():
+    """The UI must be able to STATE the window instead of guessing it. It guessed
+    '~90-day' for a 120-day window until 2026-07-12; the number now travels with
+    the data."""
+    from backend.routes.power import SITUATION_BASELINE_DAYS
+
+    price = _price_series([50.0, 51.0, 52.0])
+    grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
+    s = build_power_situation("DE_LU", price, grid, None)
+    assert s["baseline_days"] == SITUATION_BASELINE_DAYS
+
+
+def test_no_frontend_panel_restates_the_baseline_window():
+    """Regression guard for the class of bug, not the instance: a hardcoded
+    '90-day norm' in a power panel silently contradicted the code. Panels must
+    render `baseline_days` / `baseline_n` from the response instead."""
+    from pathlib import Path
+
+    components = Path(__file__).resolve().parents[2] / "frontend" / "src" / "components"
+    offenders = []
+    for f in components.glob("*.jsx"):
+        text = f.read_text()
+        # dormant non-power verticals are out of scope (crypto/equities glossaries)
+        if f.name in {"CryptoPanel.jsx", "RelatedEquitiesPanel.jsx"}:
+            continue
+        for claim in ("90-day norm", "~90-day norm", "90d norm"):
+            if claim in text:
+                offenders.append(f"{f.name}: {claim!r}")
+    assert not offenders, f"panels restating a baseline window: {offenders}"

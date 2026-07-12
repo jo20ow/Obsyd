@@ -4,7 +4,8 @@ import { POLL_FAST_MS } from '../utils/poll'
 
 // Single-glance overview — read all bidding zones at once, colour-first, like
 // Electricity Maps / Grid Status. Colour encodes how far each metric sits from its
-// own ~90-day norm, so the European power picture reads in one second. Click a zone
+// own trailing norm (the window is whatever /overview reports as baseline_days), so the
+// European power picture reads in one second. Click a zone
 // to drill into its detail; click a column header to sort. Descriptive, not a forecast.
 const API = '/api'
 
@@ -131,7 +132,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
         </table>
       </div>
       <div className="px-3 py-1 border-t border-border/40 font-mono text-[8px] text-neutral-700 leading-snug">
-        Colour = how far each metric sits from its own ~90-day norm (grey normal · amber elevated · red extreme). Descriptive, not a forecast.
+        Colour = how far each metric sits from its own {data.baseline_days ? `${data.baseline_days}-day` : 'trailing'} norm (grey normal · amber elevated · red extreme). Descriptive, not a forecast.
       </div>
     </div>
   )

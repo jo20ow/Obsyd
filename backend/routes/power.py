@@ -56,6 +56,13 @@ from backend.signals.detectors.base import severity_from_zscore, trailing_zscore
 #: beyond a day signals a frozen collector rather than normal publication lag.
 SITUATION_STALE_DAYS = 1
 
+#: Trailing window the hero's and the overview's z-scores are measured against.
+#: Shipped in every situation/overview response as `baseline_days` — the UI
+#: MUST render that number rather than restate it, because restating it is
+#: exactly how the product ended up telling users "~90-day norm" while the code
+#: had been computing 120 (caught 2026-07-12).
+SITUATION_BASELINE_DAYS = 120
+
 router = APIRouter(prefix="/api/power", tags=["power"])
 
 _ZONE_KEYS = list(POWER_ZONES.keys())
@@ -594,7 +601,11 @@ def get_power_overview(db: Session = Depends(get_db)):
             "renewable_reliable": grid.get("renewable_share_reliable"),
             "dunkelflaute": grid.get("dunkelflaute"),
         })
-    return {"available": bool(zones), "zones": zones}
+    return {
+        "available": bool(zones),
+        "zones": zones,
+        "baseline_days": SITUATION_BASELINE_DAYS,  # the window the z columns use
+    }
 
 
 # ─── Power situation synthesis (the desk top-line) ───────────────────────────
@@ -834,6 +845,9 @@ def build_power_situation(
         "stale": stale,
         "age_days": age_days,
         "state": state,
+        # The window every z below was measured against. Shipped so the UI can
+        # STATE it instead of guessing it (it guessed "~90" for a 120-day window).
+        "baseline_days": SITUATION_BASELINE_DAYS,
         "price": price,
         "grid": grid,
         "spark": spark,
@@ -883,7 +897,7 @@ def load_power_situation(db: Session, zone: str) -> dict:
     CALM/ELEVATED/STRESSED) without going through HTTP.
     """
     resolved_zone = _resolve_zone(zone)
-    date_from, date_to = _window(120)
+    date_from, date_to = _window(SITUATION_BASELINE_DAYS)
 
     price_rows = (
         db.query(PowerPriceDaily)
@@ -957,7 +971,7 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
     from backend.power.coverage import coverage_min_ratio
     from backend.signals.detectors.power import forced_outage_totals_now
 
-    date_from, date_to = _window(120)
+    date_from, date_to = _window(SITUATION_BASELINE_DAYS)
     today = datetime.utcnow().date()
 
     # 1. Day-ahead price stats, all zones in one scan.
