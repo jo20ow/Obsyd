@@ -91,6 +91,15 @@ def run_migrations() -> None:
     if _add_column_if_missing("power_load_forecast", "hourly_forecast", "TEXT"):
         applied.append("power_load_forecast.hourly_forecast")
 
+    # 2026-07-12: composite index for the SQL revision-dedupe (highest revision
+    # per (zone, mRID)) — the window scan runs on every /overview request and
+    # radar pass; without the index it re-sorts the whole table each time.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_power_outage_zone_mrid_revision "
+            "ON power_outage (zone, mrid, revision)"
+        ))
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:
