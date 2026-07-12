@@ -228,16 +228,53 @@ def forced_outage_mw_now(db, zone: str) -> tuple[float, list]:
 
 
 def forced_outage_totals_now(db) -> dict[str, float]:
-    """Forced MW offline RIGHT NOW for EVERY zone in one query — the bulk
-    counterpart of forced_outage_mw_now for /api/power/overview."""
-    from collections import defaultdict
+    """Forced MW offline RIGHT NOW for EVERY zone in one aggregate query — the
+    bulk counterpart of forced_outage_mw_now for /api/power/overview.
+
+    Fully SQL-side: returning the latest-revision ROWS hydrated ~8.5k ORM
+    entities per request (0.25s on prod — most A77 events end far in the
+    future, so the ending_after prune barely bites). The overview only needs
+    one SUM per zone; _running_forced's filters move into the outer query,
+    which is exactly why ranking (all revisions) and filtering (rn=1 only)
+    stay separate stages.
+    """
     from datetime import datetime, timezone
 
+    from sqlalchemy import func
+
+    from backend.models.energy import PowerOutage
+
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
-    totals: dict[str, float] = defaultdict(float)
-    for r in _running_forced(latest_outage_revisions(db, ending_after=now_iso), now_iso):
-        totals[r.zone] += r.nominal_mw - (r.available_mw or 0.0)
-    return dict(totals)
+    rn = (
+        func.row_number()
+        .over(
+            partition_by=[PowerOutage.zone, PowerOutage.mrid],
+            order_by=PowerOutage.revision.desc(),
+        )
+        .label("rn")
+    )
+    relevant = db.query(PowerOutage.mrid).filter(PowerOutage.end_utc >= now_iso)
+    ranked = (
+        db.query(PowerOutage.id.label("oid"), rn)
+        .filter(PowerOutage.mrid.in_(relevant.subquery().select()))
+        .subquery()
+    )
+    offline = func.sum(PowerOutage.nominal_mw - func.coalesce(PowerOutage.available_mw, 0.0))
+    rows = (
+        db.query(PowerOutage.zone, offline)
+        .join(ranked, PowerOutage.id == ranked.c.oid)
+        .filter(
+            ranked.c.rn == 1,
+            PowerOutage.status == "active",
+            PowerOutage.business_type == "A54",
+            PowerOutage.nominal_mw.isnot(None),
+            PowerOutage.start_utc <= now_iso,
+            PowerOutage.end_utc >= now_iso,
+        )
+        .group_by(PowerOutage.zone)
+        .all()
+    )
+    return {zone: float(total) for zone, total in rows if total}
 
 
 def detect_forced_outages(db) -> list[DetectorResult]:
