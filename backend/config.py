@@ -68,9 +68,11 @@ class Settings(BaseSettings):
     # Resend (email)
     resend_api_key: Optional[SecretStr] = None
 
-    # Lemon Squeezy (payments)
+    # Lemon Squeezy (payments) — DORMANT: Obsyd is fully free (owner decision
+    # 2026-06-25, LS checkout rejected). The webhook plumbing stays for a
+    # potential future reversal; no URL default because nothing is for sale.
     lemonsqueezy_webhook_secret: Optional[SecretStr] = None
-    lemonsqueezy_checkout_url: str = "https://obsyd.lemonsqueezy.com/buy/placeholder"
+    lemonsqueezy_checkout_url: Optional[str] = None
 
     # JWT
     jwt_secret: SecretStr = SecretStr("obsyd-jwt-change-me-in-production")

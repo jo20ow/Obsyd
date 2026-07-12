@@ -67,7 +67,7 @@ export default function NarrativeHero() {
         <h2 className="font-mono text-[13px] font-semibold text-neutral-300">Europe right now</h2>
       </div>
       <p className="font-mono text-[14px] leading-relaxed text-neutral-400">
-        <span className="text-neutral-200 font-medium">{lead}{moverText ? ' — ' : '.'}</span>
+        <span className="text-neutral-200 font-medium">{lead}{moverText ? ' — ' : '. '}</span>
         {moverText && <>{moverText}. </>}
         {spreadText && <>{spreadText} </>}
         {negText && <>{negText} </>}

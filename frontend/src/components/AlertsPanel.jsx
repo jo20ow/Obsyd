@@ -46,7 +46,10 @@ const RULE_ICONS = {
 }
 
 // Which dashboard tab holds the evidence chart for each vertical (drill-down fallback).
-const VERTICAL_TAB = { gas: 'gas', power: 'energy', metals: 'metals', sentiment: 'sentiment', oil: 'overview' }
+// The non-power tabs (metals/sentiment/overview) were removed in the 2026-07-03 refocus;
+// a drill-down onto a nonexistent tab is a silent no-op, so dormant verticals fall back
+// to the ALERTS tab itself until the sibling-project extraction.
+const VERTICAL_TAB = { gas: 'gas', power: 'energy', metals: 'alerts', sentiment: 'alerts', oil: 'alerts' }
 
 // Precise per-rule drill-down: which tab + which panel holds THE evidence for this anomaly,
 // so a click lands directly on the chart that explains it (not just somewhere on the tab).
@@ -59,14 +62,17 @@ const RULE_TARGET = {
   hydro_deviation: { tab: 'europe', panel: 'hydro-reservoirs' },
   record_break: { tab: 'energy' },
   imbalance_extreme: { tab: 'energy' },
-  sentiment_risk: { tab: 'sentiment', panel: 'sentiment' },
-  floating_storage: { tab: 'signals', panel: 'sts-detection' },
-  freight_divergence: { tab: 'signals', panel: 'freight-proxy' },
-  rerouting_high: { tab: 'overview', panel: 'rerouting' },
-  chokepoint_anomaly: { tab: 'overview', panel: 'chokepoint-monitor' },
-  flow_anomaly: { tab: 'overview', panel: 'chokepoint-monitor' },
-  days_of_supply: { tab: 'overview', panel: 'fundamentals' },
-  supply_demand_divergence: { tab: 'overview', panel: 'fundamentals' },
+  // Dormant oil/maritime/sentiment rules: their evidence tabs (overview/signals/
+  // sentiment) left with the power refocus — point at the feed itself instead of
+  // silently no-opping, until the sibling project takes them.
+  sentiment_risk: { tab: 'alerts' },
+  floating_storage: { tab: 'alerts' },
+  freight_divergence: { tab: 'alerts' },
+  rerouting_high: { tab: 'alerts' },
+  chokepoint_anomaly: { tab: 'alerts' },
+  flow_anomaly: { tab: 'alerts' },
+  days_of_supply: { tab: 'alerts' },
+  supply_demand_divergence: { tab: 'alerts' },
 }
 const VERTICAL_LABELS = { gas: 'GAS', power: 'POWER', oil: 'OIL / MARITIME', metals: 'METALS', sentiment: 'SENTIMENT' }
 // Power desk is the front door: power anomalies lead on equal severity (sections

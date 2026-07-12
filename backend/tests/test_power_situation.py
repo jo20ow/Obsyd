@@ -453,3 +453,22 @@ def test_forced_outage_flag_is_capacity_relative_when_installed_known():
     assert flag is not None and flag["severity"] == "critical"
     assert "10% of fleet" in flag["label"]
     assert small_fleet["state"] == "STRESSED"
+
+
+def test_weekend_old_spark_does_not_stale_the_situation():
+    """TTF doesn't trade on weekends: a 2-day-old spark leg (Friday close seen
+    on Sunday) is NORMAL and must not flag every zone's situation stale via the
+    worst-of rule. Spark is judged by its own window (PANEL_MAX_AGE_DAYS
+    'spark' = 4), same as the spark panel caption."""
+    today = date(2026, 7, 12)  # a Sunday
+    price = _series_ending(today, 5, lambda i: {"close": 50.0, "negative_hours": 0})
+    grid = _series_ending(
+        today, 5,
+        lambda i: {"residual_mw": 40_000.0, "renewable_share": 0.25, "dunkelflaute": False},
+    )
+    spark = {"spark_spread": 5.0, "power_price": 52.0, "gas_price": 30.0, "date": "2026-07-10"}
+    s = build_power_situation("DE_LU", price, grid, spark, today=today)
+
+    assert s["spark"]["age_days"] == 2
+    assert s["spark"]["stale"] is False
+    assert s["stale"] is False
