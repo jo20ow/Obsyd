@@ -574,3 +574,67 @@ async def test_use_cache_never_caches_the_current_month(db_session, tmp_path, mo
 
     assert calls.count("de") == 2, "current month must be re-fetched, never cached"
     assert list(tmp_path.rglob("*.json.gz")) == []
+
+
+# ─── 429 backoff (backfill path) ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_use_cache_backs_off_on_429_and_recovers(db_session, tmp_path, monkeypatch):
+    """Energy-Charts 429s after short bursts (observed in prod 2026-07-12); the
+    backfill path must back off and retry instead of silently skipping the month."""
+    import httpx
+
+    import backend.gas.raw_cache as rc
+    from backend.power.energy_charts_flows import ingest_cbpf
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(flows, "CACHE_THROTTLE_SECONDS", 0.0)
+    base = 1717200000  # 2024-06-01 00:00 UTC
+    payload = _make_payload({"France": [1.0] * 96}, base_ts=base)
+    attempts = {"de": 0}
+
+    async def mock_fetch(country, start, end):
+        if country == "de":
+            attempts["de"] += 1
+            if attempts["de"] <= 2:
+                resp = httpx.Response(429, headers={"Retry-After": "0"},
+                                      request=httpx.Request("GET", "http://x"))
+                raise httpx.HTTPStatusError("429", request=resp.request, response=resp)
+            return payload
+        resp = httpx.Response(404, request=httpx.Request("GET", "http://x"))
+        raise httpx.HTTPStatusError("404", request=resp.request, response=resp)
+
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        result = await ingest_cbpf(db_session, ["2024-06-01"], use_cache=True)
+
+    assert attempts["de"] == 3, "two 429s then success"
+    assert result["written"] >= 1
+    assert len(list(tmp_path.rglob("de_2024-06.json.gz"))) == 1, "recovered month is cached"
+
+
+@pytest.mark.asyncio
+async def test_use_cache_gives_up_after_max_429s(db_session, tmp_path, monkeypatch):
+    """Persistent 429 must not loop forever: after RATE_LIMIT_ATTEMPTS the country
+    is skipped (uncached), so a later re-run heals it."""
+    import httpx
+
+    import backend.gas.raw_cache as rc
+    from backend.power.energy_charts_flows import ingest_cbpf
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(flows, "CACHE_THROTTLE_SECONDS", 0.0)
+    calls = {"n": 0}
+
+    async def mock_fetch(country, start, end):
+        calls["n"] += 1
+        resp = httpx.Response(429, headers={"Retry-After": "0"},
+                              request=httpx.Request("GET", "http://x"))
+        raise httpx.HTTPStatusError("429", request=resp.request, response=resp)
+
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        result = await ingest_cbpf(db_session, ["2024-06-01"], use_cache=True)
+
+    assert result["written"] == 0
+    assert calls["n"] == len(flows.BASE_COUNTRIES) * flows.RATE_LIMIT_ATTEMPTS
+    assert list(tmp_path.rglob("*.json.gz")) == [], "a failed month must never cache"
