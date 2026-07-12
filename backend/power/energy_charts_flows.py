@@ -48,9 +48,14 @@ logger = logging.getLogger(__name__)
 CBPF_BASE = "https://api.energy-charts.info/cbpf"
 ATTRIBUTION = "Energy-Charts (CC BY 4.0)"
 CACHE_SOURCE = "energy_charts_cbpf"
-# Pause between cache-miss month fetches in the backfill path — Energy-Charts is
-# free and unauthenticated; don't hammer it with ~24 countries × months at once.
-CACHE_THROTTLE_SECONDS = 0.5
+# Pause between cache-miss month fetches in the backfill path. Energy-Charts is
+# free and unauthenticated and rate-limits hard: the 2026-07-12 prod backfill got
+# HTTP 429 after ~6 back-to-back month requests at 0.5 s spacing, and the block
+# persisted for the rest of the run. 2 s spacing plus the 429 backoff below is
+# what actually completes a ~600-request historical sweep.
+CACHE_THROTTLE_SECONDS = 2.0
+RATE_LIMIT_ATTEMPTS = 6
+RATE_LIMIT_BASE_SECONDS = 30.0
 
 # Energy-Charts country names -> OBSYD zone codes.
 # "Germany" maps to DE_LU because the DE ENTSO-E bidding zone is the DE-LU
@@ -319,6 +324,34 @@ def _month_windows(start: date, end: date) -> list[tuple[date, date]]:
     return windows
 
 
+async def _fetch_with_rate_limit(country_code: str, start_iso: str, end_iso: str) -> dict:
+    """fetch_cbpf with HTTP-429 backoff for the backfill path.
+
+    A month-sweep is hundreds of requests; without honouring the rate limit the
+    2026-07-12 run "completed" in 20 s having skipped almost every country-month
+    (ingest_cbpf logs per-country failures as warnings, so nothing retried).
+    Non-429 errors propagate immediately.
+    """
+    for attempt in range(RATE_LIMIT_ATTEMPTS):
+        try:
+            return await fetch_cbpf(country_code, start_iso, end_iso)
+        except httpx.HTTPStatusError as exc:
+            resp = exc.response
+            if resp is None or resp.status_code != 429 or attempt == RATE_LIMIT_ATTEMPTS - 1:
+                raise
+            retry_after = resp.headers.get("Retry-After", "")
+            try:
+                wait = float(retry_after)
+            except ValueError:
+                wait = RATE_LIMIT_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "energy_charts_flows: 429 for %s %s..%s — backing off %.0fs (attempt %d/%d)",
+                country_code, start_iso, end_iso, wait, attempt + 1, RATE_LIMIT_ATTEMPTS,
+            )
+            await asyncio.sleep(wait)
+    raise AssertionError("unreachable")  # loop always returns or raises
+
+
 async def _fetch_range(
     country_code: str,
     start_date: date,
@@ -354,7 +387,7 @@ async def _fetch_range(
             # Running (incomplete) month: fetch the requested window live, never
             # persist — a mid-month blob would freeze and shadow the remainder.
             payloads.append(
-                await fetch_cbpf(country_code, m_start.isoformat(), m_end.isoformat())
+                await _fetch_with_rate_limit(country_code, m_start.isoformat(), m_end.isoformat())
             )
             await asyncio.sleep(CACHE_THROTTLE_SECONDS)
             continue
@@ -367,7 +400,7 @@ async def _fetch_range(
                 continue
         # Cached blobs always span the FULL month, whatever day subset was
         # requested — the key claims the month, so the content must deliver it.
-        payload = await fetch_cbpf(country_code, month_first.isoformat(), month_last.isoformat())
+        payload = await _fetch_with_rate_limit(country_code, month_first.isoformat(), month_last.isoformat())
         raw_cache.write_cached(CACHE_SOURCE, key, month_first, payload, overwrite=overwrite)
         payloads.append(payload)
         await asyncio.sleep(CACHE_THROTTLE_SECONDS)
