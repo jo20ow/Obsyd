@@ -117,3 +117,41 @@ def test_route_flags_fresh_records(db_session):
 def test_route_empty_is_honest(db_session):
     body = _client(db_session).get("/api/power/records?zone=DE_LU").json()
     assert body["available"] is False
+
+
+def test_zero_load_hour_is_a_gap_artifact_not_a_record(db_session):
+    """A '0 MW load' hour is an ENTSO-E data gap; it produced a live bogus
+    all-time-min record (SI 2026-07-11). The guard must skip it and record the
+    smallest PLAUSIBLE hour instead."""
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+    from backend.power.records import compute_records
+
+    now = (int(_time.time()) // 3600) * 3600
+    upsert_hourly(db_session, "load.actual", "SI", [
+        (now - 3 * 3600, 0.0),       # gap artifact
+        (now - 2 * 3600, 640.0),     # real minimum
+        (now - 1 * 3600, 1_800.0),
+    ], unit="MW")
+    rows = compute_records(db_session)
+    mins = [r for r in rows if r.series_key == "load.actual" and r.kind == "min"]
+    assert len(mins) == 1 and mins[0].value == 640.0
+
+
+def test_negative_residual_is_a_real_record(db_session):
+    """Renewables exceeding load is real — the old 0-floor silently discarded
+    the most interesting residual records."""
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+    from backend.power.records import compute_records
+
+    now = (int(_time.time()) // 3600) * 3600
+    upsert_hourly(db_session, "residual.actual", "DE_LU", [
+        (now - 2 * 3600, -3_200.0),
+        (now - 1 * 3600, 41_000.0),
+    ], unit="MW")
+    rows = compute_records(db_session)
+    mins = [r for r in rows if r.series_key == "residual.actual" and r.kind == "min"]
+    assert len(mins) == 1 and mins[0].value == -3_200.0
