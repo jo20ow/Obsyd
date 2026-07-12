@@ -134,6 +134,7 @@ async def genmix(
     resolution: str = Query("monthly", pattern="^(daily|monthly)$"),
     format: str = Query("json", pattern="^(json|csv)$"),
     db: Session = Depends(get_db),
+    _rl: None = Depends(_rate_limit),
 ):
     """Generation mix over time — every fuel (gen.<psr>) for one zone, aggregated to
     daily or monthly mean MW, in a wide shape ({t, <fuel>: mw, ...}) for a stacked area.
@@ -208,6 +209,7 @@ async def snapshot(
     start: str | None = Query(None, description="Override window start (ISO / YYYY-MM-DD)"),
     end: str | None = Query(None, description="Override window end (default: now)"),
     db: Session = Depends(get_db),
+    _rl: None = Depends(_rate_limit),
 ):
     """Per-zone hourly values for one series over a window, aligned to a common
     timestamp grid ({timestamps: [...], zones: {zone: [v, ...]}}). Powers the map

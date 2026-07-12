@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 from datetime import datetime as _dt
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 from backend.config import settings
@@ -560,16 +561,14 @@ async def get_load_forecast_hourly(
 
 
 @router.get("/overview")
-async def get_power_overview(db: Session = Depends(get_db)):
+def get_power_overview(db: Session = Depends(get_db)):
     """All bidding zones at a glance — the single-glance overview (rows = zones,
-    each with its state + key metrics + vs-normal z-scores). Reuses the exact
-    per-zone synthesis (load_power_situation) so the overview and the detail agree."""
+    each with its state + key metrics + vs-normal z-scores). Uses the batched
+    loader (load_power_situations_bulk) — same synthesis as the per-zone detail,
+    ~7 queries instead of 37 × ~6. Sync def: FastAPI runs it in the threadpool,
+    so the (still synchronous) DB work no longer blocks the event loop."""
     zones = []
-    for zone in POWER_ZONES:
-        try:
-            sit = load_power_situation(db, zone)
-        except Exception:
-            continue
+    for sit in load_power_situations_bulk(db).values():
         if not sit.get("available"):
             continue
         price = sit.get("price", {})
@@ -934,6 +933,135 @@ def load_power_situation(db: Session, zone: str) -> dict:
     )
 
 
+def load_power_situations_bulk(db: Session) -> dict[str, dict]:
+    """Every zone's situation with a FIXED number of queries (~7) instead of the
+    per-zone path's 37 × ~6 — /overview is the default EUROPE tab, i.e. the most
+    trafficked endpoint, and the N+1 grew with zones × history. Feeds the SAME
+    pure build_power_situation as load_power_situation, so overview and detail
+    cannot disagree (pinned by a parity test)."""
+    from backend.models.energy import InstalledCapacity
+    from backend.power.coverage import coverage_min_ratio
+    from backend.signals.detectors.power import forced_outage_totals_now
+
+    date_from, date_to = _window(120)
+    today = datetime.utcnow().date()
+
+    # 1. Day-ahead price stats, all zones in one scan.
+    price_by_zone: dict[str, list[dict]] = {z: [] for z in POWER_ZONES}
+    price_rows = (
+        db.query(PowerPriceDaily.zone, PowerPriceDaily.date,
+                 PowerPriceDaily.mean_price, PowerPriceDaily.negative_hours)
+        .filter(PowerPriceDaily.date >= date_from, PowerPriceDaily.date <= date_to)
+        .order_by(PowerPriceDaily.date.asc())
+        .all()
+    )
+    for z, d, mean, neg in price_rows:
+        if z in price_by_zone:
+            price_by_zone[z].append({"date": d, "close": mean, "negative_hours": neg})
+
+    # 2. Grid rows (load/wind/solar), all zones in one scan.
+    grid_by_zone: dict[str, list] = {z: [] for z in POWER_ZONES}
+    for r in (
+        db.query(PowerGrid)
+        .filter(PowerGrid.date >= date_from, PowerGrid.date <= date_to)
+        .order_by(PowerGrid.date.asc())
+        .all()
+    ):
+        if r.zone in grid_by_zone:
+            grid_by_zone[r.zone].append(r)
+
+    # 3. Coverage guard for each zone's LATEST grid day — one row-value IN query
+    #    replaces renewable_share_reliable's per-zone SUM (same semantics: no
+    #    genmix row at all → untrusted).
+    latest_grid = {z: rows[-1] for z, rows in grid_by_zone.items() if rows}
+    pairs = [(r.zone, r.date) for r in latest_grid.values()]
+    gen_totals: dict[tuple[str, str], float] = {}
+    if pairs:
+        for z, d, total in (
+            db.query(PowerGenMix.zone, PowerGenMix.date, func.sum(PowerGenMix.gen_mw))
+            .filter(tuple_(PowerGenMix.zone, PowerGenMix.date).in_(pairs))
+            .group_by(PowerGenMix.zone, PowerGenMix.date)
+            .all()
+        ):
+            gen_totals[(z, d)] = float(total) if total is not None else None
+
+    def _coverage_ok(zone: str) -> bool:
+        r = latest_grid.get(zone)
+        if r is None:
+            return True  # no grid rows at all — matches the per-zone path
+        if not r.load_mw or r.load_mw <= 0:
+            return False
+        total = gen_totals.get((r.zone, r.date))
+        if total is None:
+            return False
+        return total >= coverage_min_ratio(zone) * r.load_mw
+
+    # 4. Spark legs: every zone's power symbol + TTF in one 14-day scan.
+    spark_from, spark_to = _window(14)
+    symbols = {cfg["price_symbol"] for cfg in POWER_ZONES.values()} | {"TTF"}
+    closes: dict[str, dict[str, float]] = {s: {} for s in symbols}
+    for sym, d, close in (
+        db.query(EnergyPrice.symbol, EnergyPrice.date, EnergyPrice.close)
+        .filter(EnergyPrice.symbol.in_(symbols),
+                EnergyPrice.date >= spark_from, EnergyPrice.date <= spark_to)
+        .all()
+    ):
+        closes[sym][d] = close
+    heat_rate = round(1.0 / settings.gas_ccgt_efficiency, 4)
+
+    def _spark(zone: str) -> dict | None:
+        power_by = closes.get(POWER_ZONES[zone]["price_symbol"], {})
+        ttf_by = closes.get("TTF", {})
+        common = sorted(set(power_by) & set(ttf_by))
+        if not common:
+            return None
+        d = common[-1]
+        return {
+            "date": d,
+            "power_price": power_by[d],
+            "gas_price": ttf_by[d],
+            "spark_spread": round(power_by[d] - ttf_by[d] * heat_rate, 4),
+        }
+
+    # 5. Forced outages per zone (SQL revision-dedupe, one query).
+    forced_by_zone = forced_outage_totals_now(db)
+
+    # 6. Installed capacity (latest A68 year) per zone, one query.
+    latest_year = (
+        db.query(InstalledCapacity.zone, func.max(InstalledCapacity.year).label("y"))
+        .group_by(InstalledCapacity.zone)
+        .subquery()
+    )
+    installed: dict[str, float] = {}
+    for z, total in (
+        db.query(InstalledCapacity.zone, func.sum(InstalledCapacity.capacity_mw))
+        .join(latest_year, (InstalledCapacity.zone == latest_year.c.zone)
+              & (InstalledCapacity.year == latest_year.c.y))
+        .group_by(InstalledCapacity.zone)
+        .all()
+    ):
+        if total:
+            installed[z] = float(total)
+
+    situations: dict[str, dict] = {}
+    for zone in POWER_ZONES:
+        try:
+            situations[zone] = build_power_situation(
+                zone,
+                price_by_zone[zone],
+                [_compute_grid_row(r) for r in grid_by_zone[zone]],
+                _spark(zone),
+                spark_supported=True,
+                grid_coverage_ok=_coverage_ok(zone),
+                forced_outage_mw=forced_by_zone.get(zone, 0.0),
+                forced_outage_installed_mw=installed.get(zone),
+                today=today,
+            )
+        except Exception:  # one broken zone must not blank the whole overview
+            continue
+    return situations
+
+
 @router.get("/situation")
 async def get_situation(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
@@ -1209,14 +1337,18 @@ async def get_outages(
     Descriptive: what capacity is off and why, not a price call.
     """
     from backend.models.energy import PowerOutage
+    from backend.signals.detectors.power import latest_outage_revisions
 
     resolved_zone = _resolve_zone(zone)
     now = datetime.utcnow()
     now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
     horizon_iso = (now + timedelta(days=horizon_days)).strftime("%Y-%m-%dT%H:%MZ")
 
-    rows = db.query(PowerOutage).filter(PowerOutage.zone == resolved_zone).all()
-    if not rows:
+    # Highest revision per mRID wins; withdrawn events disappear. The dedupe
+    # runs in SQL (shared with the radar detector) instead of loading every
+    # revision row into Python.
+    latest_rows = latest_outage_revisions(db, resolved_zone)
+    if not latest_rows:
         return {
             "available": False,
             "zone": resolved_zone,
@@ -1224,16 +1356,10 @@ async def get_outages(
             "reason": f"No outage messages for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
 
-    # Highest revision per mRID wins; withdrawn events disappear.
-    latest: dict[str, PowerOutage] = {}
-    for r in rows:
-        if r.mrid not in latest or r.revision > latest[r.mrid].revision:
-            latest[r.mrid] = r
-
     outages: list[dict] = []
     total_offline = 0.0
     forced_offline = 0.0
-    for r in latest.values():
+    for r in latest_rows:
         if r.status != "active":
             continue
         if r.end_utc < now_iso or r.start_utc > horizon_iso:
@@ -1262,7 +1388,13 @@ async def get_outages(
         })
 
     outages.sort(key=lambda o: (not o["running_now"], -(o["offline_mw"] or 0.0)))
-    newest_msg = max((r.created_at for r in rows if r.created_at), default=None)
+    # Freshness = newest message we EVER ingested for the zone (any revision) —
+    # a superseded revision still proves the collector is alive.
+    newest_msg = (
+        db.query(func.max(PowerOutage.created_at))
+        .filter(PowerOutage.zone == resolved_zone)
+        .scalar()
+    )
     return {
         "available": True,
         "zone": resolved_zone,

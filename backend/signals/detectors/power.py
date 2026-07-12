@@ -156,33 +156,74 @@ def forced_outage_severity(total_mw: float, installed_mw: float | None) -> str |
     return None
 
 
-def forced_outage_mw_now(db, zone: str) -> tuple[float, list]:
-    """(total forced MW offline RIGHT NOW, contributing rows) for `zone`.
+def latest_outage_revisions(db, zone: str | None = None) -> list:
+    """Highest revision per (zone, mRID), resolved in SQL via a window function.
 
-    Highest revision per mRID wins, withdrawn events vanish — the same
-    semantics as /api/power/outages (26 of 31 live-sampled documents were
-    withdrawn revisions; counting them would fabricate gigawatts).
+    Withdrawn rows are still RETURNED — ranking must happen before any status
+    filter, because a withdrawn latest revision has to hide the event (filtering
+    first would let an older active revision win and fabricate gigawatts; 26 of
+    31 live-sampled documents were withdrawn revisions). Replaces loading every
+    revision row into Python, which grew with the full revision history.
     """
-    from datetime import datetime, timezone
+    from sqlalchemy import func
 
     from backend.models.energy import PowerOutage
 
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
-    rows = db.query(PowerOutage).filter(PowerOutage.zone == zone).all()
-    latest: dict[str, PowerOutage] = {}
-    for r in rows:
-        if r.mrid not in latest or r.revision > latest[r.mrid].revision:
-            latest[r.mrid] = r
+    rn = (
+        func.row_number()
+        .over(
+            partition_by=[PowerOutage.zone, PowerOutage.mrid],
+            order_by=PowerOutage.revision.desc(),
+        )
+        .label("rn")
+    )
+    ranked = db.query(PowerOutage.id.label("oid"), rn)
+    if zone is not None:
+        ranked = ranked.filter(PowerOutage.zone == zone)
+    ranked = ranked.subquery()
+    return (
+        db.query(PowerOutage)
+        .join(ranked, PowerOutage.id == ranked.c.oid)
+        .filter(ranked.c.rn == 1)
+        .all()
+    )
 
-    running = [
-        r for r in latest.values()
+
+def _running_forced(rows, now_iso: str) -> list:
+    return [
+        r for r in rows
         if r.status == "active"
         and r.business_type == "A54"
         and r.nominal_mw is not None
         and r.start_utc <= now_iso <= r.end_utc
     ]
+
+
+def forced_outage_mw_now(db, zone: str) -> tuple[float, list]:
+    """(total forced MW offline RIGHT NOW, contributing rows) for `zone`.
+
+    Highest revision per mRID wins, withdrawn events vanish — the same
+    semantics as /api/power/outages (shared latest_outage_revisions helper).
+    """
+    from datetime import datetime, timezone
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    running = _running_forced(latest_outage_revisions(db, zone), now_iso)
     total = sum(r.nominal_mw - (r.available_mw or 0.0) for r in running)
     return total, running
+
+
+def forced_outage_totals_now(db) -> dict[str, float]:
+    """Forced MW offline RIGHT NOW for EVERY zone in one query — the bulk
+    counterpart of forced_outage_mw_now for /api/power/overview."""
+    from collections import defaultdict
+    from datetime import datetime, timezone
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    totals: dict[str, float] = defaultdict(float)
+    for r in _running_forced(latest_outage_revisions(db), now_iso):
+        totals[r.zone] += r.nominal_mw - (r.available_mw or 0.0)
+    return dict(totals)
 
 
 def detect_forced_outages(db) -> list[DetectorResult]:
