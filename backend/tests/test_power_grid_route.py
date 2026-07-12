@@ -108,12 +108,22 @@ def test_null_wind_and_solar_treated_as_zero():
     assert d["dunkelflaute"] is True
 
 
-def test_zero_load_no_division_error():
-    """load_mw=0 → renewable_share = 0.0, no ZeroDivisionError."""
-    row = _make_row(load_mw=0.0, wind_mw=0.0, solar_mw=0.0)
+def test_no_load_means_no_residual_and_no_share():
+    """Residual load is demand minus renewables. With no demand there is no
+    residual — it is None, not zero, and certainly not negative.
+
+    This is live on prod: IE-SEM stopped publishing A65 load on 2025-10-23, and
+    coercing the missing load to 0.0 made the desk render residual = −(wind+solar)
+    — a NEGATIVE residual load — plus a 0% renewable share, out of nothing."""
+    row = _make_row(load_mw=None, wind_mw=1_090.0, solar_mw=0.0)
     d = _compute_grid_row(row)
-    assert d["renewable_share"] == pytest.approx(0.0)
-    assert d["residual_mw"] == pytest.approx(0.0)
+    assert d["residual_mw"] is None, "no load → no residual (it read −1090 MW)"
+    assert d["renewable_share"] is None
+    assert d["dunkelflaute"] is False, "cannot claim a Dunkelflaute without a load"
+
+    # A stored zero load is an ENTSO-E gap, not a grid with no demand.
+    zero = _compute_grid_row(_make_row(load_mw=0.0, wind_mw=0.0, solar_mw=0.0))
+    assert zero["residual_mw"] is None and zero["renewable_share"] is None
 
 
 # ─── route integration tests ──────────────────────────────────────────────────

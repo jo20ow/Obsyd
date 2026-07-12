@@ -380,25 +380,34 @@ def _grid_row_values(
 ) -> dict:
     """Derive residual_mw, renewable_share, and dunkelflaute flag for one row.
 
-    None wind_mw / solar_mw are treated as 0 (they can be stored None when
-    genuinely near-zero during ingest failures). Value-based so the bulk
-    overview loader can feed column tuples without hydrating ORM entities.
+    Residual load is DEMAND minus renewables. Without a load there is no demand,
+    so there is no residual and no renewable share — they are None, not zero.
+    Coercing a missing load to 0.0 made the desk render `residual = −(wind+solar)`
+    and a 0% renewable share out of nothing: IE-SEM stopped publishing A65 load on
+    2025-10-23 and the desk has been showing it a NEGATIVE residual load ever since.
+
+    None wind_mw / solar_mw ARE treated as 0 — those are genuinely near-zero or
+    absent generation, which is a real physical statement, unlike a missing load.
+    Value-based so the bulk overview loader can feed column tuples without
+    hydrating ORM entities.
     """
     wind = wind_mw or 0.0
     solar = solar_mw or 0.0
-    load = load_mw or 0.0
+    has_load = load_mw is not None and load_mw > 0
 
-    residual_mw = load - wind - solar
-    renewable_share = (wind + solar) / load if load > 0 else 0.0
-    dunkelflaute = renewable_share < DUNKELFLAUTE_THRESHOLD
+    residual_mw = round(load_mw - wind - solar, 2) if has_load else None
+    renewable_share = round((wind + solar) / load_mw, 4) if has_load else None
+    # A Dunkelflaute is a statement about the share of load renewables cover.
+    # With no load, we cannot make it — so we don't.
+    dunkelflaute = renewable_share < DUNKELFLAUTE_THRESHOLD if has_load else False
 
     return {
         "date": date,
         "load_mw": load_mw,
         "wind_mw": wind_mw,
         "solar_mw": solar_mw,
-        "residual_mw": round(residual_mw, 2),
-        "renewable_share": round(renewable_share, 4),
+        "residual_mw": residual_mw,
+        "renewable_share": renewable_share,
         "dunkelflaute": dunkelflaute,
     }
 
