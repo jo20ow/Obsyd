@@ -488,6 +488,53 @@ def evaluate_spark_spread_breach(
     )
 
 
+def evaluate_forced_outage(
+    db: Session,
+    params: dict,
+    *,
+    now: datetime,
+) -> EvaluatorResult | None:
+    """Forced (unplanned) generation loss running RIGHT NOW in a zone.
+
+    Same derivation as the radar detector and the situation-hero flag
+    (forced_outage_mw_now + forced_outage_severity — capacity-relative where
+    A68 covers the zone, absolute fallback elsewhere), so a user alert can
+    never disagree with the desk."""
+    from backend.signals.detectors.power import (
+        forced_outage_mw_now,
+        forced_outage_severity,
+        installed_capacity_mw,
+    )
+
+    zone = params.get("zone")
+    if zone not in POWER_ZONES:
+        return None
+
+    total, running = forced_outage_mw_now(db, zone)
+    installed = installed_capacity_mw(db, zone)
+    severity = forced_outage_severity(total, installed)
+    if severity is None:
+        return None
+
+    share_txt = f" — {total / installed * 100:.0f}% of fleet" if installed else ""
+    biggest = max(running, key=lambda r: r.nominal_mw - (r.available_mw or 0.0))
+    biggest_mw = biggest.nominal_mw - (biggest.available_mw or 0.0)
+    return EvaluatorResult(
+        title=f"{zone}: {total / 1000:.1f} GW forced outages{share_txt}",
+        detail=(
+            f"{len(running)} unplanned unavailabilities running now in {zone}; largest: "
+            f"{biggest.unit_name or biggest.mrid} ({biggest_mw:.0f} MW, until {biggest.end_utc[:10]})."
+        ),
+        payload={
+            "zone": zone,
+            "forced_mw": round(total, 1),
+            "installed_mw": round(installed, 1) if installed else None,
+            "severity": severity,
+            "units": len(running),
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Template registry — exposed to the route layer for client-side schema
 # discovery and for params validation.
@@ -573,6 +620,15 @@ TEMPLATES: dict[str, dict] = {
         },
         "vertical": "power",
         "evaluator": evaluate_dayahead_spike,
+    },
+    "forced_outage": {
+        "label": "Forced power-plant outages",
+        "summary": "Notify me when unplanned generation loss in a zone is large vs its fleet (or 1 GW+ where fleet size is unknown).",
+        "params_schema": {
+            "zone": {"type": "enum", "options": list(POWER_ZONES), "required": True},
+        },
+        "vertical": "power",
+        "evaluator": evaluate_forced_outage,
     },
     "spark_spread_breach": {
         "label": "Spark spread breach (DE-LU)",

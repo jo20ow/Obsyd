@@ -72,3 +72,49 @@ def test_gas_balance_no_flag_no_trigger(db_session):
     db_session.add(GasBalance(date="2026-06-24", flag=None, z_score=0.4, residual_7d=5.0))
     db_session.commit()
     assert user_alert_rules.evaluate_gas_balance(db_session, {}, now=NOW) is None
+
+
+def test_forced_outage_template_registered_and_power_vertical():
+    entry = user_alert_rules.TEMPLATES.get("forced_outage")
+    assert entry is not None
+    assert entry["vertical"] == "power"  # passes the ACTIVE_TEMPLATE_VERTICALS filter
+    ok, _ = user_alert_rules.validate_params("forced_outage", {"zone": "FR"})
+    assert ok
+    ok, err = user_alert_rules.validate_params("forced_outage", {"zone": "XX"})
+    assert not ok and err
+
+
+def _outage_row(db, zone="FR", nominal=6_500.0, business_type="A54", status="active"):
+    from datetime import datetime, timedelta, timezone
+
+    from backend.models.energy import PowerOutage
+
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    db.add(PowerOutage(mrid=f"m{nominal}", revision=1, doc_type="A77", zone=zone,
+                       business_type=business_type, psr_type="B14", unit_name="Almaraz",
+                       unit_eic="11W", location=zone, nominal_mw=nominal, available_mw=0.0,
+                       start_utc=(now - timedelta(days=1)).strftime(fmt),
+                       end_utc=(now + timedelta(days=3)).strftime(fmt), status=status))
+    db.commit()
+
+
+def test_forced_outage_triggers_capacity_relative(db_session):
+    from backend.models.energy import InstalledCapacity
+
+    db_session.add(InstalledCapacity(zone="FR", year=2026, psr_type="Solar",
+                                     capacity_mw=135_000.0))
+    _outage_row(db_session, nominal=6_500.0)  # 4.8% of fleet → warning
+    res = user_alert_rules.evaluate_forced_outage(db_session, {"zone": "FR"}, now=NOW)
+    assert res is not None
+    assert "% of fleet" in res.title
+    assert res.payload["severity"] == "warning"
+
+
+def test_forced_outage_quiet_below_thresholds(db_session):
+    from backend.models.energy import InstalledCapacity
+
+    db_session.add(InstalledCapacity(zone="FR", year=2026, psr_type="Solar",
+                                     capacity_mw=135_000.0))
+    _outage_row(db_session, nominal=900.0)  # 0.7% → silent
+    assert user_alert_rules.evaluate_forced_outage(db_session, {"zone": "FR"}, now=NOW) is None

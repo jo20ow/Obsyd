@@ -142,3 +142,43 @@ async def ingest_hydro(
             written += upsert_hourly(db, "hydro.reservoir", zone, points, unit="MWh")
 
     return {"written": written, "zones": len(zones), "years": years}
+
+
+def same_week_band(points: list[tuple[int, float]]) -> dict:
+    """Compare the newest weekly filling against the SAME ISO week in prior years.
+
+    Reservoir levels are hard seasonal — a trailing window would flag every
+    spring melt as an anomaly. So the band is built from the nearest point
+    within ±4 days of (newest − i·52 weeks) for each prior year i. Shared by
+    the /hydro route and the hydro_deviation radar detector (one derivation).
+    """
+    import bisect
+
+    ts, value = points[-1]
+    keys = [t for t, _ in points]
+    band: list[float] = []
+    i = 1
+    while True:
+        target = ts - i * 364 * 86_400
+        if target < keys[0] - 4 * 86_400:
+            break
+        j = bisect.bisect_left(keys, target)
+        best = None
+        for k in (j - 1, j):
+            if 0 <= k < len(keys) and abs(keys[k] - target) <= 4 * 86_400:
+                if best is None or abs(keys[k] - target) < abs(keys[best] - target):
+                    best = k
+        if best is not None:
+            band.append(points[best][1])
+        i += 1
+
+    vs_band = None
+    if band:
+        vs_band = "below" if value < min(band) else "above" if value > max(band) else "within"
+    return {
+        "band_min_twh": round(min(band) / 1e6, 2) if band else None,
+        "band_max_twh": round(max(band) / 1e6, 2) if band else None,
+        "band_mean_twh": round(sum(band) / len(band) / 1e6, 2) if band else None,
+        "band_n": len(band),
+        "vs_band": vs_band,
+    }

@@ -313,3 +313,262 @@ def detect_forced_outages(db) -> list[DetectorResult]:
             )
         )
     return results
+
+
+# ── Imbalance extremes — the intraday stress signal ──────────────────────────
+# Imbalance (reBAP for DE_LU) is where grid stress prices first: ±1000 €/MWh
+# quarter-hours vanish in day-ahead means. Daily PEAK |price| per zone is
+# compared against the zone's own trailing norm; absolute floors keep quiet,
+# low-variance zones from flagging noise-level "extremes".
+IMB_WINDOW_DAYS = 45
+IMB_WARN_Z = 2.5
+IMB_CRIT_Z = 3.5
+IMB_WARN_FLOOR_EUR = 300.0
+IMB_CRIT_FLOOR_EUR = 500.0
+
+
+def _imbalance_zones(db) -> list[str]:
+    from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
+
+    sid = db.query(SeriesDim.id).filter(SeriesDim.key == "imbalance.price").scalar()
+    if sid is None:
+        return []
+    rows = (
+        db.query(ZoneDim.key)
+        .join(PowerHourly, PowerHourly.zone_id == ZoneDim.id)
+        .filter(PowerHourly.series_id == sid)
+        .distinct()
+        .all()
+    )
+    return [z for (z,) in rows]
+
+
+def detect_imbalance_extremes(db) -> list[DetectorResult]:
+    """Zones whose latest daily peak imbalance price is extreme vs their own norm."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.hourly_store import read_hourly
+
+    start_ts = int(
+        (datetime.now(timezone.utc) - timedelta(days=IMB_WINDOW_DAYS + 1)).timestamp()
+    )
+    results: list[DetectorResult] = []
+    for zone in _imbalance_zones(db):
+        points = read_hourly(db, "imbalance.price", zone, start_ts=start_ts)
+        if not points:
+            continue
+        # Daily peak: the point with the largest magnitude, kept SIGNED for display.
+        daily: dict[str, float] = {}
+        for ts, v in points:
+            day = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            if day not in daily or abs(v) > abs(daily[day]):
+                daily[day] = v
+        days = sorted(daily)
+        if len(days) < 2:
+            continue
+        current = daily[days[-1]]
+        baseline = [abs(daily[d]) for d in days[:-1]]
+        stat = trailing_zscore(abs(current), baseline)
+        if stat is None:
+            continue
+        z, mean, _, _n = stat
+        if z < IMB_WARN_Z or abs(current) < IMB_WARN_FLOOR_EUR:
+            continue
+        severity = (
+            "critical" if z >= IMB_CRIT_Z and abs(current) >= IMB_CRIT_FLOOR_EUR else "warning"
+        )
+        results.append(
+            DetectorResult(
+                rule="imbalance_extreme",
+                zone=zone,
+                vertical="power",
+                severity=severity,
+                title=f"{zone}: imbalance peaked at {current:.0f} €/MWh ({z:+.1f}σ)",
+                detail=(
+                    f"Peak imbalance price {current:.0f} €/MWh on {days[-1]} vs ~{mean:.0f} "
+                    f"normal daily peak (z {z:+.2f}). Imbalance is what being out of "
+                    f"balance actually costs — the intraday stress gauge."
+                ),
+                as_of=days[-1],
+                # Imbalance settles late (reBAP confirms ~2 weeks after delivery for
+                # DE_LU); mirrors the imbalance_qh freshness window, not "power": 3.
+                max_age_days=4,
+            )
+        )
+    return results
+
+
+# ── Day-ahead price spikes (both tails) ───────────────────────────────────────
+# Relative-only z would fire on micro-variance zones; the €/MWh delta floor
+# keeps "3σ above a flat 60±2 €" from paging anyone. Named price_spike — a
+# user-rule template `dayahead_spike` (absolute threshold breach) already
+# exists in the OTHER alert subsystem; distinct names keep the two apart.
+SPIKE_WINDOW_DAYS = 45
+SPIKE_WARN_Z = 2.5
+SPIKE_CRIT_Z = 3.5
+SPIKE_MIN_DELTA_EUR = 25.0
+
+
+def detect_price_spikes(db) -> list[DetectorResult]:
+    """Zones whose latest day-ahead daily mean sits far outside their own norm."""
+    zones = [z for (z,) in db.query(PowerPriceDaily.zone).distinct().all()]
+    results: list[DetectorResult] = []
+    for zone in zones:
+        rows = (
+            db.query(PowerPriceDaily)
+            .filter(PowerPriceDaily.zone == zone)
+            .order_by(PowerPriceDaily.date.desc())
+            .limit(SPIKE_WINDOW_DAYS + 1)
+            .all()
+        )
+        if not rows:
+            continue
+        current = rows[0].mean_price
+        if current is None:
+            continue
+        baseline = [r.mean_price for r in rows[1:] if r.mean_price is not None]
+        stat = trailing_zscore(current, baseline)
+        if stat is None:
+            continue
+        z, mean, _, _n = stat
+        if abs(z) < SPIKE_WARN_Z or abs(current - mean) < SPIKE_MIN_DELTA_EUR:
+            continue
+        direction = "high" if z > 0 else "low"
+        results.append(
+            DetectorResult(
+                rule="price_spike",
+                zone=zone,
+                vertical="power",
+                severity="critical" if abs(z) >= SPIKE_CRIT_Z else "warning",
+                title=f"{zone}: day-ahead unusually {direction} — {current:.0f} €/MWh ({z:+.1f}σ)",
+                detail=(
+                    f"Daily mean {current:.0f} €/MWh on {rows[0].date} vs ~{mean:.0f} €/MWh "
+                    f"45d norm (z {z:+.2f}). Descriptive deviation vs the zone's own "
+                    f"history, not a forecast."
+                ),
+                as_of=rows[0].date,
+            )
+        )
+    return results
+
+
+# ── Hydro reservoirs outside the seasonal band ────────────────────────────────
+
+
+def detect_hydro_deviations(db) -> list[DetectorResult]:
+    """Hydro zones whose reservoir filling left the same-ISO-week band of prior
+    years. Weekly A72 data with ~2 weeks publication lag → own staleness window."""
+    from datetime import datetime, timezone
+
+    from backend.power.entsoe_hydro import HYDRO_ZONES, same_week_band
+    from backend.power.hourly_store import read_hourly
+    from backend.routes.power import HYDRO_STALE_DAYS
+
+    results: list[DetectorResult] = []
+    for zone in HYDRO_ZONES:
+        points = read_hourly(db, "hydro.reservoir", zone)
+        if not points:
+            continue
+        band = same_week_band(points)
+        # band_n < 3 → the "band" is one or two old points, not a norm. Silence
+        # beats a confident-sounding comparison against nothing.
+        if band["band_n"] < 3 or band["vs_band"] not in ("below", "above"):
+            continue
+        ts, mwh = points[-1]
+        as_of = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        twh = mwh / 1e6
+        results.append(
+            DetectorResult(
+                rule="hydro_deviation",
+                zone=zone,
+                vertical="power",
+                severity="warning",
+                title=f"{zone}: reservoirs {band['vs_band']} the seasonal band ({twh:.1f} TWh)",
+                detail=(
+                    f"Filling {twh:.2f} TWh vs {band['band_min_twh']}–{band['band_max_twh']} TWh "
+                    f"in the same ISO week across {band['band_n']} prior years. Hydro is "
+                    f"stored energy — a level outside its own seasonal range moves the "
+                    f"whole price stack."
+                ),
+                as_of=as_of,
+                max_age_days=HYDRO_STALE_DAYS,
+            )
+        )
+    return results
+
+
+# ── Fresh all-time records ────────────────────────────────────────────────────
+
+RECORD_SERIES_LABELS = {
+    "price.dayahead": "day-ahead hour",
+    "price.dayahead.qh": "day-ahead quarter-hour",
+    "imbalance.price.qh": "imbalance quarter-hour",
+    "load.actual": "load hour",
+    "residual.actual": "residual-load hour",
+}
+
+#: A "record" over three months of history is a statement about our coverage,
+#: not about the grid. Require at least a year of series history in the zone.
+RECORD_MIN_COVERAGE_DAYS = 365
+
+
+def detect_record_breaks(db) -> list[DetectorResult]:
+    """One info ping per zone with all-time records set in the last 7 days."""
+    from collections import defaultdict
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func as _func
+
+    from backend.models.energy import PowerHourly, PowerRecord, SeriesDim, ZoneDim
+    from backend.routes.power import RECORD_FRESH_DAYS
+
+    fresh_cutoff = int(
+        (datetime.now(timezone.utc) - timedelta(days=RECORD_FRESH_DAYS)).timestamp()
+    )
+    rows = db.query(PowerRecord).filter(PowerRecord.ts_utc >= fresh_cutoff).all()
+    if not rows:
+        return []
+
+    def _coverage_days(series_key: str, zone: str) -> float:
+        sid = db.query(SeriesDim.id).filter(SeriesDim.key == series_key).scalar()
+        zid = db.query(ZoneDim.id).filter(ZoneDim.key == zone).scalar()
+        if sid is None or zid is None:
+            return 0.0
+        first = (
+            db.query(_func.min(PowerHourly.ts_utc))
+            .filter(PowerHourly.series_id == sid, PowerHourly.zone_id == zid)
+            .scalar()
+        )
+        if first is None:
+            return 0.0
+        return (datetime.now(timezone.utc).timestamp() - first) / 86_400
+
+    by_zone: dict[str, list[PowerRecord]] = defaultdict(list)
+    for r in rows:
+        if _coverage_days(r.series_key, r.zone) >= RECORD_MIN_COVERAGE_DAYS:
+            by_zone[r.zone].append(r)
+
+    results: list[DetectorResult] = []
+    for zone, recs in by_zone.items():
+        recs.sort(key=lambda r: r.ts_utc, reverse=True)
+        newest = datetime.fromtimestamp(recs[0].ts_utc, tz=timezone.utc).strftime("%Y-%m-%d")
+        parts = [
+            f"{'highest' if r.kind == 'max' else 'lowest'} "
+            f"{RECORD_SERIES_LABELS.get(r.series_key, r.series_key)} "
+            f"{r.value:.0f} {r.unit or ''} on "
+            f"{datetime.fromtimestamp(r.ts_utc, tz=timezone.utc):%Y-%m-%d}"
+            for r in recs
+        ]
+        results.append(
+            DetectorResult(
+                rule="record_break",
+                zone=zone,
+                vertical="power",
+                severity="info",
+                title=f"{zone}: new all-time record this week"
+                      + (f" (+{len(recs) - 1} more)" if len(recs) > 1 else ""),
+                detail="; ".join(parts) + ". All-time within our coverage (≥1 year).",
+                as_of=newest,
+            )
+        )
+    return results

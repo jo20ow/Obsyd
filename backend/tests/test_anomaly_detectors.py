@@ -269,7 +269,7 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
 
 
 def test_detector_registry_count(db_session):
-    assert len(DETECTORS) == 4  # gas_balance + negative_prices + dunkelflaute + forced_outages
+    assert len(DETECTORS) == 8  # gas/negative_prices/dunkelflaute/forced_outages + imbalance_extreme/price_spike/hydro_deviation/record_break
 
 
 # ─── flow_anomaly (legacy maritime check) — baseline + onset cure ─────────────
@@ -600,3 +600,193 @@ def test_forced_outages_latest_capacity_year_wins(db_session):
     _capacity(db_session, total_mw=20_000.0, year=2026)
     assert installed_capacity_mw(db_session, "DE_LU") == 20_000.0
     assert installed_capacity_mw(db_session, "FR") is None
+
+
+# ─── imbalance_extreme ────────────────────────────────────────────────────────
+
+
+def _seed_imbalance(db, zone="DE_LU", days=30, normal_peak=120.0, last_peak=None):
+    from datetime import date, timedelta
+
+    from backend.power.hourly_store import day_hour_ts, upsert_hourly
+
+    today = date.today()
+    points = []
+    for i in range(days):
+        d = (today - timedelta(days=days - 1 - i)).isoformat()
+        peak = last_peak if (i == days - 1 and last_peak is not None) else normal_peak + (i % 5)
+        # Two points per day: a quiet hour and the day's peak.
+        points.append((day_hour_ts(d, 3), 20.0))
+        points.append((day_hour_ts(d, 18), peak))
+    upsert_hourly(db, "imbalance.price", zone, points, unit="EUR/MWh")
+
+
+def test_imbalance_extreme_fires_on_spike_above_floor(db_session):
+    from backend.signals.detectors.power import detect_imbalance_extremes
+
+    _seed_imbalance(db_session, last_peak=650.0)
+    results = detect_imbalance_extremes(db_session)
+    assert len(results) == 1
+    r = results[0]
+    assert r.rule == "imbalance_extreme" and r.zone == "DE_LU"
+    assert r.severity == "critical"  # huge z AND >= 500 € floor
+    assert "650" in r.title
+    assert r.max_age_days == 4
+
+
+def test_imbalance_extreme_floor_suppresses_low_variance_zones(db_session):
+    """z alone must not page: a quiet zone spiking 40→250 €/MWh is a big z but
+    stays under the 300 € floor."""
+    from backend.signals.detectors.power import detect_imbalance_extremes
+
+    _seed_imbalance(db_session, normal_peak=40.0, last_peak=250.0)
+    assert detect_imbalance_extremes(db_session) == []
+
+
+def test_imbalance_extreme_needs_baseline(db_session):
+    from backend.signals.detectors.power import detect_imbalance_extremes
+
+    _seed_imbalance(db_session, days=5, last_peak=900.0)  # < MIN_BASELINE_N days
+    assert detect_imbalance_extremes(db_session) == []
+
+
+# ─── price_spike ──────────────────────────────────────────────────────────────
+
+
+def _seed_prices(db, zone="DE_LU", days=40, base=60.0, last=None):
+    from datetime import date, timedelta
+
+    from backend.models.energy import PowerPriceDaily
+
+    today = date.today()
+    for i in range(days):
+        d = (today - timedelta(days=days - 1 - i)).isoformat()
+        price = last if (i == days - 1 and last is not None) else base + (i % 5)
+        db.add(PowerPriceDaily(date=d, zone=zone, mean_price=price,
+                               min_price=price - 30, max_price=price + 40,
+                               negative_hours=0))
+    db.commit()
+
+
+def test_price_spike_fires_both_tails(db_session):
+    from backend.signals.detectors.power import detect_price_spikes
+
+    _seed_prices(db_session, zone="DE_LU", last=160.0)
+    _seed_prices(db_session, zone="FR", last=-40.0)
+    results = {r.zone: r for r in detect_price_spikes(db_session)}
+    assert results["DE_LU"].severity == "critical"
+    assert "unusually high" in results["DE_LU"].title
+    assert "unusually low" in results["FR"].title
+
+
+def test_price_spike_delta_floor_suppresses_micro_variance(db_session):
+    """60±2 € then 70 € is many σ but only 10 € — not a spike anyone trades."""
+    from backend.signals.detectors.power import detect_price_spikes
+
+    _seed_prices(db_session, base=60.0, last=70.0)
+    assert detect_price_spikes(db_session) == []
+
+
+# ─── hydro_deviation ──────────────────────────────────────────────────────────
+
+
+def _seed_hydro(db, zone="NO2", years=4, level=50e6, last=None):
+    """Weekly points; one point per year lands exactly at newest − i·364d so the
+    same-week band finds them."""
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+
+    newest = (int(_time.time()) // 3600) * 3600
+    points = []
+    for i in range(years, 0, -1):
+        points.append((newest - i * 364 * 86_400, level + i * 1e6))
+    points.append((newest, last if last is not None else level))
+    upsert_hourly(db, "hydro.reservoir", zone, points, unit="MWh")
+
+
+def test_hydro_deviation_fires_below_band(db_session):
+    from backend.signals.detectors.power import detect_hydro_deviations
+
+    _seed_hydro(db_session, last=30e6)  # far below every prior year
+    results = detect_hydro_deviations(db_session)
+    assert len(results) == 1
+    r = results[0]
+    assert r.rule == "hydro_deviation" and r.zone == "NO2"
+    assert "below" in r.title
+    assert r.max_age_days == 16
+
+
+def test_hydro_deviation_within_band_is_silent(db_session):
+    from backend.signals.detectors.power import detect_hydro_deviations
+
+    _seed_hydro(db_session, last=52e6)  # inside the prior-year range
+    assert detect_hydro_deviations(db_session) == []
+
+
+def test_hydro_deviation_needs_three_band_years(db_session):
+    from backend.signals.detectors.power import detect_hydro_deviations
+
+    _seed_hydro(db_session, years=2, last=30e6)
+    assert detect_hydro_deviations(db_session) == []
+
+
+def test_hydro_max_age_override_survives_runner(db_session):
+    """A 10-day-old weekly hydro point must survive run_all_detectors — the
+    per-vertical 'power: 3' window would wrongly suppress it without the
+    per-result max_age_days override."""
+    from datetime import date, timedelta
+
+    from backend.models.alerts import Alert
+    from backend.signals.detectors import run_all_detectors
+
+    _seed_hydro(db_session, last=30e6)
+    run_all_detectors(db_session, today=date.today() + timedelta(days=10))
+    rules = {a.rule for a in db_session.query(Alert).all()}
+    assert "hydro_deviation" in rules
+
+
+# ─── record_break ─────────────────────────────────────────────────────────────
+
+
+def _seed_record(db, zone="DE_LU", series="price.dayahead", coverage_days=400, fresh=True):
+    import time as _time
+
+    from backend.models.energy import PowerRecord
+    from backend.power.hourly_store import upsert_hourly
+
+    now = int(_time.time())
+    upsert_hourly(db, series, zone, [
+        (now - coverage_days * 86_400, 50.0),
+        (now - 3 * 86_400, 60.0),
+    ], unit="EUR/MWh")
+    ts = now - (2 * 86_400 if fresh else 30 * 86_400)
+    db.add(PowerRecord(series_key=series, zone=zone, kind="max",
+                       value=871.0, ts_utc=ts, unit="EUR/MWh"))
+    db.commit()
+
+
+def test_record_break_pings_once_per_zone(db_session):
+    from backend.signals.detectors.power import detect_record_breaks
+
+    _seed_record(db_session)
+    results = detect_record_breaks(db_session)
+    assert len(results) == 1
+    r = results[0]
+    assert r.rule == "record_break" and r.severity == "info"
+    assert "871" in r.detail and "day-ahead hour" in r.detail
+
+
+def test_record_break_requires_a_year_of_coverage(db_session):
+    """A 'record' over 3 months of history describes our coverage, not the grid."""
+    from backend.signals.detectors.power import detect_record_breaks
+
+    _seed_record(db_session, coverage_days=100)
+    assert detect_record_breaks(db_session) == []
+
+
+def test_record_break_ignores_old_records(db_session):
+    from backend.signals.detectors.power import detect_record_breaks
+
+    _seed_record(db_session, fresh=False)
+    assert detect_record_breaks(db_session) == []

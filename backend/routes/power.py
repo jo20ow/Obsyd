@@ -1434,43 +1434,8 @@ async def get_outages(
 HYDRO_STALE_DAYS = 16
 
 
-def _same_week_band(points: list[tuple[int, float]]) -> dict:
-    """Compare the newest weekly filling against the SAME ISO week in prior years.
-
-    Reservoir levels are hard seasonal — a trailing window would flag every
-    spring melt as an anomaly. So the band is built from the nearest point
-    within ±4 days of (newest − i·52 weeks) for each prior year i.
-    """
-    import bisect
-
-    ts, value = points[-1]
-    keys = [t for t, _ in points]
-    band: list[float] = []
-    i = 1
-    while True:
-        target = ts - i * 364 * 86_400
-        if target < keys[0] - 4 * 86_400:
-            break
-        j = bisect.bisect_left(keys, target)
-        best = None
-        for k in (j - 1, j):
-            if 0 <= k < len(keys) and abs(keys[k] - target) <= 4 * 86_400:
-                if best is None or abs(keys[k] - target) < abs(keys[best] - target):
-                    best = k
-        if best is not None:
-            band.append(points[best][1])
-        i += 1
-
-    vs_band = None
-    if band:
-        vs_band = "below" if value < min(band) else "above" if value > max(band) else "within"
-    return {
-        "band_min_twh": round(min(band) / 1e6, 2) if band else None,
-        "band_max_twh": round(max(band) / 1e6, 2) if band else None,
-        "band_mean_twh": round(sum(band) / len(band) / 1e6, 2) if band else None,
-        "band_n": len(band),
-        "vs_band": vs_band,
-    }
+# same_week_band moved to backend/power/entsoe_hydro.py so the hydro_deviation
+# radar detector and this route share one derivation.
 
 
 @router.get("/hydro")
@@ -1479,7 +1444,7 @@ async def get_hydro(db: Session = Depends(get_db)):
     Nordics, Alps, Iberia, France — each compared against the same ISO week in
     its own prior years. Descriptive: a filling level vs its seasonal norm,
     not a price call. Free tier."""
-    from backend.power.entsoe_hydro import HYDRO_ZONES
+    from backend.power.entsoe_hydro import HYDRO_ZONES, same_week_band
     from backend.power.hourly_store import read_hourly
 
     zones_out: list[dict] = []
@@ -1498,7 +1463,7 @@ async def get_hydro(db: Session = Depends(get_db)):
             "reservoir_twh": round(mwh / 1e6, 2),
             "wow_twh": round((mwh - prev) / 1e6, 2) if prev is not None else None,
             "as_of": as_of,
-            **_same_week_band(points),
+            **same_week_band(points),
         })
 
     if not zones_out:

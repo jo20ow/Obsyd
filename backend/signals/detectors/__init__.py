@@ -28,7 +28,11 @@ from backend.signals.detectors.gas import detect_gas_balance
 from backend.signals.detectors.power import (
     detect_dunkelflaute,
     detect_forced_outages,
+    detect_hydro_deviations,
+    detect_imbalance_extremes,
     detect_negative_prices,
+    detect_price_spikes,
+    detect_record_breaks,
 )
 from backend.signals.rules import _upsert_alert
 
@@ -38,11 +42,17 @@ logger = logging.getLogger(__name__)
 # (electrons + their gas fuel). The oil/sentiment detectors (detectors/oil.py,
 # detectors/sentiment.py) stay in the tree but are unwired here; they move to the
 # sibling project in Phase 2. The radar now surfaces only power/gas anomalies.
+# Extended 2026-07-12 with the depth-roadmap data: imbalance peaks, day-ahead
+# spikes (both tails), hydro vs seasonal band, fresh all-time records.
 DETECTORS = [
     detect_gas_balance,
     detect_negative_prices,
     detect_dunkelflaute,
     detect_forced_outages,
+    detect_imbalance_extremes,
+    detect_price_spikes,
+    detect_hydro_deviations,
+    detect_record_breaks,
 ]
 
 
@@ -73,7 +83,11 @@ def run_all_detectors(db: Session, *, today: _date | None = None) -> int:
     for detector in DETECTORS:
         try:
             for result in detector(db):
-                max_age = _MAX_AGE_DAYS.get(result.vertical, _DEFAULT_MAX_AGE_DAYS)
+                max_age = (
+                    result.max_age_days
+                    if result.max_age_days is not None
+                    else _MAX_AGE_DAYS.get(result.vertical, _DEFAULT_MAX_AGE_DAYS)
+                )
                 if result.as_of is not None and is_stale(result.as_of, max_age, today=today):
                     logger.warning(
                         "suppressing stale %s/%s alert (data as of %s)",
