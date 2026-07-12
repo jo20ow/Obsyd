@@ -401,6 +401,7 @@ def test_templates_endpoint_public(client):
         "dunkelflaute",
         "dayahead_spike",
         "spark_spread_breach",
+        "forced_outage",
     }
     # gas_balance is a no-param template (whole-EU signal).
     assert body["gas_balance"]["params_schema"] == {}

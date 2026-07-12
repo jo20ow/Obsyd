@@ -38,6 +38,11 @@ const RULE_ICONS = {
   negative_prices: 'NEGP',
   sentiment_risk: 'SENT',
   dunkelflaute: 'DUNKL',
+  forced_outages: 'OUTG',
+  imbalance_extreme: 'IMBAL',
+  price_spike: 'SPIKE',
+  hydro_deviation: 'HYDRO',
+  record_break: 'REC',
 }
 
 // Which dashboard tab holds the evidence chart for each vertical (drill-down fallback).
@@ -49,6 +54,11 @@ const RULE_TARGET = {
   gas_balance: { tab: 'gas', panel: 'gas-balance' },
   dunkelflaute: { tab: 'energy', panel: 'power-grid' },
   negative_prices: { tab: 'energy', panel: 'power-day-ahead' },
+  forced_outages: { tab: 'energy', panel: 'power-outages' },
+  price_spike: { tab: 'energy', panel: 'power-day-ahead' },
+  hydro_deviation: { tab: 'europe', panel: 'hydro-reservoirs' },
+  record_break: { tab: 'energy' },
+  imbalance_extreme: { tab: 'energy' },
   sentiment_risk: { tab: 'sentiment', panel: 'sentiment' },
   floating_storage: { tab: 'signals', panel: 'sts-detection' },
   freight_divergence: { tab: 'signals', panel: 'freight-proxy' },
@@ -73,6 +83,11 @@ const RULE_GROUP_LABELS = {
   weather: 'weather alerts',
   refinery_thermal: 'thermal alerts',
   negative_prices: 'zones with negative prices',
+  forced_outages: 'zones with forced outages',
+  price_spike: 'zones with unusual day-ahead prices',
+  imbalance_extreme: 'zones with extreme imbalance prices',
+  hydro_deviation: 'reservoirs outside their seasonal band',
+  record_break: 'zones with fresh all-time records',
 }
 
 function timeAgo(isoStr) {

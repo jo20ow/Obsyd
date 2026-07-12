@@ -35,6 +35,10 @@ class DetectorResult:
     title: str
     detail: str = ""
     as_of: str | None = None  # ISO date of the underlying data; runner uses it for staleness
+    #: Per-result staleness override (days). The runner's per-vertical windows
+    #: assume daily cadence — a weekly source (hydro A72, ~2 weeks publication
+    #: lag) would be suppressed at "power": 3 without this.
+    max_age_days: int | None = None
 
 
 def is_stale(latest: str | _date | None, max_age_days: int, *, today: _date | None = None) -> bool:
