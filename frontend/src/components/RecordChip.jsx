@@ -24,8 +24,14 @@ function fmt(r) {
  * rendering is the normal state, not a data gap.
  */
 export default function RecordChip({ zone = 'DE_LU' }) {
-  const { data } = useFetchWithError(`${API}/power/records?zone=${zone}`, { deps: [zone], pollMs: POLL_SLOW_MS })
+  const { data, error } = useFetchWithError(`${API}/power/records?zone=${zone}`, { deps: [zone], pollMs: POLL_SLOW_MS })
   const fresh = (data?.records ?? []).filter((r) => r.fresh)
+  // Ephemeral strip: empty is the documented normal state and stays silent —
+  // but a FETCH error must not masquerade as "nothing to report".
+  if (error)
+    return (
+      <div className="font-mono text-[9px] text-red-400 px-1 py-0.5">records // fetch error</div>
+    )
   if (fresh.length === 0) return null
 
   return (

@@ -14,8 +14,14 @@ function timeAgo(iso) {
 // gridstatus-style "insights" strip: the latest anomaly-radar items as compact,
 // horizontally-scrolling cards, with a "More →" into the full ALERTS radar.
 export default function InsightsStrip({ onMore }) {
-  const { data } = useFetchWithError(`${API}/alerts?limit=12`)
+  const { data, error } = useFetchWithError(`${API}/alerts?limit=12`)
   const items = (Array.isArray(data) ? data : []).slice(0, 8)
+  // Ephemeral strip: empty is the documented normal state and stays silent —
+  // but a FETCH error must not masquerade as "nothing to report".
+  if (error)
+    return (
+      <div className="font-mono text-[9px] text-red-400 px-1 py-0.5">insights // fetch error</div>
+    )
   if (items.length === 0) return null
   return (
     <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">

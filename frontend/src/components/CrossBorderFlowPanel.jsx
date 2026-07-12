@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_SLOW_MS } from '../utils/poll'
@@ -12,7 +13,7 @@ import {
   Tooltip,
   ReferenceLine,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, fmtTs, CHART_TOOLTIP_STYLE } from '../utils/chart'
 
 const API = '/api'
 
@@ -35,16 +36,9 @@ function zoneLabel(zone) {
   return zone === 'DE_LU' ? 'DE-LU' : zone
 }
 
-// Each border = one sparkline + headline bar
-function BorderRow({ border, data }) {
-  const { label, net_mw: netMw, direction, from_zone, to_zone } = border
-
-  const arrowKey = `${zoneLabel(from_zone)}→${zoneLabel(to_zone)}`
-
-  const sparkData = data
-    .filter((d) => d[arrowKey] != null)
-    .map((d) => ({ date: d.date, net_mw: d[arrowKey] }))
-
+// Each border = one sparkline + headline bar. Grain-agnostic: `spark` is
+// [{x, net_mw}] with x either a date string (daily) or an ISO timestamp (hourly).
+function BorderRow({ label, netMw, direction, spark, xFormatter }) {
   const absGW = netMw != null ? Math.abs(netMw / 1000).toFixed(2) : '—'
   const color = borderColor(netMw)
 
@@ -95,16 +89,16 @@ function BorderRow({ border, data }) {
       </div>
 
       {/* Sparkline */}
-      {sparkData.length > 1 && (
+      {spark.length > 1 && (
         <ResponsiveContainer width="100%" height={36}>
-          <LineChart data={sparkData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-            <XAxis dataKey="date" hide />
+          <LineChart data={spark} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+            <XAxis dataKey="x" hide />
             <YAxis hide />
             <ReferenceLine y={0} stroke="#2a2a3a" strokeDasharray="2 2" />
             <Tooltip
               contentStyle={CHART_TOOLTIP_STYLE}
               formatter={(v) => [`${(v / 1000).toFixed(2)} GW`, 'net']}
-              labelFormatter={fmtDate}
+              labelFormatter={xFormatter}
             />
             <Line
               type="monotone"
@@ -121,10 +115,39 @@ function BorderRow({ border, data }) {
   )
 }
 
+function ModeToggle({ mode, onChange }) {
+  return (
+    <div className="flex gap-1">
+      {['daily', 'hourly'].map((m) => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          className={`font-mono text-[9px] tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
+            mode === m
+              ? 'border-cyan-glow/40 text-cyan-glow'
+              : 'border-border text-neutral-600 hover:text-neutral-400'
+          }`}
+        >
+          {m.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
   const { range } = useViewState()
-  const url = `${API}/power/flows?days=${rangeDays(range)}`
-  const { data, loading, error } = useFetchWithError(url, { deps: [range], pollMs: POLL_SLOW_MS })
+  const [mode, setMode] = useState('daily')
+  const hourly = mode === 'hourly'
+  const url = hourly
+    ? `${API}/power/flows/hourly?zone=${zone}&hours=72`
+    : `${API}/power/flows?days=${rangeDays(range)}`
+  const { data, loading, error } = useFetchWithError(url, {
+    deps: [range, zone, mode],
+    pollMs: POLL_SLOW_MS,
+  })
+
+  const zl = zoneLabel(zone)
 
   if (error) {
     return (
@@ -136,30 +159,43 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
     )
   }
 
-  if (!data?.available && !loading) return null
+  // Never vanish silently: a zone without flow series (Italian sub-zones,
+  // DK1/DK2 …) gets the reason, not a blank spot in the grid section.
+  if (!data?.available && !loading) {
+    return (
+      <div className="border border-border bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-neutral-500">
+          CROSS-BORDER FLOWS · {zl} — {data?.reason || 'no flow data yet.'}
+        </div>
+      </div>
+    )
+  }
 
-  // Coherence with the zone selector: show the interconnectors that touch the
-  // selected zone, not all 20 borders (the API returns the full network).
-  const zl = zoneLabel(zone)
-  const borders = (data?.borders ?? []).filter(
+  // Daily mode: coherence with the zone selector — show the interconnectors
+  // that touch the selected zone, not all 20 borders.
+  const dailyBorders = hourly ? [] : (data?.borders ?? []).filter(
     (b) => b.from_zone === zone || b.to_zone === zone,
   )
-  const rows = data?.data ?? []
+  const dailyRows = data?.data ?? []
+  const hourlyBorders = hourly ? (data?.borders ?? []) : []
+  const borderCount = hourly ? hourlyBorders.length : dailyBorders.length
 
   return (
     <Panel
       id="cross-border-flows"
       freshness={data}
       title={`CROSS-BORDER FLOWS · ${zl}`}
-      info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Daily mean MW — positive = net export in the shown direction. Green = net exporter, orange = net importer. Sparkline shows the selected window, signed. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
+      info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Positive = net export in the shown direction. Green = net exporter, orange = net importer. DAILY shows daily means over the selected window; HOURLY shows the last 72 hours from the canonical hourly store. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
       collapsible
-      defaultCollapsed
       headerRight={
-        borders.length > 0 && (
-          <span className="font-mono text-[9px] text-neutral-600">
-            {borders.length} borders · CBPF
-          </span>
-        )
+        <div className="flex items-center gap-2">
+          <ModeToggle mode={mode} onChange={setMode} />
+          {borderCount > 0 && (
+            <span className="font-mono text-[9px] text-neutral-600">
+              {borderCount} borders · CBPF
+            </span>
+          )}
+        </div>
       }
     >
       {loading && (
@@ -168,31 +204,61 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
         </div>
       )}
 
-      {!loading && data?.available && (
+      {!loading && data?.available && !hourly && (
         <>
-          {borders.map((border) => (
-            <BorderRow
-              key={`${border.from_zone}-${border.to_zone}`}
-              border={border}
-              data={rows}
-            />
-          ))}
+          {dailyBorders.map((border) => {
+            const arrowKey = `${zoneLabel(border.from_zone)}→${zoneLabel(border.to_zone)}`
+            const spark = dailyRows
+              .filter((d) => d[arrowKey] != null)
+              .map((d) => ({ x: d.date, net_mw: d[arrowKey] }))
+            return (
+              <BorderRow
+                key={`${border.from_zone}-${border.to_zone}`}
+                label={border.label}
+                netMw={border.net_mw}
+                direction={border.direction}
+                spark={spark}
+                xFormatter={fmtDate}
+              />
+            )
+          })}
           <div className="px-4 py-2 font-mono text-[9px] text-neutral-700">
             daily mean MW · latest {data?.latest?.date}
           </div>
-          <div className="px-4 pb-2 font-mono text-[9px] text-neutral-700">
-            Source:{' '}
-            <a
-              href="https://www.energy-charts.info"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-neutral-500"
-            >
-              Energy-Charts
-            </a>
-            {' '}(CC BY 4.0)
+        </>
+      )}
+
+      {!loading && data?.available && hourly && (
+        <>
+          {hourlyBorders.map((b) => (
+            <BorderRow
+              key={b.neighbor}
+              label={`${zl}↔${b.neighbor_label}`}
+              netMw={b.latest_mw}
+              direction={b.direction}
+              spark={(b.data ?? []).map((p) => ({ x: p.ts_utc, net_mw: p.net_mw }))}
+              xFormatter={fmtTs}
+            />
+          ))}
+          <div className="px-4 py-2 font-mono text-[9px] text-neutral-700">
+            hourly mean MW · last {data?.hours}h · {data?.note}
           </div>
         </>
+      )}
+
+      {!loading && data?.available && (
+        <div className="px-4 pb-2 font-mono text-[9px] text-neutral-700">
+          Source:{' '}
+          <a
+            href="https://www.energy-charts.info"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-neutral-500"
+          >
+            Energy-Charts
+          </a>
+          {' '}(CC BY 4.0)
+        </div>
       )}
     </Panel>
   )

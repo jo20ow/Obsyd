@@ -43,7 +43,15 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
         <div className="font-mono text-[10px] text-red-400">GENERATION MIX // FETCH ERROR</div>
       </div>
     )
-  if (!data?.available && !loading) return null
+  // Never vanish silently: say why there is no chart instead of rendering nothing.
+  if (!data?.available && !loading)
+    return (
+      <div className="border border-border bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-neutral-500">
+          GENERATION MIX · {zone === 'DE_LU' ? 'DE-LU' : zone} — {data?.reason || 'no generation data for this zone yet.'}
+        </div>
+      </div>
+    )
 
   const rows = data?.data ?? []
   const latest = data?.latest

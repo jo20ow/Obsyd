@@ -109,4 +109,6 @@ def test_panel_thresholds_match_health_specs():
     assert PANEL_MAX_AGE_DAYS["day_ahead"] == by_key["power_dayahead"]
     assert PANEL_MAX_AGE_DAYS["grid"] == by_key["power_grid"]
     assert PANEL_MAX_AGE_DAYS["flows"] == by_key["power_flows"]
+    assert PANEL_MAX_AGE_DAYS["flows_hourly"] == by_key["flows_hourly"]
+    assert PANEL_MAX_AGE_DAYS["imbalance"] == by_key["imbalance_qh"]
     assert PANEL_MAX_AGE_DAYS["spark"] == by_key["ttf"]

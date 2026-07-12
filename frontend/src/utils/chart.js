@@ -16,6 +16,17 @@ export function fmtHour(h) {
   return `${String(h).padStart(2, '0')}h`
 }
 
+// UTC timestamp label for hourly/15-min series ("Jul 11, 14:00 UTC") — every
+// time on this desk is UTC, so the label must not drift with the viewer's zone.
+export function fmtTs(iso) {
+  const d = new Date(iso)
+  if (isNaN(d)) return String(iso)
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    hour12: false, timeZone: 'UTC',
+  }) + ' UTC'
+}
+
 // Sequential color ramp (dark → cyan → amber) for choropleth fills. t in [0,1].
 const _RAMP = [
   [0.0, [18, 22, 38]],

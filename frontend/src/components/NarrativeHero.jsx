@@ -12,8 +12,14 @@ const sig = (z) => `${z >= 0 ? '+' : ''}${z.toFixed(1)}σ`
 const list = (zs, n = 3) => zs.slice(0, n).map((z) => z.zone_label || z.zone).join(', ')
 
 export default function NarrativeHero() {
-  const { data } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
+  const { data, error } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
   const zones = data?.zones || []
+  // Ephemeral strip: empty is the documented normal state and stays silent —
+  // but a FETCH error must not masquerade as "nothing to report".
+  if (error)
+    return (
+      <div className="font-mono text-[9px] text-red-400 px-1 py-0.5">europe right now // fetch error</div>
+    )
   if (!data?.available || zones.length === 0) return null
 
   const withPrice = zones.filter((z) => z.price_close != null)

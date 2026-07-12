@@ -642,6 +642,8 @@ PANEL_MAX_AGE_DAYS = {
     "grid": 3,
     "generation_mix": 3,
     "flows": 3,
+    "flows_hourly": 3,  # mirrors SPECS "flows_hourly"
+    "imbalance": 4,     # mirrors SPECS "imbalance_qh" — reBAP settles late
     "spark": 4,  # gas leg is yfinance TTF — ~3 trading days plus weekends
     "load_forecast": 2,
 }
@@ -1285,6 +1287,153 @@ async def get_forecast_error(
         "bias_mw": round(sum(errors) / len(errors), 1),
         "mae_mw": round(sum(abs(e) for e in errors) / len(errors), 1),
         "note": "bias = mean(actual − forecast); describes the published TSO forecast",
+    }
+
+
+# ─── Hourly cross-border flows (free) ─────────────────────────────────────────
+
+
+@router.get("/flows/hourly")
+async def get_flows_hourly(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    hours: int = Query(72, ge=6, le=720, description="Lookback window in hours"),
+    db: Session = Depends(get_db),
+):
+    """Hourly cross-border flows for one zone's borders (Energy-Charts CBPF,
+    CC BY 4.0). Free tier.
+
+    Reads the canonical store (series ``flow.<TO>`` under zone ``<FROM>``,
+    canonical sorted border) and normalises every border to the SELECTED zone's
+    perspective: net_mw > 0 = the selected zone EXPORTS to that neighbour.
+    Country-level source — sub-zones without an Energy-Charts country (Italian
+    sub-zones, DK1/DK2 …) return available:false with the reason, not a blank.
+    """
+    from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    start_ts = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
+
+    borders: dict[str, list[tuple[int, float]]] = {}
+
+    # Case A — resolved zone is the canonical sorted-FIRST zone: its exports
+    # live as series flow.<neighbor> under itself.
+    for (key,) in db.query(SeriesDim.key).filter(SeriesDim.key.like("flow.%")).all():
+        neighbor = key[len("flow."):]
+        if neighbor == resolved_zone:
+            continue
+        pts = read_hourly(db, key, resolved_zone, start_ts=start_ts)
+        if pts:
+            borders[neighbor] = pts  # net > 0 = resolved zone exports (native sign)
+
+    # Case B — resolved zone is sorted-SECOND: series flow.<resolved> under the
+    # neighbours. One query across all zones; flip the sign to "selected exports".
+    sid = db.query(SeriesDim.id).filter(SeriesDim.key == f"flow.{resolved_zone}").scalar()
+    if sid is not None:
+        rows = (
+            db.query(ZoneDim.key, PowerHourly.ts_utc, PowerHourly.value)
+            .join(PowerHourly, PowerHourly.zone_id == ZoneDim.id)
+            .filter(PowerHourly.series_id == sid, PowerHourly.ts_utc >= start_ts)
+            .order_by(PowerHourly.ts_utc.asc())
+            .all()
+        )
+        for neighbor, ts, v in rows:
+            borders.setdefault(neighbor, []).append((int(ts), -float(v)))
+
+    if not borders:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": (
+                f"No hourly flow series for {POWER_ZONES[resolved_zone]['label']} — "
+                "Energy-Charts flows are country-level, so sub-zones (Italian zones, "
+                "DK1/DK2, Nordic sub-zones) have no border series of their own."
+            ),
+        }
+
+    newest_ts = max(pts[-1][0] for pts in borders.values())
+    as_of = _dt.fromtimestamp(newest_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+    out = []
+    for neighbor, pts in borders.items():
+        latest_mw = pts[-1][1]
+        out.append({
+            "neighbor": neighbor,
+            "neighbor_label": _zone_label(neighbor),
+            "latest_mw": round(latest_mw, 1),
+            "direction": "export" if latest_mw >= 0 else "import",
+            "data": [
+                {"ts_utc": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(), "net_mw": round(v, 1)}
+                for t, v in pts
+            ],
+        })
+    out.sort(key=lambda b: -abs(b["latest_mw"]))
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "unit": "MW",
+        "hours": hours,
+        "note": f"net_mw > 0 = {POWER_ZONES[resolved_zone]['label']} exports to the neighbour; hourly means",
+        "source": ATTRIBUTION,
+        "borders": out,
+        **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["flows_hourly"]),
+    }
+
+
+# ─── Imbalance prices (free) ──────────────────────────────────────────────────
+
+
+@router.get("/imbalance")
+async def get_imbalance(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    days: int = Query(7, ge=1, le=90),
+    resolution: str = Query("hourly", pattern="^(hourly|qh)$"),
+    db: Session = Depends(get_db),
+):
+    """Imbalance prices (ENTSO-E A85; reBAP for DE-LU via the country EIC) for a
+    zone — what being out of balance actually costs, the intraday stress gauge
+    that day-ahead means smooth away. `resolution=qh` returns the raw 15-min
+    settlement points where they exist. Free tier, descriptive.
+    """
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    series_key = "imbalance.price" if resolution == "hourly" else "imbalance.price.qh"
+    start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+    points = read_hourly(db, series_key, resolved_zone, start_ts=start_ts)
+    if not points:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": (
+                f"No imbalance-price series for {POWER_ZONES[resolved_zone]['label']} — "
+                "A85 coverage varies by zone (and 15-min settlement only exists where "
+                "the market settles in quarter-hours)."
+            ),
+        }
+
+    values = [v for _, v in points]
+    peak = max(points, key=lambda p: abs(p[1]))
+    as_of = _dt.fromtimestamp(points[-1][0], tz=timezone.utc).strftime("%Y-%m-%d")
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "unit": "EUR/MWh",
+        "resolution": resolution,
+        "days": days,
+        "latest": round(values[-1], 2),
+        "peak": {
+            "price": round(peak[1], 2),
+            "ts_utc": _dt.fromtimestamp(peak[0], tz=timezone.utc).isoformat(),
+        },
+        "data": [
+            {"ts_utc": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(), "price": round(v, 2)}
+            for t, v in points
+        ],
+        **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["imbalance"]),
     }
 
 

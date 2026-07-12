@@ -31,17 +31,47 @@ function BandTag({ zone }) {
  * Weekly reservoir filling (ENTSO-E A72) for the hydro zones — Nordics, Alps,
  * Iberia, France. Southern Norway alone stores ~20 TWh; these levels move
  * power prices continent-wide. Descriptive: filling vs its own seasonal norm.
+ *
+ * With a `zone` prop the panel becomes the zone-desk variant: it shows only
+ * that zone's row (plus the band tag) and renders NOTHING for non-hydro zones
+ * — structural absence (NL has no A72 reservoirs), not a data gap, so silence
+ * is the honest state there.
  */
-export default function HydroReservoirPanel() {
-  const { data, loading } = useFetchWithError(`${API}/power/hydro`, { deps: [] })
+export default function HydroReservoirPanel({ zone = null }) {
+  const { data, loading, error } = useFetchWithError(`${API}/power/hydro`, { deps: [] })
 
-  if (!data?.available && !loading) return null
-  const zones = data?.zones ?? []
+  if (error) {
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">HYDRO RESERVOIRS // FETCH ERROR</div>
+      </div>
+    )
+  }
+
+  const allZones = data?.zones ?? []
+  const isHydroZone = zone == null || allZones.some((z) => z.zone === zone)
+
+  if (!data?.available && !loading) {
+    // Zone-desk variant on a non-hydro zone can't distinguish "no A72 zone"
+    // from "collector empty" without data — stay quiet only when scoped.
+    if (zone != null) return null
+    return (
+      <div className="border border-border bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-neutral-500">
+          HYDRO RESERVOIRS — {data?.reason || 'no reservoir data yet.'}
+        </div>
+      </div>
+    )
+  }
+
+  if (zone != null && !loading && !isHydroZone) return null  // structural absence, not a gap
+
+  const zones = zone == null ? allZones : allZones.filter((z) => z.zone === zone)
 
   return (
     <Panel
       id="hydro-reservoirs"
-      title="HYDRO RESERVOIRS · WEEKLY FILLING"
+      title={zone == null ? 'HYDRO RESERVOIRS · WEEKLY FILLING' : `HYDRO RESERVOIR · ${zones[0]?.zone_label ?? zone}`}
       freshness={data}
       info="ENTSO-E A72 stored hydro energy per zone (TWh), published weekly. 'vs normal' compares the newest week against the SAME calendar week in the zone's own prior years — reservoir levels are seasonal, so only a same-week band is meaningful. Descriptive: a filling level vs its norm, not a price forecast."
       collapsible
