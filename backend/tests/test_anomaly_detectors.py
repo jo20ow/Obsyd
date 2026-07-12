@@ -540,3 +540,63 @@ def test_forced_outages_ignore_planned_withdrawn_ended_and_higher_revisions(db_s
     _outage(db_session, mrid="wd", revision=1, nominal=5000.0)
     _outage(db_session, mrid="wd", revision=2, nominal=5000.0, status="withdrawn")
     assert detect_forced_outages(db_session) == []
+
+
+def _capacity(db, zone="DE_LU", total_mw=100_000.0, year=2026):
+    from backend.models.energy import InstalledCapacity
+
+    db.add(InstalledCapacity(zone=zone, year=year, psr_type="Solar", capacity_mw=total_mw * 0.6))
+    db.add(InstalledCapacity(zone=zone, year=year, psr_type="Fossil Gas", capacity_mw=total_mw * 0.4))
+    db.commit()
+
+
+def test_forced_outages_capacity_relative_suppresses_small_share(db_session):
+    """1.2 GW forced is a v1-absolute warning, but only 1.2% of a 100 GW fleet —
+    with A68 coverage the capacity-relative threshold governs."""
+    from backend.signals.detectors.power import detect_forced_outages
+
+    _capacity(db_session, total_mw=100_000.0)
+    _outage(db_session, mrid="a", nominal=900.0, available=0.0)
+    _outage(db_session, mrid="b", nominal=400.0, available=100.0, unit="Block B")
+    assert detect_forced_outages(db_session) == []
+
+
+def test_forced_outages_capacity_relative_warn_and_share_in_title(db_session):
+    from backend.signals.detectors.power import detect_forced_outages
+
+    _capacity(db_session, total_mw=20_000.0)
+    _outage(db_session, mrid="a", nominal=900.0, available=0.0)
+    _outage(db_session, mrid="b", nominal=400.0, available=100.0, unit="Block B")
+    results = detect_forced_outages(db_session)
+    assert len(results) == 1
+    assert results[0].severity == "warning"  # 1.2 GW = 6% of 20 GW
+    assert "6% of fleet" in results[0].title
+
+
+def test_forced_outages_capacity_relative_critical(db_session):
+    from backend.signals.detectors.power import detect_forced_outages
+
+    _capacity(db_session, total_mw=20_000.0)
+    for i in range(2):
+        _outage(db_session, mrid=f"m{i}", nominal=900.0, available=0.0)
+    assert detect_forced_outages(db_session)[0].severity == "critical"  # 1.8 GW = 9%
+
+
+def test_forced_outages_mw_floor_beats_share_in_tiny_zones(db_session):
+    """4% of a 5 GW fleet is only 200 MW — below the 300 MW floor, one mid-size
+    unit trip must not page the radar."""
+    from backend.signals.detectors.power import detect_forced_outages
+
+    _capacity(db_session, total_mw=5_000.0)
+    _outage(db_session, mrid="a", nominal=200.0, available=0.0)
+    assert detect_forced_outages(db_session) == []
+
+
+def test_forced_outages_latest_capacity_year_wins(db_session):
+    """Severity divides by the LATEST A68 year, not the sum over all years."""
+    from backend.signals.detectors.power import installed_capacity_mw
+
+    _capacity(db_session, total_mw=10_000.0, year=2025)
+    _capacity(db_session, total_mw=20_000.0, year=2026)
+    assert installed_capacity_mw(db_session, "DE_LU") == 20_000.0
+    assert installed_capacity_mw(db_session, "FR") is None

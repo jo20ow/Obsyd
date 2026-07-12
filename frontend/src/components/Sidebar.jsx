@@ -31,7 +31,7 @@ function StatusDot({ label, ok }) {
   )
 }
 
-function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, aisActive, gdeltActive, onOpenSettings }) {
+function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSettings }) {
   const { theme, toggle } = useTheme()
   const [health, setHealth] = useState(null)
 
@@ -94,17 +94,17 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, aisActive,
         </div>
         <div className="px-1"><AuthButton /></div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-1">
-          <StatusDot label="EIA" ok={health?.eia ?? false} />
-          <StatusDot label="FRED" ok={health?.fred ?? false} />
-          <StatusDot label="AIS" ok={health?.ais ?? aisActive} />
-          <StatusDot label="GDELT" ok={health?.gdelt ?? gdeltActive} />
+          <StatusDot label="PRICES" ok={health?.price_qh ?? false} />
+          <StatusDot label="FLOWS" ok={health?.power_flows ?? false} />
+          <StatusDot label="OUTAGES" ok={health?.power_outages ?? false} />
+          <StatusDot label="GAS" ok={health?.gas_balance ?? false} />
         </div>
       </div>
     </div>
   )
 }
 
-export default function Sidebar({ tabs, activeTab, onNavigate, onOpenPalette, aisActive, gdeltActive, open, onClose }) {
+export default function Sidebar({ tabs, activeTab, onNavigate, onOpenPalette, open, onClose }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const content = (
     <SidebarContent
@@ -112,8 +112,6 @@ export default function Sidebar({ tabs, activeTab, onNavigate, onOpenPalette, ai
       activeTab={activeTab}
       onNavigate={onNavigate}
       onOpenPalette={onOpenPalette}
-      aisActive={aisActive}
-      gdeltActive={gdeltActive}
       onOpenSettings={() => setSettingsOpen(true)}
     />
   )

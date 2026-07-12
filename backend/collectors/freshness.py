@@ -82,6 +82,11 @@ SPECS += [
     # Outage messages land continuously across 37 zones; a silent day means
     # the collector is dead, not that Europe stopped breaking.
     FreshnessSpec("power_outages", PowerOutage, "created_at", timedelta(days=2)),
+    # Hourly cross-border flows (Block 2.4). flow.FR is the probe because a
+    # French border (DE_LU-FR sorts DE_LU-first) exists in every enabled setup;
+    # the daily grain keeps its own power_flows spec above.
+    FreshnessSpec("flows_hourly", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="flow.FR"),
 ]
 
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled

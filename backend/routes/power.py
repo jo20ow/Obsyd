@@ -676,6 +676,7 @@ def build_power_situation(
     spark_supported: bool = True,
     grid_coverage_ok: bool = True,
     forced_outage_mw: float | None = None,
+    forced_outage_installed_mw: float | None = None,
     today: _date | None = None,
 ) -> dict:
     """Compose day-ahead price, residual load and spark spread into one descriptive
@@ -763,11 +764,21 @@ def build_power_situation(
                       "label": f"{neg_hours}h of negative day-ahead prices"})
         severities.append("warning")
     # None = the outage feed was not consulted; only a real figure can flag.
-    # Threshold mirrors the radar detector (FORCED_OUTAGE_WARN_MW).
-    if forced_outage_mw is not None and forced_outage_mw >= 1_000.0:
-        flags.append({"key": "forced_outages", "severity": "warning",
-                      "label": f"{forced_outage_mw / 1000:.1f} GW forced outages"})
-        severities.append("warning")
+    # Severity comes from the radar detector's shared derivation (capacity-
+    # relative where A68 is known, absolute fallback elsewhere) — hero and
+    # radar cannot disagree.
+    if forced_outage_mw is not None:
+        from backend.signals.detectors.power import forced_outage_severity
+
+        fo_sev = forced_outage_severity(forced_outage_mw, forced_outage_installed_mw)
+        if fo_sev is not None:
+            share_txt = (
+                f" — {forced_outage_mw / forced_outage_installed_mw * 100:.0f}% of fleet"
+                if forced_outage_installed_mw else ""
+            )
+            flags.append({"key": "forced_outages", "severity": fo_sev,
+                          "label": f"{forced_outage_mw / 1000:.1f} GW forced outages{share_txt}"})
+            severities.append(fo_sev)
 
     state = _worst_state(severities)
     available = price["available"] or grid["available"]
@@ -902,11 +913,13 @@ def load_power_situation(db: Session, zone: str) -> dict:
     # the hero claim "DE-LU only" while the panel showed a real FR/NL spark.
     spark_latest = _latest_spark(db, resolved_zone)
 
-    # Forced-outage aggregate via the radar detector's helper — hero flag and
-    # radar alert share one derivation (highest revision, withdrawals hidden).
-    from backend.signals.detectors.power import forced_outage_mw_now
+    # Forced-outage aggregate via the radar detector's helpers — hero flag and
+    # radar alert share one derivation (highest revision, withdrawals hidden,
+    # capacity-relative severity where A68 covers the zone).
+    from backend.signals.detectors.power import forced_outage_mw_now, installed_capacity_mw
 
     forced_mw, _ = forced_outage_mw_now(db, resolved_zone)
+    installed_mw = installed_capacity_mw(db, resolved_zone)
 
     return build_power_situation(
         resolved_zone,
@@ -916,6 +929,7 @@ def load_power_situation(db: Session, zone: str) -> dict:
         spark_supported=True,
         grid_coverage_ok=grid_coverage_ok,
         forced_outage_mw=forced_mw,
+        forced_outage_installed_mw=installed_mw,
         today=datetime.utcnow().date(),
     )
 

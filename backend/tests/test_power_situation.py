@@ -430,3 +430,26 @@ def test_forced_outage_default_is_absent_not_zero():
     grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
     s = build_power_situation("DE_LU", price, grid, None)
     assert all(f["key"] != "forced_outages" for f in s["flags"])
+
+
+def test_forced_outage_flag_is_capacity_relative_when_installed_known():
+    """With A68 coverage, 2.4 GW against a 200 GW fleet (1.2%) is not a flag;
+    against a 25 GW fleet (9.6%) it escalates to critical with the share shown."""
+    price = _price_series([50.0, 51.0, 52.0])
+    grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
+
+    big_fleet = build_power_situation(
+        "DE_LU", price, grid, None,
+        forced_outage_mw=2_400.0, forced_outage_installed_mw=200_000.0,
+    )
+    assert all(f["key"] != "forced_outages" for f in big_fleet["flags"])
+    assert big_fleet["state"] == "CALM"
+
+    small_fleet = build_power_situation(
+        "DE_LU", price, grid, None,
+        forced_outage_mw=2_400.0, forced_outage_installed_mw=25_000.0,
+    )
+    flag = next((f for f in small_fleet["flags"] if f["key"] == "forced_outages"), None)
+    assert flag is not None and flag["severity"] == "critical"
+    assert "10% of fleet" in flag["label"]
+    assert small_fleet["state"] == "STRESSED"

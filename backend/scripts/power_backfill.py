@@ -22,6 +22,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 from backend.database import SessionLocal
+from backend.power.energy_charts_flows import ingest_cbpf
 from backend.power.entsoe_grid import ingest_grid, ingest_load_forecast
 from backend.power.entsoe_imbalance import ingest_imbalance
 from backend.power.entsoe_prices import ingest_day_ahead
@@ -30,7 +31,10 @@ from backend.power.zones import POWER_ZONES
 logger = logging.getLogger("power_backfill")
 
 BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --start
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance")
+# "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
+# per month after the zone loop. Moderate history is the point (--start 2024-01-01
+# per roadmap Block 2.4) — deep flow history adds little over the daily means.
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "flows")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -91,7 +95,10 @@ async def run_backfill(
         plan, len(zones), len(windows), sorted(sources), " [DRY RUN]" if dry_run else "",
     )
     done = 0
-    for zone in zones:
+    # A flows-only run must not walk the zone×month loop — it would do nothing
+    # but sleep through the throttle (37 zones × months × 1 s on prod).
+    zone_sources = sources & {"price", "grid", "forecast", "imbalance"}
+    for zone in zones if zone_sources else []:
         cfg = POWER_ZONES[zone]
         eic = cfg["eic"]
         for m_start, m_end in windows:
@@ -115,7 +122,25 @@ async def run_backfill(
             logger.info("power_backfill: %s done (%d/%d)", tag, done, plan)
             if throttle:
                 await asyncio.sleep(throttle)
-    return {"zone_months": done, "zones": zones, "months": len(windows), "dry_run": dry_run}
+
+    # Cross-border flows are zone-independent — one month-chunked, raw-cached
+    # /cbpf sweep per month covers every enabled border (daily + hourly grain).
+    flow_months = 0
+    if "flows" in sources:
+        for m_start, m_end in windows:
+            if dry_run:
+                flow_months += 1
+                continue
+            days = _daterange(m_start, m_end)
+            await _with_retry(
+                lambda d=days: ingest_cbpf(db, d, use_cache=True),
+                f"flows {m_start:%Y-%m}",
+            )
+            flow_months += 1
+            logger.info("power_backfill: flows %s done (%d/%d)", f"{m_start:%Y-%m}", flow_months, len(windows))
+
+    return {"zone_months": done, "zones": zones, "months": len(windows),
+            "flow_months": flow_months, "dry_run": dry_run}
 
 
 def main(argv: list[str]) -> int:
