@@ -55,6 +55,8 @@ import PowerSituationHeader from './components/PowerSituationHeader'
 import HydroReservoirPanel from './components/HydroReservoirPanel'
 import OutagePanel from './components/OutagePanel'
 import RecordChip from './components/RecordChip'
+import ImbalancePanel from './components/ImbalancePanel'
+import RecordsPanel from './components/RecordsPanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
@@ -565,6 +567,9 @@ function Dashboard() {
               <ErrorBoundary name="power-dayahead">
                 <PowerDayAheadPanel zone={energyZone} />
               </ErrorBoundary>
+              <ErrorBoundary name="power-imbalance">
+                <ImbalancePanel zone={energyZone} />
+              </ErrorBoundary>
               <ErrorBoundary name="power-spark">
                 <SparkSpreadPanel zone={energyZone} />
               </ErrorBoundary>
@@ -584,6 +589,11 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="generation-mix">
                 <GenerationMixPanel zone={energyZone} />
+              </ErrorBoundary>
+              {/* Zone-desk hydro: renders only for zones that HAVE A72 reservoirs
+                  (structural absence elsewhere, not a data gap). */}
+              <ErrorBoundary name="power-hydro">
+                <HydroReservoirPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
 
@@ -645,6 +655,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="merit-order">
                 <MeritOrderScatter zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="power-records">
+                <RecordsPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
           </>

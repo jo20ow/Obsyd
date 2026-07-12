@@ -27,7 +27,7 @@ const COLUMNS = [
 ]
 
 export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
-  const { data } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
+  const { data, loading, error } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
   const [sort, setSort] = useState({ key: 'zone', dir: 'asc' })
 
   const sorted = useMemo(() => {
@@ -45,7 +45,29 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
     return rows
   }, [data, sort])
 
-  if (!data?.available) return null
+  // The all-zones matrix is the default tab's core — it must never be a silent
+  // hole. Loading keeps a quiet placeholder; a fetch error or empty backend
+  // says so instead of rendering nothing.
+  if (error)
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">EUROPEAN POWER · ALL ZONES // FETCH ERROR</div>
+      </div>
+    )
+  if (!data?.available && loading)
+    return (
+      <div className="border border-border bg-surface rounded px-4 py-4">
+        <div className="font-mono text-[10px] text-neutral-600 animate-pulse">Loading all zones…</div>
+      </div>
+    )
+  if (!data?.available)
+    return (
+      <div className="border border-border bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-neutral-500">
+          EUROPEAN POWER · ALL ZONES — no zone data yet; check back shortly.
+        </div>
+      </div>
+    )
 
   const toggle = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }))
   const arrow = (key) => (sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '')

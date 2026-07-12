@@ -25,10 +25,18 @@ function Line({ label, err }) {
  * demand surprise / renewables over-delivered.
  */
 export default function ForecastErrorStrip({ zone = 'DE_LU' }) {
-  const { data: load } = useFetchWithError(`${API}/power/forecast-error?zone=${zone}&series=load`, { deps: [zone] })
-  const { data: wind } = useFetchWithError(`${API}/power/forecast-error?zone=${zone}&series=wind`, { deps: [zone] })
-  const { data: solar } = useFetchWithError(`${API}/power/forecast-error?zone=${zone}&series=solar`, { deps: [zone] })
+  const { data: load, error: loadErr } = useFetchWithError(`${API}/power/forecast-error?zone=${zone}&series=load`, { deps: [zone] })
+  const { data: wind, error: windErr } = useFetchWithError(`${API}/power/forecast-error?zone=${zone}&series=wind`, { deps: [zone] })
+  const { data: solar, error: solarErr } = useFetchWithError(`${API}/power/forecast-error?zone=${zone}&series=solar`, { deps: [zone] })
 
+  // Ephemeral strip: absence of forecast-error data is a normal state and stays
+  // silent — but a FETCH error must not masquerade as "nothing to report".
+  if (loadErr && windErr && solarErr)
+    return (
+      <div className="px-4 py-2 border-t border-border/30 font-mono text-[9px] text-red-400">
+        forecast vs actual // fetch error
+      </div>
+    )
   if (!load?.available && !wind?.available && !solar?.available) return null
 
   return (

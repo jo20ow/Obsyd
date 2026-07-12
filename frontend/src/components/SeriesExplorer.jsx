@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
@@ -12,12 +12,76 @@ const API = '/api'
 const COLOR_A = '#22d3ee'
 const COLOR_B = '#a78bfa'
 
+// Friendly names for the canonical series the desk itself charts; everything
+// else (gen.<fuel>, flow.<zone>) gets a generated label so the raw-key dump
+// the catalog returns stays readable.
+const SERIES_LABELS = {
+  'price.dayahead': 'Day-ahead price · hourly',
+  'price.dayahead.qh': 'Day-ahead price · 15-min',
+  'imbalance.price': 'Imbalance price · hourly',
+  'imbalance.price.qh': 'Imbalance price · 15-min',
+  'load.actual': 'Load · actual',
+  'load.forecast': 'Load · TSO forecast',
+  'residual.actual': 'Residual load · actual',
+  'residual.forecast': 'Residual load · TSO forecast',
+  'generation.forecast': 'Generation · TSO forecast',
+  'hydro.reservoir': 'Hydro reservoir filling · weekly',
+  'wind.actual': 'Wind · actual',
+  'solar.actual': 'Solar · actual',
+}
+
+const GROUP_ORDER = ['price', 'imbalance', 'load', 'residual', 'generation', 'wind', 'solar', 'gen', 'flow', 'hydro']
+const GROUP_LABELS = {
+  price: 'Prices', imbalance: 'Imbalance', load: 'Load', residual: 'Residual load',
+  generation: 'Generation forecast', wind: 'Wind', solar: 'Solar',
+  gen: 'Generation mix (per fuel)', flow: 'Cross-border flows (hourly)', hydro: 'Hydro',
+}
+
+function seriesLabel(s) {
+  if (SERIES_LABELS[s.key]) return SERIES_LABELS[s.key]
+  if (s.key.startsWith('flow.')) return `Flow ↔ ${s.key.slice(5).replace('_', '-')}`
+  if (s.key.startsWith('gen.')) return `Generation · ${s.key.slice(4)}`
+  return s.key
+}
+
+function groupedSeries(seriesList) {
+  const groups = new Map()
+  for (const s of seriesList) {
+    const prefix = s.key.split('.')[0]
+    if (!groups.has(prefix)) groups.set(prefix, [])
+    groups.get(prefix).push(s)
+  }
+  const order = [...GROUP_ORDER.filter((g) => groups.has(g)), ...[...groups.keys()].filter((g) => !GROUP_ORDER.includes(g))]
+  return order.map((g) => ({
+    group: GROUP_LABELS[g] || g,
+    items: groups.get(g).slice().sort((a, b) => a.key.localeCompare(b.key)),
+  }))
+}
+
+// Explorer selection is shareable: s/vs/res live in the URL query (zone+range
+// already travel via the global ViewState spine). replaceState so browsing the
+// catalog doesn't spam the history stack.
+function readParam(name, fallback) {
+  if (typeof window === 'undefined') return fallback
+  return new URLSearchParams(window.location.search).get(name) || fallback
+}
+
 export default function SeriesExplorer() {
-  const [series, setSeries] = useState('price.dayahead')
+  const [series, setSeries] = useState(() => readParam('s', 'price.dayahead'))
   const { zone, setZone, range } = useViewState()  // primary zone + range = the global spine
-  const [compareZone, setCompareZone] = useState('')  // '' = off (local to the explorer)
+  const [compareZone, setCompareZone] = useState(() => readParam('vs', ''))  // '' = off
   const [spread, setSpread] = useState(false)  // Δ (A−B) instead of two lines
-  const [resolution, setResolution] = useState('daily')
+  const [resolution, setResolution] = useState(() => readParam('res', 'daily'))
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const setOrDelete = (k, v, def) => (v && v !== def ? params.set(k, v) : params.delete(k))
+    setOrDelete('s', series, 'price.dayahead')
+    setOrDelete('vs', compareZone, '')
+    setOrDelete('res', resolution, 'daily')
+    const qs = params.toString()
+    history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
+  }, [series, compareZone, resolution])
 
   const { data: catalog } = useFetchWithError(`${API}/v1/series/catalog`)
   const start = rangeStart(range)
@@ -68,7 +132,15 @@ export default function SeriesExplorer() {
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-border/50">
         <select value={series} onChange={(e) => setSeries(e.target.value)}
           className="font-mono text-[11px] bg-[#0a0a12] border border-border rounded px-2 py-1 text-neutral-300">
-          {seriesList.map((s) => <option key={s.key} value={s.key}>{s.key}</option>)}
+          {groupedSeries(seriesList).map(({ group, items }) => (
+            <optgroup key={group} label={group}>
+              {items.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {seriesLabel(s)}{s.unit ? ` (${s.unit})` : ''}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
         <select value={zone} onChange={(e) => setZone(e.target.value)}
           className="font-mono text-[11px] bg-[#0a0a12] border border-cyan-500/40 text-cyan-300 rounded px-2 py-1">
@@ -126,12 +198,12 @@ export default function SeriesExplorer() {
                 {showSpread ? (
                   <>
                     <ReferenceLine y={0} stroke="#444" />
-                    <Line type="monotone" dataKey="d" stroke="#fbbf24" dot={false} strokeWidth={1.4} connectNulls />
+                    <Line type="monotone" dataKey="d" stroke="#fbbf24" dot={false} strokeWidth={1.4} connectNulls isAnimationActive={false} />
                   </>
                 ) : (
                   <>
-                    <Line type="monotone" dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.4} connectNulls />
-                    {comparing && <Line type="monotone" dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.4} connectNulls />}
+                    <Line type="monotone" dataKey="a" stroke={COLOR_A} dot={false} strokeWidth={1.4} connectNulls isAnimationActive={false} />
+                    {comparing && <Line type="monotone" dataKey="b" stroke={COLOR_B} dot={false} strokeWidth={1.4} connectNulls isAnimationActive={false} />}
                   </>
                 )}
               </LineChart>

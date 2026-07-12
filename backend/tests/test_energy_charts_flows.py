@@ -638,3 +638,43 @@ async def test_use_cache_gives_up_after_max_429s(db_session, tmp_path, monkeypat
     assert result["written"] == 0
     assert calls["n"] == len(flows.BASE_COUNTRIES) * flows.RATE_LIMIT_ATTEMPTS
     assert list(tmp_path.rglob("*.json.gz")) == [], "a failed month must never cache"
+
+
+# ─── GET /api/power/flows/hourly ──────────────────────────────────────────────
+
+
+def _seed_hourly_flows(db):
+    """DE_LU-FR border (DE_LU sorted-first: series flow.FR under DE_LU) and
+    CH-DE_LU border (CH sorted-first: series flow.DE_LU under CH)."""
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+
+    now = (int(_time.time()) // 3600) * 3600
+    # DE_LU exports 1.5 GW to FR (native sign already "DE_LU exports")
+    upsert_hourly(db, "flow.FR", "DE_LU",
+                  [(now - i * 3600, 1500.0) for i in range(24, 0, -1)], unit="MW")
+    # CH exports 2 GW to DE_LU → from DE_LU's perspective an IMPORT (−2000)
+    upsert_hourly(db, "flow.DE_LU", "CH",
+                  [(now - i * 3600, 2000.0) for i in range(24, 0, -1)], unit="MW")
+
+
+def test_flows_hourly_normalises_both_border_directions(db_session):
+    _seed_hourly_flows(db_session)
+    body = _make_client(db_session).get("/api/power/flows/hourly?zone=DE_LU&hours=48").json()
+    assert body["available"] is True
+    by_neighbor = {b["neighbor"]: b for b in body["borders"]}
+    assert by_neighbor["FR"]["latest_mw"] == 1500.0
+    assert by_neighbor["FR"]["direction"] == "export"
+    assert by_neighbor["CH"]["latest_mw"] == -2000.0, \
+        "sorted-second border must flip sign to the selected zone's perspective"
+    assert by_neighbor["CH"]["direction"] == "import"
+    assert body["stale"] is False and body["unit"] == "MW"
+    assert body["borders"][0]["neighbor"] == "CH", "sorted by |latest| desc"
+
+
+def test_flows_hourly_subzone_without_series_is_honest(db_session):
+    _seed_hourly_flows(db_session)
+    body = _make_client(db_session).get("/api/power/flows/hourly?zone=NL").json()
+    assert body["available"] is False
+    assert "country-level" in body["reason"]

@@ -154,3 +154,55 @@ async def test_ingest_writes_qh_series_alongside_hourly(db_session, monkeypatch)
     hourly = read_hourly(db_session, "imbalance.price", "FR")
     assert len(hourly) == 24
     assert hourly[-1][1] == pytest.approx((50.0 * 3 - 990.0) / 4)
+
+
+# ─── GET /api/power/imbalance ─────────────────────────────────────────────────
+
+
+def _client(db):
+    from fastapi.testclient import TestClient
+
+    from backend.database import get_db
+    from backend.main import app
+
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app)
+
+
+def _seed_imbalance_series(db, zone="DE_LU", resolution="hourly"):
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+
+    key = "imbalance.price" if resolution == "hourly" else "imbalance.price.qh"
+    now = (int(_time.time()) // 3600) * 3600
+    step = 3600 if resolution == "hourly" else 900
+    points = [(now - i * step, 80.0 + i) for i in range(48, 0, -1)]
+    points.append((now, -740.0))  # the spike that makes the panel worth reading
+    upsert_hourly(db, key, zone, points, unit="EUR/MWh")
+
+
+def test_imbalance_route_hourly(db_session):
+    _seed_imbalance_series(db_session)
+    body = _client(db_session).get("/api/power/imbalance?zone=DE_LU&days=7").json()
+    assert body["available"] is True
+    assert body["unit"] == "EUR/MWh" and body["resolution"] == "hourly"
+    assert body["latest"] == -740.0
+    assert body["peak"]["price"] == -740.0
+    assert body["stale"] is False and body["as_of"] is not None
+    assert len(body["data"]) >= 48
+
+
+def test_imbalance_route_qh(db_session):
+    _seed_imbalance_series(db_session, resolution="qh")
+    body = _client(db_session).get("/api/power/imbalance?zone=DE_LU&resolution=qh").json()
+    assert body["available"] is True and body["resolution"] == "qh"
+
+
+def test_imbalance_route_zone_without_series_is_honest(db_session):
+    _seed_imbalance_series(db_session, zone="DE_LU")
+    body = _client(db_session).get("/api/power/imbalance?zone=NL").json()
+    assert body["available"] is False
+    assert "A85 coverage" in body["reason"]
+    from backend.main import app
+    app.dependency_overrides.clear()
