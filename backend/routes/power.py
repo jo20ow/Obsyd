@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from datetime import datetime as _dt
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, tuple_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.config import settings
@@ -970,16 +970,19 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
         if r.zone in grid_by_zone:
             grid_by_zone[r.zone].append(r)
 
-    # 3. Coverage guard for each zone's LATEST grid day — one row-value IN query
-    #    replaces renewable_share_reliable's per-zone SUM (same semantics: no
-    #    genmix row at all → untrusted).
+    # 3. Coverage guard for each zone's LATEST grid day. Query by the small set
+    #    of distinct dates (usually 1-2: yesterday/today) — the date index makes
+    #    this a few hundred row visits, while a (zone, date) row-value IN made
+    #    SQLite scan all ~640k genmix rows (measured 0.15s on prod). Extra
+    #    (zone, date) combos in the result are harmless — lookups use exact pairs.
+    #    Same semantics as renewable_share_reliable: no genmix row → untrusted.
     latest_grid = {z: rows[-1] for z, rows in grid_by_zone.items() if rows}
-    pairs = [(r.zone, r.date) for r in latest_grid.values()]
+    dates = sorted({r.date for r in latest_grid.values()})
     gen_totals: dict[tuple[str, str], float] = {}
-    if pairs:
+    if dates:
         for z, d, total in (
             db.query(PowerGenMix.zone, PowerGenMix.date, func.sum(PowerGenMix.gen_mw))
-            .filter(tuple_(PowerGenMix.zone, PowerGenMix.date).in_(pairs))
+            .filter(PowerGenMix.date.in_(dates))
             .group_by(PowerGenMix.zone, PowerGenMix.date)
             .all()
         ):
@@ -996,17 +999,21 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
             return False
         return total >= coverage_min_ratio(zone) * r.load_mw
 
-    # 4. Spark legs: every zone's power symbol + TTF in one 14-day scan.
+    # 4. Spark legs: every zone's power symbol + TTF. Query by DATE RANGE only —
+    #    the (date, symbol) unique index turns 14 days × ~50 symbols into a few
+    #    hundred row visits, while `symbol IN (38)` made SQLite walk each
+    #    symbol's full multi-year history (measured 0.29s on prod). The symbol
+    #    filter happens in Python on the handful of returned rows.
     spark_from, spark_to = _window(14)
     symbols = {cfg["price_symbol"] for cfg in POWER_ZONES.values()} | {"TTF"}
     closes: dict[str, dict[str, float]] = {s: {} for s in symbols}
     for sym, d, close in (
         db.query(EnergyPrice.symbol, EnergyPrice.date, EnergyPrice.close)
-        .filter(EnergyPrice.symbol.in_(symbols),
-                EnergyPrice.date >= spark_from, EnergyPrice.date <= spark_to)
+        .filter(EnergyPrice.date >= spark_from, EnergyPrice.date <= spark_to)
         .all()
     ):
-        closes[sym][d] = close
+        if sym in symbols:
+            closes[sym][d] = close
     heat_rate = round(1.0 / settings.gas_ccgt_efficiency, 4)
 
     def _spark(zone: str) -> dict | None:

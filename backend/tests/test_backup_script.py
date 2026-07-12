@@ -357,3 +357,7 @@ def test_setup_vps_wires_disk_alarm_and_docker_prune_crons():
     assert "deploy/docker-prune.sh >> /home/obsyd/obsyd/logs/docker-prune.log" in text
     # health-line dedupe must not sweep the docker-prune line (path contains "obsyd")
     assert "| grep -v obsyd |" not in text
+    # empty env values must be quoted — vixie cron rejects a bare NAME= line and
+    # then refuses to install the ENTIRE crontab (hit live 2026-07-12)
+    assert "echo 'HEALTHCHECKS_URL=\"\"'" in text
+    assert 'OBSYD_BACKUP_REMOTE=\\"\\"' in text

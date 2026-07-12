@@ -156,7 +156,9 @@ def forced_outage_severity(total_mw: float, installed_mw: float | None) -> str |
     return None
 
 
-def latest_outage_revisions(db, zone: str | None = None) -> list:
+def latest_outage_revisions(
+    db, zone: str | None = None, *, ending_after: str | None = None
+) -> list:
     """Highest revision per (zone, mRID), resolved in SQL via a window function.
 
     Withdrawn rows are still RETURNED — ranking must happen before any status
@@ -164,6 +166,12 @@ def latest_outage_revisions(db, zone: str | None = None) -> list:
     first would let an older active revision win and fabricate gigawatts; 26 of
     31 live-sampled documents were withdrawn revisions). Replaces loading every
     revision row into Python, which grew with the full revision history.
+
+    `ending_after` prunes the ranked set to mRIDs with ANY revision ending at or
+    after the cutoff — an event whose every revision ended in the past cannot be
+    running/upcoming no matter which revision wins. The filter is per-mRID, not
+    per-row: dropping single rows on end_utc would let an older longer revision
+    beat a newer shortened one.
     """
     from sqlalchemy import func
 
@@ -180,6 +188,11 @@ def latest_outage_revisions(db, zone: str | None = None) -> list:
     ranked = db.query(PowerOutage.id.label("oid"), rn)
     if zone is not None:
         ranked = ranked.filter(PowerOutage.zone == zone)
+    if ending_after is not None:
+        relevant = db.query(PowerOutage.mrid).filter(PowerOutage.end_utc >= ending_after)
+        if zone is not None:
+            relevant = relevant.filter(PowerOutage.zone == zone)
+        ranked = ranked.filter(PowerOutage.mrid.in_(relevant.subquery().select()))
     ranked = ranked.subquery()
     return (
         db.query(PowerOutage)
@@ -208,7 +221,8 @@ def forced_outage_mw_now(db, zone: str) -> tuple[float, list]:
     from datetime import datetime, timezone
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
-    running = _running_forced(latest_outage_revisions(db, zone), now_iso)
+    rows = latest_outage_revisions(db, zone, ending_after=now_iso)
+    running = _running_forced(rows, now_iso)
     total = sum(r.nominal_mw - (r.available_mw or 0.0) for r in running)
     return total, running
 
@@ -221,7 +235,7 @@ def forced_outage_totals_now(db) -> dict[str, float]:
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     totals: dict[str, float] = defaultdict(float)
-    for r in _running_forced(latest_outage_revisions(db), now_iso):
+    for r in _running_forced(latest_outage_revisions(db, ending_after=now_iso), now_iso):
         totals[r.zone] += r.nominal_mw - (r.available_mw or 0.0)
     return dict(totals)
 

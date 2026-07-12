@@ -66,8 +66,10 @@ echo "[6/7] Installing health-check cron..."
 # Dedupe filter matches ONLY this health line ('grep -v obsyd' would also wipe
 # the docker-prune line installed in step 9 — its path contains "obsyd"), and a
 # HEALTHCHECKS_URL the operator already configured survives a re-run.
+# NB: an EMPTY env value must be written as NAME="" — vixie cron rejects a bare
+# NAME= line ("bad minute") and then refuses the ENTIRE crontab (hit live 2026-07-12).
 (crontab -l 2>/dev/null | grep -v 'systemctl restart obsyd' | grep -v '^HEALTHCHECKS_URL='; \
- crontab -l 2>/dev/null | grep '^HEALTHCHECKS_URL=' || echo 'HEALTHCHECKS_URL='; \
+ crontab -l 2>/dev/null | grep '^HEALTHCHECKS_URL=' || echo 'HEALTHCHECKS_URL=""'; \
  echo '*/5 * * * * if curl -sf http://127.0.0.1:8000/health >/dev/null; then [ -n "$HEALTHCHECKS_URL" ] && curl -fsS -m 10 --retry 2 "$HEALTHCHECKS_URL" >/dev/null 2>&1; else systemctl restart obsyd; fi') | crontab -
 echo "Cron health-check installed (set HEALTHCHECKS_URL in root crontab to enable off-box ping)"
 
@@ -78,7 +80,7 @@ echo "Cron health-check installed (set HEALTHCHECKS_URL in root crontab to enabl
 echo "[7/7] Installing daily backup cron..."
 chmod +x /home/obsyd/obsyd/deploy/backup-db.sh
 sudo -u obsyd bash -c '(crontab -l 2>/dev/null | grep -v backup-db.sh | grep -v "^OBSYD_BACKUP_REMOTE="; \
-  echo "OBSYD_BACKUP_REMOTE="; \
+  crontab -l 2>/dev/null | grep "^OBSYD_BACKUP_REMOTE=" || echo "OBSYD_BACKUP_REMOTE=\"\""; \
   echo "30 3 * * * /home/obsyd/obsyd/deploy/backup-db.sh >> /home/obsyd/backups/backup.log 2>&1") | crontab -'
 echo "Daily backup cron installed (03:30, retention 14 days; set OBSYD_BACKUP_REMOTE for offsite)"
 
