@@ -178,3 +178,30 @@ def test_net_position_is_worded_as_import_or_export_not_a_signed_number(db_sessi
     out = compute_drivers(db_session, "DE_LU", today=_TODAY)
     assert "the zone is importing 7.5 GW" in out["headline"], out["headline"]
     assert "-7.5" not in out["headline"]
+
+
+def test_an_immaterial_outage_stays_out_of_the_headline(db_session):
+    """FR reported "0.1 GW is forced offline (0% of the fleet)" in prod — noise in
+    a sentence that is supposed to be signal. It belongs in the table, not the
+    headline."""
+    from datetime import datetime, timezone
+    from datetime import timedelta as td
+
+    from backend.models.energy import InstalledCapacity, PowerOutage
+
+    _seed(db_session)
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    db_session.add(InstalledCapacity(zone="DE_LU", year=2026, psr_type="Solar",
+                                     capacity_mw=100_000.0))
+    db_session.add(PowerOutage(mrid="tiny", revision=1, doc_type="A77", zone="DE_LU",
+                               business_type="A54", psr_type="B14", unit_name="U",
+                               unit_eic="11W", location="DE",
+                               nominal_mw=100.0, available_mw=0.0,
+                               start_utc=(now - td(days=1)).strftime(fmt),
+                               end_utc=(now + td(days=1)).strftime(fmt), status="active"))
+    db_session.commit()
+
+    out = compute_drivers(db_session, "DE_LU", today=_TODAY)
+    assert out["outage"]["value"] == 100.0, "still reported as a level"
+    assert "forced offline" not in out["headline"], out["headline"]
