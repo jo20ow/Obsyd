@@ -191,8 +191,17 @@ def test_spark_route_computes_per_zone(db_session, monkeypatch):
     assert body["available"] is True
     assert body["zone"] == "FR"
     assert set(body["zones"]) == {"DE_LU", "FR", "NL"}
-    assert body["data"][0]["spark_spread"] == 90.0 - 30.0 * 2.0  # 30.0, heat_rate=2.0
-    assert body["latest"]["gas_price"] == 30.0
+    assert body["data"][0]["dirty_spark_spread"] == 90.0 - 30.0 * 2.0  # 30.0, heat_rate=2.0
+
+    # The raw TTF close must NOT be in the response: it is Yahoo's copy of the ICE Endex
+    # front-month, licensed exchange data this project does not redistribute.
+    assert "gas_price" not in body["latest"]
+    assert all("gas_price" not in row for row in body["data"])
+
+    # And the number the desk publishes INSTEAD of a clean spread it cannot compute: the carbon
+    # price at which this margin hits zero. 30.0 / (0.202 × 2.0) = 74.3 EUR/t.
+    assert body["latest"]["breakeven_eua_eur_t"] == pytest.approx(74.3, abs=0.1)
+    assert body["co2_intensity_t_per_mwh"] == pytest.approx(0.404)
 
 
 def test_spark_route_unavailable_without_overlap(db_session):

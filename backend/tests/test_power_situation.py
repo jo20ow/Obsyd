@@ -89,7 +89,11 @@ def test_calm_state_no_flags():
     assert s["flags"] == []
     assert abs(s["price"]["z"]) < 2.0
     assert s["spark"]["available"] is True
-    assert s["spark"]["spark_spread"] == pytest.approx(8.0)
+    assert s["spark"]["dirty_spark_spread"] == pytest.approx(8.0)
+    # It is DIRTY, and the hero says so: a positive spread is only a margin below
+    # this carbon price. 8.0 / 0.404 = 19.8 EUR/t.
+    assert s["spark"]["breakeven_eua_eur_t"] == pytest.approx(19.8, abs=0.1)
+    assert "gas_price" not in s["spark"], "licensed exchange data is not republished"
 
 
 def test_dunkelflaute_elevates_and_flags():
@@ -359,12 +363,16 @@ def test_route_fr_spark_matches_the_panel(db_session):
     assert body["available"] is True
     assert body["spark"]["supported"] is True
     assert body["spark"]["available"] is True
-    # heat_rate = 1/0.50 → spark = 100 − 30·2 = 40
-    assert body["spark"]["spark_spread"] == pytest.approx(40.0)
+    # heat_rate = 1/0.50 → dirty spark = 100 − 30·2 = 40
+    assert body["spark"]["dirty_spark_spread"] == pytest.approx(40.0)
     assert body["spark"]["as_of"] == _TODAY.isoformat()
 
     panel = client.get("/api/power/spark-spread?zone=FR&days=7").json()
-    assert panel["latest"]["spark_spread"] == pytest.approx(body["spark"]["spark_spread"])
+    assert panel["latest"]["dirty_spark_spread"] == pytest.approx(body["spark"]["dirty_spark_spread"])
+    # The break-even carbon price must agree too — the hero and the panel computing the same
+    # number two ways is exactly how they came to disagree in the first place.
+    assert panel["latest"]["breakeven_eua_eur_t"] == pytest.approx(
+        body["spark"]["breakeven_eua_eur_t"])
 
 
 def test_route_fr_spark_without_prices_is_signposted_not_pretended(db_session):
@@ -377,7 +385,8 @@ def test_route_fr_spark_without_prices_is_signposted_not_pretended(db_session):
     body = client.get("/api/power/situation?zone=FR").json()
     assert body["spark"]["supported"] is True
     assert body["spark"]["available"] is False
-    assert body["spark"]["spark_spread"] is None
+    assert body["spark"]["dirty_spark_spread"] is None
+    assert body["spark"]["breakeven_eua_eur_t"] is None
 
 
 def test_route_empty_unavailable(db_session):

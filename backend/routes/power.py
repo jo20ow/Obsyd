@@ -311,13 +311,22 @@ async def get_spark_spread(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL, …"),
     db: Session = Depends(get_db),
 ):
-    """Spark spread (power − gas × heat_rate, EUR/MWh) for any zone.
+    """DIRTY spark spread (power − gas × heat_rate, EUR/MWh) for any zone — and the carbon
+    price at which it becomes a zero margin.
 
-    Computed live by aligning the zone's day-ahead price (EnergyPrice POWER_<zone>)
-    with the TTF gas front-month on each date. The gas leg is TTF (the European
-    benchmark hub) for every zone — a per-zone gas hub is a later refinement. CO₂/
-    clean-spark stay null until a free EUA source is confirmed. `latest` is the most
-    recent row; `data` is the ascending window for charting.
+    It is DIRTY, and the name is not a hedge: this is the spread BEFORE carbon. A gas plant has
+    to buy EUAs, and at 2026 prices that is around EUR 30/MWh — enough to flip the sign in most
+    of Europe. This endpoint used to call the number a "CCGT margin" and the hero painted it
+    green. It is not a margin. See backend/power/spark.py.
+
+    `breakeven_eua_eur_t` is what the desk publishes instead of a clean spread it cannot compute:
+    the EUA price at which this zone's gas fleet reaches zero. Pure arithmetic on our own record
+    plus a published emission factor — no carbon price needed, so no licence question, and more
+    useful than the clean spread anyway.
+
+    The gas leg is TTF for every zone (a per-zone hub is a later refinement) and its raw close is
+    NOT returned: yfinance's TTF is Yahoo's copy of the ICE Endex front-month, licensed exchange
+    data this project does not redistribute. That is a mitigation, not a cure — see spark.py.
     """
     resolved_zone = _resolve_zone(zone)
     symbol = POWER_ZONES[resolved_zone]["price_symbol"]
@@ -345,26 +354,41 @@ async def get_spark_spread(
             "reason": f"Spark spread isn't available for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
 
-    data = [
-        {
+    from backend.power.spark import breakeven_eua, co2_intensity
+
+    data = []
+    for d in dates:
+        dirty = round(power_by[d] - ttf_by[d] * heat_rate, 4)
+        data.append({
             "date": d,
             "power_price": power_by[d],
-            "gas_price": ttf_by[d],
+            # gas_price (the raw TTF close) is deliberately NOT returned — see the docstring.
             "heat_rate": heat_rate,
-            "spark_spread": round(power_by[d] - ttf_by[d] * heat_rate, 4),
+            "dirty_spark_spread": dirty,
+            "breakeven_eua_eur_t": breakeven_eua(dirty, heat_rate),
             "co2_price": None,
             "clean_spark_spread": None,
-        }
-        for d in dates
-    ]
+        })
     return {
         "available": True,
         "zone": resolved_zone,
         "zones": _ZONE_KEYS,
         "unit": "EUR/MWh",
         "heat_rate_note": "1 / CCGT_efficiency; default efficiency = 0.50",
-        "gas_leg_note": "gas leg = TTF (European benchmark) for all zones; per-zone hub is a later refinement",
-        "co2_note": "co2_price and clean_spark_spread are deferred (EUA ticker TBD)",
+        "co2_intensity_t_per_mwh": round(co2_intensity(heat_rate), 4),
+        "gas_leg_note": (
+            "Gas leg = TTF front-month for every zone (a per-zone hub is a later refinement). Its "
+            "raw close is not returned: yfinance's TTF is Yahoo's copy of the ICE Endex contract, "
+            "licensed exchange data this project does not redistribute."
+        ),
+        "co2_note": (
+            "This spread is DIRTY — it excludes the cost of carbon, which at 2026 EUA prices is "
+            f"around EUR 30/MWh for a CCGT ({round(co2_intensity(heat_rate), 3)} tCO2 per MWh of "
+            "electricity at this heat rate). `breakeven_eua_eur_t` is the carbon price at which "
+            "the margin reaches zero: above it, the plant loses money on the day-ahead. The clean "
+            "spread itself stays null until a free, redistributable daily EUA series is confirmed "
+            "(docs/findings/2026-06-24-eua-coal-data-source.md)."
+        ),
         "latest": data[-1],
         "from": date_from,
         "to": date_to,
@@ -716,7 +740,8 @@ def build_power_situation(
 
     price_series — ascending [{"date","close","negative_hours"}]
     grid_series  — ascending _compute_grid_row dicts (residual_mw/renewable_share/dunkelflaute)
-    spark_latest — latest {"spark_spread","power_price","gas_price"} or None (DE-LU only)
+    spark_latest — latest {"spark_spread","power_price","gas_price"} or None. The DIRTY spread;
+        the block it produces renames it and adds the break-even carbon price (power/spark.py).
     spark_supported — False for zones without a spark series (FR/NL) so the header can signpost.
     grid_coverage_ok — False when ENTSO-E generation coverage is too low to trust the
         renewable share (e.g. NL). The Dunkelflaute flag is then suppressed rather than
@@ -766,16 +791,25 @@ def build_power_situation(
         **_freshness(grid_latest["date"] if grid_latest else None, today),
     }
 
-    # ── spark block (DE-LU only; signpost on FR/NL) ──
+    # ── spark block ──
+    #
+    # DIRTY, and the hero must say so. It used to render this as "CCGT margin", in green when
+    # positive — for a number that excludes the cost of carbon, which is around EUR 30/MWh and
+    # flips the sign in most of Europe. The break-even carbon price goes out with it, because it
+    # is the number that makes the omission legible: above that EUA price, the margin is negative.
+    from backend.power.spark import breakeven_eua
+
     has_spark = spark_supported and spark_latest is not None
+    _heat_rate = round(1.0 / settings.gas_ccgt_efficiency, 4)
+    _dirty = round(spark_latest["spark_spread"], 2) if has_spark else None
     spark = {
         "available": has_spark,
         "supported": spark_supported,
-        "spark_spread": round(spark_latest["spark_spread"], 2) if has_spark else None,
+        "dirty_spark_spread": _dirty,
+        "breakeven_eua_eur_t": breakeven_eua(_dirty, _heat_rate) if _dirty is not None else None,
         "power_price": round(spark_latest["power_price"], 2)
         if has_spark and spark_latest.get("power_price") is not None else None,
-        "gas_price": round(spark_latest["gas_price"], 2)
-        if has_spark and spark_latest.get("gas_price") is not None else None,
+        # The raw TTF close is NOT exposed: licensed exchange data (see power/spark.py).
         # Spark's gas leg is yfinance TTF (~3 trading days + weekends) — judge it
         # by the SAME window as the spark panel caption. With the 1-day default,
         # every weekend flagged EVERY zone's situation stale (worst-of semantics),
@@ -852,7 +886,11 @@ def build_power_situation(
         else:
             parts.append("residual n/a — no published load for this zone")
     if spark["available"]:
-        parts.append(f"spark €{spark['spark_spread']:+.0f}/MWh" + _age_suffix(spark))
+        seg = f"dirty spark €{spark['dirty_spark_spread']:+.0f}/MWh"
+        if spark["breakeven_eua_eur_t"] is not None:
+            # The whole point of the sentence: the spread is only a margin below this carbon price.
+            seg += f" (zero at €{spark['breakeven_eua_eur_t']:.0f}/t CO₂)"
+        parts.append(seg + _age_suffix(spark))
     headline = f"{zone_label} · " + " · ".join(parts) if parts else f"{zone_label} · no power data yet"
 
     return {
