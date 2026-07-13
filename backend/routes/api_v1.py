@@ -283,6 +283,60 @@ async def capacity(
     }
 
 
+@router.get("/units")
+def get_production_units(
+    zone: str = Query(..., description="Bidding zone key"),
+    db: Session = Depends(get_db),
+):
+    """The zone's published production units (ENTSO-E A71/A33) — reference data.
+
+    NOT the installed fleet. A71/A33 lists only units above ENTSO-E's ~100 MW publication
+    threshold: DE-LU reports 52 GW here against 295 GW of A68 installed capacity. It is a
+    different population, not a smaller sample — but it IS the population the A77 outages are
+    drawn from, and unlike A68 it exists for all 37 zones.
+    """
+    from backend.models.energy import ProductionUnit
+    from backend.power.entsoe_grid import PSR_LABELS
+
+    year = (
+        db.query(func.max(ProductionUnit.year))
+        .filter(ProductionUnit.zone == zone).scalar()
+    )
+    if year is None:
+        return {"available": False, "zone": zone,
+                "reason": f"No production-unit registry for {zone} yet."}
+
+    rows = (
+        db.query(ProductionUnit)
+        .filter(ProductionUnit.zone == zone, ProductionUnit.year == year)
+        .order_by(ProductionUnit.nominal_mw.desc().nullslast())
+        .all()
+    )
+    total = sum(r.nominal_mw or 0.0 for r in rows)
+    return {
+        "available": True,
+        "zone": zone,
+        "year": year,
+        "units": [
+            {
+                "unit_eic": r.unit_eic,
+                "name": r.name,
+                "psr_type": r.psr_type,
+                "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
+                "nominal_mw": r.nominal_mw,
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+        "published_capacity_mw": round(total, 1),
+        "note": (
+            "Published production units (ENTSO-E A71/A33) — only units above the ~100 MW "
+            "publication threshold, so this is NOT the installed fleet (see /api/v1/capacity, "
+            "A68). It is the population the outage messages are drawn from."
+        ),
+    }
+
+
 @router.get("/series/catalog")
 async def catalog(db: Session = Depends(get_db)):
     """What's queryable: every series (key+unit), enabled zones, and the overall

@@ -139,6 +139,50 @@ def installed_capacity_mw(db, zone: str) -> float | None:
     return float(total) if total else None
 
 
+def published_unit_capacity_mw(db, zone: str) -> float | None:
+    """Total nominal MW of the zone's PUBLISHED production units (ENTSO-E A71/A33).
+
+    A SEPARATE metric from installed_capacity_mw, and deliberately NOT a fallback for it.
+    Measured on prod:
+
+        DE-LU   A71/A33:  133 units,  65,193 MW      FR   A71/A33:  174 units,  93,903 MW
+                A68    :             294,941 MW           A68    :             163,611 MW
+                                     ──────────                                ──────────
+                                      factor 4.5                                factor 1.7
+
+    And the ratio is not even CONSTANT (NL: 2.7), so no correction factor could turn one into
+    the other.
+
+    A71/A33 lists only units above ENTSO-E's ~100 MW publication threshold — a different
+    population, not a smaller sample of the same one. Wiring it in behind installed_capacity_mw
+    would fire the A68-calibrated 3%/8% thresholds against a denominator several times too
+    small, and the 19 A68 zones and the 18 A71 zones would then be measuring different
+    populations under one threshold. That is exactly the cross-zone incomparability
+    outage_history.py forbids in its own docstring.
+
+    What it IS: the same population the A77 outages are drawn from. So "X GW of the zone's Y GW
+    of published >=100 MW units is offline" is an honest sentence — with its own label — and it
+    exists for all 37 zones, including the 18 that have no A68 at all.
+    """
+    from sqlalchemy import func
+
+    from backend.models.energy import ProductionUnit
+
+    year = (
+        db.query(func.max(ProductionUnit.year))
+        .filter(ProductionUnit.zone == zone)
+        .scalar()
+    )
+    if year is None:
+        return None
+    total = (
+        db.query(func.sum(ProductionUnit.nominal_mw))
+        .filter(ProductionUnit.zone == zone, ProductionUnit.year == year)
+        .scalar()
+    )
+    return float(total) if total else None
+
+
 def forced_outage_severity(total_mw: float, installed_mw: float | None) -> str | None:
     """None / "warning" / "critical" for `total_mw` forced offline. Pure — shared
     by the radar detector and the situation-hero flag so they cannot drift."""

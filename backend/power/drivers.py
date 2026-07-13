@@ -217,10 +217,15 @@ def compute_drivers(db: Session, zone: str, *, today: _date | None = None) -> di
     # Forced outages are a LEVEL, not a deviation — there is no hourly outage
     # history in the store yet (that is the outage-time-series work), so this
     # carries no z and says so by omitting one.
-    from backend.signals.detectors.power import forced_outage_mw_now, installed_capacity_mw
+    from backend.signals.detectors.power import (
+        forced_outage_mw_now,
+        installed_capacity_mw,
+        published_unit_capacity_mw,
+    )
 
     forced_mw, _rows = forced_outage_mw_now(db, zone)
     installed = installed_capacity_mw(db, zone)
+    published = published_unit_capacity_mw(db, zone)
     outage = None
     if forced_mw > 0:
         outage = {
@@ -230,6 +235,15 @@ def compute_drivers(db: Session, zone: str, *, today: _date | None = None) -> di
             "unit": "MW",
             "z": None,
             "fleet_pct": round(100.0 * forced_mw / installed, 1) if installed else None,
+            # A SECOND denominator, with its own name — never merged into fleet_pct. A71/A33
+            # publishes only units above ~100 MW (DE-LU: 52 GW vs A68's 295 GW), so it is a
+            # different population, not a smaller sample. But it is the SAME population the
+            # outages themselves come from, and it exists for all 37 zones — including the 18
+            # that have no A68 and therefore no fleet_pct at all.
+            "published_fleet_pct": (
+                round(100.0 * forced_mw / published, 1) if published else None
+            ),
+            "published_fleet_mw": round(published, 1) if published else None,
             "notable": True,
         }
 

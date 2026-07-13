@@ -261,6 +261,55 @@ class InstalledCapacity(Base):
     )
 
 
+class ProductionUnit(Base):
+    """ENTSO-E production units (A71 / processType A33) — the plants behind the EICs.
+
+    PowerOutage has carried `unit_eic` since it was written and has never READ it: a dangling
+    join key waiting for exactly this table. With it, the outage board says "CATTENOM 3" where
+    it used to say `17W100P100P0001A`.
+
+    THIS IS NOT THE INSTALLED FLEET, AND MUST NEVER BE USED AS ONE.
+    A71/A33 lists only production UNITS above ENTSO-E's ~100 MW publication threshold. Measured:
+
+        DE-LU   A71/A33:  133 units,  65,193 MW      FR   A71/A33:  174 units,  93,903 MW
+                A68    :             294,941 MW           A68    :             163,611 MW
+                                     ──────────                                ──────────
+                                      factor 4.5                                factor 1.7
+
+    And the ratio is not even CONSTANT (NL: 2.7), so no correction factor could turn one into
+    the other.
+
+    A different population, not a smaller sample of the same one. Firing forced_outage_severity's
+    A68-calibrated 3%/8% thresholds against a several-times-too-small denominator would fire far more often
+    — and the 19 A68 zones and the 18 A71 zones would then be measuring different populations
+    under one threshold, which is precisely the cross-zone incomparability outage_history.py
+    already forbids. What it IS good for: A71/A33 is the same population the A77 outages are
+    drawn from, so "% of the zone's published >=100 MW units" is an honest number with its own
+    label — and it exists for all 37 zones, including the 18 that have no A68 at all.
+
+    psr_type stores the RAW B-CODE, deliberately. This table exists to join PowerOutage.unit_eic,
+    and PowerOutage.psr_type is a raw code (labelled at read time), while InstalledCapacity and
+    PowerGenMix store the readable LABEL. Choosing the label here would mean joining a labelled
+    table to a coded one — and PSR_LABELS has real gaps (A71/A33 returns B03; the store already
+    holds gen.B25), so PSR_LABELS.get(code, code) is not injective in the way a join needs.
+    """
+
+    __tablename__ = "production_unit"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    unit_eic: Mapped[str] = mapped_column(String, nullable=False, index=True)  # joins PowerOutage
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    psr_type: Mapped[str | None] = mapped_column(String, nullable=True)  # RAW B-code, see above
+    nominal_mw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("unit_eic", "year", name="uq_production_unit_eic_year"),
+    )
+
+
 class PowerOutage(Base):
     """ENTSO-E unavailability of generation/production units (A77/A78/A80).
 

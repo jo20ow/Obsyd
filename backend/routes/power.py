@@ -1623,6 +1623,25 @@ async def get_records(
 _OUTAGE_KIND = {"A53": "planned", "A54": "forced"}
 
 
+def _unit_names_for(db: Session, eics: list[str]) -> dict[str, str]:
+    """{unit_eic: name} for the EICs on this board, in one query.
+
+    The registry keeps a row per (unit_eic, year); the newest year wins, because a plant that
+    was renamed should show its current name against an outage filed last month.
+    """
+    from backend.models.energy import ProductionUnit
+
+    if not eics:
+        return {}
+    rows = (
+        db.query(ProductionUnit.unit_eic, ProductionUnit.name, ProductionUnit.year)
+        .filter(ProductionUnit.unit_eic.in_(set(eics)), ProductionUnit.name.isnot(None))
+        .order_by(ProductionUnit.year.asc())
+        .all()
+    )
+    return {eic: name for eic, name, _year in rows}   # later years overwrite earlier ones
+
+
 @router.get("/outages")
 async def get_outages(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
@@ -1661,6 +1680,12 @@ async def get_outages(
     outages: list[dict] = []
     total_offline = 0.0
     forced_offline = 0.0
+    # Names for the EICs, in ONE query. PowerOutage.unit_eic has been written since the outage
+    # ingest was built and read by nothing; the unit registry (A71/A33) is what it was waiting
+    # for. Hydrating per row would repeat the 0.25 s / 8.5k-entity mistake the outage board has
+    # already made once.
+    unit_names = _unit_names_for(db, [r.unit_eic for r in latest_rows if r.unit_eic])
+
     for r in latest_rows:
         if r.status != "active":
             continue
@@ -1677,7 +1702,10 @@ async def get_outages(
                 forced_offline += offline
         outages.append({
             "mrid": r.mrid,
-            "unit_name": r.unit_name,
+            # The message's own name if it carries one, else the registry's. Many A77 messages
+            # carry no name at all — which is why the board used to print raw EICs.
+            "unit_name": r.unit_name or unit_names.get(r.unit_eic),
+            "unit_eic": r.unit_eic,
             "location": r.location,
             "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
             "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
