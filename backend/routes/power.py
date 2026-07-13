@@ -1415,6 +1415,26 @@ async def get_flows_hourly(
     }
 
 
+# ─── Drivers: why is this zone expensive today? ───────────────────────────────
+
+
+@router.get("/drivers")
+def get_drivers(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    db: Session = Depends(get_db),
+):
+    """The conditions co-occurring with today's price in one zone, ranked by how
+    far each sits from its own norm — plus what physically similar days cleared.
+
+    Descriptive (Posture B): the wording is co-occurrence ("price €142 WHILE wind
+    is 2.8σ below norm"), never causation, and the analogs report what similar
+    days DID clear, never what tomorrow will. See backend/power/drivers.py.
+    """
+    from backend.power.drivers import compute_drivers
+
+    return compute_drivers(db, _resolve_zone(zone))
+
+
 # ─── Borders: where the price series and the flow series finally meet ─────────
 
 
