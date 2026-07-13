@@ -34,6 +34,7 @@ import ImbalancePanel from './components/ImbalancePanel'
 import RecordsPanel from './components/RecordsPanel'
 import BordersPanel from './components/BordersPanel'
 import DriversPanel from './components/DriversPanel'
+import ProductsPanel from './components/ProductsPanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
@@ -580,6 +581,11 @@ function Dashboard() {
               <SectionLabel>PRICES</SectionLabel>
               <ErrorBoundary name="power-dayahead">
                 <PowerDayAheadPanel zone={energyZone} />
+              </ErrorBoundary>
+              {/* Base / Peak: the products Europe actually trades. The daily mean
+                  IS base; the peak price was simply not on the desk before. */}
+              <ErrorBoundary name="power-products">
+                <ProductsPanel zone={energyZone} />
               </ErrorBoundary>
               <ErrorBoundary name="power-imbalance">
                 <ImbalancePanel zone={energyZone} />

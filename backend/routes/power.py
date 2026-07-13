@@ -1415,6 +1415,28 @@ async def get_flows_hourly(
     }
 
 
+# ─── Products: Base / Peak / Off-peak, in market time ─────────────────────────
+
+
+@router.get("/products")
+def get_products(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    """Base, Peak and Off-peak per CET delivery day — the products Europe actually
+    trades. The desk could show a daily mean (which is Base) and a raw 24h shape,
+    but not the peak price a trader reads first. Free tier, descriptive.
+
+    Computed on the CET delivery day, not the UTC calendar day: the products are
+    defined in CET (EPEX Peak = 08:00–20:00 CET, Mon–Fri). See
+    backend/power/products.py.
+    """
+    from backend.power.products import compute_products
+
+    return compute_products(db, _resolve_zone(zone), days=days)
+
+
 # ─── Drivers: why is this zone expensive today? ───────────────────────────────
 
 
