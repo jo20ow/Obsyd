@@ -17,7 +17,10 @@ Per-zone metadata:
                  (None where not yet mapped; completed with the flows generalization)
 
 Cross-border flows: sourced from Fraunhofer Energy-Charts /cbpf (CC BY 4.0,
-energy_charts_flows.py). POWER_BORDERS below is only the /flows route summary list.
+energy_charts_flows.py), which is COUNTRY-level. The border ADJACENCY list lives in
+backend/power/border_registry.py and was swept from ENTSO-E rather than authored — a
+hand-drawn one lived here for a year, went dead with the A11 ingest, and still listed a
+border to GB, which is not a zone.
 """
 
 from __future__ import annotations
@@ -85,15 +88,3 @@ POWER_ZONES: dict[str, dict] = {k: ZONE_REGISTRY[k] for k in ENABLED_ZONES}
 
 # Default zone: DE_LU when enabled, else the first enabled zone.
 DEFAULT_ZONE = "DE_LU" if "DE_LU" in POWER_ZONES else ENABLED_ZONES[0]
-
-# Real cross-border pairs for the /flows route summary (Energy-Charts /cbpf, CC BY 4.0).
-# Block 2 will derive this from the registry; kept explicit for the current 3 zones.
-POWER_BORDERS: list[tuple[str, str]] = [
-    ("BE", "DE_LU"),
-    ("BE", "NL"),
-    ("CH", "DE_LU"),
-    ("CH", "FR"),
-    ("DE_LU", "FR"),
-    ("DE_LU", "NL"),
-    ("FR", "GB"),
-]
