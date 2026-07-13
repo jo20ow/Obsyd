@@ -45,6 +45,7 @@ from backend.models.energy import (
     PowerLoadForecast,
     PowerPriceDaily,
 )
+from backend.power.baseline import BASELINE_DAYS
 from backend.power.coverage import renewable_share_reliable
 from backend.power.energy_charts_flows import ATTRIBUTION
 from backend.power.entsoe_grid import PSR_LABELS
@@ -57,11 +58,14 @@ from backend.signals.detectors.base import severity_from_zscore, trailing_zscore
 SITUATION_STALE_DAYS = 1
 
 #: Trailing window the hero's and the overview's z-scores are measured against.
+#: One definition of "normal" for the whole desk — see backend/power/baseline.py for
+#: what the window length actually does to the claims (it was 120 days, and a 120-day
+#: window in March was mostly reporting that it is March).
 #: Shipped in every situation/overview response as `baseline_days` — the UI
 #: MUST render that number rather than restate it, because restating it is
 #: exactly how the product ended up telling users "~90-day norm" while the code
 #: had been computing 120 (caught 2026-07-12).
-SITUATION_BASELINE_DAYS = 120
+SITUATION_BASELINE_DAYS = BASELINE_DAYS
 
 router = APIRouter(prefix="/api/power", tags=["power"])
 
