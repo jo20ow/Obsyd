@@ -15,7 +15,14 @@ from sqlalchemy.orm import Session
 from backend.collectors.freshness import freshness_meta
 from backend.database import get_db
 from backend.gas import validation
-from backend.models.gas import GasBalance, GasDemandModel, GasLng, GasPowerBurn, GasStorage
+from backend.models.gas import (
+    GasBalance,
+    GasDemandModel,
+    GasLng,
+    GasPowerBurn,
+    GasStorage,
+    GasStorageCountry,
+)
 
 router = APIRouter(prefix="/api/gas", tags=["gas"])
 
@@ -52,6 +59,78 @@ async def get_supply(days: int = Query(90, ge=1, le=1500), db: Session = Depends
     if not rows:
         return {"available": False, "reason": "no flow/lng data yet — run gas_backfill"}
     return {"available": True, "from": date_from, "to": date_to, "data": rows, **_panel_freshness(rows)}
+
+
+@router.get("/storage/countries")
+def get_storage_countries(
+    days: int = Query(90, ge=1, le=1500),
+    country: str | None = Query(None, description="ISO code, e.g. DE, UA, GB*"),
+    db: Session = Depends(get_db),
+):
+    """Storage per country — the level a power desk can actually use.
+
+    "EU storage is 51% full" averages a full Germany with an empty Ukraine, and gas does not
+    flow freely across those borders. The per-country rows were in every payload we fetched
+    since 2023 and were discarded at read time.
+
+    NOTE ON TOTALS: this deliberately returns no cross-country sum. Coverage is a property of
+    who reports to GIE, so an "all countries" TWh figure would be an absolute value we cannot
+    completely capture — the desk's oldest data rule. The EU aggregate at /api/gas/storage IS
+    that total, computed by GIE, and it is the only honest one. Fill % is a ratio inside a
+    single complete country row, and is safe to compare across them.
+    """
+    date_from, date_to = _window(days)
+    q = (
+        db.query(GasStorageCountry)
+        .filter(GasStorageCountry.date >= date_from, GasStorageCountry.date <= date_to)
+    )
+    if country:
+        q = q.filter(GasStorageCountry.country == country)
+    rows = q.order_by(GasStorageCountry.date.asc(), GasStorageCountry.country.asc()).all()
+    if not rows:
+        return {
+            "available": False,
+            "reason": (
+                f"no per-country AGSI rows for {country} yet"
+                if country else
+                "no per-country AGSI data yet — run backfill_gie_countries (cache-only)"
+            ),
+        }
+
+    latest_date = rows[-1].date
+    latest = sorted(
+        (r for r in rows if r.date == latest_date),
+        key=lambda r: (r.fill_pct is None, -(r.fill_pct or 0.0)),
+    )
+    return {
+        "available": True,
+        "data": [
+            {
+                "date": r.date, "country": r.country, "region": r.region, "name": r.name,
+                "stock_twh": r.stock_twh, "fill_pct": r.fill_pct,
+                "injection_gwh": r.injection_gwh, "withdrawal_gwh": r.withdrawal_gwh,
+                "working_gas_twh": r.working_gas_twh,
+                "withdrawal_capacity_gwh": r.withdrawal_capacity_gwh,
+            }
+            for r in rows
+        ],
+        "latest": [
+            {
+                "country": r.country, "region": r.region, "name": r.name,
+                "fill_pct": r.fill_pct, "stock_twh": r.stock_twh,
+                "working_gas_twh": r.working_gas_twh,
+                "withdrawal_capacity_gwh": r.withdrawal_capacity_gwh,
+            }
+            for r in latest
+        ],
+        "note": (
+            "Per-country fill from GIE AGSI. Fill % is a ratio within one country and is "
+            "comparable across them; TWh is only meaningful beside that country's own working "
+            "gas volume. No cross-country total is given — the EU aggregate (/api/gas/storage) "
+            "is GIE's own, and the only complete one. `ne` marks non-EU reporters (UA, GB*)."
+        ),
+        **_panel_freshness(rows),
+    }
 
 
 @router.get("/storage")
