@@ -27,6 +27,7 @@ from backend.signals.detectors.base import is_stale
 from backend.signals.detectors.gas import detect_gas_balance
 from backend.signals.detectors.power import (
     detect_dunkelflaute,
+    detect_episode_rank,
     detect_forced_outages,
     detect_hydro_deviations,
     detect_imbalance_extremes,
@@ -53,6 +54,7 @@ DETECTORS = [
     detect_price_spikes,
     detect_hydro_deviations,
     detect_record_breaks,
+    detect_episode_rank,
 ]
 
 

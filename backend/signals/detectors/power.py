@@ -642,3 +642,79 @@ def detect_record_breaks(db) -> list[DetectorResult]:
             )
         )
     return results
+
+
+#: An active episode is only worth interrupting an analyst for if it is genuinely unusual for
+#: the zone. Top 3 by duration in its own record — a sentence the radar could not say before,
+#: because it only ever saw today.
+EPISODE_RANK_TOP_N = 3
+
+#: Ranking against a thin record is a statement about our coverage, not about the grid. The same
+#: argument, and the same number, as records.py::RECORD_MIN_COVERAGE_DAYS.
+EPISODE_MIN_HISTORY_DAYS = 365
+
+_EPISODE_LABELS = {
+    "dunkelflaute": "Dunkelflaute",
+    "negative_prices": "negative-price run",
+    "price_spike": "price spike",
+}
+
+
+def detect_episode_rank(db) -> list[DetectorResult]:
+    """An episode that is RUNNING and ranks in the top N of its zone's own record.
+
+    The payoff of the episode archive, and the sentence the radar has never been able to say:
+
+        "DE-LU: Dunkelflaute running 3 days — 2nd-longest in our 5-year record
+         (longest: 4 days, 2021-04-29)."
+
+    Past tense, the zone's own history, a sample size, and no claim about tomorrow. "Running"
+    means the episode reaches the newest day we hold — not that it will continue.
+    """
+    from backend.models.energy import PowerEpisode
+    from backend.power.episodes import KINDS, zone_episodes
+
+    zones = [z for (z,) in db.query(PowerEpisode.zone).distinct().all()]
+    results: list[DetectorResult] = []
+
+    for zone in zones:
+        for kind in KINDS:
+            data = zone_episodes(db, zone, kind)
+            active = data.get("active")
+            rank = data.get("rank") or {}
+            if not active or rank.get("position") is None:
+                continue
+            if data.get("history_days", 0) < EPISODE_MIN_HISTORY_DAYS:
+                continue
+            if rank["position"] > EPISODE_RANK_TOP_N:
+                continue
+
+            label = _EPISODE_LABELS.get(kind, kind)
+            years = data["history_days"] // 365
+            results.append(
+                DetectorResult(
+                    rule="episode_rank",
+                    zone=zone,
+                    vertical="power",
+                    severity="warning" if rank["position"] == 1 else "info",
+                    title=(
+                        f"{zone}: {label} running {active['duration_days']} days — "
+                        f"{_ordinal(rank['position'])}-longest on record"
+                    ),
+                    detail=(
+                        f"{active['start_date']} → {active['end_date']}. "
+                        f"{_ordinal(rank['position'])}-longest of {rank['of']} "
+                        f"{label}s in {years} years of {zone} data "
+                        f"(longest: {rank['longest_days']} days, from {rank['longest_start']})."
+                    ),
+                    as_of=active["end_date"],
+                )
+            )
+    return results
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:          # 11th, 12th, 13th — not 11st
+        return f"{n}th"
+    suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"

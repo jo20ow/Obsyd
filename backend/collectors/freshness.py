@@ -20,6 +20,7 @@ from sqlalchemy import func
 
 from backend.models.energy import (
     EnergyPrice,
+    PowerEpisode,
     PowerFlow,
     PowerGrid,
     PowerHourly,
@@ -99,6 +100,9 @@ SPECS += [
     # Day-ahead market net position (A25). One probe across all zones: "is the collector alive".
     FreshnessSpec("net_position", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="netpos.dayahead"),
+    # Episodes are DERIVED, not ingested — so the probe asks whether the nightly recompute ran,
+    # not whether a feed arrived. A silent episode engine looks exactly like a quiet Europe.
+    FreshnessSpec("episodes", PowerEpisode, "updated_at", timedelta(days=2)),
     # The outage snapshot is the ONE series that cannot be backfilled: A77 takes an
     # unavailability down once it is over, so an hour the recorder missed is gone for
     # good. It must therefore be the tightest window on the desk — a day of silence is
