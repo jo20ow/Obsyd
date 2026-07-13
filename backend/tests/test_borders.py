@@ -33,10 +33,14 @@ def _client(db):
 
 @pytest.fixture(autouse=True)
 def _clear_overrides():
+    from backend.power.borders import reset_rail_cache
+
+    reset_rail_cache()  # the rail cache is module-level; never leak it between tests
     yield
     from backend.main import app
 
     app.dependency_overrides.clear()
+    reset_rail_cache()
 
 
 def _hours(n: int, end: datetime = _NOW) -> list[int]:
@@ -201,3 +205,37 @@ def test_sql_rail_threshold_equals_the_python_percentile(db_session):
     sql = _rail_thresholds(db_session, min(ts))
     py = percentile([abs(v) for v in values], RAIL_PERCENTILE)
     assert sql[("DE_LU", "FR")] == pytest.approx(py)
+
+
+def test_rail_cache_recomputes_only_after_its_ttl(db_session):
+    """The rail threshold is a 365-day statistic — it must not be re-ranked on
+    every request (that cost 1.4s on prod), and it must not go stale forever."""
+    from datetime import timedelta
+
+    from backend.power.borders import (
+        RAIL_CACHE_TTL_SECONDS,
+        rail_thresholds_cached,
+        reset_rail_cache,
+    )
+
+    reset_rail_cache()
+    ts = _hours(30)
+    upsert_hourly(db_session, "flow.FR", "DE_LU", [(t, 1_000.0) for t in ts], unit="MW")
+
+    t0 = datetime(2026, 7, 12, 8, 0, tzinfo=timezone.utc)
+    first, at1 = rail_thresholds_cached(db_session, min(ts), now=t0)
+    assert first[("DE_LU", "FR")] == 1_000.0 and at1 == t0
+
+    # New, much larger flows arrive — inside the TTL the cached value must hold.
+    upsert_hourly(db_session, "flow.FR", "DE_LU",
+                  [(t + 3600 * 100, 9_000.0) for t in ts], unit="MW")
+    cached, at2 = rail_thresholds_cached(db_session, min(ts),
+                                         now=t0 + timedelta(seconds=RAIL_CACHE_TTL_SECONDS - 1))
+    assert cached[("DE_LU", "FR")] == 1_000.0, "still the cached value"
+    assert at2 == t0, "and the response says when it was computed"
+
+    fresh, at3 = rail_thresholds_cached(db_session, min(ts),
+                                        now=t0 + timedelta(seconds=RAIL_CACHE_TTL_SECONDS))
+    assert fresh[("DE_LU", "FR")] == 9_000.0, "past the TTL it recomputes"
+    assert at3 > at2
+    reset_rail_cache()
