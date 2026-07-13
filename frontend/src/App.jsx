@@ -32,6 +32,7 @@ import OutagePanel from './components/OutagePanel'
 import RecordChip from './components/RecordChip'
 import ImbalancePanel from './components/ImbalancePanel'
 import RecordsPanel from './components/RecordsPanel'
+import CapturePanel from './components/CapturePanel'
 import BordersPanel from './components/BordersPanel'
 import DriversPanel from './components/DriversPanel'
 import ProductsPanel from './components/ProductsPanel'
@@ -675,6 +676,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="merit-order">
                 <MeritOrderScatter zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="power-capture">
+                <CapturePanel zone={energyZone} />
               </ErrorBoundary>
             </div>
             <div className="mt-3">
