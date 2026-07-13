@@ -185,3 +185,19 @@ def test_latest_flow_is_the_latest_FLOW_hour_not_the_latest_price_hour():
     m = border_metrics(prices, prices_b, flow, rail_threshold=1000.0)
     assert m["latest_flow_mw"] == 700.0, "must not read the flow at a future price hour"
     assert m["spread_as_of"] > m["flow_as_of"], "prices reach further than flows"
+
+
+def test_sql_rail_threshold_equals_the_python_percentile(db_session):
+    """Speed must not cost correctness: the SQL nearest-rank must land on exactly
+    the same value the pure percentile() helper does — otherwise 'at the rail'
+    quietly means something different than the docs say."""
+    from backend.power.borders import RAIL_PERCENTILE, _rail_thresholds
+
+    ts = _hours(50)
+    # deliberately lumpy, with negatives (import hours) so |flow| matters
+    values = [(-1) ** i * (100.0 * i + 7.0) for i in range(len(ts))]
+    upsert_hourly(db_session, "flow.FR", "DE_LU", list(zip(ts, values)), unit="MW")
+
+    sql = _rail_thresholds(db_session, min(ts))
+    py = percentile([abs(v) for v in values], RAIL_PERCENTILE)
+    assert sql[("DE_LU", "FR")] == pytest.approx(py)
