@@ -40,6 +40,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
@@ -148,6 +149,10 @@ def _flow_rows(db: Session, start_ts: int) -> dict[tuple[str, str], dict[int, fl
     """Every hourly cross-border flow since `start_ts`, keyed by canonical border.
 
     One query for all borders — the per-border alternative was 26 round trips.
+    Call this for the DISPLAY window only: a year of flows is ~400k rows, and
+    materialising those through the ORM took 36 s on prod. The rail threshold,
+    the only thing that needs the long history, is computed in SQL instead
+    (_rail_thresholds).
     """
     rows = (
         db.query(SeriesDim.key, ZoneDim.key, PowerHourly.ts_utc, PowerHourly.value)
@@ -161,6 +166,36 @@ def _flow_rows(db: Session, start_ts: int) -> dict[tuple[str, str], dict[int, fl
         to_zone = series_key[len("flow."):]
         out.setdefault((from_zone, to_zone), {})[int(ts)] = float(value)
     return out
+
+
+def _rail_thresholds(db: Session, start_ts: int) -> dict[tuple[str, str], float]:
+    """The RAIL_PERCENTILE of |flow| per border, computed in SQL.
+
+    Nearest-rank, identical to `percentile()` (pinned by test) — SQLite ranks the
+    year of flows and returns one row per border instead of 400k rows to Python.
+    """
+    sql = text("""
+        WITH ranked AS (
+            SELECT s.key AS skey,
+                   z.key AS zkey,
+                   ABS(h.value) AS av,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY h.series_id, h.zone_id ORDER BY ABS(h.value)
+                   ) AS rn,
+                   COUNT(*) OVER (PARTITION BY h.series_id, h.zone_id) AS cnt
+            FROM power_hourly h
+            JOIN series_dim s ON s.id = h.series_id
+            JOIN zone_dim z ON z.id = h.zone_id
+            WHERE s.key LIKE 'flow.%' AND h.ts_utc >= :start
+        )
+        SELECT skey, zkey, av FROM ranked
+        WHERE rn = CAST(ROUND(:q * (cnt - 1)) AS INTEGER) + 1
+    """)
+    rows = db.execute(sql, {"start": start_ts, "q": RAIL_PERCENTILE}).all()
+    return {
+        (zkey, skey[len("flow."):]): float(av)
+        for skey, zkey, av in rows
+    }
 
 
 def _price_rows(db: Session, zones: set[str], start_ts: int) -> dict[str, dict[int, float]]:
@@ -185,26 +220,24 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
     window_start = int((now - timedelta(days=days)).timestamp())
     rail_start = int((now - timedelta(days=RAIL_BASELINE_DAYS)).timestamp())
 
-    all_flows = _flow_rows(db, rail_start)
-    if not all_flows:
+    window_flows = _flow_rows(db, window_start)
+    if not window_flows:
         return {"available": False,
                 "reason": "No cross-border flow series yet — check back shortly."}
+    rails = _rail_thresholds(db, rail_start)
 
     priced = set(POWER_ZONES)
-    joinable = {b for b in all_flows if b[0] in priced and b[1] in priced}
+    joinable = {b for b in window_flows if b[0] in priced and b[1] in priced}
     uncoverable = sorted(
-        f"{a}-{b}" for a, b in all_flows if (a, b) not in joinable
+        f"{a}-{b}" for a, b in window_flows if (a, b) not in joinable
     )
 
     prices = _price_rows(db, {z for b in joinable for z in b}, window_start)
 
     out = []
     for a, b in sorted(joinable):
-        flow_full = all_flows[(a, b)]
-        rail = percentile([abs(v) for v in flow_full.values()], RAIL_PERCENTILE)
-        flow_window = {t: v for t, v in flow_full.items() if t >= window_start}
         m = border_metrics(
-            prices.get(a, {}), prices.get(b, {}), flow_window, rail
+            prices.get(a, {}), prices.get(b, {}), window_flows[(a, b)], rails.get((a, b))
         )
         if not m["hours"]:
             continue
@@ -251,9 +284,9 @@ def compute_spread(db: Session, a: str, b: str, days: int = 30,
     if zone_a not in POWER_ZONES or zone_b not in POWER_ZONES:
         return {"available": False, "reason": f"Unknown zone in border {a}-{b}."}
 
-    flows = _flow_rows(db, rail_start)
-    flow_full = flows.get((zone_a, zone_b))
-    if flow_full is None:
+    window_flows = _flow_rows(db, window_start)
+    flow_window = window_flows.get((zone_a, zone_b))
+    if flow_window is None:
         return {
             "available": False,
             "zone_a": zone_a, "zone_b": zone_b,
@@ -265,8 +298,7 @@ def compute_spread(db: Session, a: str, b: str, days: int = 30,
         }
 
     prices = _price_rows(db, {zone_a, zone_b}, window_start)
-    rail = percentile([abs(v) for v in flow_full.values()], RAIL_PERCENTILE)
-    flow_window = {t: v for t, v in flow_full.items() if t >= window_start}
+    rail = _rail_thresholds(db, rail_start).get((zone_a, zone_b))
     m = border_metrics(prices.get(zone_a, {}), prices.get(zone_b, {}), flow_window, rail)
     if not m["hours"]:
         return {
