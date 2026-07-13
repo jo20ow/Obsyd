@@ -66,9 +66,26 @@ def detect_negative_prices(db) -> list[DetectorResult]:
 
 
 def detect_dunkelflaute(db) -> list[DetectorResult]:
-    """Latest day where wind+solar cover an unusually small share of load, per zone."""
+    """A day when wind+solar deliver unusually little FOR THIS ZONE, IN THIS MONTH.
+
+    The old test was a flat 15% of load, asked of all 37 zones. On prod that left the radar
+    standing at 27 simultaneous Dunkelflaute alerts — 77% of its entire output — led by
+    "NO5: Dunkelflaute — renewables 0% of load". NO5 is hydro: it has no wind and no solar, and
+    that sentence describes its fleet, not an event. NO1, NO5 and SK were below the threshold on
+    100% of all days in the record.
+
+    Now: the zone must HAVE a wind/solar fleet worth the word, and today must be in the bottom
+    2% of that zone's own same-month history AND below the absolute threshold. Calibrated on the
+    full record: 1.41% of zone-days, ~0.4 alerts a day across Europe, and 36 Dunkelflaute days
+    for DE-LU in 5.5 years — about six a winter, which is what a German Dunkelflaute is.
+    See backend/power/dunkelflaute.py.
+    """
+    from backend.power.dunkelflaute import is_dunkelflaute, zone_thresholds
+
     zones = [z for (z,) in db.query(PowerGrid.zone).distinct().all()]
     results: list[DetectorResult] = []
+    thresholds_by_month: dict[str, dict] = {}
+
     for zone in zones:
         row = (
             db.query(PowerGrid)
@@ -79,13 +96,20 @@ def detect_dunkelflaute(db) -> list[DetectorResult]:
         if row is None or not row.load_mw or row.load_mw <= 0:
             continue
         share = ((row.wind_mw or 0.0) + (row.solar_mw or 0.0)) / row.load_mw
-        if share >= DUNKELFLAUTE_THRESHOLD:
+
+        month = row.date[5:7]
+        if month not in thresholds_by_month:      # one query per month, not per zone
+            thresholds_by_month[month] = zone_thresholds(db, month)
+        threshold = thresholds_by_month[month].get(zone, {})
+        if not is_dunkelflaute(share, threshold):
             continue
+
         # Coverage guard: only trust a low renewable share when the zone's reported
         # generation plausibly covers its load. ENTSO-E A75 is incomplete for some
         # zones (NL), which fakes a near-zero share — suppress rather than cry wolf.
         if not renewable_share_reliable(db, row.date, zone, row.load_mw):
             continue
+
         results.append(
             DetectorResult(
                 rule="dunkelflaute",
@@ -94,8 +118,10 @@ def detect_dunkelflaute(db) -> list[DetectorResult]:
                 severity="warning",
                 title=f"{zone}: Dunkelflaute — renewables {share * 100:.0f}% of load",
                 detail=(
-                    f"Wind+solar only {share * 100:.1f}% of load on {row.date} (<15% threshold); "
-                    f"residual load carried by conventional generation."
+                    f"Wind+solar carried only {share * 100:.1f}% of load on {row.date} — the "
+                    f"bottom 2% of {zone}'s own record for this month "
+                    f"(n={threshold['n_month']}; a normal day is {threshold['median_share'] * 100:.0f}%). "
+                    f"Residual load carried by conventional generation."
                 ),
                 as_of=row.date,
             )

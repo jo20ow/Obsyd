@@ -319,7 +319,29 @@ def test_flow_anomaly_insufficient_history_no_fire(db_session):
 # ─── Phase B: dunkelflaute / rerouting / chokepoint ───────────────────────────
 
 
+def _seed_dunkelflaute_history(db, zone="DE_LU", *, normal_share=0.40, years=3):
+    """A zone with a REAL wind/solar fleet and a history to be unusual against.
+
+    Both are load-bearing. The old detector needed neither — it asked one flat question of every
+    zone — which is how the radar ended up standing at 27 simultaneous Dunkelflaute alerts, led
+    by "NO5: renewables 0% of load" for a zone that is pure hydro.
+    """
+    from datetime import date, timedelta
+
+    day = date(2026, 6, 24)
+    for i in range(1, years * 365):
+        d = day - timedelta(days=i)
+        if d.month != 6:               # same-month history is what the tail is measured against
+            continue
+        wind = 60_000 * normal_share * 0.6
+        solar = 60_000 * normal_share * 0.4
+        db.add(PowerGrid(date=d.isoformat(), zone=zone, load_mw=60_000,
+                         wind_mw=wind, solar_mw=solar))
+
+
 def test_dunkelflaute_warns(db_session):
+    """The real thing: a zone with a 40% normal renewable share dropping to 8%."""
+    _seed_dunkelflaute_history(db_session)
     db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000))  # ~8%
     # Complete generation coverage (~60 GW ≈ load) → the low renewable share is real.
     db_session.add(PowerGenMix(date="2026-06-24", zone="DE_LU", psr_type="Fossil Gas", gen_mw=40000))
@@ -329,10 +351,42 @@ def test_dunkelflaute_warns(db_session):
     db_session.commit()
     r = detect_dunkelflaute(db_session)[0]
     assert r.vertical == "power" and r.rule == "dunkelflaute" and r.severity == "warning"
+    assert "bottom 2%" in r.detail, "the claim is relative to the zone's own record"
 
 
 def test_dunkelflaute_high_renewables_suppressed(db_session):
+    _seed_dunkelflaute_history(db_session)
     db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=30000, solar_mw=15000))  # 75%
+    db_session.commit()
+    assert detect_dunkelflaute(db_session) == []
+
+
+def test_a_hydro_zone_is_never_in_a_dunkelflaute(db_session):
+    """THE bug, as it stood on prod: "NO5: Dunkelflaute — renewables 0% of load", every single
+    day. NO5 is hydro — it has no wind and no solar, and never has. The sentence describes its
+    fleet, not an event. NO1, NO5 and SK were below the flat threshold on 100% of ALL days.
+
+    A fixture with a wind fleet cannot express this bug; the zone must have none."""
+    from datetime import date, timedelta
+
+    day = date(2026, 6, 24)
+    for i in range(1, 3 * 365):
+        d = day - timedelta(days=i)
+        if d.month != 6:
+            continue
+        # Pure hydro: a 2% renewable share, every day, forever. Nothing here is an event.
+        db_session.add(PowerGrid(date=d.isoformat(), zone="NO5", load_mw=10_000,
+                                 wind_mw=200, solar_mw=0))
+    db_session.add(PowerGrid(date="2026-06-24", zone="NO5", load_mw=10_000, wind_mw=0, solar_mw=0))
+    db_session.commit()
+
+    assert detect_dunkelflaute(db_session) == [], "0% of load is NO5's normal, not its emergency"
+
+
+def test_a_zone_with_no_history_for_this_month_makes_no_claim(db_session):
+    """Without a same-month record there is no tail to be in, so there is nothing to say."""
+    db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000,
+                             wind_mw=3000, solar_mw=2000))
     db_session.commit()
     assert detect_dunkelflaute(db_session) == []
 
