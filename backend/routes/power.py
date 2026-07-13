@@ -1459,6 +1459,30 @@ def get_capture(
     return compute_capture(db, _resolve_zone(zone), months=months)
 
 
+@router.get("/episodes")
+def get_episodes(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    kind: str = Query("dunkelflaute", description="dunkelflaute | negative_prices | price_spike"),
+    db: Session = Depends(get_db),
+):
+    """Grid stress as EPISODES — runs of consecutive days, ranked against the zone's own record.
+
+    The radar only ever saw today: "DE-LU is in a Dunkelflaute". It could not say "and this is
+    the fourth-longest in five years", which is the sentence that decides whether to care. And it
+    could not have learned to — the alert table mutates its rows in place, so the history was
+    never written. Episodes are re-derived nightly from the published record.
+
+    Descriptive (Posture B): what has happened and how it compares to what happened before. An
+    "active" episode is one that reaches the newest day we hold — not a claim that it continues.
+    """
+    from backend.power.episodes import KINDS, zone_episodes
+
+    if kind not in KINDS:
+        return {"available": False, "reason": f"Unknown episode kind {kind}.",
+                "kinds": list(KINDS)}
+    return zone_episodes(db, _resolve_zone(zone), kind)
+
+
 # ─── Drivers: why is this zone expensive today? ───────────────────────────────
 
 

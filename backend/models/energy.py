@@ -373,3 +373,42 @@ class PowerRecord(Base):
     __table_args__ = (
         UniqueConstraint("series_key", "zone", "kind", name="uq_power_record_series_zone_kind"),
     )
+
+
+class PowerEpisode(Base):
+    """A stretch of grid stress as an OBJECT, not a daily flag.
+
+    Grid stress is an episode: a Dunkelflaute runs for days, a negative-price weekend for a
+    weekend. The radar only ever saw today. Worse, it could not have been taught otherwise from
+    what it stored — `_upsert_alert` mutates the existing Alert row in place, slides created_at
+    forward and DELETES older duplicates, so a five-day run collapses into one row that claims
+    nothing about duration. The history was never written.
+
+    So episodes are RE-DERIVED from the canonical series, nightly, in full — exactly the
+    doctrine PowerRecord already follows. No incremental state means no state to corrupt.
+
+    `depth_date` is the evidence pointer (records.py's discipline): the day the episode was at
+    its worst, so a reader can go and look.
+
+    Day grain, deliberately: the predicates live on PowerGrid and PowerPriceDaily, both daily.
+    An hour-grained duration would be a precision we do not have.
+    """
+
+    __tablename__ = "power_episode"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False, index=True)   # see episodes.KINDS
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    start_date: Mapped[str] = mapped_column(String, nullable=False)         # YYYY-MM-DD
+    end_date: Mapped[str] = mapped_column(String, nullable=False)
+    duration_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    depth: Mapped[float] = mapped_column(Float, nullable=False)             # the worst value
+    depth_date: Mapped[str] = mapped_column(String, nullable=False)         # …and when
+    mean_value: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)             # active | resolved
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow,
+                                                 onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("kind", "zone", "start_date", name="uq_power_episode_kind_zone_start"),
+    )

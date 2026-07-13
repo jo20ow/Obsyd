@@ -347,6 +347,25 @@ async def _run_outages():
         db.close()
 
 
+async def _run_episodes_nightly():
+    """Re-derive every grid-stress episode from the canonical series.
+
+    A full recompute, like the records job: no incremental state means no state to corrupt, and
+    a rerun is always correct. It also RETRACTS — an episode a later revision of the data no
+    longer supports disappears, rather than sitting in the archive forever.
+    """
+    from backend.power.episodes import compute_episodes
+
+    db = SessionLocal()
+    try:
+        result = compute_episodes(db)
+        logger.info("episodes nightly: %s", result)
+    except Exception as exc:
+        logger.error("_run_episodes_nightly failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_outage_snapshot():
     """Write down how much capacity is offline RIGHT NOW, every hour.
 
@@ -421,6 +440,9 @@ def start_scheduler():
     scheduler.add_job(_run_outage_snapshot, CronTrigger(minute=45), id="outage_snapshot_hourly", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
+    # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical
+    # store, no incremental state), and it wants the same freshly-ingested day underneath it.
+    scheduler.add_job(_run_episodes_nightly, CronTrigger(hour=23, minute=50), id="episodes_nightly", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)

@@ -33,6 +33,7 @@ import OutagePanel from './components/OutagePanel'
 import RecordChip from './components/RecordChip'
 import ImbalancePanel from './components/ImbalancePanel'
 import RecordsPanel from './components/RecordsPanel'
+import EpisodeArchivePanel from './components/EpisodeArchivePanel'
 import CapturePanel from './components/CapturePanel'
 import BordersPanel from './components/BordersPanel'
 import DriversPanel from './components/DriversPanel'
@@ -689,6 +690,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="power-capture">
                 <CapturePanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="power-episodes">
+                <EpisodeArchivePanel zone={energyZone} />
               </ErrorBoundary>
             </div>
             <div className="mt-3">

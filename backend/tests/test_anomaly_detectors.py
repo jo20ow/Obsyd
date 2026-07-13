@@ -269,7 +269,8 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
 
 
 def test_detector_registry_count(db_session):
-    assert len(DETECTORS) == 8  # gas/negative_prices/dunkelflaute/forced_outages + imbalance_extreme/price_spike/hydro_deviation/record_break
+    assert len(DETECTORS) == 9  # gas/negative_prices/dunkelflaute/forced_outages
+    # + imbalance_extreme/price_spike/hydro_deviation/record_break/episode_rank
 
 
 # ─── flow_anomaly (legacy maritime check) — baseline + onset cure ─────────────
