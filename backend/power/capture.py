@@ -232,6 +232,10 @@ def _aggregate(db: Session, zone: str, start_ts: int) -> tuple[dict, dict]:
             "generation_gwh": round(total_gen / 1000.0, 1),  # hourly MW → MWh → GWh
             "capture_price": round(pxg / total_gen, 2),
             "negative_gen_pct": round(100.0 * (neg_gen or 0.0) / total_gen, 1),
+            # Unrounded, and it matters: the value factor divides this by the baseload, and
+            # a numerator already rounded to cents moves the third decimal of the ratio.
+            # Round the inputs OR round the result — doing both rounds twice.
+            "_capture_raw": pxg / total_gen,
         }
     return price_months, fuels
 
@@ -288,10 +292,12 @@ def compute_capture(
                 continue
             rows.append({
                 "month": month,
-                **m,
+                **{k: v for k, v in m.items() if not k.startswith("_")},
                 "baseload_price": round(bl, 2),
-                # A ratio through zero is a number, not a meaning.
-                "value_factor": round(m["capture_price"] / bl, 3) if bl > 0 else None,
+                # From the RAW capture price against the RAW baseload: rounding the
+                # numerator first and the ratio after rounds twice, and it shows in the
+                # third decimal. A ratio through zero is a number, not a meaning.
+                "value_factor": round(m["_capture_raw"] / bl, 3) if bl > 0 else None,
             })
         if rows:
             fuels.append(
