@@ -65,6 +65,56 @@ class GasLng(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class GasStorageCountry(Base):
+    """AGSI storage PER COUNTRY — the level a power desk actually needs.
+
+    "EU storage is 51% full" is nearly useless to anyone reading a bidding zone: gas is not
+    fungible across borders, and the EU number averages a full Germany with an empty
+    Ukraine. The per-country rows have been inside every payload we fetched since 2023 and
+    were thrown away at read time (`gie._eu_row` kept only `code == "eu"`).
+
+    `region` records WHICH root of the payload the row came from, because that is a fact
+    about the data and not an implementation detail: `eu` is the EU aggregate's children,
+    `ne` is Non-EU — and `ne` is where Ukraine (77 TWh) and the real post-Brexit GB live.
+    Dropping it, as the old code did, silently deleted the two most trade-relevant
+    non-member countries in the file.
+    """
+
+    __tablename__ = "gas_storage_country"
+
+    date: Mapped[str] = mapped_column(String, primary_key=True)
+    country: Mapped[str] = mapped_column(String, primary_key=True)   # "DE", "UA", "GB*"
+    region: Mapped[str] = mapped_column(String)                      # "eu" | "ne"
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    stock_twh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injection_gwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    withdrawal_gwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fill_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # The capacity columns the EU-only schema never had — what makes a fill % readable as a
+    # volume, and the only honest way to show TWh (beside the country's OWN working gas).
+    working_gas_twh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    injection_capacity_gwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    withdrawal_capacity_gwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trend: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class GasLngCountry(Base):
+    """ALSI LNG send-out + inventory PER COUNTRY. Same story as GasStorageCountry."""
+
+    __tablename__ = "gas_lng_country"
+
+    date: Mapped[str] = mapped_column(String, primary_key=True)
+    country: Mapped[str] = mapped_column(String, primary_key=True)
+    region: Mapped[str] = mapped_column(String)                      # "eu" | "ne" — never "ai"
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    send_out_gwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inventory_twh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dtmi_twh: Mapped[float | None] = mapped_column(Float, nullable=True)   # declared max inventory
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # ─── Phase 2-4 seams: created, unpopulated in Phase 1 ────────────────────────
 
 

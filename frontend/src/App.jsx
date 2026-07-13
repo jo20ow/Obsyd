@@ -13,6 +13,7 @@ import PriceTicker from './components/PriceTicker'
 import AlertRulesPanel from './components/AlertRulesPanel'
 import GasBalancePanel from './components/GasBalancePanel'
 import GasStoragePanel from './components/GasStoragePanel'
+import GasStorageCountriesPanel from './components/GasStorageCountriesPanel'
 import GasSupplyPanel from './components/GasSupplyPanel'
 import GasDemandPanel from './components/GasDemandPanel'
 import PowerDayAheadPanel from './components/PowerDayAheadPanel'
@@ -540,6 +541,13 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="gas-demand">
                 <GasDemandPanel />
+              </ErrorBoundary>
+            </div>
+
+            {/* Row 3: which country is actually short — the EU average hides it */}
+            <div className="mt-3">
+              <ErrorBoundary name="gas-storage-countries">
+                <GasStorageCountriesPanel />
               </ErrorBoundary>
             </div>
           </>

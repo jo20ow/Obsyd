@@ -27,7 +27,7 @@ from backend.models.energy import (
     PowerPriceDaily,
     SeriesDim,
 )
-from backend.models.gas import GasBalance
+from backend.models.gas import GasBalance, GasStorageCountry
 from backend.models.prices import EIAPrice, FREDSeries
 from backend.models.sentiment import GDELTVolume
 from backend.models.vessels import VesselPosition
@@ -60,6 +60,11 @@ SPECS: list[FreshnessSpec] = [
     # Delivery-date probes (product-critical — the ones that were unmonitored).
     FreshnessSpec("power_flows", PowerFlow, "date", timedelta(days=3), is_date_string=True),
     FreshnessSpec("gas_balance", GasBalance, "date", timedelta(days=3), is_date_string=True),
+    # The per-country layer rides the SAME payload as the EU aggregate, so if it goes stale
+    # while gas_balance does not, the country walk broke — not the feed. That is worth being
+    # able to tell apart, which is why it gets its own probe rather than sharing one.
+    FreshnessSpec("gas_storage_country", GasStorageCountry, "date", timedelta(days=3),
+                  is_date_string=True),
     FreshnessSpec("ttf", EnergyPrice, "date", timedelta(days=4),
                   is_date_string=True, filter_col="symbol", filter_val="TTF"),
     FreshnessSpec("copper", EnergyPrice, "date", timedelta(days=4),
