@@ -93,8 +93,11 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
 
   const priceColor = price.z != null && Math.abs(price.z) >= 2 ? st.text : 'text-neutral-200'
   const residColor = grid.z != null && Math.abs(grid.z) >= 2 ? st.text : 'text-neutral-200'
-  const sparkColor = spark.spark_spread == null ? 'text-neutral-500'
-    : spark.spark_spread >= 0 ? 'text-green-glow' : 'text-orange-400'
+  // NOT green-when-positive. This is the spread BEFORE carbon, and at 2026 EUA prices the cost
+  // of carbon (~€30/MWh for a CCGT) flips the sign across most of Europe. Painting a dirty spread
+  // green told a power analyst that gas generation is profitable in Germany when it is not.
+  // Neutral — the break-even carbon price below it carries the meaning.
+  const sparkColor = spark.dirty_spark_spread == null ? 'text-neutral-500' : 'text-neutral-200'
 
   return (
     <div className={`border ${st.border} bg-surface rounded overflow-hidden`}>
@@ -169,9 +172,17 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
             band={grid.z != null && <ReferenceBand z={grid.z} baselineN={grid.baseline_n} className="mt-1.5" />}
           />
           <Metric
-            label="Spark spread"
-            value={spark.spark_spread != null ? `${spark.spark_spread >= 0 ? '+' : ''}€${spark.spark_spread.toFixed(0)}` : '—'}
-            sub={spark.available ? 'CCGT margin' : 'no data yet'}
+            label="Dirty spark"
+            value={spark.dirty_spark_spread != null ? `${spark.dirty_spark_spread >= 0 ? '+' : ''}€${spark.dirty_spark_spread.toFixed(0)}` : '—'}
+            /* Not "CCGT margin" — it is only a margin BELOW this carbon price. Above it, the
+               plant loses money on the day-ahead, and the desk used to say the opposite. */
+            sub={
+              spark.available
+                ? (spark.breakeven_eua_eur_t != null
+                  ? `zero at €${spark.breakeven_eua_eur_t.toFixed(0)}/t CO₂`
+                  : 'negative before carbon')
+                : 'no data yet'
+            }
             color={sparkColor}
             comp={spark}
           />

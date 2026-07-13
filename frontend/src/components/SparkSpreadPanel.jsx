@@ -38,8 +38,11 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
 
   const rows = data?.data ?? []
   const latest = data?.latest
-  const spread = latest?.spark_spread
-  const spreadColor = spread == null ? '#737373' : spread >= 0 ? '#4ade80' : '#fb923c'
+  const spread = latest?.dirty_spark_spread
+  const breakeven = latest?.breakeven_eua_eur_t
+  // Never green-for-positive: this is the spread BEFORE carbon, and a positive one is not a
+  // profit. The panel used to colour it green and call it a CCGT margin.
+  const spreadColor = spread == null ? '#737373' : '#e5e5e5'
 
   return (
     <Panel
@@ -80,10 +83,13 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
                   {latest.power_price != null ? `${latest.power_price.toFixed(1)} €/MWh` : '—'}
                 </span>
               </div>
+              {/* The raw TTF close used to sit here. It is Yahoo's copy of the ICE Endex
+                  front-month — licensed exchange data this project does not redistribute — and
+                  the break-even carbon price is the number a reader actually needs. */}
               <div className="font-mono text-[10px] text-neutral-500">
-                <span className="text-neutral-600">GAS</span>{' '}
-                <span className="text-neutral-300">
-                  {latest.gas_price != null ? `${latest.gas_price.toFixed(2)} €/MWh` : '—'}
+                <span className="text-neutral-600">ZERO AT</span>{' '}
+                <span className={breakeven != null ? 'text-amber-400' : 'text-neutral-600'}>
+                  {breakeven != null ? `€${breakeven.toFixed(0)}/t CO₂` : 'already negative'}
                 </span>
               </div>
               <div className="font-mono text-[10px] text-neutral-500">
@@ -124,7 +130,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
                   <ReferenceLine y={0} stroke="#444" />
                   <Area
                     type="monotone"
-                    dataKey="spark_spread"
+                    dataKey="dirty_spark_spread"
                     stroke="#4ade80"
                     fill="#4ade80"
                     fillOpacity={0.06}
