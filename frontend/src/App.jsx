@@ -32,6 +32,7 @@ import OutagePanel from './components/OutagePanel'
 import RecordChip from './components/RecordChip'
 import ImbalancePanel from './components/ImbalancePanel'
 import RecordsPanel from './components/RecordsPanel'
+import BordersPanel from './components/BordersPanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
@@ -695,6 +696,11 @@ function Dashboard() {
             </div>
             <ErrorBoundary name="insights">
               <InsightsStrip onMore={() => goToTab('alerts')} />
+            </ErrorBoundary>
+            {/* The border layer: prices × flows. A zone map shows WHERE power is
+                expensive; only the borders show whether the market is coupled. */}
+            <ErrorBoundary name="borders">
+              <BordersPanel />
             </ErrorBoundary>
             <ErrorBoundary name="hydro">
               <HydroReservoirPanel />
