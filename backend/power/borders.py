@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
@@ -145,26 +145,45 @@ def border_metrics(
     }
 
 
+def _flow_dims(db: Session) -> tuple[dict[int, str], dict[int, str]]:
+    """(series_id → counterparty, zone_id → zone key) for the flow series.
+
+    Resolving the ids FIRST is the whole performance story. power_hourly holds
+    28.5M rows under a WITHOUT ROWID primary key of (series_id, zone_id, ts_utc);
+    filtering on `series_dim.key LIKE 'flow.%'` cannot use that clustered key, so
+    SQLite scanned the entire table. Filtering on `series_id IN (...)` seeks
+    straight into it.
+    """
+    series = {
+        sid: key[len("flow."):]
+        for sid, key in db.query(SeriesDim.id, SeriesDim.key)
+        .filter(SeriesDim.key.like("flow.%")).all()
+    }
+    zones = dict(db.query(ZoneDim.id, ZoneDim.key).all())
+    return series, zones
+
+
 def _flow_rows(db: Session, start_ts: int) -> dict[tuple[str, str], dict[int, float]]:
     """Every hourly cross-border flow since `start_ts`, keyed by canonical border.
 
-    One query for all borders — the per-border alternative was 26 round trips.
-    Call this for the DISPLAY window only: a year of flows is ~400k rows, and
-    materialising those through the ORM took 36 s on prod. The rail threshold,
-    the only thing that needs the long history, is computed in SQL instead
-    (_rail_thresholds).
+    Call this for the DISPLAY window only — the rail threshold, the only thing
+    that needs a year of history, is computed in SQL (_rail_thresholds).
     """
+    series, zones = _flow_dims(db)
+    if not series:
+        return {}
     rows = (
-        db.query(SeriesDim.key, ZoneDim.key, PowerHourly.ts_utc, PowerHourly.value)
-        .join(PowerHourly, PowerHourly.series_id == SeriesDim.id)
-        .join(ZoneDim, ZoneDim.id == PowerHourly.zone_id)
-        .filter(SeriesDim.key.like("flow.%"), PowerHourly.ts_utc >= start_ts)
+        db.query(PowerHourly.series_id, PowerHourly.zone_id,
+                 PowerHourly.ts_utc, PowerHourly.value)
+        .filter(PowerHourly.series_id.in_(series), PowerHourly.ts_utc >= start_ts)
         .all()
     )
     out: dict[tuple[str, str], dict[int, float]] = {}
-    for series_key, from_zone, ts, value in rows:
-        to_zone = series_key[len("flow."):]
-        out.setdefault((from_zone, to_zone), {})[int(ts)] = float(value)
+    for sid, zid, ts, value in rows:
+        from_zone = zones.get(zid)
+        if from_zone is None:
+            continue
+        out.setdefault((from_zone, series[sid]), {})[int(ts)] = float(value)
     return out
 
 
@@ -172,45 +191,59 @@ def _rail_thresholds(db: Session, start_ts: int) -> dict[tuple[str, str], float]
     """The RAIL_PERCENTILE of |flow| per border, computed in SQL.
 
     Nearest-rank, identical to `percentile()` (pinned by test) — SQLite ranks the
-    year of flows and returns one row per border instead of 400k rows to Python.
+    year of flows and returns one row per border instead of hundreds of thousands
+    of rows to Python.
     """
+    series, zones = _flow_dims(db)
+    if not series:
+        return {}
     sql = text("""
         WITH ranked AS (
-            SELECT s.key AS skey,
-                   z.key AS zkey,
+            SELECT h.series_id AS sid,
+                   h.zone_id AS zid,
                    ABS(h.value) AS av,
                    ROW_NUMBER() OVER (
                        PARTITION BY h.series_id, h.zone_id ORDER BY ABS(h.value)
                    ) AS rn,
                    COUNT(*) OVER (PARTITION BY h.series_id, h.zone_id) AS cnt
             FROM power_hourly h
-            JOIN series_dim s ON s.id = h.series_id
-            JOIN zone_dim z ON z.id = h.zone_id
-            WHERE s.key LIKE 'flow.%' AND h.ts_utc >= :start
+            WHERE h.series_id IN :sids AND h.ts_utc >= :start
         )
-        SELECT skey, zkey, av FROM ranked
+        SELECT sid, zid, av FROM ranked
         WHERE rn = CAST(ROUND(:q * (cnt - 1)) AS INTEGER) + 1
-    """)
-    rows = db.execute(sql, {"start": start_ts, "q": RAIL_PERCENTILE}).all()
+    """).bindparams(bindparam("sids", expanding=True))
+    rows = db.execute(
+        sql, {"sids": list(series), "start": start_ts, "q": RAIL_PERCENTILE}
+    ).all()
     return {
-        (zkey, skey[len("flow."):]): float(av)
-        for skey, zkey, av in rows
+        (zones[zid], series[sid]): float(av)
+        for sid, zid, av in rows
+        if zid in zones and sid in series
     }
 
 
 def _price_rows(db: Session, zones: set[str], start_ts: int) -> dict[str, dict[int, float]]:
+    """Day-ahead prices for `zones` since `start_ts`. Same id-first rule as the
+    flow query: joining through series_dim.key made SQLite scan all 28.5M rows."""
+    sid = db.query(SeriesDim.id).filter(SeriesDim.key == PRICE_SERIES).scalar()
+    if sid is None:
+        return {}
+    zone_ids = {
+        zid: key
+        for zid, key in db.query(ZoneDim.id, ZoneDim.key).filter(ZoneDim.key.in_(zones)).all()
+    }
+    if not zone_ids:
+        return {}
     rows = (
-        db.query(ZoneDim.key, PowerHourly.ts_utc, PowerHourly.value)
-        .join(PowerHourly, PowerHourly.zone_id == ZoneDim.id)
-        .join(SeriesDim, SeriesDim.id == PowerHourly.series_id)
-        .filter(SeriesDim.key == PRICE_SERIES,
-                ZoneDim.key.in_(zones),
+        db.query(PowerHourly.zone_id, PowerHourly.ts_utc, PowerHourly.value)
+        .filter(PowerHourly.series_id == sid,
+                PowerHourly.zone_id.in_(zone_ids),
                 PowerHourly.ts_utc >= start_ts)
         .all()
     )
     out: dict[str, dict[int, float]] = {}
-    for zone, ts, value in rows:
-        out.setdefault(zone, {})[int(ts)] = float(value)
+    for zid, ts, value in rows:
+        out.setdefault(zone_ids[zid], {})[int(ts)] = float(value)
     return out
 
 
