@@ -328,3 +328,27 @@ def test_the_two_grains_never_share_a_rail_threshold(db_session):
 
     assert phys[("DE_LU", "FR")] == 1_000.0
     assert sched[("DE_LU", "FR")] == 300.0
+
+
+def test_a_country_aggregate_is_SUPERSEDED_not_uncoverable(db_session, sub_zones):
+    """After A09, "DE_LU-DK is uncoverable" is a lie.
+
+    `flow.DK` is Energy-Charts' aggregate for Denmark — not DK1, not DK2 — and before the
+    scheduled grain it was a genuine hole: no price on the other side, nothing to join. It is not
+    a hole any more. DE-LU↔DK1 and DE-LU↔DK2 are both covered now, at bidding-zone level, and
+    reporting the aggregate as a gap would claim a blindness the desk no longer has.
+
+    GB is different, and stays named: we carry no zone for it at all (it left ENTSO-E's day-ahead
+    publication after Brexit), and no grain will ever resolve it."""
+    _seed_scheduled(db_session, "DK1", "DK2")
+    ts = _hours(24)
+    upsert_hourly(db_session, "flow.DK", "DE_LU", [(t, 500.0) for t in ts], unit="MW")
+    upsert_hourly(db_session, "flow.GB", "FR", [(t, 900.0) for t in ts], unit="MW")
+
+    out = compute_borders(db_session, days=7, now=_NOW)
+
+    assert "DE_LU-DK" in out["superseded_aggregate_flows"]
+    assert "DE_LU-DK" not in out["uncoverable_borders"], "the desk sees DK1 and DK2 now"
+
+    assert "FR-GB" in out["uncoverable_borders"]
+    assert "FR-GB" not in out["superseded_aggregate_flows"], "GB is not a zone we carry"

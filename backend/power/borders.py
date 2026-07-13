@@ -294,6 +294,20 @@ def _price_rows(db: Session, zones: set[str], start_ts: int) -> dict[str, dict[i
     return out
 
 
+def _resolvable(code: str) -> bool:
+    """Is this side of a border something the desk can actually resolve to bidding zones?
+
+    A zone key resolves to itself. A country aggregate (`DK`, `NO`, `SE`, `IT`) resolves if we
+    carry its sub-zones — which, since A09, we do, with real borders between them. `GB` and `LU`
+    resolve to nothing: we carry no zone for either.
+    """
+    if code in POWER_ZONES:
+        return True
+    return any(z == code or z.startswith(f"{code}_") or
+               (z[: len(code)] == code and z[len(code):].isdigit())
+               for z in POWER_ZONES)
+
+
 def loop_flow(physical: dict[int, float], scheduled: dict[int, float]) -> dict | None:
     """physical − scheduled, over the hours BOTH grains cover. Pure.
 
@@ -340,7 +354,21 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
     priced = set(POWER_ZONES)
     all_borders = set(physical) | set(scheduled)
     joinable = {b for b in all_borders if b[0] in priced and b[1] in priced}
-    uncoverable = sorted(f"{a}-{b}" for a, b in all_borders if (a, b) not in joinable)
+
+    # The leftovers are not all the same thing, and after A09 saying so matters.
+    #
+    # `flow.DK` is a COUNTRY aggregate from Energy-Charts — Denmark, not DK1 and DK2. Before the
+    # scheduled grain existed, a DE_LU-DK row was a genuine hole: no price on the other side, no
+    # way to resolve it. It is not a hole any more. DE-LU↔DK1 and DE-LU↔DK2 are both covered now,
+    # properly, at bidding-zone level. Listing DE_LU-DK as "uncoverable" would report a gap the
+    # desk no longer has.
+    #
+    # GB and LU are different: they are not zones we carry at all (GB left ENTSO-E's day-ahead
+    # publication after Brexit), and no grain will resolve them. Those stay named.
+    superseded, uncoverable = [], []
+    for a, b in sorted(all_borders - joinable):
+        label = f"{a}-{b}"
+        (superseded if _resolvable(a) and _resolvable(b) else uncoverable).append(label)
 
     prices = _price_rows(db, {z for b in joinable for z in b}, window_start)
 
@@ -391,6 +419,9 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
         "rail_computed_at": rails_at.isoformat(),
         "borders": out,
         "uncoverable_borders": uncoverable,
+        # Country-aggregate physical series whose real bidding-zone borders ARE covered, by the
+        # scheduled grain. Reported so the absence is legible, not as a gap.
+        "superseded_aggregate_flows": superseded,
         "note": (
             "Convergence = share of hours the two zones cleared within "
             f"{COUPLED_EPS_EUR} EUR/MWh. 'At the rail' = flow at or above this border's own "

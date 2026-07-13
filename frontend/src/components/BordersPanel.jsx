@@ -97,6 +97,7 @@ export default function BordersPanel() {
 
   const borders = data?.borders ?? []
   const uncoverable = data?.uncoverable_borders ?? []
+  const superseded = data?.superseded_aggregate_flows ?? []
 
   return (
     <Panel
@@ -180,12 +181,27 @@ export default function BordersPanel() {
 
           {open && <SpreadChart a={open.split('|')[0]} b={open.split('|')[1]} />}
 
-          {uncoverable.length > 0 && (
-            <div className="px-4 py-2 border-t border-border/40 font-mono text-[9px] text-neutral-700 leading-relaxed">
-              No price on both sides, so no metrics ({uncoverable.length}): {uncoverable.join(', ')}.
-              Energy-Charts publishes flows at country level, so a border touching a sub-zoned market
-              (Italian zones, DK1/DK2, Nordic zones) or an unpriced neighbour (GB, LU) cannot be joined
-              to a single price.
+          {(uncoverable.length > 0 || superseded.length > 0) && (
+            <div className="px-4 py-2 border-t border-border/40 font-mono text-[9px] text-neutral-700 leading-relaxed space-y-1">
+              {uncoverable.length > 0 && (
+                <div>
+                  <span className="text-neutral-600">Not coverable ({uncoverable.length}):</span>{' '}
+                  {uncoverable.join(', ')} — we carry no bidding zone for these neighbours (GB left
+                  ENTSO-E&apos;s day-ahead publication after Brexit), so no grain will resolve them.
+                </div>
+              )}
+              {superseded.length > 0 && (
+                /* Not a gap. These are Energy-Charts' COUNTRY aggregates — Denmark, not DK1 and
+                   DK2 — and the real bidding-zone borders behind them are all covered above, by
+                   the scheduled grain. Saying "uncoverable" here would claim a blindness the
+                   desk no longer has. */
+                <div>
+                  <span className="text-neutral-600">Superseded ({superseded.length}):</span>{' '}
+                  {superseded.join(', ')} — country-level aggregates from Energy-Charts. The
+                  bidding-zone borders behind them are covered above (scheduled exchanges), which
+                  is why they are listed rather than shown.
+                </div>
+              )}
             </div>
           )}
         </>
