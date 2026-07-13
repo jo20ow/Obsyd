@@ -145,8 +145,22 @@ def border_metrics(
     }
 
 
-def _flow_dims(db: Session) -> tuple[dict[int, str], dict[int, str]]:
-    """(series_id → counterparty, zone_id → zone key) for the flow series.
+#: The two grains a border can have, and they are NOT the same quantity.
+#:
+#: `flow.*`  — what the wires physically carried (Fraunhofer Energy-Charts, COUNTRY-level, so
+#:             the 18 sub-zones have none).
+#: `sched.*` — what the market agreed to move (ENTSO-E A09, BIDDING-ZONE-level, 63 borders
+#:             including every sub-zone and the internal ones no country feed can express).
+#:
+#: Their difference is loop flow. Merging them into one namespace would make that difference
+#: uncomputable and every existing number ambiguous, so they stay apart and the response says
+#: which grain each border was read from.
+PHYSICAL_PREFIX = "flow."
+SCHEDULED_PREFIX = "sched."
+
+
+def _flow_dims(db: Session, prefix: str = PHYSICAL_PREFIX) -> tuple[dict[int, str], dict[int, str]]:
+    """(series_id → counterparty, zone_id → zone key) for one border grain.
 
     Resolving the ids FIRST is the whole performance story. power_hourly holds
     28.5M rows under a WITHOUT ROWID primary key of (series_id, zone_id, ts_utc);
@@ -155,21 +169,22 @@ def _flow_dims(db: Session) -> tuple[dict[int, str], dict[int, str]]:
     straight into it.
     """
     series = {
-        sid: key[len("flow."):]
+        sid: key[len(prefix):]
         for sid, key in db.query(SeriesDim.id, SeriesDim.key)
-        .filter(SeriesDim.key.like("flow.%")).all()
+        .filter(SeriesDim.key.like(f"{prefix}%")).all()
     }
     zones = dict(db.query(ZoneDim.id, ZoneDim.key).all())
     return series, zones
 
 
-def _flow_rows(db: Session, start_ts: int) -> dict[tuple[str, str], dict[int, float]]:
-    """Every hourly cross-border flow since `start_ts`, keyed by canonical border.
+def _flow_rows(db: Session, start_ts: int,
+               prefix: str = PHYSICAL_PREFIX) -> dict[tuple[str, str], dict[int, float]]:
+    """Every hourly cross-border value of one grain since `start_ts`, by canonical border.
 
     Call this for the DISPLAY window only — the rail threshold, the only thing
     that needs a year of history, is computed in SQL (_rail_thresholds).
     """
-    series, zones = _flow_dims(db)
+    series, zones = _flow_dims(db, prefix)
     if not series:
         return {}
     rows = (
@@ -194,37 +209,39 @@ def _flow_rows(db: Session, start_ts: int) -> dict[tuple[str, str], dict[int, fl
 #: as_of masquerade as fresh, nothing here is a freshness claim.)
 RAIL_CACHE_TTL_SECONDS = 6 * 3600
 
-_rail_cache: dict[str, object] = {"computed_at": None, "values": {}}
+#: Keyed by grain: a scheduled border's own p95 is a different number from a physical one's,
+#: and sharing one cache between them would hand a border the other grain's rail.
+_rail_cache: dict[str, dict] = {}
 
 
-def rail_thresholds_cached(db: Session, start_ts: int, *, now: datetime | None = None):
+def rail_thresholds_cached(db: Session, start_ts: int, *, now: datetime | None = None,
+                           prefix: str = PHYSICAL_PREFIX):
     """(thresholds, computed_at) — recomputed at most every RAIL_CACHE_TTL_SECONDS."""
     now = now or datetime.now(timezone.utc)
-    computed_at = _rail_cache["computed_at"]
+    entry = _rail_cache.get(prefix)
     if (
-        computed_at is None
-        or (now - computed_at).total_seconds() >= RAIL_CACHE_TTL_SECONDS
+        entry is None
+        or (now - entry["computed_at"]).total_seconds() >= RAIL_CACHE_TTL_SECONDS
     ):
-        _rail_cache["values"] = _rail_thresholds(db, start_ts)
-        _rail_cache["computed_at"] = now
-        computed_at = now
-    return _rail_cache["values"], computed_at
+        entry = {"values": _rail_thresholds(db, start_ts, prefix), "computed_at": now}
+        _rail_cache[prefix] = entry
+    return entry["values"], entry["computed_at"]
 
 
 def reset_rail_cache() -> None:
     """Test isolation."""
-    _rail_cache["computed_at"] = None
-    _rail_cache["values"] = {}
+    _rail_cache.clear()
 
 
-def _rail_thresholds(db: Session, start_ts: int) -> dict[tuple[str, str], float]:
+def _rail_thresholds(db: Session, start_ts: int,
+                     prefix: str = PHYSICAL_PREFIX) -> dict[tuple[str, str], float]:
     """The RAIL_PERCENTILE of |flow| per border, computed in SQL.
 
     Nearest-rank, identical to `percentile()` (pinned by test) — SQLite ranks the
     year of flows and returns one row per border instead of hundreds of thousands
     of rows to Python.
     """
-    series, zones = _flow_dims(db)
+    series, zones = _flow_dims(db, prefix)
     if not series:
         return {}
     sql = text("""
@@ -277,41 +294,90 @@ def _price_rows(db: Session, zones: set[str], start_ts: int) -> dict[str, dict[i
     return out
 
 
+def loop_flow(physical: dict[int, float], scheduled: dict[int, float]) -> dict | None:
+    """physical − scheduled, over the hours BOTH grains cover. Pure.
+
+    What the wires carried minus what the market agreed to move. It is not a claim about any
+    single interconnector: in a flow-based region, power scheduled from A to B routes through
+    whatever the physics allows, so the residual is transit and loop flow together. Descriptive.
+
+    Returns None where only one grain exists — which is most sub-zone borders (no physical
+    feed) and a few country ones. An absent number with a reason beats an invented one.
+    """
+    hours = sorted(set(physical) & set(scheduled))
+    if not hours:
+        return None
+    diffs = [physical[h] - scheduled[h] for h in hours]
+    return {
+        "loop_hours": len(hours),
+        "loop_mean_mw": round(sum(diffs) / len(diffs), 1),
+        "loop_p95_mw": round(percentile([abs(d) for d in diffs], 0.95) or 0.0, 1),
+    }
+
+
 def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None) -> dict:
-    """Every border with a price on both sides, ranked by how far apart it clears."""
+    """Every border with a price on both sides, ranked by how far apart it clears.
+
+    Reads BOTH grains and prefers the scheduled one where it exists, because that is the grain
+    that resolves bidding zones: the physical feed is country-level, so it cannot see DK1 from
+    DK2 at all. Where both exist, their difference is reported as loop flow.
+    """
     now = now or datetime.now(timezone.utc)
     window_start = int((now - timedelta(days=days)).timestamp())
     rail_start = int((now - timedelta(days=RAIL_BASELINE_DAYS)).timestamp())
 
-    window_flows = _flow_rows(db, window_start)
-    if not window_flows:
+    physical = _flow_rows(db, window_start, PHYSICAL_PREFIX)
+    scheduled = _flow_rows(db, window_start, SCHEDULED_PREFIX)
+    if not physical and not scheduled:
         return {"available": False,
                 "reason": "No cross-border flow series yet — check back shortly."}
-    rails, rails_at = rail_thresholds_cached(db, rail_start, now=now)
+
+    rails_phys, rails_at = rail_thresholds_cached(db, rail_start, now=now,
+                                                  prefix=PHYSICAL_PREFIX)
+    rails_sched, _ = rail_thresholds_cached(db, rail_start, now=now,
+                                            prefix=SCHEDULED_PREFIX)
 
     priced = set(POWER_ZONES)
-    joinable = {b for b in window_flows if b[0] in priced and b[1] in priced}
-    uncoverable = sorted(
-        f"{a}-{b}" for a, b in window_flows if (a, b) not in joinable
-    )
+    all_borders = set(physical) | set(scheduled)
+    joinable = {b for b in all_borders if b[0] in priced and b[1] in priced}
+    uncoverable = sorted(f"{a}-{b}" for a, b in all_borders if (a, b) not in joinable)
 
     prices = _price_rows(db, {z for b in joinable for z in b}, window_start)
 
     out = []
     for a, b in sorted(joinable):
-        m = border_metrics(
-            prices.get(a, {}), prices.get(b, {}), window_flows[(a, b)], rails.get((a, b))
-        )
+        sched = scheduled.get((a, b))
+        phys = physical.get((a, b))
+        # The scheduled grain is bidding-zone-resolved; the physical one is not. Where both
+        # exist they describe the same border, and the scheduled one is the one that keeps
+        # its meaning for a sub-zone.
+        series = sched if sched else phys
+        source = "scheduled" if sched else "physical"
+        rails = rails_sched if sched else rails_phys
+
+        m = border_metrics(prices.get(a, {}), prices.get(b, {}), series, rails.get((a, b)))
         if not m["hours"]:
             continue
+
+        loops = loop_flow(phys, sched) if (phys and sched) else None
         out.append({
             "zone_a": a, "zone_b": b,
             "label": f"{POWER_ZONES[a]['label']}↔{POWER_ZONES[b]['label']}",
+            "flow_source": source,
             "expensive_side": (
                 None if m["latest_spread"] is None or abs(m["latest_spread"]) < COUPLED_EPS_EUR
                 else (a if m["latest_spread"] > 0 else b)
             ),
             **m,
+            **(loops or {
+                "loop_hours": 0, "loop_mean_mw": None, "loop_p95_mw": None,
+                "loop_reason": (
+                    "no physical flow for this border — Energy-Charts reports by country, so "
+                    "bidding sub-zones have none"
+                    if not phys else
+                    "no scheduled exchange for this border"
+                ),
+            }),
         })
 
     out.sort(key=lambda r: -(r["mean_abs_spread"] or 0))
@@ -327,12 +393,15 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
         "uncoverable_borders": uncoverable,
         "note": (
             "Convergence = share of hours the two zones cleared within "
-            f"{COUPLED_EPS_EUR} EUR/MWh. 'At the rail' = physical flow at or above this "
-            "border's own 95th percentile over the last year (we hold no NTC, and "
-            "flow-based regions publish none). Counter-price = power physically ran "
-            "from the expensive zone to the cheap one. Descriptive statistics on "
-            "published records — a spread is not a claim that this interconnector was "
-            "the binding constraint."
+            f"{COUPLED_EPS_EUR} EUR/MWh. 'At the rail' = flow at or above this border's own "
+            "95th percentile over the last year (we hold no NTC, and flow-based regions "
+            "publish none). Counter-price = power ran from the expensive zone to the cheap "
+            "one. `flow_source` says which grain the border was read from: 'scheduled' is "
+            "ENTSO-E's bidding-zone schedule, 'physical' is the country-level metered flow. "
+            "Loop flow = physical minus scheduled where both exist — transit and loop "
+            "together, NOT a claim about any single interconnector. Descriptive statistics "
+            "on published records; a spread is not a claim that this border was the binding "
+            "constraint."
         ),
     }
 

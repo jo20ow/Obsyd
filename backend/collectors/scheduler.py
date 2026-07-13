@@ -180,6 +180,21 @@ async def _run_power_daily():
         except Exception as exc:
             logger.error("power daily ingest_cbpf (Energy-Charts) failed: %s", exc)
 
+        # Scheduled cross-border exchanges (ENTSO-E A09). Bidding-zone-resolved, so this is
+        # the ONLY border grain the 18 sub-zones have — Energy-Charts above reports by country.
+        try:
+            from backend.power.entsoe_exchange import (
+                ingest_scheduled_exchanges,
+                recent_months,
+            )
+
+            result = await ingest_scheduled_exchanges(
+                db, recent_months(7), overwrite=True
+            )
+            logger.info("power daily scheduled exchanges (A09): %s", result)
+        except Exception as exc:
+            logger.error("power daily ingest_scheduled_exchanges failed: %s", exc)
+
         # Spark spread uses POWER_DE (DE-LU) only — SparkSpreadHistory has no zone column.
         try:
             result = await collect_spark_spreads()

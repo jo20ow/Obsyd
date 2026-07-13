@@ -126,6 +126,7 @@ export default function BordersPanel() {
                   <th className="text-right px-2 py-1" title="Latest spread; the expensive side is named">Now</th>
                   <th className="text-right px-2 py-1" title="Share of hours the physical flow reached this border's own 95th percentile">At rail</th>
                   <th className="text-right px-2 py-1" title="Share of split hours where power ran from the expensive zone to the cheap one">Counter</th>
+                  <th className="text-right px-2 py-1" title="Physical flow minus scheduled exchange, where both grains exist. Transit and loop flow together — not a claim about this interconnector.">Loop</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,6 +141,11 @@ export default function BordersPanel() {
                     >
                       <td className="px-2 py-1.5 text-neutral-300">
                         {isOpen ? '▾ ' : '▸ '}{b.label}
+                        {/* Which grain the border was read from. `scheduled` is ENTSO-E's
+                            bidding-zone schedule — the only one that can see DK1 from DK2. */}
+                        {b.flow_source === 'scheduled' && (
+                          <span className="ml-1.5 text-[9px] text-cyan-glow/60" title="Read from ENTSO-E scheduled exchanges (bidding-zone resolved)">SCHED</span>
+                        )}
                       </td>
                       <td className={`px-2 py-1.5 text-right ${convergenceColor(b.convergence_pct)}`}>
                         {b.convergence_pct != null ? `${b.convergence_pct.toFixed(0)}%` : '—'}
@@ -157,6 +163,13 @@ export default function BordersPanel() {
                       </td>
                       <td className={`px-2 py-1.5 text-right ${b.counter_price_pct > 10 ? 'text-orange-400' : 'text-neutral-500'}`}>
                         {b.counter_price_pct != null ? `${b.counter_price_pct.toFixed(0)}%` : '—'}
+                      </td>
+                      {/* Absent with a reason, never silently blank: most sub-zone borders have
+                          no physical grain at all, and that is coverage, not a bug. */}
+                      <td className="px-2 py-1.5 text-right text-neutral-500" title={b.loop_reason || undefined}>
+                        {b.loop_mean_mw != null
+                          ? `${b.loop_mean_mw > 0 ? '+' : ''}${(b.loop_mean_mw / 1000).toFixed(1)} GW`
+                          : <span className="text-neutral-700">n/a</span>}
                       </td>
                     </tr>
                   )
