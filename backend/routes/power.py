@@ -837,10 +837,16 @@ def build_power_situation(
             seg += f" ({price['z']:+.1f}σ)"
         parts.append(seg + _age_suffix(price))
     if grid["available"]:
-        seg = f"residual {grid['residual_gw']:.0f} GW"
-        if grid["z"] is not None:
-            seg += f" ({grid['z']:+.1f}σ)"
-        parts.append(seg + _age_suffix(grid))
+        # A zone can have generation but no published load (IE-SEM since
+        # 2025-10-23) — there is then no residual to state, and saying so is the
+        # whole point. Formatting it anyway is what 500'd the endpoint.
+        if grid["residual_gw"] is not None:
+            seg = f"residual {grid['residual_gw']:.0f} GW"
+            if grid["z"] is not None:
+                seg += f" ({grid['z']:+.1f}σ)"
+            parts.append(seg + _age_suffix(grid))
+        else:
+            parts.append("residual n/a — no published load for this zone")
     if spark["available"]:
         parts.append(f"spark €{spark['spark_spread']:+.0f}/MWh" + _age_suffix(spark))
     headline = f"{zone_label} · " + " · ".join(parts) if parts else f"{zone_label} · no power data yet"
