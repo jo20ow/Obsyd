@@ -41,14 +41,22 @@ THROTTLE_SECONDS = 1.0
 
 
 async def _with_retry(coro_factory, label: str, attempts: int = 4, base: float = 2.0):
-    """Retry a network step with exponential backoff. Cached months are skipped on
-    retry (raw_cache), so this resumes cheaply rather than re-fetching everything."""
+    """Retry a step with exponential backoff. Cached months are skipped on retry (raw_cache),
+    so this resumes cheaply rather than re-fetching everything.
+
+    OperationalError is in the catch set because "database is locked" is exactly the kind of
+    transient failure a retry exists for — and it is not hypothetical: the A09 backfill died on
+    one after writing 432,774 points, because the app was writing at the same time (SQLite takes
+    one writer, and the 30 s busy_timeout is not a guarantee). Without it, a backfill measured in
+    hours can be killed by an hourly cron job.
+    """
     import httpx
+    from sqlalchemy.exc import OperationalError
 
     for i in range(attempts):
         try:
             return await coro_factory()
-        except (httpx.HTTPError, OSError) as exc:
+        except (httpx.HTTPError, OSError, OperationalError) as exc:
             if i == attempts - 1:
                 logger.error("%s failed after %d attempts: %s", label, attempts, exc)
                 raise

@@ -35,14 +35,20 @@ ALL_SOURCES = ("entsog", "agsi", "alsi", "entsoe", "weather", "demand", "balance
 
 
 async def _with_retry(coro_factory, label: str, attempts: int = 3, base: float = 1.0):
-    """Retry a network step with exponential backoff (cached days are skipped
-    on retry, so this resumes cheaply rather than re-fetching everything)."""
+    """Retry a step with exponential backoff (cached days are skipped on retry, so this resumes
+    cheaply rather than re-fetching everything).
+
+    OperationalError is caught for the same reason power_backfill catches it: "database is
+    locked" is a transient failure, SQLite takes one writer, and a backfill measured in hours
+    must not be killed by an hourly cron job.
+    """
     import httpx
+    from sqlalchemy.exc import OperationalError
 
     for i in range(attempts):
         try:
             return await coro_factory()
-        except (httpx.HTTPError, OSError) as exc:
+        except (httpx.HTTPError, OSError, OperationalError) as exc:
             if i == attempts - 1:
                 logger.error("%s failed after %d attempts: %s", label, attempts, exc)
                 raise
