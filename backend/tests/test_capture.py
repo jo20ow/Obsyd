@@ -157,6 +157,35 @@ def test_solar_with_no_night_rows_still_reads_as_cannibalised(db_session):
     assert "not a model and not a forecast" in out["note"]
 
 
+def test_hydro_is_covered_because_hydro_is_the_nordic_fleet(db_session):
+    """Without hydro, NO5 — a hydro zone — showed one stale line for a peaking gas
+    plant while reservoir and run-of-river sat fully covered in the store. Reservoir
+    is the most dispatchable plant in Europe and should out-earn baseload; run-of-river
+    must run whatever the price does. Pumped storage stays out: it consumes as much as
+    it produces, and a capture price on its generation leg alone is a half-truth."""
+    from backend.power.capture import CAPTURE_FUELS
+
+    assert {"B11", "B12"} <= set(CAPTURE_FUELS)
+    assert "B10" not in CAPTURE_FUELS, "pumped storage is a round trip, not a fuel"
+
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    start = now - timedelta(days=75)
+    prices, reservoir, ror = [], [], []
+    for i in range(75 * 24):
+        t = int((start + timedelta(hours=i)).timestamp())
+        cheap = (i % 24) < 12
+        prices.append((t, 20.0 if cheap else 100.0))
+        reservoir.append((t, 50.0 if cheap else 900.0))   # dispatched into the peak
+        ror.append((t, 400.0))                            # runs regardless
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", prices, unit="EUR/MWh")
+    upsert_hourly(db_session, "gen.B12", "DE_LU", reservoir, unit="MW")
+    upsert_hourly(db_session, "gen.B11", "DE_LU", ror, unit="MW")
+
+    by_psr = {f["psr"]: f["latest"] for f in compute_capture(db_session, "DE_LU", months=3)["fuels"]}
+    assert by_psr["B12"]["value_factor"] > 1.0, "reservoir hydro chooses its hours"
+    assert by_psr["B11"]["value_factor"] == pytest.approx(1.0, rel=1e-3), "run-of-river takes what it gets"
+
+
 def test_a_technology_absent_for_whole_days_is_dropped(db_session):
     """The guard counts DAYS precisely so it can tell a night apart from an outage:
     solar missing every night still passes; a feed missing for whole days does not."""

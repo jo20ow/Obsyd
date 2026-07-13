@@ -61,10 +61,18 @@ from backend.power.zones import POWER_ZONES
 
 PRICE_SERIES = "price.dayahead"
 
-#: The technologies worth a capture rate. Solar and wind are the point (their
-#: value factor is the cannibalisation story); nuclear and gas are the contrast —
-#: dispatchable fleets capture ABOVE baseload because they run when it is dear.
-CAPTURE_FUELS = ["B16", "B18", "B19", "B14", "B04"]
+#: The technologies worth a capture rate. Solar and wind are the point (their value
+#: factor is the cannibalisation story); nuclear and gas are the contrast — dispatchable
+#: fleets capture ABOVE baseload because they run when it is dear. Hydro is BOTH, and
+#: that is why it is here: reservoir (B12) is the most dispatchable plant in Europe and
+#: should out-earn baseload, while run-of-river (B11) must run whatever the price does.
+#: Leaving hydro out would also leave the Nordic and Alpine zones with a table showing
+#: nothing but a peaking gas plant, when hydro IS their fleet.
+#:
+#: Pumped storage (B10) is deliberately absent: it is a consumer as much as a producer,
+#: and a capture price on its generation leg alone would be a half-truth about an asset
+#: whose entire economics is the round trip.
+CAPTURE_FUELS = ["B16", "B18", "B19", "B11", "B12", "B14", "B04"]
 
 #: Below this many priced hours a month is a fragment, not a month.
 MIN_PRICE_HOURS = 24 * 20
