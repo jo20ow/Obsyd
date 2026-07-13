@@ -87,6 +87,12 @@ SPECS += [
     # the daily grain keeps its own power_flows spec above.
     FreshnessSpec("flows_hourly", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="flow.FR"),
+    # The outage snapshot is the ONE series that cannot be backfilled: A77 takes an
+    # unavailability down once it is over, so an hour the recorder missed is gone for
+    # good. It must therefore be the tightest window on the desk — a day of silence is
+    # a day of history destroyed, not a late delivery to catch up on.
+    FreshnessSpec("outage_snapshot", PowerPriceDaily, "", timedelta(days=1),
+                  hourly_series="outage.offline"),
 ]
 
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled
