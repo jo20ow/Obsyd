@@ -53,6 +53,13 @@ ANALOG_MIN_N = 10
 #: Drivers below this |z| are not worth a sentence — they are just Tuesday.
 NOTABLE_Z = 1.0
 
+#: An outage earns a place in the HEADLINE only above this share of the fleet (or,
+#: where no A68 fleet is known, this many MW). "0.1 GW is forced offline (0% of the
+#: fleet)" is noise in a sentence that is supposed to be signal — the table still
+#: shows it.
+HEADLINE_OUTAGE_FLEET_PCT = 1.0
+HEADLINE_OUTAGE_MW = 500.0
+
 
 def _fmt_gw(mw: float) -> str:
     return f"{mw / 1000:.1f} GW"
@@ -259,6 +266,14 @@ def compute_drivers(db: Session, zone: str, *, today: _date | None = None) -> di
     }
 
 
+def _outage_is_headline_worthy(outage: dict) -> bool:
+    """Material enough to say out loud. Below this it stays in the table, where a
+    small number is context rather than clutter."""
+    if outage["fleet_pct"] is not None:
+        return outage["fleet_pct"] >= HEADLINE_OUTAGE_FLEET_PCT
+    return outage["value"] >= HEADLINE_OUTAGE_MW
+
+
 def _headline(zone: str, price: dict | None, drivers: list[dict], outage: dict | None) -> str:
     """Template text. Co-occurrence ('WHILE'), never causation ('because')."""
     label = POWER_ZONES[zone]["label"]
@@ -284,7 +299,7 @@ def _headline(zone: str, price: dict | None, drivers: list[dict], outage: dict |
             continue
         val = _fmt_gw(d["value"]) if d["unit"] == "MW" else f"{d['value']:.0f} {d['unit']}"
         parts.append(f"{d['label'].lower()} is {val}, {abs(d['z']):.1f}σ {d['direction']} its norm")
-    if outage:
+    if outage and _outage_is_headline_worthy(outage):
         seg = f"{_fmt_gw(outage['value'])} is forced offline"
         if outage["fleet_pct"] is not None:
             seg += f" ({outage['fleet_pct']:.0f}% of the fleet)"
