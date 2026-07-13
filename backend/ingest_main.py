@@ -17,8 +17,10 @@ import signal
 from backend.collectors.scheduler import _run_power_daily, start_scheduler, stop_scheduler
 from backend.database import init_db
 from backend.migrations import run_migrations
+from backend.observability import install_log_redaction
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+install_log_redaction()  # ENTSO-E puts its key in the query string; httpx logs the URL
 logger = logging.getLogger("obsyd.ingest")
 
 

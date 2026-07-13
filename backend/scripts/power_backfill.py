@@ -22,6 +22,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 from backend.database import SessionLocal
+from backend.observability import install_log_redaction
 from backend.power.energy_charts_flows import ingest_cbpf
 from backend.power.entsoe_grid import ingest_grid, ingest_load_forecast
 from backend.power.entsoe_imbalance import ingest_imbalance
@@ -165,6 +166,7 @@ async def run_backfill(
 
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    install_log_redaction()  # ENTSO-E puts its key in the query string; httpx logs the URL
     p = argparse.ArgumentParser(description="European power desk deep backfill")
     p.add_argument("--start", default=BACKFILL_START.isoformat())
     p.add_argument("--end", default=date.today().isoformat())

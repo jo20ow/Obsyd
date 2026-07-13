@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from contextvars import ContextVar
 from typing import Awaitable, Callable
@@ -119,6 +120,39 @@ _LOG_RECORD_BUILTIN_ATTRS = {
 }
 
 
+#: Credentials that ENTSO-E and friends want in the QUERY STRING, where every HTTP client
+#: library in the world will happily log them.
+#:
+#: httpx logs `HTTP Request: GET <full url>` at INFO. ENTSO-E takes its API key as
+#: `?securityToken=…`. So every single ENTSO-E call — and there are thousands a day across 37
+#: zones — wrote the token, in plaintext, into journald. Measured on prod before this filter:
+#: **10,959 occurrences in three days.** journald persists and rotates into archives, so the
+#: credential outlives any one process, and anyone who can read the logs has the key.
+#:
+#: Silencing httpx would fix the symptom. This redacts the VALUE instead, on every handler, so
+#: a token that falls out of an exception message or a debug line is caught too — the leak was
+#: never really about httpx.
+_SECRET_QUERY_PARAMS = ("securityToken", "api_key", "apikey", "token", "x-key")
+
+_SECRET_RE = re.compile(
+    r"(?i)\b(" + "|".join(re.escape(p) for p in _SECRET_QUERY_PARAMS) + r")=([^&\s\"']+)"
+)
+
+
+class _SecretRedactingFilter(logging.Filter):
+    """Strip credential values from every record before it reaches a handler."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:  # a broken format string is not this filter's problem
+            return True
+        if "=" in msg and _SECRET_RE.search(msg):
+            record.msg = _SECRET_RE.sub(r"\1=<redacted>", msg)
+            record.args = ()
+        return True
+
+
 def setup_logging() -> None:
     """Configure root logging. Call before any logger.X() in main.py.
 
@@ -148,3 +182,18 @@ def setup_logging() -> None:
         )
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    install_log_redaction()
+
+
+def install_log_redaction() -> None:
+    """Attach the redaction filter to every handler on the root logger.
+
+    Separate from setup_logging because the batch scripts (power_backfill, gas_backfill,
+    repair_storage_series, …) configure logging with `logging.basicConfig` and never call
+    setup_logging — and they are precisely the processes that make thousands of ENTSO-E calls
+    in a row. A redaction that only protects the web app protects the smaller half.
+    """
+    root = logging.getLogger()
+    for h in root.handlers:
+        if not any(isinstance(f, _SecretRedactingFilter) for f in h.filters):
+            h.addFilter(_SecretRedactingFilter())

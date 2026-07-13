@@ -26,6 +26,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.observability import install_log_redaction
+
 logger = logging.getLogger(__name__)
 
 
@@ -129,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    install_log_redaction()  # ENTSO-E puts its key in the query string; httpx logs the URL
 
     if not args.root.is_dir():
         logger.error("no such directory: %s", args.root)
