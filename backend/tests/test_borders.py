@@ -6,7 +6,7 @@ that a border we cannot cover is REPORTED rather than quietly dropped.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -239,3 +239,92 @@ def test_rail_cache_recomputes_only_after_its_ttl(db_session):
     assert fresh[("DE_LU", "FR")] == 9_000.0, "past the TTL it recomputes"
     assert at3 > at2
     reset_rail_cache()
+
+
+# ─── the scheduled grain (A09) ────────────────────────────────────────────────
+
+
+@pytest.fixture
+def sub_zones(monkeypatch):
+    """DK1/DK2 exist in ZONE_REGISTRY but are not enabled in the test env (which serves the
+    original three). Prod runs all 37. Enable them here so the sub-zone property can be
+    expressed at all — a test that can only see DE_LU/FR/NL cannot prove anything about the
+    zones the A09 ingest exists for."""
+    from backend.power import borders
+    from backend.power.zones import POWER_ZONES as REAL
+    from backend.power.zones import ZONE_REGISTRY
+
+    monkeypatch.setattr(
+        borders, "POWER_ZONES",
+        {**REAL, "DK1": ZONE_REGISTRY["DK1"], "DK2": ZONE_REGISTRY["DK2"]},
+    )
+
+
+def _seed_scheduled(db, zone_a, zone_b, hours=48, price_a=60.0, price_b=95.0,
+                    sched_mw=800.0):
+    """A bidding-zone border that the country-level physical feed cannot see at all."""
+    ts = _hours(hours)
+    upsert_hourly(db, "price.dayahead", zone_a, [(t, price_a) for t in ts], unit="EUR/MWh")
+    upsert_hourly(db, "price.dayahead", zone_b, [(t, price_b) for t in ts], unit="EUR/MWh")
+    upsert_hourly(db, f"sched.{zone_b}", zone_a, [(t, sched_mw) for t in ts], unit="MW")
+
+
+def test_the_sub_zones_finally_have_borders(db_session, sub_zones):
+    """THE point of the A09 ingest. DK1↔DK2 is a border INSIDE Denmark: Energy-Charts reports
+    Denmark as one country, so this border could not exist in the physical grain even in
+    principle. Before A09 it was not merely uncovered — it was unrepresentable."""
+    _seed_scheduled(db_session, "DK1", "DK2")
+
+    out = compute_borders(db_session, days=7, now=_NOW)
+    row = next(r for r in out["borders"] if (r["zone_a"], r["zone_b"]) == ("DK1", "DK2"))
+
+    assert row["flow_source"] == "scheduled"
+    assert row["expensive_side"] == "DK2"
+    assert "DK1-DK2" not in out["uncoverable_borders"]
+
+
+def test_loop_flow_is_physical_minus_scheduled_where_both_exist(db_session):
+    """What the wires carried minus what the market agreed to move. On a border with both
+    grains this is a number no free EU tool publishes."""
+    ts = _hours(24)
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(t, 90.0) for t in ts], unit="EUR/MWh")
+    upsert_hourly(db_session, "price.dayahead", "FR", [(t, 45.0) for t in ts], unit="EUR/MWh")
+    upsert_hourly(db_session, "flow.FR", "DE_LU", [(t, 1_500.0) for t in ts], unit="MW")
+    upsert_hourly(db_session, "sched.FR", "DE_LU", [(t, 1_100.0) for t in ts], unit="MW")
+
+    out = compute_borders(db_session, days=7, now=_NOW)
+    row = next(r for r in out["borders"] if (r["zone_a"], r["zone_b"]) == ("DE_LU", "FR"))
+
+    assert row["flow_source"] == "scheduled", "the bidding-zone grain wins where both exist"
+    assert row["loop_hours"] == 24
+    assert row["loop_mean_mw"] == 400.0, "1500 physical − 1100 scheduled"
+
+
+def test_a_border_with_only_one_grain_says_WHY_it_has_no_loop_flow(db_session, sub_zones):
+    """A missing number with a reason beats an invented one — and a silently absent field
+    reads as a bug rather than as coverage."""
+    _seed_scheduled(db_session, "DK1", "DK2")
+
+    out = compute_borders(db_session, days=7, now=_NOW)
+    row = next(r for r in out["borders"] if (r["zone_a"], r["zone_b"]) == ("DK1", "DK2"))
+
+    assert row["loop_mean_mw"] is None
+    assert "Energy-Charts reports by country" in row["loop_reason"]
+
+
+def test_the_two_grains_never_share_a_rail_threshold(db_session):
+    """"At the rail" is measured against a border's OWN 95th percentile. A scheduled series
+    and a physical one are different quantities, so one cache for both would hand a border the
+    other grain's rail and quietly mis-state congestion."""
+    from backend.power.borders import PHYSICAL_PREFIX, SCHEDULED_PREFIX, rail_thresholds_cached
+
+    ts = _hours(48)
+    upsert_hourly(db_session, "flow.FR", "DE_LU", [(t, 1_000.0) for t in ts], unit="MW")
+    upsert_hourly(db_session, "sched.FR", "DE_LU", [(t, 300.0) for t in ts], unit="MW")
+
+    start = int((_NOW - timedelta(days=365)).timestamp())
+    phys, _ = rail_thresholds_cached(db_session, start, now=_NOW, prefix=PHYSICAL_PREFIX)
+    sched, _ = rail_thresholds_cached(db_session, start, now=_NOW, prefix=SCHEDULED_PREFIX)
+
+    assert phys[("DE_LU", "FR")] == 1_000.0
+    assert sched[("DE_LU", "FR")] == 300.0

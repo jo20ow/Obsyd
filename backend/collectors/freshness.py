@@ -92,6 +92,10 @@ SPECS += [
     # the daily grain keeps its own power_flows spec above.
     FreshnessSpec("flows_hourly", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="flow.FR"),
+    # Scheduled exchanges (A09). sched.FR mirrors the flow.FR probe: DE_LU-FR sorts DE_LU
+    # first, so the series exists in every enabled setup that has France.
+    FreshnessSpec("scheduled_exchanges", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="sched.FR"),
     # The outage snapshot is the ONE series that cannot be backfilled: A77 takes an
     # unavailability down once it is over, so an hour the recorder missed is gone for
     # good. It must therefore be the tightest window on the desk — a day of silence is

@@ -34,7 +34,7 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "flows")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "flows", "scheduled")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -139,8 +139,28 @@ async def run_backfill(
             flow_months += 1
             logger.info("power_backfill: flows %s done (%d/%d)", f"{m_start:%Y-%m}", flow_months, len(windows))
 
+    # Scheduled exchanges iterate BORDERS, not zones — so, like flows, they belong after the
+    # zone loop. Putting them inside it would walk 37 zones sleeping through the throttle to
+    # do the same 63 borders 37 times over.
+    sched_months = 0
+    if "scheduled" in sources:
+        from backend.power.entsoe_exchange import ingest_scheduled_exchanges
+
+        for m_start, _m_end in windows:
+            if dry_run:
+                sched_months += 1
+                continue
+            await _with_retry(
+                lambda m=m_start: ingest_scheduled_exchanges(db, [m], overwrite=overwrite),
+                f"scheduled {m_start:%Y-%m}",
+            )
+            sched_months += 1
+            logger.info("power_backfill: scheduled %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", sched_months, len(windows))
+
     return {"zone_months": done, "zones": zones, "months": len(windows),
-            "flow_months": flow_months, "dry_run": dry_run}
+            "flow_months": flow_months, "scheduled_months": sched_months,
+            "dry_run": dry_run}
 
 
 def main(argv: list[str]) -> int:
