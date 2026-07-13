@@ -33,6 +33,7 @@ import RecordChip from './components/RecordChip'
 import ImbalancePanel from './components/ImbalancePanel'
 import RecordsPanel from './components/RecordsPanel'
 import BordersPanel from './components/BordersPanel'
+import DriversPanel from './components/DriversPanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
@@ -567,6 +568,11 @@ function Dashboard() {
             </ErrorBoundary>
             <ErrorBoundary name="record-chip">
               <RecordChip zone={energyZone} />
+            </ErrorBoundary>
+            {/* "Why is this zone expensive today?" — the conditions co-occurring
+                with the price, ranked. The hero says WHAT; this says WHAT ELSE. */}
+            <ErrorBoundary name="power-drivers">
+              <DriversPanel zone={energyZone} />
             </ErrorBoundary>
 
             {/* PRICES — day-ahead + spark spread */}
