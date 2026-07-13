@@ -81,8 +81,12 @@ export default function OutagePanel({ zone = 'DE_LU' }) {
               <tbody>
                 {running.slice(0, 12).map((o) => (
                   <tr key={o.mrid} className="border-t border-border/30">
-                    <td className="px-2 py-1.5 text-neutral-300 max-w-[180px] truncate" title={o.unit_name}>
-                      {o.unit_name || o.mrid}
+                    {/* The name comes from the message where it has one, else from the A71/A33
+                        unit registry via unit_eic — a key the outage table had been writing and
+                        nothing had ever read. Falling back to the mRID means we know neither. */}
+                    <td className="px-2 py-1.5 text-neutral-300 max-w-[180px] truncate"
+                        title={o.unit_name ? `${o.unit_name}${o.unit_eic ? ` · ${o.unit_eic}` : ''}` : o.unit_eic || o.mrid}>
+                      {o.unit_name || o.unit_eic || o.mrid}
                     </td>
                     <td className="px-2 py-1.5 text-neutral-500">{o.fuel || '—'}</td>
                     <td className="px-2 py-1.5 text-right font-bold text-neutral-200">{fmtGw(o.offline_mw)}</td>

@@ -297,6 +297,18 @@ async def _run_capacity_monthly():
                 await ingest_installed_capacity(db, year, eic=cfg["eic"], zone=zone_key, overwrite=True)
             except Exception as exc:
                 logger.error("capacity monthly [%s] failed: %s", zone_key, exc)
+
+        # Production units (A71/A33) ride the same monthly cadence — the registry changes about
+        # as often as the fleet does. It is NOT a second source for installed capacity: it lists
+        # only units above ~100 MW (DE-LU: 52 GW vs A68's 295 GW). It is what gives the outage
+        # board names instead of EICs, and a denominator to the 18 zones that have no A68.
+        try:
+            from backend.power.entsoe_units import ingest_production_units
+
+            result = await ingest_production_units(db, year, overwrite=True)
+            logger.info("production units (A71/A33): %s", result)
+        except Exception as exc:
+            logger.error("production units monthly failed: %s", exc)
     except Exception as exc:
         logger.error("_run_capacity_monthly outer failed: %s", exc)
     finally:
