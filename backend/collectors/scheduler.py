@@ -310,6 +310,26 @@ async def _run_outages():
         db.close()
 
 
+async def _run_outage_snapshot():
+    """Write down how much capacity is offline RIGHT NOW, every hour.
+
+    A77 is a notice board, not an archive — an unavailability comes down once it is
+    over, so there is no history of what was offline last month and none can be
+    recovered. Every hour nobody records is destroyed. Cheap: a local aggregation over
+    already-ingested events, no network. See backend/power/outage_history.py.
+    """
+    from backend.power.outage_history import snapshot_outages
+
+    db = SessionLocal()
+    try:
+        result = snapshot_outages(db)
+        logger.info("outage snapshot: %s", result)
+    except Exception as exc:
+        logger.error("_run_outage_snapshot failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_hydro_weekly():
     """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
     Current year with overwrite=True — the raw cache is write-once and would
@@ -358,6 +378,10 @@ def start_scheduler():
     # Generation unavailability (A77): rolling window, every 6 h — forced outages
     # land intraday and are the desk's reason to exist.
     scheduler.add_job(_run_outages, CronTrigger(hour="1,7,13,19", minute=15), id="outages_6h", **JOB_DEFAULTS)
+    # Snapshot what is offline, HOURLY. ENTSO-E takes an unavailability down once it is
+    # over, so the only history that will ever exist is the one we write ourselves —
+    # at :45, after the 6h ingest has landed. Local read + upsert, no network.
+    scheduler.add_job(_run_outage_snapshot, CronTrigger(minute=45), id="outage_snapshot_hourly", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
 
