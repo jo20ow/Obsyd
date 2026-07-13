@@ -35,13 +35,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from backend.models.energy import PowerFlow, PowerGrid, PowerPriceDaily
+from backend.power.baseline import BASELINE_DAYS
 from backend.power.zones import POWER_ZONES
 from backend.signals.detectors.base import trailing_zscore
-
-#: Trailing window each driver's "vs its own norm" is measured against. Matches
-#: the situation hero (routes/power.py::SITUATION_BASELINE_DAYS) on purpose — two
-#: different windows on the same screen is how a desk loses an analyst's trust.
-BASELINE_DAYS = 120
 
 #: A day is an ANALOG of today when its residual load sits within this band. Not
 #: a model — a filter on the record.
