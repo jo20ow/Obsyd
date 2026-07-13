@@ -35,7 +35,7 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "flows", "scheduled")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "flows", "scheduled", "netpos")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -159,9 +159,39 @@ async def run_backfill(
             logger.info("power_backfill: scheduled %s done (%d/%d)",
                         f"{m_start:%Y-%m}", sched_months, len(windows))
 
+    # A25 walks its own zone list (34 of 37) in WEEKLY windows — a one-month A25 request did
+    # not return inside 90 s. Like flows and scheduled, it belongs outside the zone loop.
+    netpos_months = 0
+    if "netpos" in sources:
+        from backend.power.entsoe_exchange import ingest_net_positions
+
+        for m_start, m_end in windows:
+            if dry_run:
+                netpos_months += 1
+                continue
+            weeks = _weeks_in(m_start, m_end)
+            await _with_retry(
+                lambda w=weeks: ingest_net_positions(db, w, overwrite=overwrite),
+                f"netpos {m_start:%Y-%m}",
+            )
+            netpos_months += 1
+            logger.info("power_backfill: netpos %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", netpos_months, len(windows))
+
     return {"zone_months": done, "zones": zones, "months": len(windows),
             "flow_months": flow_months, "scheduled_months": sched_months,
-            "dry_run": dry_run}
+            "netpos_months": netpos_months, "dry_run": dry_run}
+
+
+def _weeks_in(m_start, m_end) -> list:
+    """Monday-anchored weeks covering a month window."""
+    from datetime import timedelta
+
+    weeks, w = [], m_start - timedelta(days=m_start.weekday())
+    while w <= m_end:
+        weeks.append(w)
+        w += timedelta(days=7)
+    return weeks
 
 
 def main(argv: list[str]) -> int:

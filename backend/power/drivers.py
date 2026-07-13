@@ -252,12 +252,60 @@ def compute_drivers(db: Session, zone: str, *, today: _date | None = None) -> di
         "price": price_stat,
         "drivers": drivers,
         "outage": outage,
+        "market_net_position": market_net_position(db, zone, today),
         "analogs": analogs,
         "headline": _headline(zone, price_stat, drivers, outage),
         "note": (
             "Conditions that CO-OCCUR with today's price, ranked by how far each sits "
             "from its own norm. Descriptive: no driver is claimed to have caused the "
             "price, and no forecast is made."
+        ),
+    }
+
+
+def market_net_position(db: Session, zone: str, today: _date) -> dict:
+    """The zone's day-ahead MARKET net position (ENTSO-E A25/B09) — a DIFFERENT quantity
+    from the `net_position` driver above, and deliberately kept apart from it.
+
+    The driver is derived: physical flows, country-level, summed off the borders. This is the
+    SDAC day-ahead allocation, from the auction itself, and it exists for the 18 sub-zones that
+    have no country-level flows at all. Two numbers called "net position" on one screen, meaning
+    two things, is how a desk loses an analyst — so this one is labelled, not merged.
+
+    GR, IE_SEM and CH publish no A25: they get an explicit reason, not a silent absence.
+    """
+    from backend.power.entsoe_exchange import (
+        NET_POSITION_SERIES,
+        NET_POSITION_UNSUPPORTED,
+    )
+    from backend.power.hourly_store import read_hourly
+
+    if zone in NET_POSITION_UNSUPPORTED:
+        return {"available": False,
+                "reason": f"{zone} publishes no day-ahead net position (ENTSO-E A25)."}
+
+    start = int(datetime.combine(today - timedelta(days=1), datetime.min.time(),
+                                 tzinfo=timezone.utc).timestamp())
+    points = read_hourly(db, NET_POSITION_SERIES, zone, start_ts=start)
+    if not points:
+        return {"available": False,
+                "reason": "No day-ahead net position for this zone yet."}
+
+    values = [v for _t, v in points]
+    mean = sum(values) / len(values)
+    return {
+        "available": True,
+        "mean_mw": round(mean, 1),
+        "min_mw": round(min(values), 1),
+        "max_mw": round(max(values), 1),
+        "export_hours_pct": round(100.0 * sum(1 for v in values if v > 0) / len(values), 1),
+        "hours": len(values),
+        "as_of": datetime.fromtimestamp(points[-1][0], tz=timezone.utc).date().isoformat(),
+        "direction": "exporting" if mean > 0 else "importing",
+        "note": (
+            "Day-ahead market net position (SDAC allocation, ENTSO-E A25). Positive = the zone "
+            "is a net exporter. A DIFFERENT quantity from the physical net flow above, which is "
+            "summed from country-level metered flows."
         ),
     }
 

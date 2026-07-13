@@ -50,6 +50,7 @@ export default function DriversPanel({ zone = 'DE_LU' }) {
   const drivers = data?.drivers ?? []
   const outage = data?.outage
   const a = data?.analogs
+  const mnp = data?.market_net_position
 
   return (
     <Panel
@@ -114,6 +115,27 @@ export default function DriversPanel({ zone = 'DE_LU' }) {
               </tbody>
             </table>
           </div>
+
+          {/* The MARKET net position (ENTSO-E A25), which is NOT the physical one in the table
+              above. Labelled apart, never merged: two numbers called "net position" on one
+              screen, meaning two different things, is how a desk loses an analyst. */}
+          {mnp && (
+            <div className="px-4 py-2 border-t border-border/40 font-mono text-[10px] leading-relaxed">
+              {mnp.available ? (
+                <span className="text-neutral-400">
+                  Day-ahead <span className="text-neutral-300">market</span> net position:{' '}
+                  <span className={mnp.mean_mw >= 0 ? 'text-cyan-glow' : 'text-amber-400'}>
+                    {mnp.mean_mw >= 0 ? '+' : ''}{(mnp.mean_mw / 1000).toFixed(1)} GW
+                  </span>{' '}
+                  ({mnp.direction}, {mnp.export_hours_pct.toFixed(0)}% of hours exporting).
+                  <span className="text-neutral-700"> The SDAC auction allocation — a different
+                  quantity from the physical net flow above.</span>
+                </span>
+              ) : (
+                <span className="text-neutral-600">{mnp.reason}</span>
+              )}
+            </div>
+          )}
 
           {/* Analogs: what similar days DID clear. Past tense, sample size attached. */}
           <div className="px-4 py-2 border-t border-border/40 font-mono text-[10px] leading-relaxed">

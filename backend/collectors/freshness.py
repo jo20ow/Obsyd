@@ -96,6 +96,9 @@ SPECS += [
     # first, so the series exists in every enabled setup that has France.
     FreshnessSpec("scheduled_exchanges", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="sched.FR"),
+    # Day-ahead market net position (A25). One probe across all zones: "is the collector alive".
+    FreshnessSpec("net_position", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="netpos.dayahead"),
     # The outage snapshot is the ONE series that cannot be backfilled: A77 takes an
     # unavailability down once it is over, so an hour the recorder missed is gone for
     # good. It must therefore be the tightest window on the desk — a day of silence is
