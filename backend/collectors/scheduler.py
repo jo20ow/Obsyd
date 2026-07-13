@@ -195,6 +195,16 @@ async def _run_power_daily():
         except Exception as exc:
             logger.error("power daily ingest_scheduled_exchanges failed: %s", exc)
 
+        # Day-ahead market net position (A25/B09) — the SDAC allocation, from the auction
+        # rather than summed off the borders. 34 of 37 zones; GR/IE_SEM/CH publish none.
+        try:
+            from backend.power.entsoe_exchange import ingest_net_positions, recent_weeks
+
+            result = await ingest_net_positions(db, recent_weeks(7), overwrite=True)
+            logger.info("power daily net positions (A25): %s", result)
+        except Exception as exc:
+            logger.error("power daily ingest_net_positions failed: %s", exc)
+
         # Spark spread uses POWER_DE (DE-LU) only — SparkSpreadHistory has no zone column.
         try:
             result = await collect_spark_spreads()

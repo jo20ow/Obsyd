@@ -253,3 +253,138 @@ def months_between(start: date, end: date) -> list[date]:
 def recent_months(days: int, *, today: date | None = None) -> list[date]:
     today = today or datetime.now(timezone.utc).date()
     return months_between(today - timedelta(days=days), today)
+
+
+# ─── A25/B09: the market net position ─────────────────────────────────────────
+#
+# A09 above says what each BORDER was scheduled to carry. A25 says what the ZONE'S NET
+# position was — the SDAC day-ahead allocation, from the auction rather than summed off the
+# borders. Different quantity, and the 18 sub-zones get their first one ever.
+
+NET_POSITION_DOCTYPE = "A25"
+
+#: NOT the psrType B09 ("Geothermal", entsoe_grid.py). Same two characters, different registry.
+NET_POSITION_BUSINESS_TYPE = "B09"
+
+#: MANDATORY. Without it the API answers "Mandatory parameter Contract_MarketAgreement.Type is
+#: missing" — the request is simply refused.
+CONTRACT_DAILY = "A01"
+
+NET_POSITION_CACHE_SOURCE = "entsoe_netpos"
+NET_POSITION_SERIES = "netpos.dayahead"
+
+#: GR, IE_SEM and CH answer with a clean "No matching data found" Acknowledgement. Excluded by
+#: name, not hidden: a zone that merely fails to appear looks like a bug.
+NET_POSITION_UNSUPPORTED = ("GR", "IE_SEM", "CH")
+
+
+def parse_net_position(xml_text: str, zone_eic: str) -> dict[int, float]:
+    """A25/B09 → {epoch_hour: MW}, SIGNED. Positive = the zone is a net EXPORTER.
+
+    THE TRAP. The quantity is an UNSIGNED MAGNITUDE. The sign lives in the DOMAIN PAIR.
+
+    The document partitions the timeline into disjoint curveType-A03 TimeSeries and flips the
+    pair every time the zone changes direction:
+
+        out_Domain.mRID == zone_eic  → an EXPORT block  (counter-domain: "REGION_CODE-----")
+        in_Domain.mRID  == zone_eic  → an IMPORT block
+
+    Measured on PL over 2026-07-01/02: 23 export blocks and 7 import blocks, and every one of
+    the 172 quantities >= 0. A parser that reads <quantity> and ignores the domains reports
+    Poland exporting 1.65 GW during the hours it was importing — plausible, well-formed, and
+    inverted.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"ENTSO-E A25 XML parse error: {exc}") from exc
+
+    by_hour: dict[int, list[float]] = defaultdict(list)
+    for ts in root.iter():
+        if _localname(ts.tag) != "TimeSeries":
+            continue
+        out_dom = next((e.text for e in ts.iter()
+                        if _localname(e.tag) == "out_Domain.mRID"), None)
+        in_dom = next((e.text for e in ts.iter()
+                       if _localname(e.tag) == "in_Domain.mRID"), None)
+        if out_dom == zone_eic:
+            sign = 1.0     # the zone is the source: export
+        elif in_dom == zone_eic:
+            sign = -1.0    # the zone is the sink: import
+        else:
+            continue       # a block about neither side of this zone — not ours to read
+        for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
+            for epoch, value in _period_slots(period):
+                by_hour[epoch].append(sign * value)
+
+    return {h: sum(v) / len(v) for h, v in by_hour.items()}
+
+
+async def _fetch_net_position_week(zone: str, week_start: date, *, overwrite: bool = False) -> str:
+    """One zone-week of A25. Weekly, not monthly: a one-MONTH window did not return in 90 s."""
+    eic = ZONE_REGISTRY[zone]["eic"]
+    week_end = week_start + timedelta(days=7)
+
+    async def _do() -> dict:
+        params = {
+            "securityToken": _token(),
+            "documentType": NET_POSITION_DOCTYPE,
+            "businessType": NET_POSITION_BUSINESS_TYPE,
+            "contract_MarketAgreement.Type": CONTRACT_DAILY,
+            "in_Domain": eic,
+            "out_Domain": eic,
+            "periodStart": f"{week_start:%Y%m%d}0000",
+            "periodEnd": f"{week_end:%Y%m%d}0000",
+        }
+        async with httpx.AsyncClient(timeout=180) as client:
+            resp = await client.get(ENTSOE_BASE, params=params)
+            if resp.status_code >= 400:
+                return {"xml": ""}   # a clean "no data" ACK is data: cache the emptiness
+            return {"xml": resp.text}
+
+    payload = await raw_cache.fetch_or_cache(
+        NET_POSITION_CACHE_SOURCE, f"{zone}_{week_start:%Y-%m-%d}", week_start, _do,
+        overwrite=overwrite,
+    )
+    return payload.get("xml", "")
+
+
+async def ingest_net_positions(
+    db: Session, weeks: list[date], *, zones: list[str] | None = None,
+    overwrite: bool = False,
+) -> dict:
+    """Signed day-ahead market net position per zone → `netpos.dayahead`."""
+    if not settings.entsoe_api_token:
+        return {"skipped": "no token"}
+
+    zones = zones or [z for z in ZONE_REGISTRY if z not in NET_POSITION_UNSUPPORTED]
+    written = covered = 0
+    for zone in zones:
+        eic = ZONE_REGISTRY[zone]["eic"]
+        points: dict[int, float] = {}
+        for week in weeks:
+            try:
+                xml = await _fetch_net_position_week(zone, week, overwrite=overwrite)
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("netpos %s %s: %s", zone, week, exc)
+                continue
+            if xml:
+                points.update(parse_net_position(xml, eic))
+        if not points:
+            continue
+        written += upsert_hourly(db, NET_POSITION_SERIES, zone,
+                                 sorted(points.items()), unit="MW")
+        covered += 1
+    db.commit()
+    return {"zones": len(zones), "with_data": covered, "written": written,
+            "unsupported": list(NET_POSITION_UNSUPPORTED)}
+
+
+def recent_weeks(days: int, *, today: date | None = None) -> list[date]:
+    today = today or datetime.now(timezone.utc).date()
+    start = today - timedelta(days=days)
+    weeks, w = [], start - timedelta(days=start.weekday())
+    while w <= today:
+        weeks.append(w)
+        w += timedelta(days=7)
+    return weeks
