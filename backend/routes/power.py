@@ -1415,6 +1415,43 @@ async def get_flows_hourly(
     }
 
 
+# ─── Borders: where the price series and the flow series finally meet ─────────
+
+
+@router.get("/borders")
+def get_borders(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    """Every border with a day-ahead price on BOTH sides: how often the two zones
+    cleared together, how far apart they cleared, how often the physical flow sat
+    at this border's own historical rail, and how often power ran from the
+    expensive zone to the cheap one. Free tier.
+
+    Descriptive statistics on published records. A price spread is NOT a claim
+    that this interconnector was the binding constraint — the Core region clears
+    flow-based, where the constraint is a network element, not the border.
+    See backend/power/borders.py.
+    """
+    from backend.power.borders import compute_borders
+
+    return compute_borders(db, days=days)
+
+
+@router.get("/spread")
+def get_spread(
+    a: str = Query(..., description="Zone A, e.g. DE_LU"),
+    b: str = Query(..., description="Zone B, e.g. FR"),
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    """One border, hour by hour: both day-ahead prices, their spread, and the
+    physical flow across it. Free tier, descriptive."""
+    from backend.power.borders import compute_spread
+
+    return compute_spread(db, a, b, days=days)
+
+
 # ─── Imbalance prices (free) ──────────────────────────────────────────────────
 
 
