@@ -8,7 +8,7 @@ from the series' own history, never a forecast.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,7 +28,10 @@ def _clear_dependency_overrides():
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
-_TODAY = date.today()
+# UTC, not local: the routes bucket on datetime.utcnow().date(). With a local
+# date.today() these tests fail for the two hours between local and UTC midnight
+# (CEST is UTC+2) — a flake that only ever fires in the middle of the night.
+_TODAY = datetime.now(timezone.utc).date()
 
 
 def _price_series(closes: list[float], neg_hours: list[int] | None = None) -> list[dict]:
@@ -171,7 +174,7 @@ def test_situation_flags_stale_data():
 def test_situation_fresh_data_not_stale():
     price = _price_series([50.0, 51.0, 52.0])  # ends _TODAY
     grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
-    s = build_power_situation("DE_LU", price, grid, None, today=date.today())
+    s = build_power_situation("DE_LU", price, grid, None, today=_TODAY)
     assert s["stale"] is False
     assert s["age_days"] == 0
 
@@ -216,7 +219,7 @@ def test_component_freshness_fields_on_fresh_data():
     grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
     spark = {"spark_spread": 5.0, "power_price": 52.0, "gas_price": 30.0,
              "date": date.today().isoformat()}
-    s = build_power_situation("DE_LU", price, grid, spark, today=date.today())
+    s = build_power_situation("DE_LU", price, grid, spark, today=_TODAY)
 
     for comp in ("price", "grid", "spark"):
         assert s[comp]["as_of"] is not None
@@ -503,3 +506,20 @@ def test_no_frontend_panel_restates_the_baseline_window():
             if claim in text:
                 offenders.append(f"{f.name}: {claim!r}")
     assert not offenders, f"panels restating a baseline window: {offenders}"
+
+
+def test_zone_with_generation_but_no_load_does_not_crash_the_headline():
+    """IE-SEM publishes wind but stopped publishing A65 load on 2025-10-23. The
+    honest residual is None — and formatting None into the headline 500'd
+    /api/power/situation in production for exactly that zone."""
+    today = date(2026, 7, 12)
+    price = _series_ending(today, 3, lambda i: {"close": 50.0, "negative_hours": 0})
+    grid = _series_ending(
+        today, 3,
+        lambda i: {"residual_mw": None, "renewable_share": None, "dunkelflaute": False},
+    )
+    s = build_power_situation("IE_SEM", price, grid, None, today=today)
+
+    assert s["grid"]["residual_gw"] is None
+    assert "no published load" in s["headline"]
+    assert s["state"] in ("CALM", "ELEVATED", "STRESSED")
