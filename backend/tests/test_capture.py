@@ -19,7 +19,7 @@ from backend.power.capture import (
     capture_metrics,
     compute_capture,
 )
-from backend.power.hourly_store import upsert_hourly
+from backend.power.hourly_store import read_hourly, upsert_hourly
 
 
 @pytest.fixture(autouse=True)
@@ -250,3 +250,29 @@ def test_route(db_session):
     assert body["available"] is True
     assert body["baseload_price"] == 60.0
     assert body["fuels"][0]["latest"]["capture_price"] is not None
+
+
+def test_the_sql_and_the_definition_agree(db_session):
+    """compute_capture() aggregates in SQLite; capture_metrics() is the DEFINITION of the
+    arithmetic. Two evaluators of one derivation drift unless something pins them.
+
+    They were not always two: the first version pulled every hour into Python — ~200k rows
+    per zone over four years — and answered in 13ms on a one-month dev database and 7.8s on
+    prod. That is the shape of the mistake: a query that is only fast where the data is thin.
+    """
+    _seed(db_session)
+    out = compute_capture(db_session, "DE_LU", months=6)
+    month = out["latest_month"]
+
+    prices = dict(read_hourly(db_session, "price.dayahead", "DE_LU"))
+    in_month = {ts: v for ts, v in prices.items()
+                if datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m") == month}
+
+    for fuel in out["fuels"]:
+        gen = {ts: v for ts, v in read_hourly(db_session, f"gen.{fuel['psr']}", "DE_LU")
+               if datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m") == month}
+        want = capture_metrics(in_month, gen)
+        got = fuel["latest"]
+        for key in ("capture_price", "baseload_price", "value_factor",
+                    "hours", "days", "generation_gwh", "negative_gen_pct"):
+            assert got[key] == pytest.approx(want[key], rel=1e-3), f"{fuel['psr']}.{key}"

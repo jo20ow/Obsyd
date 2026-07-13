@@ -53,9 +53,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
-from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
+from backend.models.energy import SeriesDim, ZoneDim
 from backend.power.entsoe_grid import PSR_LABELS
 from backend.power.zones import POWER_ZONES
 
@@ -141,14 +142,12 @@ def capture_metrics(prices: dict[int, float], generation: dict[int, float]) -> d
     }
 
 
-def _series_by_month(
-    db: Session, zone: str, series_keys: list[str], start_ts: int
-) -> dict[str, dict[str, dict[int, float]]]:
-    """{series_key: {YYYY-MM: {ts: value}}} — one query for the price and every fuel.
+def _ids(db: Session, zone: str, series_keys: list[str]) -> tuple[dict[int, str], int | None]:
+    """({series_id: key}, zone_id).
 
-    Filtering on the integer ids rather than on ``series_dim.key`` is not a
-    micro-optimisation: ``power_hourly`` is WITHOUT ROWID on (series_id, zone_id,
-    ts_utc), so ids hit the clustered key and a join on the text key scans 28M rows.
+    Resolving ids and filtering on THEM is not a micro-optimisation: power_hourly is
+    WITHOUT ROWID on (series_id, zone_id, ts_utc), so ids hit the clustered key while a
+    predicate on the joined series_dim.key cannot use it and scans 28M rows.
     """
     sids = {
         sid: key
@@ -156,23 +155,99 @@ def _series_by_month(
         .filter(SeriesDim.key.in_(series_keys))
         .all()
     }
-    zid = db.query(ZoneDim.id).filter(ZoneDim.key == zone).scalar()
-    if not sids or zid is None:
-        return {}
-    rows = (
-        db.query(PowerHourly.series_id, PowerHourly.ts_utc, PowerHourly.value)
-        .filter(
-            PowerHourly.series_id.in_(sids),
-            PowerHourly.zone_id == zid,
-            PowerHourly.ts_utc >= start_ts,
-        )
-        .all()
-    )
-    out: dict[str, dict[str, dict[int, float]]] = {}
-    for sid, ts, value in rows:
-        month = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m")
-        out.setdefault(sids[sid], {}).setdefault(month, {})[int(ts)] = float(value)
-    return out
+    return sids, db.query(ZoneDim.id).filter(ZoneDim.key == zone).scalar()
+
+
+#: Both halves of the capture arithmetic, aggregated per (fuel, month) IN SQLite.
+#:
+#: The first version pulled every hour of every series into Python — ~200k rows per zone
+#: over a 4-year window — and spent most of its time in strftime. It answered in 13ms on a
+#: one-month dev database and in 7.8s on prod, which is the shape of that mistake: a query
+#: that is only fast where the data is thin. The desk aggregates in SQL for the same reason
+#: it does everywhere else on this table.
+#:
+#: capture_metrics() below remains the DEFINITION of the arithmetic, and a test pins this
+#: SQL to it — one derivation, two evaluators, never allowed to drift.
+_FUEL_SQL = """
+WITH p AS (
+    SELECT ts_utc, value AS price FROM power_hourly
+     WHERE series_id = :pid AND zone_id = :zid AND ts_utc >= :start
+), g AS (
+    SELECT series_id, ts_utc, value AS gen FROM power_hourly
+     WHERE series_id IN :gids AND zone_id = :zid AND ts_utc >= :start
+)
+SELECT g.series_id                                        AS sid,
+       strftime('%Y-%m', g.ts_utc, 'unixepoch')           AS month,
+       SUM(p.price * g.gen)                               AS pxg,
+       SUM(g.gen)                                         AS total_gen,
+       COUNT(*)                                           AS hours,
+       COUNT(DISTINCT date(g.ts_utc, 'unixepoch'))        AS days,
+       SUM(CASE WHEN p.price < 0 THEN g.gen ELSE 0 END)   AS neg_gen
+  FROM g JOIN p ON p.ts_utc = g.ts_utc
+ GROUP BY sid, month
+"""
+
+#: The baseload leg: the mean over ALL priced hours of the month, and how many there were.
+#: A separate query on purpose — joining it to the fuels would silently restrict it to the
+#: hours the fuel generated in, which is precisely the bug this metric exists to avoid.
+_PRICE_SQL = """
+SELECT strftime('%Y-%m', ts_utc, 'unixepoch') AS month, AVG(value) AS baseload, COUNT(*) AS hours
+  FROM power_hourly
+ WHERE series_id = :pid AND zone_id = :zid AND ts_utc >= :start
+ GROUP BY month
+"""
+
+
+def _aggregate(db: Session, zone: str, start_ts: int) -> tuple[dict, dict]:
+    """(price_months, fuel_months) — the whole capture table in two aggregate queries.
+
+    price_months: {month: (baseload, hours)}
+    fuel_months:  {psr: {month: {hours, days, generation_gwh, capture_price, negative_gen_pct}}}
+    """
+    keys = [PRICE_SERIES] + [f"gen.{f}" for f in CAPTURE_FUELS]
+    sids, zid = _ids(db, zone, keys)
+    pid = next((sid for sid, key in sids.items() if key == PRICE_SERIES), None)
+    gids = {sid: key for sid, key in sids.items() if key != PRICE_SERIES}
+    if pid is None or zid is None or not gids:
+        return {}, {}
+
+    params = {"pid": pid, "zid": zid, "start": start_ts}
+    price_months = {
+        m: (float(baseload), int(hours))
+        for m, baseload, hours in db.execute(text(_PRICE_SQL), params).all()
+    }
+
+    fuels: dict[str, dict[str, dict]] = {}
+    rows = db.execute(
+        text(_FUEL_SQL).bindparams(bindparam("gids", expanding=True)),
+        {**params, "gids": list(gids)},
+    ).all()
+    for sid, month, pxg, total_gen, hours, days, neg_gen in rows:
+        if not total_gen or total_gen <= 0:
+            continue  # a technology that produced nothing has no capture price
+        psr = gids[sid].removeprefix("gen.")
+        fuels.setdefault(psr, {})[month] = {
+            "hours": int(hours),
+            "days": int(days),
+            "generation_gwh": round(total_gen / 1000.0, 1),  # hourly MW → MWh → GWh
+            "capture_price": round(pxg / total_gen, 2),
+            "negative_gen_pct": round(100.0 * (neg_gen or 0.0) / total_gen, 1),
+        }
+    return price_months, fuels
+
+
+def _latest_price_hour(db: Session, zone: str, month: str, start_ts: int) -> int:
+    """The newest priced hour inside `month` — what `as_of` must report."""
+    sids, zid = _ids(db, zone, [PRICE_SERIES])
+    pid = next(iter(sids))
+    return db.execute(
+        text(
+            "SELECT MAX(ts_utc) FROM power_hourly "
+            " WHERE series_id = :pid AND zone_id = :zid AND ts_utc >= :start"
+            "   AND strftime('%Y-%m', ts_utc, 'unixepoch') = :month"
+        ),
+        {"pid": pid, "zid": zid, "start": start_ts, "month": month},
+    ).scalar()
 
 
 def compute_capture(
@@ -183,20 +258,20 @@ def compute_capture(
         return {"available": False, "zone": zone, "reason": f"Unknown zone {zone}."}
 
     today = today or datetime.now(timezone.utc).date()
-    keys = [PRICE_SERIES] + [f"gen.{f}" for f in CAPTURE_FUELS]
-    data = _series_by_month(db, zone, keys, _window_start(today, months))
+    start_ts = _window_start(today, months)
     label = POWER_ZONES[zone]["label"]
+    price_months, fuel_months = _aggregate(db, zone, start_ts)
 
     # Only COMPLETE months. The running month would be a month-to-date figure wearing
     # a month's label — the reader would put a 12-day July next to a full June and read
     # a trend that is really a calendar artefact. It appears once it has finished.
     running = today.strftime("%Y-%m")
-    price_by_month = {
-        m: p
-        for m, p in data.get(PRICE_SERIES, {}).items()
-        if m < running and len(p) >= MIN_PRICE_HOURS
+    baseload = {
+        m: bl
+        for m, (bl, hours) in price_months.items()
+        if m < running and hours >= MIN_PRICE_HOURS
     }
-    if not price_by_month:
+    if not baseload:
         return {
             "available": False,
             "zone": zone,
@@ -205,17 +280,19 @@ def compute_capture(
 
     fuels = []
     for fuel in CAPTURE_FUELS:
-        gen_by_month = data.get(f"gen.{fuel}", {})
         rows = []
-        for month in sorted(gen_by_month):
-            prices = price_by_month.get(month)
-            if not prices:
-                continue
-            m = capture_metrics(prices, gen_by_month[month])
+        for month, m in sorted(fuel_months.get(fuel, {}).items()):
+            bl = baseload.get(month)
             # Days, not hours: solar is absent every night and present every day.
-            if m is None or m["days"] < MIN_DAYS:
+            if bl is None or m["days"] < MIN_DAYS:
                 continue
-            rows.append({"month": month, **m})
+            rows.append({
+                "month": month,
+                **m,
+                "baseload_price": round(bl, 2),
+                # A ratio through zero is a number, not a meaning.
+                "value_factor": round(m["capture_price"] / bl, 3) if bl > 0 else None,
+            })
         if rows:
             fuels.append(
                 {
@@ -239,11 +316,10 @@ def compute_capture(
     # Worst value factor first: the cannibalised technology is the one being asked about.
     fuels.sort(key=lambda f: f["latest"]["value_factor"] or 0)
     latest_month = max(f["latest"]["month"] for f in fuels)
-    prices = price_by_month[latest_month]
 
     # as_of is the newest hour the numbers were actually built from, per the
     # convention every panel shares — not the month label, which is only a caption.
-    as_of = _day(max(prices))
+    as_of = _day(_latest_price_hour(db, zone, latest_month, start_ts))
     age_days = (today - date.fromisoformat(as_of)).days
     return {
         "available": True,
@@ -256,7 +332,7 @@ def compute_capture(
         "as_of": as_of,
         "age_days": age_days,
         "stale": age_days > STALE_AFTER_DAYS,
-        "baseload_price": round(sum(prices.values()) / len(prices), 2),
+        "baseload_price": round(baseload[latest_month], 2),
         "fuels": fuels,
         "note": (
             "Capture price = the generation-weighted average day-ahead price a technology "
