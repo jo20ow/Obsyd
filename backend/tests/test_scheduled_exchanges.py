@@ -143,22 +143,60 @@ def test_the_cache_source_is_not_the_genmix_or_the_forecast_cache():
     assert CACHE_SOURCE not in ("entsoe_genmix", "entsoe_load", "entsoe_gen_total_forecast")
 
 
-def test_scheduled_series_never_land_in_the_physical_flow_namespace(db_session):
+@pytest.fixture
+def ingest(monkeypatch):
+    """Run the ingest without a token and without a network.
+
+    Two traps, both of which bit this file. The ingest guards on
+    `settings.entsoe_api_token` and returns {"skipped": "no token"} without it — so these
+    tests passed on my machine (token in the env) and wrote NOTHING in CI, where there is
+    none. A test that depends on ambient credentials is not a test of the code.
+
+    And the fetch must be replaced with monkeypatch, not assigned onto the module: a bare
+    assignment survives the test and silently fakes the fetch for everything after it.
+    """
+    from pydantic import SecretStr
+
+    from backend.power import entsoe_exchange as ex
+
+    monkeypatch.setattr(ex.settings, "entsoe_api_token", SecretStr("test-token"))
+
+    def _install(docs: dict[tuple[str, str], str]):
+        async def _fake(out_zone, in_zone, month, *, overwrite=False):
+            return docs.get((out_zone, in_zone), _doc([], resolution="PT60M",
+                                                      end="2026-07-01T01:00Z"))
+
+        monkeypatch.setattr(ex, "_fetch_exchange_month", _fake)
+        return ex
+
+    return _install
+
+
+def test_an_ingest_without_a_token_skips_loudly(db_session, monkeypatch):
+    """The guard that made the two tests below pass on my machine and fail in CI. It is
+    correct production behaviour — it just has to be SAID in a test, not discovered in a red
+    build. Without it, "wrote nothing" and "was never asked to write" look identical."""
+    import asyncio
+    from datetime import date
+
+    from backend.power import entsoe_exchange as ex
+
+    monkeypatch.setattr(ex.settings, "entsoe_api_token", None)
+    out = asyncio.run(ex.ingest_scheduled_exchanges(db_session, [date(2026, 7, 1)]))
+
+    assert out == {"skipped": "no token"}
+
+
+def test_scheduled_series_never_land_in_the_physical_flow_namespace(db_session, ingest):
     """Scheduled and physical MW are different quantities. One namespace holding both makes
     loop flow (physical − scheduled) uncomputable and every existing `flow.*` ambiguous."""
     import asyncio
-
-    from backend.models.energy import SeriesDim
-    from backend.power import entsoe_exchange as ex
-
-    async def _fake(out_zone, in_zone, month, *, overwrite=False):
-        if (out_zone, in_zone) == ("DK1", "DK2"):
-            return _doc([(1, 400.0)], resolution="PT60M", end="2026-07-01T02:00Z")
-        return _doc([], resolution="PT60M", end="2026-07-01T02:00Z")
-
-    ex._fetch_exchange_month = _fake  # noqa: SLF001
     from datetime import date
 
+    from backend.models.energy import SeriesDim
+
+    ex = ingest({("DK1", "DK2"): _doc([(1, 400.0)], resolution="PT60M",
+                                      end="2026-07-01T02:00Z")})
     asyncio.run(ex.ingest_scheduled_exchanges(
         db_session, [date(2026, 7, 1)], borders=[("DK1", "DK2")]))
 
@@ -170,21 +208,15 @@ def test_scheduled_series_never_land_in_the_physical_flow_namespace(db_session):
     assert [v for _t, v in points] == [400.0, 400.0], "DK1 exports 400 MW to DK2"
 
 
-def test_the_sign_follows_the_canonical_sorted_pair(db_session):
+def test_the_sign_follows_the_canonical_sorted_pair(db_session, ingest):
     """`net > 0` means the sorted-FIRST zone exports — byte-identical to the `flow.<TO>` under
     `<FROM>` convention. Get this backwards and every border on the desk reads inverted."""
     import asyncio
     from datetime import date
 
-    from backend.power import entsoe_exchange as ex
-
-    async def _fake(out_zone, in_zone, month, *, overwrite=False):
-        # DK2 sends 900 MW to DK1: the sorted-first zone (DK1) is IMPORTING.
-        if (out_zone, in_zone) == ("DK2", "DK1"):
-            return _doc([(1, 900.0)], resolution="PT60M", end="2026-07-01T01:00Z")
-        return _doc([], resolution="PT60M", end="2026-07-01T01:00Z")
-
-    ex._fetch_exchange_month = _fake  # noqa: SLF001
+    # DK2 sends 900 MW to DK1: the sorted-first zone (DK1) is IMPORTING.
+    ex = ingest({("DK2", "DK1"): _doc([(1, 900.0)], resolution="PT60M",
+                                      end="2026-07-01T01:00Z")})
     asyncio.run(ex.ingest_scheduled_exchanges(
         db_session, [date(2026, 7, 1)], borders=[("DK1", "DK2")]))
 
