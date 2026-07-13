@@ -187,6 +187,36 @@ def _flow_rows(db: Session, start_ts: int) -> dict[tuple[str, str], dict[int, fl
     return out
 
 
+#: The rail thresholds are a 365-day statistic: they move by hours-old data about
+#: as much as a coastline moves by one wave. Ranking a year of flows still costs
+#: ~1.4 s, so the result is held for this long and the response says WHEN it was
+#: computed. (Unlike the situation hero, where caching would have let a stale
+#: as_of masquerade as fresh, nothing here is a freshness claim.)
+RAIL_CACHE_TTL_SECONDS = 6 * 3600
+
+_rail_cache: dict[str, object] = {"computed_at": None, "values": {}}
+
+
+def rail_thresholds_cached(db: Session, start_ts: int, *, now: datetime | None = None):
+    """(thresholds, computed_at) — recomputed at most every RAIL_CACHE_TTL_SECONDS."""
+    now = now or datetime.now(timezone.utc)
+    computed_at = _rail_cache["computed_at"]
+    if (
+        computed_at is None
+        or (now - computed_at).total_seconds() >= RAIL_CACHE_TTL_SECONDS
+    ):
+        _rail_cache["values"] = _rail_thresholds(db, start_ts)
+        _rail_cache["computed_at"] = now
+        computed_at = now
+    return _rail_cache["values"], computed_at
+
+
+def reset_rail_cache() -> None:
+    """Test isolation."""
+    _rail_cache["computed_at"] = None
+    _rail_cache["values"] = {}
+
+
 def _rail_thresholds(db: Session, start_ts: int) -> dict[tuple[str, str], float]:
     """The RAIL_PERCENTILE of |flow| per border, computed in SQL.
 
@@ -257,7 +287,7 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
     if not window_flows:
         return {"available": False,
                 "reason": "No cross-border flow series yet — check back shortly."}
-    rails = _rail_thresholds(db, rail_start)
+    rails, rails_at = rail_thresholds_cached(db, rail_start, now=now)
 
     priced = set(POWER_ZONES)
     joinable = {b for b in window_flows if b[0] in priced and b[1] in priced}
@@ -292,6 +322,7 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
         "coupled_eps_eur": COUPLED_EPS_EUR,
         "rail_percentile": RAIL_PERCENTILE,
         "rail_baseline_days": RAIL_BASELINE_DAYS,
+        "rail_computed_at": rails_at.isoformat(),
         "borders": out,
         "uncoverable_borders": uncoverable,
         "note": (
@@ -331,7 +362,7 @@ def compute_spread(db: Session, a: str, b: str, days: int = 30,
         }
 
     prices = _price_rows(db, {zone_a, zone_b}, window_start)
-    rail = _rail_thresholds(db, rail_start).get((zone_a, zone_b))
+    rail = rail_thresholds_cached(db, rail_start, now=now)[0].get((zone_a, zone_b))
     m = border_metrics(prices.get(zone_a, {}), prices.get(zone_b, {}), flow_window, rail)
     if not m["hours"]:
         return {
