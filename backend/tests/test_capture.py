@@ -8,6 +8,7 @@ number exists to show disappears from it.
 """
 from __future__ import annotations
 
+import random
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -252,6 +253,37 @@ def test_route(db_session):
     assert body["fuels"][0]["latest"]["capture_price"] is not None
 
 
+def _seed_messy(db, zone="DE_LU", days=390):
+    """Prices with decimals in them, like real ones, over 13 months.
+
+    The round numbers the other tests seed (20.00, 100.00) cannot detect a rounding bug —
+    the capture price lands on exactly 20.00 either way. This seed exists because the SQL
+    refactor DID introduce one (a value factor divided out of an ALREADY-ROUNDED capture
+    price, shifting the third decimal) and every test passed anyway. The 37-zone prod diff
+    caught it.
+
+    Both parameters are load-bearing. `days=390` gives 13 months, because a rounding drift
+    only shows when it crosses a boundary and one month is not enough tries; seed 5 is
+    pinned because it demonstrably crosses on 2 of those 13. A test that cannot fail on the
+    bug is not a test — this one was run against the bug to prove it fails.
+    """
+    rng = random.Random(5)
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    start = now - timedelta(days=days)
+    prices, solar, gas = [], [], []
+    for i in range(days * 24):
+        t = int((start + timedelta(hours=i)).timestamp())
+        cheap = (i % 24) < 12
+        prices.append((t, round(rng.uniform(-8, 45) if cheap else rng.uniform(60, 190), 2)))
+        if cheap:
+            solar.append((t, round(rng.uniform(200, 1_800), 1)))
+        else:
+            gas.append((t, round(rng.uniform(300, 1_100), 1)))
+    upsert_hourly(db, "price.dayahead", zone, prices, unit="EUR/MWh")
+    upsert_hourly(db, "gen.B16", zone, solar, unit="MW")
+    upsert_hourly(db, "gen.B04", zone, gas, unit="MW")
+
+
 def test_the_sql_and_the_definition_agree(db_session):
     """compute_capture() aggregates in SQLite; capture_metrics() is the DEFINITION of the
     arithmetic. Two evaluators of one derivation drift unless something pins them.
@@ -260,19 +292,28 @@ def test_the_sql_and_the_definition_agree(db_session):
     per zone over four years — and answered in 13ms on a one-month dev database and 7.8s on
     prod. That is the shape of the mistake: a query that is only fast where the data is thin.
     """
-    _seed(db_session)
-    out = compute_capture(db_session, "DE_LU", months=6)
-    month = out["latest_month"]
+    _seed_messy(db_session)
+    out = compute_capture(db_session, "DE_LU", months=15)
 
-    prices = dict(read_hourly(db_session, "price.dayahead", "DE_LU"))
-    in_month = {ts: v for ts, v in prices.items()
-                if datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m") == month}
+    def by_month(series):
+        acc = {}
+        for ts, v in read_hourly(db_session, series, "DE_LU"):
+            m = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m")
+            acc.setdefault(m, {})[ts] = v
+        return acc
 
+    prices = by_month("price.dayahead")
+    checked = 0
     for fuel in out["fuels"]:
-        gen = {ts: v for ts, v in read_hourly(db_session, f"gen.{fuel['psr']}", "DE_LU")
-               if datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m") == month}
-        want = capture_metrics(in_month, gen)
-        got = fuel["latest"]
-        for key in ("capture_price", "baseload_price", "value_factor",
-                    "hours", "days", "generation_gwh", "negative_gen_pct"):
-            assert got[key] == pytest.approx(want[key], rel=1e-3), f"{fuel['psr']}.{key}"
+        gen = by_month(f"gen.{fuel['psr']}")
+        # EVERY month, not just the latest: a rounding drift only shows where it crosses a
+        # boundary, so checking one row is checking almost nothing.
+        for got in fuel["data"]:
+            want = capture_metrics(prices[got["month"]], gen[got["month"]])
+            # EXACT, not approximate. A rel=1e-3 tolerance is precisely wide enough to hide
+            # the drift that actually happened.
+            for key in ("capture_price", "baseload_price", "value_factor",
+                        "hours", "days", "generation_gwh", "negative_gen_pct"):
+                assert got[key] == want[key], f"{fuel['psr']} {got['month']}.{key}"
+            checked += 1
+    assert checked >= 20, "too few month-fuel pairs to catch a boundary-crossing rounding"
