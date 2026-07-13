@@ -13,6 +13,8 @@ const FUEL_COLOR = {
   B16: '#fbbf24',  // solar
   B19: '#22d3ee',  // wind onshore
   B18: '#38bdf8',  // wind offshore
+  B11: '#2dd4bf',  // hydro run-of-river
+  B12: '#4ade80',  // hydro reservoir
   B14: '#a78bfa',  // nuclear
   B04: '#f87171',  // fossil gas
 }
