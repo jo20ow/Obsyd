@@ -1437,6 +1437,24 @@ def get_products(
     return compute_products(db, _resolve_zone(zone), days=days)
 
 
+@router.get("/capture")
+def get_capture(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    months: int = Query(24, ge=1, le=120),
+    db: Session = Depends(get_db),
+):
+    """What a solar (or wind, or gas) MWh actually earned: the generation-weighted
+    capture price per fuel per month, and the value factor against baseload.
+
+    The metric the European power market argues about most, and which no free EU
+    tool publishes per bidding zone. Realised arithmetic on published auction
+    results — not a model. See backend/power/capture.py.
+    """
+    from backend.power.capture import compute_capture
+
+    return compute_capture(db, _resolve_zone(zone), months=months)
+
+
 # ─── Drivers: why is this zone expensive today? ───────────────────────────────
 
 
