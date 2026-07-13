@@ -38,6 +38,7 @@ from sqlalchemy import text
 from backend.database import SessionLocal
 from backend.gas import raw_cache
 from backend.models.energy import PowerGenMix, PowerGrid
+from backend.observability import install_log_redaction
 from backend.power.entsoe_grid import (
     PSR_LABELS,
     PSR_SOLAR,
@@ -226,6 +227,7 @@ def run(db, start: date, end: date, *, dry_run: bool = False) -> dict:
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    install_log_redaction()  # ENTSO-E puts its key in the query string; httpx logs the URL
     p = argparse.ArgumentParser(description="Repair pumped-storage series written by the old A75 parser")
     p.add_argument("--start", default="2015-01-01")
     p.add_argument("--end", default=date.today().isoformat())

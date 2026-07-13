@@ -24,6 +24,7 @@ from backend.gas.entsoe import ingest_power_burn
 from backend.gas.entsog import ingest_flows, sync_points
 from backend.gas.gie import daterange, ingest_lng, ingest_storage
 from backend.gas.weather import ingest_weather
+from backend.observability import install_log_redaction
 
 logger = logging.getLogger("gas_backfill")
 
@@ -92,6 +93,7 @@ async def run_backfill(db, start: date, end: date, sources: set[str], overwrite:
 
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    install_log_redaction()  # ENTSO-E puts its key in the query string; httpx logs the URL
     p = argparse.ArgumentParser(description="EU gas balance backfill")
     p.add_argument("--start", default=BACKFILL_START.isoformat())
     p.add_argument("--end", default=date.today().isoformat())

@@ -27,6 +27,7 @@ from sqlalchemy import text
 from backend.database import SessionLocal, init_db
 from backend.gas import raw_cache
 from backend.gas.gie import upsert_lng_countries, upsert_storage_countries
+from backend.observability import install_log_redaction
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,7 @@ def run(db, start: date, end: date, *, dry_run: bool = False) -> dict:
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    install_log_redaction()  # ENTSO-E puts its key in the query string; httpx logs the URL
     p = argparse.ArgumentParser(description="Re-read cached AGSI/ALSI payloads into the country tables")
     p.add_argument("--start", default="2023-01-01")
     p.add_argument("--end", default=date.today().isoformat())
