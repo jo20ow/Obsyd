@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from backend.models.energy import PowerGrid, PowerPriceDaily
 from backend.power.coverage import renewable_share_reliable
+from backend.power.daily import HOURS_PER_DAY
 from backend.power.dunkelflaute import ABSOLUTE_THRESHOLD
 from backend.power.entsoe_grid import PSR_LABELS
 from backend.signals.detectors.base import DetectorResult, trailing_zscore
@@ -89,9 +90,17 @@ def detect_dunkelflaute(db) -> list[DetectorResult]:
     thresholds_by_month: dict[str, dict] = {}
 
     for zone in zones:
+        # The newest day the zone can actually be judged on: a full day of load, and generation
+        # reported in every hour of it. power_grid holds only finished days now (power/daily.py),
+        # but a finished day can still have a hole in its feed — and a hole read as zeros is a
+        # Dunkelflaute made of nothing.
         row = (
             db.query(PowerGrid)
-            .filter(PowerGrid.zone == zone)
+            .filter(
+                PowerGrid.zone == zone,
+                PowerGrid.load_hours == HOURS_PER_DAY,
+                PowerGrid.gen_hours == HOURS_PER_DAY,
+            )
             .order_by(PowerGrid.date.desc())
             .first()
         )

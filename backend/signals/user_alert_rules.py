@@ -28,6 +28,7 @@ from backend.models.energy import PowerGrid, PowerPriceDaily, SparkSpreadHistory
 from backend.models.gas import GasBalance
 from backend.models.vessels import FloatingStorageEvent, GeofenceEvent
 from backend.power.coverage import renewable_share_reliable
+from backend.power.daily import HOURS_PER_DAY
 from backend.power.zones import POWER_ZONES
 from backend.signals.detectors.base import trailing_zscore
 from backend.signals.detectors.power import (
@@ -357,9 +358,15 @@ def evaluate_dunkelflaute(
     except (TypeError, ValueError):
         threshold = DUNKELFLAUTE_THRESHOLD
 
+    # The newest day this can be asked of: a full day of load, generation in every hour of it
+    # (see power/daily.py). A rule that fires on a half-published day fires on the clock.
     row = (
         db.query(PowerGrid)
-        .filter(PowerGrid.zone == zone)
+        .filter(
+            PowerGrid.zone == zone,
+            PowerGrid.load_hours == HOURS_PER_DAY,
+            PowerGrid.gen_hours == HOURS_PER_DAY,
+        )
         .order_by(PowerGrid.date.desc())
         .first()
     )

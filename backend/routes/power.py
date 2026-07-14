@@ -47,6 +47,7 @@ from backend.models.energy import (
 )
 from backend.power.baseline import BASELINE_DAYS
 from backend.power.coverage import renewable_share_reliable
+from backend.power.daily import share_is_claimable
 from backend.power.dunkelflaute import ABSOLUTE_THRESHOLD, TAIL_PERCENTILE
 from backend.power.energy_charts_flows import ATTRIBUTION
 from backend.power.entsoe_grid import PSR_LABELS
@@ -402,7 +403,12 @@ async def get_spark_spread(
 
 
 def _grid_row_values(
-    date: str, load_mw: float | None, wind_mw: float | None, solar_mw: float | None
+    date: str,
+    load_mw: float | None,
+    wind_mw: float | None,
+    solar_mw: float | None,
+    load_hours: int | None = None,
+    gen_hours: int | None = None,
 ) -> dict:
     """Derive residual_mw and renewable_share for one row.
 
@@ -437,12 +443,16 @@ def _grid_row_values(
         "solar_mw": solar_mw,
         "residual_mw": residual_mw,
         "renewable_share": renewable_share,
+        # How much of the day these means stand on (power/daily.py). Shipped, not hidden: a share
+        # is only a share when the day is whole, and a reader is entitled to check that.
+        "load_hours": load_hours,
+        "gen_hours": gen_hours,
         "dunkelflaute": False,
     }
 
 
 def _compute_grid_row(r: PowerGrid) -> dict:
-    return _grid_row_values(r.date, r.load_mw, r.wind_mw, r.solar_mw)
+    return _grid_row_values(r.date, r.load_mw, r.wind_mw, r.solar_mw, r.load_hours, r.gen_hours)
 
 
 def _flag_dunkelflaute(db: Session, zone: str, rows: list[dict]) -> None:
@@ -458,7 +468,14 @@ def _flag_dunkelflaute(db: Session, zone: str, rows: list[dict]) -> None:
             db, zone=zone, date_from=rows[0]["date"], date_to=rows[-1]["date"]
         )
     }
-    verdicts = flag_days(db, zone, {r["date"]: r["renewable_share"] for r in rows}, reliable)
+    # A share is a claim about a whole day: a day of load, and generation reported in every hour
+    # of it. A day with a hole in its feed reads as zeros, and zeros make a Dunkelflaute out of an
+    # outage — so days that cannot carry the claim never reach the predicate.
+    shares = {
+        r["date"]: (r["renewable_share"] if share_is_claimable(r["load_hours"], r["gen_hours"]) else None)
+        for r in rows
+    }
+    verdicts = flag_days(db, zone, shares, reliable)
     for r in rows:
         r["dunkelflaute"] = verdicts.get(r["date"], False)
 
@@ -1075,15 +1092,16 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
     #    ORM entities — hydrating ~4.5k PowerGrid objects cost 0.17s on prod.
     grid_by_zone: dict[str, list[dict]] = {z: [] for z in POWER_ZONES}
     latest_grid: dict[str, tuple[str, float | None]] = {}  # zone -> (date, load_mw)
-    for zone_key, d, load, wind, solar in (
+    for zone_key, d, load, wind, solar, lh, gh in (
         db.query(PowerGrid.zone, PowerGrid.date, PowerGrid.load_mw,
-                 PowerGrid.wind_mw, PowerGrid.solar_mw)
+                 PowerGrid.wind_mw, PowerGrid.solar_mw,
+                 PowerGrid.load_hours, PowerGrid.gen_hours)
         .filter(PowerGrid.date >= date_from, PowerGrid.date <= date_to)
         .order_by(PowerGrid.date.asc())
         .all()
     ):
         if zone_key in grid_by_zone:
-            grid_by_zone[zone_key].append(_grid_row_values(d, load, wind, solar))
+            grid_by_zone[zone_key].append(_grid_row_values(d, load, wind, solar, lh, gh))
             latest_grid[zone_key] = (d, load)
 
     # 3. Coverage guard for each zone's LATEST grid day. Query by the small set
@@ -1126,8 +1144,13 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
             continue
         last = series[-1]
         reliable = {last["date"]} if _coverage_ok(zone_key) else set()
+        share = (
+            last["renewable_share"]
+            if share_is_claimable(last["load_hours"], last["gen_hours"])
+            else None
+        )
         last["dunkelflaute"] = flag_days(
-            db, zone_key, {last["date"]: last["renewable_share"]}, reliable
+            db, zone_key, {last["date"]: share}, reliable
         )[last["date"]]
 
     # 4. Spark legs: every zone's power symbol + TTF. Query by DATE RANGE only —

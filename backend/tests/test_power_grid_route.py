@@ -39,6 +39,9 @@ def _make_row(**kwargs) -> SimpleNamespace:
         load_mw=kwargs.get("load_mw", None),
         wind_mw=kwargs.get("wind_mw", None),
         solar_mw=kwargs.get("solar_mw", None),
+        # A settled day, unless a test says otherwise: 24 hours of load, generation in each of them.
+        load_hours=kwargs.get("load_hours", 24),
+        gen_hours=kwargs.get("gen_hours", 24),
     )
 
 
@@ -126,6 +129,8 @@ def _seed_grid(db: Session, rows: list[dict]) -> None:
                 load_mw=r.get("load_mw"),
                 wind_mw=r.get("wind_mw"),
                 solar_mw=r.get("solar_mw"),
+                load_hours=r.get("load_hours", 24),
+                gen_hours=r.get("gen_hours", 24),
             )
         )
     db.commit()

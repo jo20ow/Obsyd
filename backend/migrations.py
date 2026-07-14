@@ -100,6 +100,14 @@ def run_migrations() -> None:
             "ON power_outage (zone, mrid, revision)"
         ))
 
+    # 2026-07-14: how much of the day each daily mean stands on. Existing rows stay NULL until the
+    # re-derivation (backend/scripts/rederive_daily.py) fills them from the hourly store — and a
+    # NULL means "unknown", so no claim that needs a complete day is made off one.
+    if _add_column_if_missing("power_grid", "load_hours", "INTEGER"):
+        applied.append("power_grid.load_hours")
+    if _add_column_if_missing("power_grid", "gen_hours", "INTEGER"):
+        applied.append("power_grid.gen_hours")
+
     # 2026-07-14: name the fuels that had no name. B03/B07/B08/B13 were missing from PSR_LABELS,
     # so the ingest stored the RAW code as psr_type and the mix legend read "gen.B03". Adding the
     # labels fixes new rows; without this, the record would carry the same fuel under two names
