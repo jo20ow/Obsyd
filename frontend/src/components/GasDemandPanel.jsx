@@ -82,7 +82,15 @@ export default function GasDemandPanel() {
               <Stat label="industrial" value={latest.industrial} />
             </div>
             {modelVersion && (
-              <div className="font-mono text-[8px] text-neutral-700 mt-2 truncate">model: {modelVersion}</div>
+              // The fitted coefficients are provenance, not a headline: the panel used to print
+              // "model: v1+power;a=139307;b=744.0;n=41" at the reader, which reads as a debug
+              // leak. Name the model, keep the parameters one hover away.
+              <div
+                className="font-mono text-[8px] text-neutral-700 mt-2 truncate"
+                title={`Fitted demand model — ${modelVersion}`}
+              >
+                model: {String(modelVersion).split(';')[0]}
+              </div>
             )}
           </div>
           {rows.length > 1 && (

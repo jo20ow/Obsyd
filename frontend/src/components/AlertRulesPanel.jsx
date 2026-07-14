@@ -64,7 +64,7 @@ export default function AlertRulesPanel() {
           notified when something deviates.
         </div>
         <div className="text-[11px] text-neutral-500">
-          Use <span className="text-cyan-glow">LOG IN</span> in the header (a magic link, no password).
+          Use <span className="text-cyan-glow">LOG IN</span> in the sidebar (a magic link, no password).
         </div>
       </div>
     )

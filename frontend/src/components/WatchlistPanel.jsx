@@ -47,7 +47,7 @@ export default function WatchlistPanel() {
           into your alerts and daily brief. Free — just log in to save your list.
         </div>
         <div className="text-[11px] text-neutral-500">
-          Use <span className="text-cyan-glow">LOG IN</span> in the header (a magic link, no password).
+          Use <span className="text-cyan-glow">LOG IN</span> in the sidebar (a magic link, no password).
         </div>
       </div>
     )
