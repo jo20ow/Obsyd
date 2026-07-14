@@ -47,10 +47,17 @@ PSR_WIND_ONSHORE = "B19"
 PSR_LABELS: dict[str, str] = {
     "B01": "Biomass",
     "B02": "Lignite",
+    # B03/B07/B08/B13 were missing, so the mix legend read "gen.B03" — the raw code, between
+    # "Fossil Gas" and "Hard Coal". B03 is coal-derived gas and DE-LU burns it. Every generation
+    # code in the ENTSO-E list (B01-B20) belongs here; B21-B24 are network elements, not fuels.
+    "B03": "Fossil Coal-derived gas",
     "B04": "Fossil Gas",
     "B05": "Hard Coal",
     "B06": "Oil",
+    "B07": "Oil Shale",
+    "B08": "Peat",
     "B09": "Geothermal",
+    "B13": "Marine",
     "B10": "Hydro Pumped Storage",
     "B11": "Hydro Run-of-river",
     "B12": "Hydro Reservoir",

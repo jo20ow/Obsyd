@@ -103,14 +103,18 @@ def test_units_carry_the_eic_the_outage_table_has_been_writing_all_along():
 
 
 def test_an_unknown_psr_code_survives_instead_of_raising():
-    """A71/A33 returns B03, which is not in PSR_LABELS — nor is B25, which is already in the
-    store as gen.B25. A KeyError here would take out the whole registry for a zone."""
+    """A KeyError on an unrecognised code would take out the whole registry for a zone.
+
+    This used to use B03 as its example of an unknown code — which was true, and was exactly the
+    bug: B03 is Fossil Coal-derived gas, DE-LU burns it, and the mix legend read "gen.B03" at the
+    user. It is named now. The graceful degradation this test guards is unchanged: B25 is not a
+    generation type at all, yet it sits in the store as gen.B25."""
     from backend.power.entsoe_grid import PSR_LABELS
 
-    assert "B03" not in PSR_LABELS
-    units = parse_production_units(_unit_xml(("X1", "Mystery Plant", "B03", 200.0)))
-    assert units[0]["psr_type"] == "B03"
-    assert PSR_LABELS.get("B03", "B03") == "B03", "labelled at read time, degrading gracefully"
+    assert "B25" not in PSR_LABELS
+    units = parse_production_units(_unit_xml(("X1", "Mystery Plant", "B25", 200.0)))
+    assert units[0]["psr_type"] == "B25"
+    assert PSR_LABELS.get("B25", "B25") == "B25", "labelled at read time, degrading gracefully"
 
 
 def test_the_psr_type_is_the_RAW_code_not_the_label():

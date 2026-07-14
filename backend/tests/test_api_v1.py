@@ -247,3 +247,65 @@ def test_rate_limit_covers_genmix_and_snapshot(db_session, monkeypatch):
     assert c.get("/api/v1/snapshot?series=load.actual").status_code == 200
     assert c.get("/api/v1/genmix?zone=DE_LU").status_code == 429
     reset_limits()
+
+
+# ─── the published future, and the partial day ────────────────────────────────
+#
+# The desk showed DE-LU at 132.6 EUR/MWh in the Prices chart and 123.8 in the day-ahead panel,
+# on the same day, for the same zone. Both read the same store. The difference: /api/v1/series
+# defaulted `end` to NOW and so cut today's already-published day-ahead curve at the current
+# hour — nine hours of it, all night ones — and then averaged the stump into a "daily" value and
+# printed it as the card's latest price. A day-ahead auction clears the WHOLE delivery day at
+# noon D-1; truncating it at wall-clock is not caution, it is a wrong number.
+
+
+def _seed_published_day(db, *, hours=24, value=lambda h: 100.0 + h):
+    """A full delivery day of day-ahead prices — including the hours still ahead of `now`."""
+    day = int(datetime(2026, 6, 2, tzinfo=UTC).timestamp())
+    upsert_hourly(db, "price.dayahead", "DE_LU",
+                  [(day + h * _H, value(h)) for h in range(hours)], unit="EUR/MWh")
+
+
+def test_the_published_future_is_not_truncated_at_now(db_session):
+    """The auction for the CURRENT day cleared yesterday at noon: every hour of it exists, including
+    the ones still ahead of the clock. With `end` defaulting to now, the desk got only the hours
+    that had already elapsed — and charted their mean as the day's price."""
+    now = datetime.now(UTC)
+    midnight = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    upsert_hourly(db_session, "price.dayahead", "DE_LU",
+                  [(midnight + h * _H, 100.0 + h) for h in range(24)], unit="EUR/MWh")
+
+    body = _client(db_session).get(
+        f"/api/v1/series?series=price.dayahead&zone=DE_LU&start={now:%Y-%m-%d}"
+    ).json()
+
+    assert body["count"] == 24, "the hours after now are published, not speculation"
+
+
+def test_a_daily_point_says_how_many_hours_it_averaged(db_session):
+    """The honest fix for the day that IS still filling in: the mean carries its own n."""
+    _seed_published_day(db_session, hours=9)
+    body = _client(db_session).get(
+        "/api/v1/series?series=price.dayahead&zone=DE_LU&start=2026-06-02&resolution=daily"
+    ).json()
+    point = body["data"][0]
+    assert point["hours"] == 9, "a 9-hour mean must not present itself as a day"
+    assert point["value"] == pytest.approx(104.0)
+
+
+def test_a_complete_day_says_24(db_session):
+    _seed_published_day(db_session)
+    body = _client(db_session).get(
+        "/api/v1/series?series=price.dayahead&zone=DE_LU&start=2026-06-02&resolution=daily"
+    ).json()
+    assert body["data"][0]["hours"] == 24
+    assert body["data"][0]["value"] == pytest.approx(111.5)
+
+
+def test_daily_csv_carries_the_hour_count_too(db_session):
+    _seed_published_day(db_session, hours=9)
+    text = _client(db_session).get(
+        "/api/v1/series?series=price.dayahead&zone=DE_LU&start=2026-06-02&resolution=daily&format=csv"
+    ).text
+    assert text.splitlines()[0] == "date,value,hours"
+    assert text.splitlines()[1].endswith(",9")

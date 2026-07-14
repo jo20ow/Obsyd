@@ -107,6 +107,10 @@ export default function SeriesExplorer() {
     })
   }, [resp, cmpResp, comparing, tkey])
   const showSpread = comparing && spread
+  // A daily point is a mean of the hours on record for that day; the last one is usually a stump
+  // (the hours that have elapsed). Say so rather than let it read as a settled day.
+  const lastDaily = resolution === 'daily' ? (resp?.data || []).at(-1) : null
+  const partialHours = lastDaily?.hours != null && lastDaily.hours < 24 ? lastDaily.hours : null
 
   const csvUrl = `${url}&format=csv`
   const seriesList = catalog?.series || [{ key: 'price.dayahead', unit: 'EUR/MWh' }]
@@ -179,6 +183,11 @@ export default function SeriesExplorer() {
           <>
             <div className="px-2 pb-2 flex items-center gap-3 font-mono text-[10px] text-neutral-500">
               <span>{resp.count} points · {resp.unit || ''} · {resolution}</span>
+              {partialHours != null && (
+                <span className="text-neutral-600" title={`The last day averages ${partialHours} of 24 hours — it is still filling in.`}>
+                  last day {partialHours}/24 h
+                </span>
+              )}
               {showSpread ? (
                 <span className="flex items-center gap-1"><span className="inline-block w-2 h-0.5" style={{ background: '#fbbf24' }} />{zoneLabel(zone)} − {zoneLabel(compareZone)}</span>
               ) : (

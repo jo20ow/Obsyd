@@ -8,7 +8,7 @@ const TERMS = [
   ['State (CALM / ELEVATED / STRESSED)', 'how far something sits from its OWN recent history — a deviation, not a forecast. STRESSED ≈ ≥3σ from its trailing norm; ELEVATED ≈ ≥2σ or a flag. Each panel states the exact window it measured against.'],
   ['Residual load', 'electricity demand minus wind & solar — the demand that gas / coal / nuclear must cover. It is the biggest driver of the power price.'],
   ['Spark spread', 'the profit margin of a gas-fired power plant: power price − gas cost. Positive = worth running; negative = uneconomic.'],
-  ['Dunkelflaute', 'a “dark lull”: wind + solar together cover under 15% of demand — thermal plants carry the grid, prices tend to firm.'],
+  ['Dunkelflaute', 'a “dark lull”: wind + solar cover under 15% of demand AND that is unusually dark for this zone in this month (bottom 2% of its own record) — thermal plants carry the grid, prices tend to firm. A zone with no wind/solar fleet cannot have one; its 0% is its normal, not an event.'],
   ['Day-ahead price', 'tomorrow’s hourly electricity price, set at today’s auction (€/MWh).'],
 ]
 

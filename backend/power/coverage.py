@@ -70,8 +70,14 @@ def renewable_share_reliable(db: Session, date: str, zone: str, load_mw: float |
     return total >= coverage_min_ratio(zone) * load_mw
 
 
-def reliable_days(db: Session) -> set[tuple[str, str]]:
-    """{(date, zone)} whose renewable share is trustworthy — the whole record, ONE query.
+def reliable_days(
+    db: Session,
+    *,
+    zone: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> set[tuple[str, str]]:
+    """{(date, zone)} whose renewable share is trustworthy — ONE query, optionally scoped.
 
     `renewable_share_reliable` above answers for a single day, which is right for a detector
     looking at today. An episode engine walks five years of 37 zones, and calling it in a loop
@@ -79,19 +85,34 @@ def reliable_days(db: Session) -> set[tuple[str, str]]:
 
     Same rule, same constants, one grouped query. A day with no generation mix at all is absent
     from the set (fail safe: if we cannot prove coverage, we do not trust the share).
+
+    The optional scope keeps a per-zone panel (`/grid`: one zone, ≤1500 days) from paying for the
+    whole record; unscoped it is the episode engine's original whole-record set.
     """
     from sqlalchemy import text
 
-    rows = db.execute(text("""
+    where = ["g.load_mw > 0"]
+    params: dict[str, str] = {}
+    if zone is not None:
+        where.append("g.zone = :zone")
+        params["zone"] = zone
+    if date_from is not None:
+        where.append("g.date >= :date_from")
+        params["date_from"] = date_from
+    if date_to is not None:
+        where.append("g.date <= :date_to")
+        params["date_to"] = date_to
+
+    rows = db.execute(text(f"""
         SELECT g.date, g.zone, SUM(m.gen_mw) AS gen, g.load_mw
           FROM power_grid g
           JOIN power_gen_mix m ON m.date = g.date AND m.zone = g.zone
-         WHERE g.load_mw > 0
+         WHERE {" AND ".join(where)}
          GROUP BY g.date, g.zone
-    """)).all()
+    """), params).all()
 
     return {
-        (date, zone)
-        for date, zone, gen, load in rows
-        if gen is not None and gen >= coverage_min_ratio(zone) * load
+        (date, zone_key)
+        for date, zone_key, gen, load in rows
+        if gen is not None and gen >= coverage_min_ratio(zone_key) * load
     }

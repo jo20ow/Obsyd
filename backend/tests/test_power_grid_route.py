@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from backend.models.energy import PowerGrid
-from backend.routes.power import DUNKELFLAUTE_THRESHOLD, _compute_grid_row
+from backend.routes.power import _compute_grid_row
 
 
 @pytest.fixture(autouse=True)
@@ -59,27 +59,17 @@ def test_compute_renewable_share():
     assert d["renewable_share"] == pytest.approx(0.2)
 
 
-def test_dunkelflaute_flag_below_threshold():
-    """Day with renewable_share < 0.15 → dunkelflaute = True."""
-    # 5 GW renewables on 50 GW load = 10% share
-    row = _make_row(load_mw=50_000.0, wind_mw=3_000.0, solar_mw=2_000.0)
-    d = _compute_grid_row(row)
-    assert d["renewable_share"] == pytest.approx(0.1)
-    assert d["dunkelflaute"] is True
+def test_a_single_row_makes_no_dunkelflaute_claim():
+    """A Dunkelflaute is a judgment against the zone's own history — a lone row cannot make it.
 
-
-def test_dunkelflaute_flag_above_threshold():
-    """Day with renewable_share >= 0.15 → dunkelflaute = False."""
-    # 10 GW renewables on 50 GW load = 20% share
-    row = _make_row(load_mw=50_000.0, wind_mw=6_000.0, solar_mw=4_000.0)
-    d = _compute_grid_row(row)
-    assert d["renewable_share"] == pytest.approx(0.2)
-    assert d["dunkelflaute"] is False
-
-
-def test_dunkelflaute_threshold_value():
-    """Threshold is exactly 15%."""
-    assert DUNKELFLAUTE_THRESHOLD == pytest.approx(0.15)
+    This function used to answer it with a flat `share < 15%`, and /grid, /overview and the hero
+    published that answer while the radar (cured of exactly that predicate in #100) published a
+    different one. The verdict now comes from power/dunkelflaute.py, filled in by the route;
+    the row's own default is False, never a claim. See test_dunkelflaute_parity.py.
+    """
+    dark = _compute_grid_row(_make_row(load_mw=50_000.0, wind_mw=3_000.0, solar_mw=2_000.0))
+    assert dark["renewable_share"] == pytest.approx(0.1)
+    assert dark["dunkelflaute"] is False, "no history in scope → no claim"
 
 
 def test_null_wind_treated_as_zero():
@@ -88,7 +78,6 @@ def test_null_wind_treated_as_zero():
     d = _compute_grid_row(row)
     assert d["residual_mw"] == pytest.approx(45_000.0)
     assert d["renewable_share"] == pytest.approx(0.1)  # 5k / 50k
-    assert d["dunkelflaute"] is True
 
 
 def test_null_solar_treated_as_zero():
@@ -105,7 +94,6 @@ def test_null_wind_and_solar_treated_as_zero():
     d = _compute_grid_row(row)
     assert d["residual_mw"] == pytest.approx(50_000.0)
     assert d["renewable_share"] == pytest.approx(0.0)
-    assert d["dunkelflaute"] is True
 
 
 def test_no_load_means_no_residual_and_no_share():
@@ -180,23 +168,21 @@ def test_route_available_false_when_empty(db_session):
     assert resp.json()["available"] is False
 
 
-def test_route_latest_and_dunkelflaute_count(db_session):
-    """latest reflects the most recent row; dunkelflaute_days counts flagged days."""
+def test_route_latest_is_the_most_recent_row(db_session):
+    """latest reflects the most recent row. (What makes a day a Dunkelflaute — and what makes
+    dunkelflaute_days count it — is pinned in test_dunkelflaute_parity.py, which needs the zone's
+    own history to say so; three days of it cannot support the claim, and no longer pretend to.)"""
     _seed_grid(db_session, [
-        # 10% renewables → Dunkelflaute
         {"date": _D1, "load_mw": 50_000.0, "wind_mw": 3_000.0, "solar_mw": 2_000.0},
-        # 20% renewables → not Dunkelflaute
         {"date": _D2, "load_mw": 50_000.0, "wind_mw": 8_000.0, "solar_mw": 2_000.0},
-        # 8% renewables → Dunkelflaute
         {"date": _D3, "load_mw": 50_000.0, "wind_mw": 3_000.0, "solar_mw": 1_000.0},
     ])
     client = _make_client(db_session)
     resp = client.get("/api/power/grid?days=120")
     body = resp.json()
-    assert body["dunkelflaute_days"] == 2
     assert body["latest"]["date"] == _D3
     assert body["latest"]["residual_mw"] == pytest.approx(46_000.0)
-    assert body["latest"]["dunkelflaute"] is True
+    assert body["dunkelflaute_days"] == 0, "no history, no coverage → no claim"
 
 
 def test_route_null_wind_solar_treated_as_zero(db_session):
@@ -211,4 +197,3 @@ def test_route_null_wind_solar_treated_as_zero(db_session):
     row = body["data"][0]
     assert row["residual_mw"] == pytest.approx(50_000.0)
     assert row["renewable_share"] == pytest.approx(0.0)
-    assert row["dunkelflaute"] is True

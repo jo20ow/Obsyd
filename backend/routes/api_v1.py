@@ -57,13 +57,18 @@ def _parse_ts(s: str | None, default: datetime) -> datetime:
         raise HTTPException(status_code=400, detail=f"Invalid datetime {s!r} (use YYYY-MM-DD or ISO 8601).") from exc
 
 
-def _to_daily(points: list[tuple[int, float]]) -> list[tuple[str, float]]:
-    """Aggregate hourly (ts_utc, value) to daily-mean keyed by UTC date string."""
+def _to_daily(points: list[tuple[int, float]]) -> list[tuple[str, float, int]]:
+    """Aggregate hourly (ts_utc, value) to (date, daily-mean, hours-averaged).
+
+    The hour count travels with the mean because the last day of a live series is usually a
+    stump: a mean of nine night hours is not a day, and the desk printed one as the day's price.
+    A caller that wants only settled days filters on `hours == 24`.
+    """
     buckets: dict[str, list[float]] = {}
     for ts, v in points:
         day = datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%d")
         buckets.setdefault(day, []).append(v)
-    return [(d, round(sum(vs) / len(vs), 4)) for d, vs in sorted(buckets.items())]
+    return [(d, round(sum(vs) / len(vs), 4), len(vs)) for d, vs in sorted(buckets.items())]
 
 
 @router.get("/meta")
@@ -361,7 +366,7 @@ async def series(
     series: str = Query(..., description="Series key, e.g. price.dayahead, load.actual, gen.B16"),
     zone: str = Query(..., description="Bidding zone key, e.g. DE_LU, FR, ES"),
     start: str | None = Query(None, description="YYYY-MM-DD or ISO 8601 (default: 30 days ago)"),
-    end: str | None = Query(None, description="YYYY-MM-DD or ISO 8601 (default: now)"),
+    end: str | None = Query(None, description="YYYY-MM-DD or ISO 8601 (default: everything on record)"),
     resolution: str = Query("hourly", pattern="^(hourly|daily)$"),
     format: str = Query("json", pattern="^(json|csv|parquet)$"),
     db: Session = Depends(get_db),
@@ -369,33 +374,49 @@ async def series(
 ):
     """One series for one zone over a time range — the core data endpoint.
 
-    Reads the canonical hourly store; `resolution=daily` aggregates to a daily mean.
+    Reads the canonical hourly store; `resolution=daily` aggregates to a daily mean and reports
+    how many hours each mean averaged (`hours`; 24 = a settled day).
+
+    `end` has NO default ceiling. It used to default to `now`, which quietly cut off the hours a
+    day-ahead auction has already published for the rest of the delivery day: the desk charted the
+    mean of the nine hours that happened to have elapsed (132.6 EUR/MWh) next to a panel showing
+    the full cleared day (123.8). The market's published future is data, not speculation.
+
     `format=csv` streams a download (unbounded range); `format=json` is capped at
     100k points (use CSV for larger pulls). Descriptive, not a forecast.
     """
-    end_dt = _parse_ts(end, datetime.now(UTC))
-    start_dt = _parse_ts(start, end_dt - timedelta(days=DEFAULT_WINDOW_DAYS))
-    if start_dt >= end_dt:
+    end_dt = _parse_ts(end, None) if end else None
+    start_dt = _parse_ts(start, (end_dt or datetime.now(UTC)) - timedelta(days=DEFAULT_WINDOW_DAYS))
+    if end_dt is not None and start_dt >= end_dt:
         raise HTTPException(status_code=400, detail="start must be before end.")
 
     unit = db.query(SeriesDim.unit).filter(SeriesDim.key == series).scalar()
-    points = read_hourly(db, series, zone, int(start_dt.timestamp()), int(end_dt.timestamp()))
+    points = read_hourly(
+        db, series, zone,
+        int(start_dt.timestamp()),
+        int(end_dt.timestamp()) if end_dt is not None else None,
+    )
 
     if resolution == "daily":
-        rows = _to_daily(points)  # [(date_str, value)]
+        rows = [{"date": d, "value": v, "hours": n} for d, v, n in _to_daily(points)]
         tkey = "date"
+        cols = ("date", "value", "hours")
     else:
-        rows = [(datetime.fromtimestamp(ts, UTC).isoformat(), v) for ts, v in points]
+        rows = [
+            {"datetime_utc": datetime.fromtimestamp(ts, UTC).isoformat(), "value": v}
+            for ts, v in points
+        ]
         tkey = "datetime_utc"
+        cols = ("datetime_utc", "value")
 
     if format == "csv":
         zsafe = zone.replace("/", "_")
         fname = f"{series}_{zsafe}_{resolution}.csv"
 
         def _gen():
-            yield f"{tkey},value\n"
-            for t, v in rows:
-                yield f"{t},{v}\n"
+            yield ",".join(cols) + "\n"
+            for r in rows:
+                yield ",".join(str(r[c]) for c in cols) + "\n"
 
         return StreamingResponse(
             _gen(),
@@ -416,7 +437,7 @@ async def series(
             raise HTTPException(
                 status_code=501, detail="Parquet export is unavailable on this server; use format=csv."
             ) from None
-        table = pa.table({tkey: [t for t, _ in rows], "value": [v for _, v in rows]})
+        table = pa.table({c: [r[c] for r in rows] for c in cols})
         buf = io.BytesIO()
         pq.write_table(table, buf)
         zsafe = zone.replace("/", "_")
@@ -442,7 +463,9 @@ async def series(
         "unit": unit,
         "resolution": resolution,
         "from": start_dt.isoformat(),
-        "to": end_dt.isoformat(),
+        # The window actually served: with no `end` the ceiling is the record itself, and saying
+        # "to: now" for data that runs past now would be the same lie in a different field.
+        "to": end_dt.isoformat() if end_dt is not None else (rows[-1][tkey] if rows else None),
         "count": len(rows),
-        "data": [{tkey: t, "value": v} for t, v in rows],
+        "data": rows,
     }

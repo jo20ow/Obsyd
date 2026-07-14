@@ -238,7 +238,17 @@ async def get_balance(days: int = Query(120, ge=1, le=1500), db: Session = Depen
     latest = rows[-1]
     return {
         "available": True,
-        "latest": {"date": latest.date, "residual_7d": latest.residual_7d, "z_score": latest.z_score, "flag": latest.flag},
+        # The panel's subline reads supply and demand off `latest` — they belong in it. Omitting
+        # them rendered "supply — demand — GWh" on the hero of the tab, every day, while the
+        # numbers sat in `data` right below.
+        "latest": {
+            "date": latest.date,
+            "supply_gwh": latest.supply_gwh,
+            "demand_gwh": latest.demand_gwh,
+            "residual_7d": latest.residual_7d,
+            "z_score": latest.z_score,
+            "flag": latest.flag,
+        },
         "active_flags": [{"date": r.date, "z_score": r.z_score, "flag": r.flag} for r in rows if r.flag],
         "data": [
             {

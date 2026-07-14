@@ -100,10 +100,42 @@ def run_migrations() -> None:
             "ON power_outage (zone, mrid, revision)"
         ))
 
+    # 2026-07-14: name the fuels that had no name. B03/B07/B08/B13 were missing from PSR_LABELS,
+    # so the ingest stored the RAW code as psr_type and the mix legend read "gen.B03". Adding the
+    # labels fixes new rows; without this, the record would carry the same fuel under two names
+    # and the stacked mix would draw it as two fuels. Idempotent: after the first pass there is
+    # nothing left to rename.
+    _relabel_raw_psr_codes(applied)
+
     if applied:
         logger.info("migrations applied: %s", ", ".join(applied))
     else:
         logger.info("migrations: nothing to apply, schema up to date")
+
+
+def _relabel_raw_psr_codes(applied: list[str]) -> None:
+    """Rewrite psr_type rows still stored under a raw ENTSO-E code that now has a label.
+
+    ONE pass per table (power_gen_mix is ~640k rows and psr_type is not indexed): a CASE over the
+    codes, restricted to the rows that still carry one. On a healthy record it matches nothing.
+    """
+    from backend.power.entsoe_grid import PSR_LABELS
+
+    codes = list(PSR_LABELS)
+    case = " ".join(f"WHEN '{c}' THEN '{PSR_LABELS[c]}'" for c in codes)
+    in_list = ", ".join(f"'{c}'" for c in codes)
+
+    with engine.begin() as conn:
+        tables = set(inspect(engine).get_table_names())
+        for table in ("power_gen_mix", "installed_capacity"):
+            if table not in tables:
+                continue
+            res = conn.execute(text(
+                f"UPDATE {table} SET psr_type = CASE psr_type {case} ELSE psr_type END "
+                f"WHERE psr_type IN ({in_list})"
+            ))
+            if res.rowcount:
+                applied.append(f"{table}.psr_type: {res.rowcount} raw codes named")
 
 
 def list_pending() -> Iterable[str]:

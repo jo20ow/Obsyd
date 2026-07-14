@@ -94,3 +94,38 @@ def test_z_score_needs_history_before_flagging():
     assert rows[10]["z_score"] is None
     assert rows[10]["flag"] is None
     assert any(r["z_score"] is not None for r in rows[60:])
+
+
+# ─── the hero that never had its own numbers ─────────────────────────────────
+
+
+def test_latest_carries_the_supply_and_demand_it_claims_to_show(db_session):
+    """The gas hero renders "N flagged days / 120 · supply {x} − demand {y} GWh" from `latest`.
+    `latest` only ever carried date/residual_7d/z_score/flag, so the panel printed "supply —
+    demand — GWh" every day of its life: a broken template, on the hero of the tab, while the
+    numbers sat in the very rows below it (9,675 / 5,891 GWh on the day this was found)."""
+    from datetime import date, timedelta
+
+    from fastapi.testclient import TestClient
+
+    from backend.database import get_db
+    from backend.main import app
+    from backend.models.gas import GasBalance
+
+    today = date.today()
+    for i in range(3):
+        db_session.add(GasBalance(
+            date=(today - timedelta(days=2 - i)).isoformat(),
+            supply_gwh=9_674.8, demand_gwh=5_890.6, exports_gwh=16.1,
+            residual=9.0, residual_7d=-238.6, z_score=-0.49, flag=None,
+        ))
+    db_session.commit()
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        latest = TestClient(app).get("/api/gas/balance?days=120").json()["latest"]
+    finally:
+        app.dependency_overrides.clear()
+
+    assert latest["supply_gwh"] == 9_674.8
+    assert latest["demand_gwh"] == 5_890.6

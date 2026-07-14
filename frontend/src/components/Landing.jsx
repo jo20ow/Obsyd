@@ -12,7 +12,7 @@ const PILLARS = [
     label: '02',
     title: 'Catch grid stress as it happens',
     body:
-      'A live radar flags forced power-plant outages, negative prices, Dunkelflaute (wind+solar below 15% of load) and gas-balance anomalies the moment they deviate from each zone’s own history — with a plain-language "what this means". A deviation vs history, not a forecast.',
+      'A live radar flags forced power-plant outages, negative prices, Dunkelflaute (wind+solar below 15% of load and unusually dark for that zone) and gas-balance anomalies the moment they deviate from each zone’s own history — with a plain-language "what this means". A deviation vs history, not a forecast.',
   },
   {
     label: '03',
