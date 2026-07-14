@@ -48,6 +48,8 @@ What was missing was everything else.
 
 from __future__ import annotations
 
+from weakref import WeakKeyDictionary
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -111,8 +113,33 @@ SELECT m.zone, m.median_share, m.n_all, t.tail_share, t.n_month
 """
 
 
+#: Thresholds are a property of the RECORD, not of the request: they move only when power_grid
+#: grows (once per ingest). The scan measures 108 ms on the prod-sized record (37 zones × 6.5
+#: years), and /overview — the busiest endpoint on the desk — needs them on every call, so it is
+#: memoised.
+#:
+#: Keyed by the ENGINE (weakly, so a test's in-memory database takes its cache with it when it
+#: dies) and by the record's max date AND row count, so any insert invalidates it — including a
+#: backfill of older days, which leaves the max date untouched. Keying on the data alone is what
+#: a first cut did, and it happily served one test's thresholds to another test's database.
+_THRESHOLD_CACHE: WeakKeyDictionary = WeakKeyDictionary()  # engine -> {(month, max_date, n): {...}}
+_THRESHOLD_CACHE_MAX = 24
+
+
+def _record_stamp(db: Session) -> tuple[str, int]:
+    row = db.execute(text("SELECT MAX(date), COUNT(*) FROM power_grid")).one()
+    return (row[0] or "", int(row[1] or 0))
+
+
 def zone_thresholds(db: Session, month: str) -> dict[str, dict]:
     """{zone: {median_share, tail_share, n_month, eligible, reason}} for one calendar month."""
+    engine = db.get_bind()
+    key = (month, *_record_stamp(db))
+    per_engine = _THRESHOLD_CACHE.setdefault(engine, {})
+    cached = per_engine.get(key)
+    if cached is not None:
+        return cached
+
     rows = db.execute(
         text(_THRESHOLD_SQL), {"mon": month, "q": TAIL_PERCENTILE}
     ).all()
@@ -146,6 +173,10 @@ def zone_thresholds(db: Session, month: str) -> dict[str, dict]:
             "tail_share": float(tail_share),
             "n_month": int(n_month),
         }
+
+    if len(per_engine) >= _THRESHOLD_CACHE_MAX:
+        per_engine.clear()
+    per_engine[key] = out
     return out
 
 
@@ -154,3 +185,30 @@ def is_dunkelflaute(share: float, threshold: dict) -> bool:
     if not threshold.get("eligible"):
         return False
     return share < threshold["tail_share"] and share < ABSOLUTE_THRESHOLD
+
+
+def flag_days(
+    db: Session,
+    zone: str,
+    shares: dict[str, float | None],
+    reliable_dates: set[str],
+) -> dict[str, bool]:
+    """The calibrated verdict for many days of ONE zone: {date: share} → {date: bool}.
+
+    The desk (/grid, /overview, the situation hero) used to answer this question itself, with the
+    flat `share < 15%` the radar was cured of — so the front door flagged thirteen zones on a day
+    the radar flagged three, five of them Norwegian hydro. This is the one door to the predicate:
+    both gates from this module, plus the coverage guard the caller resolved (`reliable_dates`),
+    because a share computed off an incomplete A75 feed is not a share.
+    """
+    thresholds: dict[str, dict] = {}
+    out: dict[str, bool] = {}
+    for day, share in shares.items():
+        if share is None or day not in reliable_dates:
+            out[day] = False
+            continue
+        month = day[5:7]
+        if month not in thresholds:
+            thresholds[month] = zone_thresholds(db, month)
+        out[day] = is_dunkelflaute(share, thresholds[month].get(zone, {}))
+    return out

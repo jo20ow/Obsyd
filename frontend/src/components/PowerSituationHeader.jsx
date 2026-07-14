@@ -15,7 +15,7 @@ const API = '/api'
 const stateLegend = (baselineDays) =>
   'How far this zone sits from its own recent history — a deviation, not a forecast. ' +
   `STRESSED: day-ahead price or residual load ≥3σ from its ${baselineDays ? `${baselineDays}-day` : 'trailing'} norm. ` +
-  'ELEVATED: ≥2σ, or a Dunkelflaute (wind+solar <15% of load) / negative-price flag. ' +
+  'ELEVATED: ≥2σ, or a Dunkelflaute (wind+solar under 15% of load AND in the bottom 2% of this zone\'s own same-month record) / negative-price flag. ' +
   'CALM: within ~2σ and no flags.'
 
 // Descriptive desk state → colour. Posture B: this is "how far from normal",
@@ -146,7 +146,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
             const drivers = []
             if (price.z != null && Math.abs(price.z) >= 1.5) drivers.push(`the day-ahead price is ${zPhrase(price.z)}`)
             if (grid.z != null && Math.abs(grid.z) >= 1.5) drivers.push(`residual load is ${residualPhrase(grid.z)}`)
-            if (grid.dunkelflaute) drivers.push('wind + solar are covering under 15% of demand (Dunkelflaute)')
+            if (grid.dunkelflaute) drivers.push('wind + solar are covering unusually little of demand for this zone (Dunkelflaute)')
             if (price.negative) drivers.push('there are hours of negative day-ahead prices')
             if (data.state === 'CALM' || drivers.length === 0)
               return `${data.zone_label} power is within its normal range — nothing unusual to act on.`

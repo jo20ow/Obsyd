@@ -47,6 +47,7 @@ from backend.models.energy import (
 )
 from backend.power.baseline import BASELINE_DAYS
 from backend.power.coverage import renewable_share_reliable
+from backend.power.dunkelflaute import ABSOLUTE_THRESHOLD, TAIL_PERCENTILE
 from backend.power.energy_charts_flows import ATTRIBUTION
 from backend.power.entsoe_grid import PSR_LABELS
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
@@ -399,14 +400,11 @@ async def get_spark_spread(
 
 # ─── Grid load + renewables (free) ───────────────────────────────────────────
 
-#: Renewable share threshold below which a day is flagged as Dunkelflaute.
-DUNKELFLAUTE_THRESHOLD = 0.15
-
 
 def _grid_row_values(
     date: str, load_mw: float | None, wind_mw: float | None, solar_mw: float | None
 ) -> dict:
-    """Derive residual_mw, renewable_share, and dunkelflaute flag for one row.
+    """Derive residual_mw and renewable_share for one row.
 
     Residual load is DEMAND minus renewables. Without a load there is no demand,
     so there is no residual and no renewable share — they are None, not zero.
@@ -418,6 +416,12 @@ def _grid_row_values(
     absent generation, which is a real physical statement, unlike a missing load.
     Value-based so the bulk overview loader can feed column tuples without
     hydrating ORM entities.
+
+    The Dunkelflaute flag is NOT set here: it is a judgment against the zone's own history
+    (power/dunkelflaute.py), which a single row cannot make. This function used to answer it
+    with a flat `share < 15%` — the predicate the radar was cured of — and that is how the
+    hero came to flag thirteen zones on a day the radar flagged three. `_flag_dunkelflaute`
+    below fills it in from the record.
     """
     wind = wind_mw or 0.0
     solar = solar_mw or 0.0
@@ -425,9 +429,6 @@ def _grid_row_values(
 
     residual_mw = round(load_mw - wind - solar, 2) if has_load else None
     renewable_share = round((wind + solar) / load_mw, 4) if has_load else None
-    # A Dunkelflaute is a statement about the share of load renewables cover.
-    # With no load, we cannot make it — so we don't.
-    dunkelflaute = renewable_share < DUNKELFLAUTE_THRESHOLD if has_load else False
 
     return {
         "date": date,
@@ -436,12 +437,30 @@ def _grid_row_values(
         "solar_mw": solar_mw,
         "residual_mw": residual_mw,
         "renewable_share": renewable_share,
-        "dunkelflaute": dunkelflaute,
+        "dunkelflaute": False,
     }
 
 
 def _compute_grid_row(r: PowerGrid) -> dict:
     return _grid_row_values(r.date, r.load_mw, r.wind_mw, r.solar_mw)
+
+
+def _flag_dunkelflaute(db: Session, zone: str, rows: list[dict]) -> None:
+    """Set `dunkelflaute` on ascending `_grid_row_values` rows of ONE zone — the calibrated
+    predicate + the coverage guard, i.e. exactly what the radar asks. Mutates in place."""
+    if not rows:
+        return
+    from backend.power.coverage import reliable_days
+    from backend.power.dunkelflaute import flag_days
+
+    reliable = {
+        d for d, _z in reliable_days(
+            db, zone=zone, date_from=rows[0]["date"], date_to=rows[-1]["date"]
+        )
+    }
+    verdicts = flag_days(db, zone, {r["date"]: r["renewable_share"] for r in rows}, reliable)
+    for r in rows:
+        r["dunkelflaute"] = verdicts.get(r["date"], False)
 
 
 @router.get("/grid")
@@ -480,6 +499,7 @@ async def get_grid(
         }
 
     data = [_compute_grid_row(r) for r in rows]
+    _flag_dunkelflaute(db, resolved_zone, data)
     latest = data[-1]
     dunkelflaute_days = sum(1 for d in data if d["dunkelflaute"])
 
@@ -488,7 +508,11 @@ async def get_grid(
         "zone": resolved_zone,
         "zones": _ZONE_KEYS,
         "unit": "MW",
-        "threshold_note": f"dunkelflaute = renewable_share < {DUNKELFLAUTE_THRESHOLD:.0%}",
+        "threshold_note": (
+            f"dunkelflaute = wind+solar below {ABSOLUTE_THRESHOLD:.0%} of load AND in the bottom "
+            f"{TAIL_PERCENTILE:.0%} of this zone's own same-month history "
+            "(zones with no wind/solar fleet cannot be in one)"
+        ),
         "latest": latest,
         "dunkelflaute_days": dunkelflaute_days,
         "from": date_from,
@@ -827,8 +851,10 @@ def build_power_situation(
 
     flags: list[dict] = []
     if dunkelflaute:
+        share = grid["renewable_share"]
+        share_txt = f" — renewables {share * 100:.0f}% of load" if share is not None else ""
         flags.append({"key": "dunkelflaute", "severity": "warning",
-                      "label": "Dunkelflaute — wind+solar < 15% of load"})
+                      "label": f"Dunkelflaute{share_txt}"})
         severities.append("warning")
     if price["negative"]:
         flags.append({"key": "negative_prices", "severity": "warning",
@@ -982,6 +1008,7 @@ def load_power_situation(db: Session, zone: str) -> dict:
         .all()
     )
     grid_series = [_compute_grid_row(r) for r in grid_rows]
+    _flag_dunkelflaute(db, resolved_zone, grid_series)
 
     # Is the latest grid day's renewable share trustworthy? (NL A75 is incomplete.)
     grid_coverage_ok = True
@@ -1087,6 +1114,21 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
         if total is None:
             return False
         return total >= coverage_min_ratio(zone) * load_mw
+
+    # 3b. The Dunkelflaute verdict for each zone's LATEST day — the only one the hero and the
+    #     matrix read. The calibrated predicate (power/dunkelflaute.py), i.e. the radar's, so the
+    #     front door cannot flag thirteen zones on a day the radar flags three. Thresholds are
+    #     memoised per (month, record), so the 37 calls cost one window-function scan per month.
+    from backend.power.dunkelflaute import flag_days
+
+    for zone_key, series in grid_by_zone.items():
+        if not series:
+            continue
+        last = series[-1]
+        reliable = {last["date"]} if _coverage_ok(zone_key) else set()
+        last["dunkelflaute"] = flag_days(
+            db, zone_key, {last["date"]: last["renewable_share"]}, reliable
+        )[last["date"]]
 
     # 4. Spark legs: every zone's power symbol + TTF. Query by DATE RANGE only —
     #    the (date, symbol) unique index turns 14 days × ~50 symbols into a few

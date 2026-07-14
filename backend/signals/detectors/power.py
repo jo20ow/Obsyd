@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from backend.models.energy import PowerGrid, PowerPriceDaily
 from backend.power.coverage import renewable_share_reliable
+from backend.power.dunkelflaute import ABSOLUTE_THRESHOLD
 from backend.power.entsoe_grid import PSR_LABELS
 from backend.signals.detectors.base import DetectorResult, trailing_zscore
 
-# Dunkelflaute = renewables carry an unusually small share of load (wind+solar < 15%),
-# so conventional generation must cover the residual. A fixed physical threshold is
-# meaningful here (it is a defined grid condition, not a structurally-always-true count).
-DUNKELFLAUTE_THRESHOLD = 0.15
+# The absolute leg of the Dunkelflaute test — wind+solar below 15% of load — from the module that
+# owns the predicate. It is ONE leg there; on its own it fires on 40% of all zone-days (see
+# power/dunkelflaute.py). Kept as a name because a USER's own alert rule may ask exactly this flat
+# question, with its own threshold_pct, and that is the user's choice to make.
+DUNKELFLAUTE_THRESHOLD = ABSOLUTE_THRESHOLD
 
 # Negative day-ahead hours happen routinely in solar/wind-heavy zones — so flag only when
 # TODAY is unusually high vs the zone's own recent norm (relative), not on a flat hour count.
