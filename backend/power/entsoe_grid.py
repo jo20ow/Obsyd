@@ -31,6 +31,7 @@ from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
 from backend.models.energy import PowerGenMix, PowerGrid
+from backend.power.daily import daily_from_hours, days_to_derive
 from backend.power.hourly_store import upsert_day_hours
 
 logger = logging.getLogger(__name__)
@@ -451,9 +452,6 @@ async def ingest_load_forecast(
             logger.warning("entsoe_grid: A65/A01 %s fetch failed: %s", month_start, exc)
             xml = ""
         if xml:
-            for day, mean_mw in parse_load(xml).items():
-                if day in wanted:
-                    load_by_day[day] = mean_mw
             for day, hours in parse_load_hourly(xml).items():
                 if day in wanted:
                     load_hourly_by_day[day] = hours
@@ -469,13 +467,22 @@ async def ingest_load_forecast(
             logger.warning("entsoe_grid: A69/A01 %s fetch failed: %s", month_start, exc)
             gxml = ""
         if gxml:
-            for day, by_psr in parse_generation_by_type(gxml).items():
-                if day in wanted:
-                    wind_by_day[day] = (by_psr.get(PSR_WIND_OFFSHORE, 0.0) or 0.0) + (by_psr.get(PSR_WIND_ONSHORE, 0.0) or 0.0)
-                    solar_by_day[day] = by_psr.get(PSR_SOLAR, 0.0) or 0.0
             for day, by_psr in parse_generation_hourly(gxml).items():
                 if day in wanted:
                     gen_hourly_by_day[day] = by_psr
+
+    # The daily forecast means come from the hourly forecast shape, by the same rule as the
+    # actuals (power/daily.py): a forecast for solar is published for the daylight hours in some
+    # zones, and dividing by those hours forecasts a sun that shines all night. The day filter of
+    # the actuals does NOT apply — a forecast is for a day that has not happened yet, which is
+    # the whole point of it.
+    for day in sorted(set(load_hourly_by_day) | set(gen_hourly_by_day)):
+        derived = daily_from_hours(load_hourly_by_day.get(day, {}), gen_hourly_by_day.get(day, {}))
+        if derived["load_mw"] is not None:
+            load_by_day[day] = derived["load_mw"]
+        if derived["mix"]:
+            wind_by_day[day] = derived["wind_mw"]
+            solar_by_day[day] = derived["solar_mw"]
 
     written = 0
     for day in sorted(set(load_by_day) | set(wind_by_day) | set(solar_by_day)):
@@ -668,27 +675,28 @@ async def ingest_grid(
                 if day in wanted:
                     gen_hourly_by_day[day] = by_psr
 
-    # ── Upsert PowerGrid ───────────────────────────────────────────────────
-    all_days = wanted & (load_by_day.keys() | gen_by_day.keys())
+    # ── Upsert the daily tables — DERIVED FROM THE HOURLY SHAPE ────────────
+    #
+    # Not from `parse_load` / `parse_generation_by_type` (the daily-mean parses) any more. Those
+    # divided by the number of PUBLISHED points, which stored the current day's nine morning hours
+    # as a day, made a zone that omits solar at night (PT: 18 points) a third sunnier than it is,
+    # and counted revised, overlapping points twice. The hour maps below are the same ones that go
+    # into the canonical store, deduped per hour — one parse, one answer. See power/daily.py.
+    #
+    # Only days that are OVER become rows: a day that is not finished is not a day, and everything
+    # downstream reads "the latest row" as one.
+    all_days = wanted & (load_hourly_by_day.keys() | gen_hourly_by_day.keys())
     written = 0
-    for day in sorted(all_days):
-        psr_map = gen_by_day.get(day, {})
-        wind_mw = psr_map.get(PSR_WIND_OFFSHORE, 0.0) + psr_map.get(PSR_WIND_ONSHORE, 0.0)
-        solar_mw = psr_map.get(PSR_SOLAR, 0.0)
-        load_mw = load_by_day.get(day)
-
-        # Residual = dispatchable demand (load − renewables). Only when generation
-        # was actually fetched for this day — otherwise wind/solar default to 0 and
-        # we'd store load−0−0 (inflated), clobbering a previously-correct residual.
-        residual_mw: float | None = None
-        if load_mw is not None and day in gen_by_day:
-            residual_mw = load_mw - wind_mw - solar_mw
-
-        _upsert_grid(db, day, zone, load_mw, wind_mw or None, solar_mw or None, residual_mw)
+    for day in days_to_derive(all_days):
+        gen_of_day = {
+            base_psr(psr): hours
+            for psr, hours in gen_hourly_by_day.get(day, {}).items()
+            if not is_consumption_key(psr)   # pumping is not generation
+        }
+        row = daily_from_hours(load_hourly_by_day.get(day, {}), gen_of_day)
+        _upsert_grid(db, day, zone, row)
+        _upsert_generation_mix(db, day, zone, row["mix"])
         written += 1
-
-    # ── Upsert PowerGenMix (full A75 breakdown) ────────────────────────────
-    _upsert_generation_mix(db, gen_by_day, zone)
 
     db.commit()
 
@@ -732,81 +740,57 @@ async def ingest_grid(
 
 def _upsert_generation_mix(
     db: Session,
-    gen_by_day: dict[str, dict[str, float]],
-    zone: str,
-) -> None:
-    """Upsert the full generation mix (all psrTypes) from a parsed A75 result.
-
-    `gen_by_day` maps {date_str: {psrType_code: mean_mw}}.  Each (date, zone,
-    label) triple is upserted idempotently — existing rows are updated in-place,
-    new rows are inserted. Readable labels from PSR_LABELS are used; unknown
-    codes fall back to the raw code string.
-
-    CONSUMPTION series (pumped-storage pumping) are EXCLUDED: the mix is what the
-    zone generated, and counting pumping as generation inflated both the mix and
-    the generation total that backend/power/coverage.py divides by load.
-
-    Note: does NOT call db.commit() — the caller (ingest_grid) commits once
-    after both _upsert_grid and _upsert_generation_mix complete.
-    """
-    for day, psr_map in gen_by_day.items():
-        for code, mean_mw in psr_map.items():
-            if is_consumption_key(code):
-                continue
-            label = PSR_LABELS.get(code, code)
-            existing = (
-                db.query(PowerGenMix)
-                .filter(
-                    PowerGenMix.date == day,
-                    PowerGenMix.zone == zone,
-                    PowerGenMix.psr_type == label,
-                )
-                .first()
-            )
-            if existing:
-                existing.gen_mw = mean_mw
-            else:
-                db.add(
-                    PowerGenMix(
-                        date=day,
-                        zone=zone,
-                        psr_type=label,
-                        gen_mw=mean_mw,
-                    )
-                )
-
-
-def _upsert_grid(
-    db: Session,
     day: str,
     zone: str,
-    load_mw: float | None,
-    wind_mw: float | None,
-    solar_mw: float | None,
-    residual_mw: float | None = None,
+    mix: dict[str, float],
 ) -> None:
+    """Upsert one day's generation mix (psrType → daily-mean MW, already day-averaged).
+
+    `mix` comes from power/daily.py, so every fuel is averaged over the 24 hours of the day —
+    the hours a zone does not publish are the zeros it does not send, not points to divide by.
+
+    CONSUMPTION series (pumped-storage pumping) never reach here: the mix is what the zone
+    GENERATED, and counting pumping as generation inflated both the mix and the generation total
+    that backend/power/coverage.py divides by load.
+
+    Note: does NOT call db.commit() — the caller commits once per zone-month.
+    """
+    for code, mean_mw in mix.items():
+        label = PSR_LABELS.get(code, code)
+        existing = (
+            db.query(PowerGenMix)
+            .filter(
+                PowerGenMix.date == day,
+                PowerGenMix.zone == zone,
+                PowerGenMix.psr_type == label,
+            )
+            .first()
+        )
+        if existing:
+            existing.gen_mw = mean_mw
+        else:
+            db.add(PowerGenMix(date=day, zone=zone, psr_type=label, gen_mw=mean_mw))
+
+
+def _upsert_grid(db: Session, day: str, zone: str, row: dict) -> None:
+    """Upsert one day's PowerGrid row from a power/daily.py `daily_from_hours` result.
+
+    Writes the hour counts as well: they are what lets a reader — and the Dunkelflaute predicate —
+    see how much of the day a mean stands on. Unlike the old upsert, a None is WRITTEN rather than
+    skipped: this row is the whole truth about the day as the store knows it, and silently keeping
+    a previous value would resurrect the number the re-derivation is here to correct.
+    """
     existing = (
         db.query(PowerGrid)
         .filter(PowerGrid.date == day, PowerGrid.zone == zone)
         .first()
     )
-    if existing:
-        if load_mw is not None:
-            existing.load_mw = load_mw
-        if wind_mw is not None:
-            existing.wind_mw = wind_mw
-        if solar_mw is not None:
-            existing.solar_mw = solar_mw
-        if residual_mw is not None:
-            existing.residual_mw = residual_mw
-    else:
-        db.add(
-            PowerGrid(
-                date=day,
-                zone=zone,
-                load_mw=load_mw,
-                wind_mw=wind_mw,
-                solar_mw=solar_mw,
-                residual_mw=residual_mw,
-            )
-        )
+    target = existing or PowerGrid(date=day, zone=zone)
+    target.load_mw = row["load_mw"]
+    target.wind_mw = row["wind_mw"]
+    target.solar_mw = row["solar_mw"]
+    target.residual_mw = row["residual_mw"]
+    target.load_hours = row["load_hours"]
+    target.gen_hours = row["gen_hours"]
+    if existing is None:
+        db.add(target)

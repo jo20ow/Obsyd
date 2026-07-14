@@ -208,7 +208,7 @@ def test_crack_spread_breach_no_trigger_within_band(db_session):
 
 def test_dunkelflaute_triggers_with_full_coverage(db_session):
     d = "2026-05-20"
-    db_session.add(PowerGrid(date=d, zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000))  # ~8%
+    db_session.add(PowerGrid(date=d, zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000, load_hours=24, gen_hours=24))  # ~8%
     # Reported generation ≈ load → coverage OK → the low share is real.
     db_session.add(PowerGenMix(date=d, zone="DE_LU", psr_type="Fossil Gas", gen_mw=40000))
     db_session.add(PowerGenMix(date=d, zone="DE_LU", psr_type="Nuclear", gen_mw=15000))
@@ -223,7 +223,7 @@ def test_dunkelflaute_triggers_with_full_coverage(db_session):
 
 def test_dunkelflaute_suppressed_on_incomplete_coverage(db_session):
     d = "2026-05-20"
-    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60))  # ~1.3%
+    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60, load_hours=24, gen_hours=24))  # ~1.3%
     db_session.add(PowerGenMix(date=d, zone="NL", psr_type="Fossil Gas", gen_mw=3400))  # total < 60% of load
     db_session.commit()
     res = user_alert_rules.evaluate_dunkelflaute(db_session, {"zone": "NL"}, now=NOW)

@@ -342,3 +342,65 @@ async def test_ingest_keeps_pumping_out_of_the_generation_mix(db_session, monkey
 
     assert read_hourly(db_session, "gen.B10", "DE_LU")[0][1] == 1_253.0
     assert read_hourly(db_session, "consumption.B10", "DE_LU")[0][1] == 1_579.0
+
+
+# ── the daily tables are derived from the hourly shape (power/daily.py) ───────
+
+
+async def test_a_day_that_is_not_over_is_not_a_day(db_session, monkeypatch):
+    """The radar read the newest PowerGrid row and announced "PT: Dunkelflaute — renewables 11%
+    of load" at breakfast; by the afternoon PT was at 22%, because the sun had come up. The row
+    was the mean of the nine hours that had been published. A day that is not finished is not a
+    day, and the ingest no longer writes one — which fixes every consumer of "the latest row" at
+    once, without any of them having to know."""
+    from datetime import UTC, datetime
+
+    from pydantic import SecretStr
+
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    yesterday_dt = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday = (yesterday_dt.toordinal() - 1)
+    yesterday = datetime.fromordinal(yesterday).strftime("%Y-%m-%d")
+
+    load_xml = _a65(_load_ts(f"{yesterday}T00:00Z", 50_000.0) + _load_ts(f"{today}T00:00Z", 51_000.0, n=9))
+    gen_xml = _a75_gen(_gen_ts("B16", f"{yesterday}T00:00Z", 5_000.0) + _gen_ts("B16", f"{today}T00:00Z", 1_000.0, n=9))
+
+    async def fake_fetch(eic, month_start, doctype, extra_params, *, overwrite=False):
+        return load_xml if doctype == "A65" else gen_xml if doctype == "A75" else ""
+
+    monkeypatch.setattr(grid_mod, "_fetch_zone_month", fake_fetch)
+    monkeypatch.setattr(grid_mod.settings, "entsoe_api_token", SecretStr("test-token"))
+
+    await grid_mod.ingest_grid(db_session, [yesterday, today])
+
+    days = {r.date for r in db_session.query(PowerGrid).filter_by(zone="DE_LU").all()}
+    assert yesterday in days
+    assert today not in days, "the current day is a running total, not a daily mean"
+
+
+async def test_a_fuel_that_is_only_published_by_day_is_averaged_over_the_whole_day(db_session, monkeypatch):
+    """PT publishes solar for 18 hours and nothing at night. The old daily parse divided by 18 and
+    stored the mean of the DAYLIGHT hours as the day's — a third too high, on a settled day, right
+    through the history. The hours it does not send are zeros: the sun is down."""
+    from pydantic import SecretStr
+
+    day = "2026-04-01"
+    # Solar: 3000 MW for 18 hours, nothing published for the other six.
+    gen_xml = _a75_gen(
+        _gen_ts("B16", f"{day}T05:00Z", 3_000.0, n=18)
+        + _gen_ts("B19", f"{day}T00:00Z", 1_000.0)     # wind reports all night → the day IS covered
+    )
+    load_xml = _a65(_load_ts(f"{day}T00:00Z", 6_000.0))
+
+    async def fake_fetch(eic, month_start, doctype, extra_params, *, overwrite=False):
+        return load_xml if doctype == "A65" else gen_xml if doctype == "A75" else ""
+
+    monkeypatch.setattr(grid_mod, "_fetch_zone_month", fake_fetch)
+    monkeypatch.setattr(grid_mod.settings, "entsoe_api_token", SecretStr("test-token"))
+
+    await grid_mod.ingest_grid(db_session, [day])
+
+    row = db_session.query(PowerGrid).filter_by(date=day, zone="DE_LU").first()
+    assert row.solar_mw == 3_000.0 * 18 / 24 == 2_250.0, "divided by the day, not by the points"
+    assert row.load_hours == 24
+    assert row.gen_hours == 24, "wind reports through the night — the day has no hole in it"

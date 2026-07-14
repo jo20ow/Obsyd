@@ -343,7 +343,7 @@ def _seed_dunkelflaute_history(db, zone="DE_LU", *, normal_share=0.40, years=3):
 def test_dunkelflaute_warns(db_session):
     """The real thing: a zone with a 40% normal renewable share dropping to 8%."""
     _seed_dunkelflaute_history(db_session)
-    db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000))  # ~8%
+    db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=3000, solar_mw=2000, load_hours=24, gen_hours=24))  # ~8%
     # Complete generation coverage (~60 GW ≈ load) → the low renewable share is real.
     db_session.add(PowerGenMix(date="2026-06-24", zone="DE_LU", psr_type="Fossil Gas", gen_mw=40000))
     db_session.add(PowerGenMix(date="2026-06-24", zone="DE_LU", psr_type="Nuclear", gen_mw=15000))
@@ -357,7 +357,7 @@ def test_dunkelflaute_warns(db_session):
 
 def test_dunkelflaute_high_renewables_suppressed(db_session):
     _seed_dunkelflaute_history(db_session)
-    db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=30000, solar_mw=15000))  # 75%
+    db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000, wind_mw=30000, solar_mw=15000, load_hours=24, gen_hours=24))  # 75%
     db_session.commit()
     assert detect_dunkelflaute(db_session) == []
 
@@ -378,7 +378,7 @@ def test_a_hydro_zone_is_never_in_a_dunkelflaute(db_session):
         # Pure hydro: a 2% renewable share, every day, forever. Nothing here is an event.
         db_session.add(PowerGrid(date=d.isoformat(), zone="NO5", load_mw=10_000,
                                  wind_mw=200, solar_mw=0))
-    db_session.add(PowerGrid(date="2026-06-24", zone="NO5", load_mw=10_000, wind_mw=0, solar_mw=0))
+    db_session.add(PowerGrid(date="2026-06-24", zone="NO5", load_mw=10_000, wind_mw=0, solar_mw=0, load_hours=24, gen_hours=24))
     db_session.commit()
 
     assert detect_dunkelflaute(db_session) == [], "0% of load is NO5's normal, not its emergency"
@@ -387,7 +387,7 @@ def test_a_hydro_zone_is_never_in_a_dunkelflaute(db_session):
 def test_a_zone_with_no_history_for_this_month_makes_no_claim(db_session):
     """Without a same-month record there is no tail to be in, so there is nothing to say."""
     db_session.add(PowerGrid(date="2026-06-24", zone="DE_LU", load_mw=60000,
-                             wind_mw=3000, solar_mw=2000))
+                             wind_mw=3000, solar_mw=2000, load_hours=24, gen_hours=24))
     db_session.commit()
     assert detect_dunkelflaute(db_session) == []
 
@@ -526,7 +526,7 @@ def test_dunkelflaute_suppressed_on_incomplete_coverage(db_session):
     d = date.today().isoformat()
     # Load 10 GW, wind+solar ~1% → would flag. But the generation mix only reports
     # ~4.8 GW total (<60% of load) → coverage too low to trust the share → suppress.
-    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60))
+    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60, load_hours=24, gen_hours=24))
     db_session.add(PowerGenMix(date=d, zone="NL", psr_type="Fossil Gas", gen_mw=3400))
     db_session.add(PowerGenMix(date=d, zone="NL", psr_type="Hard Coal", gen_mw=1360))
     db_session.commit()
@@ -536,7 +536,7 @@ def test_dunkelflaute_suppressed_on_incomplete_coverage(db_session):
 def test_dunkelflaute_suppressed_when_no_generation_mix(db_session):
     # Grid present but no generation-mix rows at all → cannot validate coverage → suppress.
     d = date.today().isoformat()
-    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60))
+    db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60, load_hours=24, gen_hours=24))
     db_session.commit()
     assert detect_dunkelflaute(db_session) == []
 

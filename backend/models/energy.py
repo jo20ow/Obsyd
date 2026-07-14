@@ -105,6 +105,12 @@ class PowerGrid(Base):
     wind_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)   # daily mean MW (B18+B19)
     solar_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # daily mean MW (B16)
     residual_mw: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # load − wind − solar (MW)
+    # How much of the day each mean stands on (backend/power/daily.py). A claim about a renewable
+    # share needs both at 24: the load mean must be a day's, and every hour of the day must have
+    # SOME generation in it — that is what tells "PT omits solar at night" (wind and gas still
+    # report) apart from "the feed fell over for six hours" (nothing does).
+    load_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # 0-24
+    gen_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)    # 0-24, any fuel
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("date", "zone", name="uq_power_grid_date_zone"),)

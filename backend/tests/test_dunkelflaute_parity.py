@@ -53,6 +53,7 @@ def _seed(
     dates: list[str],
     load: float = 50_000.0,
     coverage: bool = True,
+    gen_hours: int = 24,
 ) -> None:
     """One grid day per share, with matching A75 generation so the coverage guard is satisfied.
 
@@ -61,7 +62,8 @@ def _seed(
     """
     for day, share in zip(dates, shares, strict=True):
         db.add(PowerGrid(date=day, zone=zone, load_mw=load,
-                         wind_mw=load * share * 0.6, solar_mw=load * share * 0.4))
+                         wind_mw=load * share * 0.6, solar_mw=load * share * 0.4,
+                         load_hours=24, gen_hours=gen_hours))
         if coverage:
             # Reported generation ≈ load → coverage ratio 1.0, comfortably over the 0.6 floor.
             db.add(PowerGenMix(date=day, zone=zone, psr_type="Fossil Gas", gen_mw=load))
@@ -165,3 +167,20 @@ def test_the_situation_hero_agrees_with_the_radar(db_session):
 
     assert body["grid"]["dunkelflaute"] is False
     assert [f for f in body["flags"] if f["key"] == "dunkelflaute"] == []
+
+
+def test_a_day_with_a_hole_in_its_generation_feed_is_not_judged(db_session):
+    """A settled day can still be a broken one. If a zone's generation feed stops for six hours,
+    those hours are unaccounted for — and a daily mean that reads them as zeros manufactures a
+    dark day out of an outage. Both surfaces must stay silent, not agree on a fiction."""
+    from backend.signals.detectors.power import detect_dunkelflaute
+
+    hist = _same_month_history(70)
+    _seed(db_session, FLEET, [0.40] * len(hist), dates=hist)
+    _seed(db_session, FLEET, [0.05], dates=[_dark_day()], gen_hours=18)
+
+    body = _make_client(db_session).get(f"/api/power/grid?zone={FLEET}&days=120").json()
+
+    assert body["latest"]["dunkelflaute"] is False
+    assert body["latest"]["gen_hours"] == 18, "the hole is visible in the row, not hidden"
+    assert {r.zone for r in detect_dunkelflaute(db_session)} == set(), "the radar keeps quiet too"
