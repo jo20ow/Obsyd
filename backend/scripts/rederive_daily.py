@@ -34,7 +34,7 @@ from __future__ import annotations
 import argparse
 import logging
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import text
@@ -49,6 +49,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("rederive_daily")
 
 CHECKPOINT_EVERY = 20  # zone-months
+MIN_FREE_GB = 2.0     # a full disk on this VPS killed dockerd, Caddy, and both sites for 2.5 days
 
 
 def _wal_mb() -> float:
@@ -61,39 +62,75 @@ def _wal_mb() -> float:
     return wal.stat().st_size / 1e6 if wal.exists() else 0.0
 
 
-def _hours_by_day(db, zone: str, month: str) -> tuple[dict, dict]:
-    """{day: {hour: mw}} for load, and {day: {psr: {hour: mw}}} for generation — one query."""
-    rows = db.execute(text("""
-        SELECT s.key,
-               strftime('%Y-%m-%d', h.ts_utc, 'unixepoch') AS day,
-               CAST(strftime('%H', h.ts_utc, 'unixepoch') AS INTEGER) AS hour,
-               h.value
-          FROM power_hourly h
-          JOIN series_dim s ON s.id = h.series_id
-          JOIN zone_dim  z ON z.id = h.zone_id
-         WHERE z.key = :zone
-           AND (s.key = 'load.actual' OR s.key LIKE 'gen.%')
-           AND strftime('%Y-%m', h.ts_utc, 'unixepoch') = :month
-    """), {"zone": zone, "month": month}).all()
+#: power_hourly is 28.5 MILLION rows, indexed on (series_id, zone_id, ts_utc). Every query here
+#: resolves the ids FIRST and filters on a ts RANGE — never `strftime(...)` or a join on
+#: series_dim.key over the whole table. The first cut of this script did exactly that (a DISTINCT
+#: strftime to list a zone's months) and SQLite spilled a multi-gigabyte temp B-tree for it: the
+#: VPS went from 92% to 95% full while the script was merely READING. Same trap as the 36s → 1.6s
+#: lesson on the border layer, with a disk-alarm attached.
+
+
+def _series_ids(db) -> tuple[int | None, dict[int, str]]:
+    """(load series id, {gen series id: psrType}) — resolved once, used in every range scan."""
+    rows = db.execute(text("SELECT id, key FROM series_dim WHERE key = 'load.actual' OR key LIKE 'gen.%'")).all()
+    load_id = next((i for i, k in rows if k == "load.actual"), None)
+    gen_ids = {i: k.split(".", 1)[1] for i, k in rows if k.startswith("gen.")}
+    return load_id, gen_ids
+
+
+def _zone_id(db, zone: str) -> int | None:
+    return db.execute(text("SELECT id FROM zone_dim WHERE key = :z"), {"z": zone}).scalar()
+
+
+def _hours_by_day(db, zid: int, load_id: int | None, gen_ids: dict[int, str],
+                  start_ts: int, end_ts: int) -> tuple[dict, dict]:
+    """{day: {hour: mw}} for load, {day: {psr: {hour: mw}}} for generation — one indexed range scan."""
+    ids = ([load_id] if load_id is not None else []) + list(gen_ids)
+    if not ids:
+        return {}, {}
+    rows = db.execute(text(f"""
+        SELECT series_id, ts_utc, value
+          FROM power_hourly
+         WHERE zone_id = :zid
+           AND series_id IN ({','.join(str(i) for i in ids)})
+           AND ts_utc >= :a AND ts_utc < :b
+    """), {"zid": zid, "a": start_ts, "b": end_ts}).all()
 
     load: dict[str, dict[int, float]] = defaultdict(dict)
     gen: dict[str, dict[str, dict[int, float]]] = defaultdict(lambda: defaultdict(dict))
-    for key, day, hour, value in rows:
-        if key == "load.actual":
-            load[day][hour] = value
+    for sid, ts, value in rows:
+        t = datetime.fromtimestamp(ts, UTC)
+        day = t.strftime("%Y-%m-%d")
+        if sid == load_id:
+            load[day][t.hour] = value
         else:
-            gen[day][key.split(".", 1)[1]][hour] = value   # gen.B16 → B16
+            gen[day][gen_ids[sid]][t.hour] = value
     return load, gen
 
 
-def _months(db, zone: str) -> list[str]:
-    return [
-        m for (m,) in db.execute(text("""
-            SELECT DISTINCT strftime('%Y-%m', h.ts_utc, 'unixepoch') AS m
-              FROM power_hourly h JOIN zone_dim z ON z.id = h.zone_id
-             WHERE z.key = :zone ORDER BY m
-        """), {"zone": zone}).all()
-    ]
+def _month_windows(db, zid: int) -> list[tuple[str, int, int]]:
+    """[(YYYY-MM, start_ts, end_ts)] spanning the zone's record — from MIN/MAX, not a table scan."""
+    row = db.execute(text(
+        "SELECT MIN(ts_utc), MAX(ts_utc) FROM power_hourly WHERE zone_id = :zid"
+    ), {"zid": zid}).one()
+    if row[0] is None:
+        return []
+    first = datetime.fromtimestamp(row[0], UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last = datetime.fromtimestamp(row[1], UTC)
+
+    windows: list[tuple[str, int, int]] = []
+    cur = first
+    while cur <= last:
+        nxt = (cur.replace(day=28) + timedelta(days=4)).replace(day=1)
+        windows.append((cur.strftime("%Y-%m"), int(cur.timestamp()), int(nxt.timestamp())))
+        cur = nxt
+    return windows
+
+
+def _free_gb() -> float:
+    import shutil
+
+    return shutil.disk_usage("/").free / 1e9
 
 
 def rederive(zones: list[str], *, dry_run: bool = False) -> None:
@@ -105,10 +142,24 @@ def rederive(zones: list[str], *, dry_run: bool = False) -> None:
     worst: list[tuple[float, str, str, float, float]] = []
     n_days = n_deleted = n_months = 0
 
+    load_id, gen_ids = _series_ids(db)
+
     try:
         for zone in zones:
-            for month in _months(db, zone):
-                load_by_day, gen_by_day = _hours_by_day(db, zone, month)
+            zid = _zone_id(db, zone)
+            if zid is None:
+                continue
+            for month, start_ts, end_ts in _month_windows(db, zid):
+                # This VPS has been taken down by a full disk before, and the previous incident
+                # started with a maintenance script exactly like this one.
+                if _free_gb() < MIN_FREE_GB:
+                    logger.error("STOP: only %.1f GB free — refusing to write further", _free_gb())
+                    if not dry_run:
+                        db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+                        db.commit()
+                    return
+
+                load_by_day, gen_by_day = _hours_by_day(db, zid, load_id, gen_ids, start_ts, end_ts)
                 days = set(load_by_day) | set(gen_by_day)
 
                 # A day that is not over is not a day — and the old code wrote one.
@@ -159,7 +210,8 @@ def rederive(zones: list[str], *, dry_run: bool = False) -> None:
                     if not dry_run:
                         db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
                         db.commit()
-                    logger.info("… %s %s · %d days · WAL %.0f MB", zone, month, n_days, _wal_mb())
+                    logger.info("… %s %s · %d days · WAL %.0f MB · %.1f GB free",
+                                zone, month, n_days, _wal_mb(), _free_gb())
 
         if not dry_run:
             db.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
@@ -168,8 +220,8 @@ def rederive(zones: list[str], *, dry_run: bool = False) -> None:
         db.close()
 
     worst.sort(reverse=True)
-    logger.info("%s: %d days re-derived, %d unfinished days dropped",
-                "DRY RUN" if dry_run else "done", n_days, n_deleted)
+    logger.info("%s: %d days re-derived, %d unfinished days dropped · %.1f GB free",
+                "DRY RUN" if dry_run else "done", n_days, n_deleted, _free_gb())
     logger.info("Biggest solar corrections (old → new daily mean):")
     seen: set[str] = set()
     for drift, zone, day, old, new in worst:
