@@ -23,3 +23,7 @@ data/
 .DS_Store
 STATUS_REPORT.md
 .superpowers/
+
+# SQLite sidecars of the local dev DB — swept in by a `git add -A` in #105.
+*.db-wal
+*.db-shm
