@@ -17,10 +17,18 @@ export default function MiniSeriesCard({ title, series, zone, unit, scale = 1, c
   const { data: resp, loading } = useFetchWithError(url, { deps: [series, zone, start] })
 
   const rows = useMemo(
-    () => (resp?.data || []).map((p) => ({ t: p.date, v: p.value == null ? null : p.value * scale })),
+    () => (resp?.data || []).map((p) => ({
+      t: p.date,
+      v: p.value == null ? null : p.value * scale,
+      hours: p.hours,
+    })),
     [resp, scale],
   )
-  const latest = rows.length ? rows[rows.length - 1].v : null
+  const last = rows.length ? rows[rows.length - 1] : null
+  const latest = last ? last.v : null
+  // The last day of a live series is usually a stump — the hours that have elapsed, not a day.
+  // Printing its mean as "the price" is how the desk came to show 132.6 next to the panel's 123.8.
+  const partialHours = last && last.hours != null && last.hours < 24 ? last.hours : null
 
   return (
     <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
@@ -29,6 +37,14 @@ export default function MiniSeriesCard({ title, series, zone, unit, scale = 1, c
         <div className="flex items-center gap-2 shrink-0">
           {latest != null && (
             <span className="num text-[11px] font-bold text-cyan-glow">{latest.toFixed(1)} {unit}</span>
+          )}
+          {partialHours != null && (
+            <span
+              className="font-mono text-[9px] text-neutral-500"
+              title={`The last day is still filling in: this mean averages ${partialHours} of 24 hours.`}
+            >
+              {partialHours}/24 h
+            </span>
           )}
           <a
             href={`${url}&format=csv`}
