@@ -8,7 +8,7 @@ captions and /api/health/collectors can never disagree.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +23,10 @@ from backend.models.energy import (
     PowerPriceDaily,
 )
 
-_TODAY = date.today()
+# UTC, not local: the routes bucket on datetime.utcnow().date(). With a local
+# date.today() these tests fail for the two hours between local and UTC midnight
+# (same fix as test_power_situation.py).
+_TODAY = datetime.now(timezone.utc).date()
 
 
 @pytest.fixture(autouse=True)

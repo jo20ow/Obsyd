@@ -222,7 +222,7 @@ def test_component_freshness_fields_on_fresh_data():
     price = _price_series([50.0, 51.0, 52.0])
     grid = _flat_grid([45_000.0, 46_000.0, 47_000.0])
     spark = {"spark_spread": 5.0, "power_price": 52.0, "gas_price": 30.0,
-             "date": date.today().isoformat()}
+             "date": _TODAY.isoformat()}
     s = build_power_situation("DE_LU", price, grid, spark, today=_TODAY)
 
     for comp in ("price", "grid", "spark"):
