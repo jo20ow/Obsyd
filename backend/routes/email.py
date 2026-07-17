@@ -6,7 +6,7 @@ import logging
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 
 from backend.auth.dependencies import require_auth, require_pro
@@ -96,32 +96,15 @@ async def email_stats(_user=Depends(require_auth)):
 
 @router.post("/subscribe")
 async def subscribe(user=Depends(require_auth)):
-    """Opt the logged-in user into the free daily brief (Weg B).
-
-    Writes/reactivates an EmailSubscriber(tier="free"); the daily send loop mails
-    every active subscriber regardless of tier. Unsubscribe uses the existing
-    GET /api/email/unsubscribe?token= flow.
-    """
-    email = user["email"]
-    db = SessionLocal()
-    try:
-        sub = db.query(EmailSubscriber).filter(EmailSubscriber.email == email).first()
-        if sub is None:
-            sub = EmailSubscriber(
-                email=email,
-                tier="free",
-                unsubscribe_token=secrets.token_urlsafe(32),
-                active=True,
-            )
-            db.add(sub)
-        else:
-            sub.active = True
-            sub.unsubscribed_at = None
-        db.commit()
-        logger.info("Email subscribe (free): %s", email)
-        return {"status": "ok", "subscribed": email}
-    finally:
-        db.close()
+    """PAUSED (owner decision 2026-07-18): the daily brief sends no emails and
+    takes no new signups. 410 keeps the contract honest for any cached client;
+    GET /unsubscribe stays live so links in already-sent mails keep working.
+    The former opt-in body is in git history — restore it together with the
+    daily_email scheduler job to re-enable."""
+    raise HTTPException(
+        status_code=410,
+        detail="The daily brief is paused — Obsyd currently sends no emails.",
+    )
 
 
 @router.get("/subscription")

@@ -56,33 +56,32 @@ def test_alerts_rss_filters_by_vertical(client, db_session):
     assert "POWER ITEM" in body and "OIL ITEM" not in body
 
 
-# ─── Free daily-brief opt-in ─────────────────────────────────────────────────
+# ─── Free daily-brief opt-in — PAUSED 2026-07-18 (no product emails) ─────────
 
 
-def test_subscribe_creates_free_subscriber(client, db_session):
+def test_subscribe_is_gone_and_writes_nothing(client, db_session):
     app.dependency_overrides[require_auth] = lambda: {"email": "free@user.com"}
     resp = client.post("/api/email/subscribe")
-    assert resp.status_code == 200
-    assert resp.json()["subscribed"] == "free@user.com"
+    assert resp.status_code == 410
     sub = db_session.query(EmailSubscriber).filter(EmailSubscriber.email == "free@user.com").first()
-    assert sub is not None and sub.active is True and sub.tier == "free"
+    assert sub is None
 
 
-def test_subscribe_reactivates_unsubscribed(client, db_session):
+def test_subscribe_does_not_reactivate_unsubscribed(client, db_session):
     db_session.add(EmailSubscriber(email="back@user.com", tier="free",
                                    unsubscribe_token="tok", active=False))
     db_session.commit()
     app.dependency_overrides[require_auth] = lambda: {"email": "back@user.com"}
-    client.post("/api/email/subscribe")
+    assert client.post("/api/email/subscribe").status_code == 410
     sub = db_session.query(EmailSubscriber).filter(EmailSubscriber.email == "back@user.com").first()
-    assert sub.active is True
+    assert sub.active is False
 
 
-def test_subscription_status_reflects_state(client, db_session):
+def test_subscription_status_stays_false_after_paused_subscribe(client, db_session):
     app.dependency_overrides[require_auth] = lambda: {"email": "who@user.com"}
     assert client.get("/api/email/subscription").json()["subscribed"] is False
     client.post("/api/email/subscribe")
-    assert client.get("/api/email/subscription").json()["subscribed"] is True
+    assert client.get("/api/email/subscription").json()["subscribed"] is False
 
 
 # ─── Power block in the brief ────────────────────────────────────────────────

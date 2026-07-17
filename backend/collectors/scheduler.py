@@ -13,7 +13,7 @@ Schedule (UTC):
   - EU gas balance: daily 10:00; gas registry: weekly Mon 03:30
   - Signals (radar): every 5 min; scorecards: weekly Mon 05:00
   - Live prices: every 4h; user alert rules: every 30 min
-  - Daily email: Mon-Fri 07:00 (pre-refresh 06:45)
+  - Daily email: PAUSED 2026-07-18 (no product emails; see registration site below)
   - Retention: daily 04:00; collector watchdog: daily 09:00
 """
 
@@ -29,7 +29,6 @@ from backend.collectors.spark_spreads import collect_spark_spreads
 from backend.database import SessionLocal
 from backend.notifications.alert_runner import process_alert_rules
 from backend.notifications.collector_watchdog import check_collectors
-from backend.notifications.daily_email import send_daily_email
 from backend.providers.price_provider import get_live_prices as refresh_live_prices
 from backend.signals.evaluator import evaluate_signals
 
@@ -478,19 +477,10 @@ def start_scheduler():
     # User-defined alert rules: every 30 min (6h cooldown per rule inside the runner).
     scheduler.add_job(process_alert_rules, CronTrigger(minute="15,45"), id="user_alert_rules_30min", **JOB_DEFAULTS)
 
-    # Daily briefing email: Mon-Fri 07:00 UTC (pre-refresh prices at 06:45).
-    scheduler.add_job(
-        refresh_live_prices,
-        CronTrigger(day_of_week="mon-fri", hour=6, minute=45),
-        id="pre_email_price_refresh",
-        **JOB_DEFAULTS,
-    )
-    scheduler.add_job(
-        send_daily_email,
-        CronTrigger(day_of_week="mon-fri", hour=7, minute=0),
-        id="daily_email",
-        **JOB_DEFAULTS,
-    )
+    # Daily briefing email: PAUSED (owner decision 2026-07-18) — Obsyd sends no
+    # product emails. The pipeline (notifications/daily_email.py) stays intact;
+    # re-enable by re-registering send_daily_email (Mon-Fri 07:00 UTC, with a
+    # refresh_live_prices pre-run at 06:45) and reopening POST /api/email/subscribe.
 
     # Retention: daily 04:00 UTC. Collector watchdog: daily 09:00 UTC.
     scheduler.add_job(run_retention, CronTrigger(hour=4, minute=0), id="retention_daily", **JOB_DEFAULTS)

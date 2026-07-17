@@ -41,7 +41,6 @@ import ProductsPanel from './components/ProductsPanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
-import BriefSubscribe from './components/BriefSubscribe'
 import CommandPalette from './components/CommandPalette'
 import { useAuth } from './context/AuthContext'
 import { ViewStateProvider, useViewState } from './context/ViewStateContext'
@@ -763,9 +762,6 @@ function Dashboard() {
           <div className="space-y-3">
             <ErrorBoundary name="radar">
               <AlertsPanel weatherAlerts={weatherAlerts} />
-            </ErrorBoundary>
-            <ErrorBoundary name="brief-subscribe">
-              <BriefSubscribe />
             </ErrorBoundary>
             <ErrorBoundary name="alert-rules">
               <AlertRulesPanel />
