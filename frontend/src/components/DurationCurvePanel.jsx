@@ -7,7 +7,7 @@ import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS } from '../utils/chart'
 
 const API = '/api'
 const MAX_POINTS = 2000
@@ -78,7 +78,7 @@ export default function DurationCurvePanel({ zone = 'DE_LU' }) {
               <XAxis dataKey="pct" tick={{ fontSize: 8, fill: '#737373' }} unit="%" type="number" domain={[0, 100]} />
               <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={40} />
               {metric === 'price' && <ReferenceLine y={0} stroke="#444" />}
-              <Tooltip {...CHART_TOOLTIP_STYLE}
+              <Tooltip {...CHART_TOOLTIP_PROPS}
                 labelFormatter={(p) => `${p}% of hours`}
                 formatter={(v) => [`${Number(v).toFixed(1)} ${m.unit}`, m.label]} />
               <Area type="monotone" dataKey="v" stroke={m.color} fill={m.color} fillOpacity={0.08} strokeWidth={1.5} dot={false} />

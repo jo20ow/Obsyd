@@ -5,19 +5,9 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, Legend,
 } from 'recharts'
 import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fuelColor } from '../utils/fuels'
 
 const API = '/api'
-
-/** One colour per technology, held across the table and the chart. */
-const FUEL_COLOR = {
-  B16: '#fbbf24',  // solar
-  B19: '#22d3ee',  // wind onshore
-  B18: '#38bdf8',  // wind offshore
-  B11: '#2dd4bf',  // hydro run-of-river
-  B12: '#4ade80',  // hydro reservoir
-  B14: '#a78bfa',  // nuclear
-  B04: '#f87171',  // fossil gas
-}
 
 /**
  * Capture rate — what a MWh of each technology actually earned.
@@ -106,7 +96,7 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                 {fuels.map((f) => {
                   const L = f.latest
                   const vf = L.value_factor
-                  const color = FUEL_COLOR[f.psr] || '#94a3b8'
+                  const color = fuelColor(f.psr)
                   return (
                     <tr key={f.psr} className="border-t border-border/30">
                       <td className="px-2 py-1.5 text-neutral-300">
@@ -168,7 +158,7 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                   <Legend wrapperStyle={{ fontSize: 9, color: '#737373' }} iconSize={6} />
                   {fuels.map((f) => (
                     <Line key={f.psr} type="monotone" dataKey={f.psr} name={f.label}
-                      stroke={FUEL_COLOR[f.psr] || '#94a3b8'} strokeWidth={1.4}
+                      stroke={fuelColor(f.psr)} strokeWidth={1.4}
                       dot={false} connectNulls isAnimationActive={false} />
                   ))}
                 </LineChart>
