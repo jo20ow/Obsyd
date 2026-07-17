@@ -11,7 +11,7 @@ One predicate. These tests pin the desk to the radar's, and vice versa.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +19,9 @@ from sqlalchemy.orm import Session
 
 from backend.models.energy import PowerGenMix, PowerGrid
 
-TODAY = date.today()
+# UTC, not local — the episode/radar code buckets on datetime.utcnow().date()
+# (same fix as test_power_situation.py).
+TODAY = datetime.now(timezone.utc).date()
 
 # The predicate is data-driven, not name-driven: a zone is "hydro" to it because its record says
 # so, not because it is called NO5. The test env enables DE_LU/FR/NL, so the fleets are seeded
