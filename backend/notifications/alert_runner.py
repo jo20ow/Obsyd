@@ -27,7 +27,6 @@ from typing import Callable
 import httpx
 from sqlalchemy.orm import Session
 
-from backend.config import settings
 from backend.database import SessionLocal
 from backend.models.alert_rules import AlertRule, UserAlertEvent
 from backend.signals.user_alert_rules import EvaluatorResult, evaluator_for
@@ -39,10 +38,14 @@ MAX_TRIGGERS_PER_RUN = 100
 
 
 def _resend_api_key() -> str | None:
-    key = settings.resend_api_key
-    if not key:
-        return None
-    return key.get_secret_value() if hasattr(key, "get_secret_value") else key
+    # PAUSED (owner decision 2026-07-18): Obsyd sends no product emails. Rules
+    # still evaluate and their UserAlertEvent rows land in the ALERTS feed —
+    # only the Resend leg is off. Re-enable by restoring the key lookup:
+    #   key = settings.resend_api_key
+    #   if not key:
+    #       return None
+    #   return key.get_secret_value() if hasattr(key, "get_secret_value") else key
+    return None
 
 
 def _send_alert_email(api_key: str, email: str, title: str, detail: str) -> bool:

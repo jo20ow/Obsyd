@@ -60,8 +60,8 @@ export default function AlertRulesPanel() {
       <div className="border border-border bg-surface rounded p-6 text-center font-mono">
         <div className="text-[10px] tracking-wider text-cyan-glow mb-2">ALERT RULES</div>
         <div className="text-[12px] text-neutral-400 mb-3 max-w-md mx-auto leading-relaxed">
-          Custom supply-disruption alerts via email — free. Log in to set up your rules and get
-          notified when something deviates.
+          Custom supply-disruption alerts — free. Log in to set up your rules; every firing
+          lands in your on-site alert inbox when something deviates.
         </div>
         <div className="text-[11px] text-neutral-500">
           Use <span className="text-cyan-glow">LOG IN</span> in the sidebar (a magic link, no password).

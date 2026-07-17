@@ -217,10 +217,10 @@ export default function Landing() {
           </div>
           <div className="bg-[#0a0a12] p-6">
             <div className="text-cyan-glow text-[11px] tracking-widest mb-3">03</div>
-            <div className="text-neutral-100 text-base mb-3 leading-snug">You get the email</div>
+            <div className="text-neutral-100 text-base mb-3 leading-snug">You see it in the feed</div>
             <div className="text-[12px] text-neutral-500 leading-relaxed">
-              The trigger, the evidence, and a link straight to the chart — plus a Mon–Fri daily
-              brief so your morning starts with the energy situation.
+              The trigger, the evidence, and a link straight to the chart — every firing lands
+              in the ALERTS feed on the desk, ranked by severity.
             </div>
           </div>
         </div>
@@ -230,7 +230,7 @@ export default function Landing() {
             href="/app"
             className="px-6 py-3 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold text-center"
           >
-            Get the free daily brief →
+            Set up your alerts →
           </a>
           <span className="text-[11px] text-neutral-600">Log in with a magic link — no card, no spam.</span>
         </div>
@@ -251,7 +251,7 @@ export default function Landing() {
             <ul className="text-[11px] text-neutral-400 space-y-1.5">
               <li>· Full power desk + anomaly radar</li>
               <li>· Day-ahead, residual load, generation mix, cross-border flows, forecasts</li>
-              <li>· Watchlist, custom alerts, daily brief</li>
+              <li>· Watchlist, custom alerts</li>
               <li>· Everything unlocked, no limits</li>
             </ul>
           </div>
