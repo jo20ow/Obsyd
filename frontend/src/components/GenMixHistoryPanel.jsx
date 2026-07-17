@@ -6,19 +6,10 @@ import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fuelColor, sortFuels } from '../utils/fuels'
 
 const API = '/api'
-
-// Readable ENTSO-E fuel label → colour; anything unmapped falls back to the cycle.
-const FUEL_COLORS = {
-  Solar: '#facc15', 'Wind Onshore': '#22d3ee', 'Wind Offshore': '#0ea5e9',
-  'Fossil Gas': '#f97316', 'Hard Coal': '#78716c', 'Fossil Brown coal/Lignite': '#92400e',
-  Nuclear: '#a855f7', 'Hydro Water Reservoir': '#3b82f6', 'Hydro Run-of-river and poundage': '#60a5fa',
-  'Hydro Pumped Storage': '#2563eb', Biomass: '#84cc16', 'Fossil Oil': '#525252',
-  Waste: '#a3a3a3', Geothermal: '#ef4444', Other: '#9ca3af', 'Other renewable': '#4ade80',
-}
-const CYCLE = ['#f472b6', '#fb923c', '#34d399', '#818cf8', '#e879f9', '#fbbf24']
 
 export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
   const { range } = useViewState()
@@ -28,7 +19,6 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
   const url = `${API}/v1/genmix?zone=${zone}&start=${start}&resolution=monthly`
   const { data: resp, loading } = useFetchWithError(url, { deps: [zone, start] })
 
-  const colorFor = (fuel, i) => FUEL_COLORS[fuel] || CYCLE[i % CYCLE.length]
   // Convert MW → GW for readability without mutating source rows.
   const { chart, fuels } = useMemo(() => {
     const f = resp?.fuels || []
@@ -37,7 +27,7 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
       for (const fuel of f) if (row[fuel] != null) o[fuel] = Math.round((row[fuel] / 1000) * 10) / 10
       return o
     })
-    return { chart, fuels: f }
+    return { chart, fuels: sortFuels(f) }
   }, [resp])
 
   if (!loading && (!resp?.available || fuels.length === 0)) return null
@@ -59,11 +49,11 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
               <XAxis dataKey="t" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={30} />
               <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={34} unit="" />
-              <Tooltip {...CHART_TOOLTIP_STYLE} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
+              <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
               <Legend wrapperStyle={{ fontSize: 8, fontFamily: 'monospace' }} iconSize={7} />
-              {fuels.map((f, i) => (
-                <Area key={f} type="monotone" dataKey={f} stackId="1" stroke={colorFor(f, i)}
-                  fill={colorFor(f, i)} fillOpacity={0.65} strokeWidth={0.5} />
+              {fuels.map((f) => (
+                <Area key={f} type="monotone" dataKey={f} stackId="1" stroke={fuelColor(f)}
+                  fill={fuelColor(f)} fillOpacity={0.65} strokeWidth={0.5} />
               ))}
             </AreaChart>
           </ResponsiveContainer>

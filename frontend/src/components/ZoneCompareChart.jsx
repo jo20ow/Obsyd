@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_STYLE, fmtDate } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, fmtDate } from '../utils/chart'
 
 const API = '/api'
 
@@ -113,7 +113,7 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
               <XAxis dataKey="t" tickFormatter={fmtDate} tick={{ fontSize: 9, fill: '#737373' }} minTickGap={40} />
               <YAxis tick={{ fontSize: 9, fill: '#737373' }} width={40} domain={['auto', 'auto']} />
               <Tooltip
-                {...CHART_TOOLTIP_STYLE}
+                {...CHART_TOOLTIP_PROPS}
                 labelFormatter={fmtDate}
                 formatter={(v, name) => [v != null ? `${Number(v).toFixed(1)} ${unit}` : '—', label(name)]}
               />

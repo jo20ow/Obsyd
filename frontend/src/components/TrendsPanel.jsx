@@ -7,7 +7,7 @@ import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS } from '../utils/chart'
 
 const API = '/api'
 
@@ -85,7 +85,7 @@ export default function TrendsPanel({ zone = 'DE_LU' }) {
               <XAxis dataKey="t" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={30} />
               <YAxis yAxisId="l" tick={{ fontSize: 8, fill: '#737373' }} width={30} />
               <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 8, fill: '#737373' }} width={30} unit="%" domain={[0, 100]} />
-              <Tooltip {...CHART_TOOLTIP_STYLE}
+              <Tooltip {...CHART_TOOLTIP_PROPS}
                 formatter={(v, n) => [n === 'renewShare' ? `${v}%` : v, n === 'negHours' ? 'Neg-price h' : 'Renewables']} />
               <Legend wrapperStyle={{ fontSize: 8, fontFamily: 'monospace' }} iconSize={7} />
               <Bar yAxisId="l" dataKey="negHours" name="Neg-price h" fill="#f87171" fillOpacity={0.7} />

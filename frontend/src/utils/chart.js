@@ -11,6 +11,17 @@ export function fmtDate(d) {
 
 export const CHART_TOOLTIP_STYLE = { background: '#0f1115', border: '1px solid #262a33', fontFamily: 'inherit', fontSize: 12, borderRadius: 8 }
 
+// Spread THESE into a recharts <Tooltip>. Spreading CHART_TOOLTIP_STYLE itself
+// passes `background` etc. as unknown Tooltip props — recharts ignores them and
+// renders its white default box on the dark desk. contentStyle is the real
+// prop; itemStyle/labelStyle keep the text in ink instead of the series color
+// (a bright series hue is unreadable as text — the mark carries identity).
+export const CHART_TOOLTIP_PROPS = {
+  contentStyle: CHART_TOOLTIP_STYLE,
+  itemStyle: { color: '#c9ccd6' },
+  labelStyle: { color: '#8b8fa3' },
+}
+
 // Hour-of-day label for the hourly day-ahead curve (0 → "00h", 13 → "13h").
 export function fmtHour(h) {
   return `${String(h).padStart(2, '0')}h`

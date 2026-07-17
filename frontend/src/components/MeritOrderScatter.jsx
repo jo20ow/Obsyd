@@ -7,7 +7,7 @@ import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS } from '../utils/chart'
 
 const API = '/api'
 const MAX_POINTS = 4000
@@ -69,7 +69,7 @@ export default function MeritOrderScatter({ zone = 'DE_LU' }) {
                 label={{ value: 'Residual load (GW)', position: 'insideBottom', offset: -4, fontSize: 8, fill: '#737373' }} />
               <YAxis type="number" dataKey="y" name="Price" unit=" €" tick={{ fontSize: 8, fill: '#737373' }} width={40} />
               <ReferenceLine y={0} stroke="#444" />
-              <Tooltip {...CHART_TOOLTIP_STYLE} cursor={{ strokeDasharray: '3 3' }}
+              <Tooltip {...CHART_TOOLTIP_PROPS} cursor={{ strokeDasharray: '3 3' }}
                 formatter={(v, n) => [n === 'Price' ? `${Number(v).toFixed(1)} €/MWh` : `${Number(v).toFixed(1)} GW`, n]} />
               <Scatter data={points} fill="#22d3ee" fillOpacity={0.35} />
             </ScatterChart>

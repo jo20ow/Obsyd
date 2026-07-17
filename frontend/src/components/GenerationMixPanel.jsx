@@ -6,31 +6,10 @@ import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fuelColor, sortFuels } from '../utils/fuels'
 
 const API = '/api'
-
-// Color palette: darker for firm/dispatchable; brighter for renewables/hydro
-const TYPE_COLORS = {
-  'Nuclear':             '#c084fc', // violet
-  'Lignite':             '#78716c', // stone (dark)
-  'Hard Coal':           '#57534e', // stone (darker)
-  'Fossil Gas':          '#6b7280', // gray
-  'Oil':                 '#44403c', // very dark
-  'Biomass':             '#4ade80', // green
-  'Geothermal':          '#fb923c', // orange
-  'Hydro Pumped Storage':'#38bdf8', // sky
-  'Hydro Run-of-river':  '#0ea5e9', // sky darker
-  'Hydro Reservoir':     '#0284c7', // blue
-  'Other Renewable':     '#a3e635', // lime
-  'Solar':               '#fbbf24', // amber
-  'Waste':               '#a8a29e', // stone light
-  'Wind Offshore':       '#22d3ee', // cyan
-  'Wind Onshore':        '#67e8f9', // cyan lighter
-  'Other':               '#374151', // gray dark
-}
-
-const DEFAULT_COLOR = '#64748b'
 
 export default function GenerationMixPanel({ zone = 'DE_LU' }) {
   const { range } = useViewState()
@@ -55,7 +34,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
 
   const rows = data?.data ?? []
   const latest = data?.latest
-  const types = data?.types ?? []
+  const types = sortFuels(data?.types ?? [])
 
   // Top type by generation in latest snapshot
   const topType = latest
@@ -105,7 +84,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
               {topType && (
                 <span
                   className="font-mono text-[10px] font-semibold"
-                  style={{ color: TYPE_COLORS[topType] ?? DEFAULT_COLOR }}
+                  style={{ color: fuelColor(topType) }}
                 >
                   top: {topType} ({((latest[topType] / latest.total_mw) * 100).toFixed(1)}%)
                 </span>
@@ -135,7 +114,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
                     tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />
                   <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
+                    {...CHART_TOOLTIP_PROPS}
                     formatter={(v, name) => [`${Math.round(v).toLocaleString()} MW`, name]}
                     labelFormatter={fmtDate}
                   />
@@ -146,8 +125,8 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
                       dataKey={type}
                       name={type}
                       stackId="mix"
-                      stroke={TYPE_COLORS[type] ?? DEFAULT_COLOR}
-                      fill={TYPE_COLORS[type] ?? DEFAULT_COLOR}
+                      stroke={fuelColor(type)}
+                      fill={fuelColor(type)}
                       fillOpacity={0.18}
                       strokeWidth={1}
                       dot={false}
@@ -160,7 +139,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
               {/* Legend — two rows max, 8 per row */}
               <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-1 font-mono text-[8px] text-neutral-600">
                 {types.map((type) => (
-                  <span key={type} style={{ color: TYPE_COLORS[type] ?? DEFAULT_COLOR }}>
+                  <span key={type} style={{ color: fuelColor(type) }}>
                     ▬ {type}
                   </span>
                 ))}

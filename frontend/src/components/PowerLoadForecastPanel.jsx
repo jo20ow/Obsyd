@@ -5,7 +5,7 @@ import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, fmtHour, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, fmtHour, CHART_TOOLTIP_PROPS } from '../utils/chart'
 
 const API = '/api'
 
@@ -137,7 +137,7 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis dataKey="hour" tickFormatter={fmtHour} tick={{ fontSize: 8, fill: '#737373' }} interval={2} />
                 <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={34} unit="" />
-                <Tooltip {...CHART_TOOLTIP_STYLE} labelFormatter={(h) => `${fmtHour(h)} UTC`}
+                <Tooltip {...CHART_TOOLTIP_PROPS} labelFormatter={(h) => `${fmtHour(h)} UTC`}
                   formatter={(v, n) => [v != null ? `${Number(v).toFixed(1)} GW` : '—',
                     { residual: 'Residual', load: 'Load', wind: 'Wind', solar: 'Solar' }[n] ?? n]} />
                 <Area type="monotone" dataKey="residual" stroke={COLOR_FORECAST} fill={COLOR_FORECAST}
@@ -154,7 +154,7 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 9, fill: '#737373' }} minTickGap={24} />
                 <YAxis tick={{ fontSize: 9, fill: '#737373' }} width={34} domain={['auto', 'auto']} unit="" />
-                <Tooltip {...CHART_TOOLTIP_STYLE} labelFormatter={fmtDate}
+                <Tooltip {...CHART_TOOLTIP_PROPS} labelFormatter={fmtDate}
                   formatter={(v, n) => [v != null ? `${v.toFixed(1)} GW` : '—', n === 'forecast' ? 'Forecast' : 'Actual']} />
                 <Line type="monotone" dataKey="forecast" stroke={COLOR_FORECAST} dot={false} strokeWidth={1.5} connectNulls />
                 <Line type="monotone" dataKey="actual" stroke={COLOR_ACTUAL} dot={false} strokeWidth={1.5} connectNulls />

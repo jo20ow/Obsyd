@@ -6,7 +6,7 @@ import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS } from '../utils/chart'
 
 const API = '/api'
 const COLOR_A = '#22d3ee'
@@ -202,7 +202,7 @@ export default function SeriesExplorer() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                 <XAxis dataKey="t" tickFormatter={fmtT} tick={{ fontSize: 8, fill: '#737373' }} minTickGap={40} />
                 <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={44} domain={['auto', 'auto']} />
-                <Tooltip {...CHART_TOOLTIP_STYLE} labelFormatter={fmtT}
+                <Tooltip {...CHART_TOOLTIP_PROPS} labelFormatter={fmtT}
                   formatter={(v, n) => [v != null ? Number(v).toFixed(1) : '—', n === 'd' ? `${zoneLabel(zone)} − ${zoneLabel(compareZone)}` : n === 'a' ? zoneLabel(zone) : zoneLabel(compareZone)]} />
                 {showSpread ? (
                   <>

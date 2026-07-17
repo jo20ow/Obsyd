@@ -3,19 +3,10 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fuelColor, sortFuels } from '../utils/fuels'
 
 const API = '/api'
-
-// Same fuel palette as GenMixHistoryPanel.
-const FUEL_COLORS = {
-  Solar: '#facc15', 'Wind Onshore': '#22d3ee', 'Wind Offshore': '#0ea5e9',
-  'Fossil Gas': '#f97316', 'Hard Coal': '#78716c', 'Fossil Brown coal/Lignite': '#92400e',
-  Nuclear: '#a855f7', 'Hydro Water Reservoir': '#3b82f6', 'Hydro Run-of-river and poundage': '#60a5fa',
-  'Hydro Pumped Storage': '#2563eb', Biomass: '#84cc16', 'Fossil Oil': '#525252',
-  Waste: '#a3a3a3', Geothermal: '#ef4444', Other: '#9ca3af', 'Other renewable': '#4ade80',
-}
-const CYCLE = ['#f472b6', '#fb923c', '#34d399', '#818cf8', '#e879f9', '#fbbf24']
 
 // Compact stacked generation mix per zone for the Live grid (Fuel Mix section).
 // Daily resolution, floored to 90d so the stack has shape; GW.
@@ -32,9 +23,8 @@ export default function MiniMixCard({ title, zone, height = 120 }) {
       for (const fuel of f) if (row[fuel] != null) o[fuel] = Math.round((row[fuel] / 1000) * 10) / 10
       return o
     })
-    return { chart: rows, fuels: f }
+    return { chart: rows, fuels: sortFuels(f) }
   }, [resp])
-  const colorFor = (fuel, i) => FUEL_COLORS[fuel] || CYCLE[i % CYCLE.length]
 
   return (
     <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
@@ -56,9 +46,9 @@ export default function MiniMixCard({ title, zone, height = 120 }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
               <XAxis dataKey="t" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={30} />
               <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={30} />
-              <Tooltip {...CHART_TOOLTIP_STYLE} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
-              {fuels.map((f, i) => (
-                <Area key={f} type="monotone" dataKey={f} stackId="1" stroke={colorFor(f, i)} fill={colorFor(f, i)} fillOpacity={0.6} strokeWidth={0.5} />
+              <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
+              {fuels.map((f) => (
+                <Area key={f} type="monotone" dataKey={f} stackId="1" stroke={fuelColor(f)} fill={fuelColor(f)} fillOpacity={0.6} strokeWidth={0.5} />
               ))}
             </AreaChart>
           </ResponsiveContainer>
