@@ -33,9 +33,13 @@
 >
 > **POST-LAUNCH-BACKLOG (Ideen-Parkplatz, Owner-abgenommen 2026-07-18 — NICHTS davon
 > vor dem Launch bauen; die Launch-Reaktion wählt die Richtung):**
-> 1. **Python-Client** (`pip install obsyd`, DataFrames aus der v1-API) + 2–3
->    Beispiel-Notebooks + Datasets auf Kaggle/HuggingFace — Reichweiten-Hebel Nr. 1
->    (gridstatus-Playbook: die Library trug die Traktion, nicht das Dashboard).
+> 1. **Python-Client — VORGEZOGEN, GEBAUT 2026-07-18** (Owner-Entscheid: soll in den
+>    HN-Post): v0.2.0 in `clients/python/` (alle 9 Endpoints als DataFrames, typisierte
+>    Fehler, 429-Retry, UA `obsyd-python/x.y.z` als Adoptions-Metrik in VPS-Logs),
+>    gemockte Tests + CI-Job, PyPI-Trusted-Publishing via Tag `client-v*`. OFFEN
+>    (Owner-Ops): PyPI-Account + pending trusted publisher (Workflow
+>    `publish-client.yml`, Environment `pypi`) + GitHub-Environment `pypi` anlegen,
+>    dann Tag pushen. Datasets auf Kaggle/HuggingFace bleiben post-launch.
 > 2. **Forecast-Scoreboard** — ENTSO-E-Last/Wind/Solar-Prognosen laufend öffentlich
 >    benoten (Forecast-Error-Strip ausbauen). Posture-B-konform: fremde Prognosen
 >    bewerten, keine eigenen machen. Frei zugänglich macht das niemand.

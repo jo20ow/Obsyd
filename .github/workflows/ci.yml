@@ -27,6 +27,30 @@ jobs:
       - name: Tests (pytest)
         run: python -m pytest backend/tests/ -q
 
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install client with dev extras
+        run: pip install -e ".[dev]"
+
+      # Mocked only — the live smoke tests are excluded via addopts and run
+      # manually before a release (pytest -m live).
+      - name: Tests (pytest, mocked)
+        run: python -m pytest -q
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
