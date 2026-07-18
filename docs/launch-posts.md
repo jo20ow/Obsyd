@@ -197,3 +197,34 @@ HTML im Browser öffnen und bei 2× screenshotten. Referenz-Sample liegt daneben
 >
 > https://obsyd.dev — Code: https://github.com/jo20ow/Obsyd. Feedback von Leuten
 > aus der Branche wäre Gold, gerade zu dem, was für den Desk-Alltag noch fehlt.
+
+---
+
+## r/energytrading (Kernpersona — Video-first)
+
+**Asset:** `docs/launch/obsyd-demo.mp4` (10 s, Reddit-nativ hochladen; `.gif` als
+Fallback/Imgur). Zeigt den Trader-Aha: Zone DE-LU €81 → IT-Nord €167 in einem
+Klick, Preissprung im Situation-Header, dann die Driver-Karte als Begründung
+(Wind 0.0 GW, 10 % Erneuerbare → €167). Am Post-Tag NEU rendern, damit die
+Preise aktuell sind (`node docs/launch/record-demo.mjs`, ffmpeg-Zeilen im
+Skript-Header) — den Tag mit dem größten DE↔IT- (oder DE↔Nordics-)Spread wählen.
+
+**Titel:**
+
+> Same click, €81 vs €167: I built a free desk that shows any EU zone's price
+> AND why it cleared there (open-source, no account)
+
+**Text:** (kurz halten, Trader mögen knapp)
+
+> Following the European day-ahead across zones meant reconciling ENTSO-E
+> queries by hand. So I built OBSYD — every bidding zone in one desk: day-ahead
+> at the real 15-minute resolution, residual load, spark spread, and a driver
+> card that says WHY a zone cleared where it did (wind/solar vs its own norm,
+> net position, the analogue days). The clip is DE-LU vs IT-Nord today.
+>
+> Free, no account, AGPL. Public API + `pip install obsyd` if you'd rather pull
+> it into a notebook. https://obsyd.dev — feedback from people who actually
+> trade this would be gold.
+
+**Regel-Hinweis:** Sidebar-Regeln zu Self-Promo VOR dem Posten lesen; vom
+gealterten Privat-Account, erste 2 h aktiv antworten.
