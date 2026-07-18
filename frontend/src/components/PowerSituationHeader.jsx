@@ -64,7 +64,17 @@ function Metric({ label, value, sub, color, band, comp }) {
  * drill-down evidence). Always-on hero across every tab.
  */
 export default function PowerSituationHeader({ zone = 'DE_LU' }) {
-  const { data, loading } = useFetchWithError(`${API}/power/situation?zone=${zone}`, { deps: [zone], pollMs: POLL_FAST_MS })
+  const { data, loading, error } = useFetchWithError(`${API}/power/situation?zone=${zone}`, { deps: [zone], pollMs: POLL_FAST_MS })
+
+  // A failed fetch must say so — silently keeping the previous zone's numbers
+  // is exactly the lie this desk exists to avoid.
+  if (error && !data) {
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">POWER SITUATION // FETCH ERROR</div>
+      </div>
+    )
+  }
 
   if (loading && !data) {
     return (

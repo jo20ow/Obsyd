@@ -16,7 +16,7 @@ function label(key) {
 }
 
 export default function CoveragePanel() {
-  const { data, loading } = useFetchWithError(`${API}/v1/status`)
+  const { data, loading, error } = useFetchWithError(`${API}/v1/status`)
   const sources = data?.sources || []
 
   return (
@@ -35,6 +35,9 @@ export default function CoveragePanel() {
 
       {loading && (
         <div className="px-4 py-6 text-center font-mono text-[10px] text-neutral-600 animate-pulse">Checking coverage…</div>
+      )}
+      {!loading && error && sources.length === 0 && (
+        <div className="px-4 py-6 text-center font-mono text-[10px] text-red-400">Fetch error — retrying on next refresh.</div>
       )}
       {!loading && sources.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 px-4 py-3">

@@ -17,7 +17,7 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
   const start = rangeStart(range, 365)
 
   const url = `${API}/v1/genmix?zone=${zone}&start=${start}&resolution=monthly`
-  const { data: resp, loading } = useFetchWithError(url, { deps: [zone, start] })
+  const { data: resp, loading, error } = useFetchWithError(url, { deps: [zone, start] })
 
   // Convert MW → GW for readability without mutating source rows.
   const { chart, fuels } = useMemo(() => {
@@ -30,6 +30,13 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
     return { chart, fuels: sortFuels(f) }
   }, [resp])
 
+  if (error && !resp) {
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">GENERATION MIX HISTORY // FETCH ERROR</div>
+      </div>
+    )
+  }
   if (!loading && (!resp?.available || fuels.length === 0)) return null
 
   return (

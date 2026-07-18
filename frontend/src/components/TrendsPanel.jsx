@@ -20,9 +20,9 @@ export default function TrendsPanel({ zone = 'DE_LU' }) {
   const priceUrl = `${API}/v1/series?series=price.dayahead&zone=${zone}&start=${start}&resolution=hourly`
   const loadUrl = `${API}/v1/series?series=load.actual&zone=${zone}&start=${start}&resolution=daily`
   const resUrl = `${API}/v1/series?series=residual.actual&zone=${zone}&start=${start}&resolution=daily`
-  const { data: price, loading: l1 } = useFetchWithError(priceUrl, { deps: [zone, start] })
-  const { data: load, loading: l2 } = useFetchWithError(loadUrl, { deps: [zone, start] })
-  const { data: res, loading: l3 } = useFetchWithError(resUrl, { deps: [zone, start] })
+  const { data: price, loading: l1, error: e1 } = useFetchWithError(priceUrl, { deps: [zone, start] })
+  const { data: load, loading: l2, error: e2 } = useFetchWithError(loadUrl, { deps: [zone, start] })
+  const { data: res, loading: l3, error: e3 } = useFetchWithError(resUrl, { deps: [zone, start] })
   const loading = l1 || l2 || l3
 
   const { rows, totalNeg } = useMemo(() => {
@@ -60,6 +60,13 @@ export default function TrendsPanel({ zone = 'DE_LU' }) {
     return { rows, totalNeg }
   }, [price, load, res])
 
+  if ((e1 || e2 || e3) && rows.length === 0) {
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">TRENDS // FETCH ERROR</div>
+      </div>
+    )
+  }
   if (!loading && rows.length === 0) return null
 
   return (

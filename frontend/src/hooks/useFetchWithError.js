@@ -36,12 +36,16 @@ export default function useFetchWithError(url, opts = {}) {
   const run = useCallback(
     async (controller) => {
       const myReq = ++reqRef.current
-      // Serve stale data immediately while revalidating; only show the
-      // loading state when we have nothing cached for this URL yet.
+      // Serve stale data immediately while revalidating — but ONLY data that
+      // belongs to THIS url. When the url changes (zone/range switch) and the
+      // new url has no cache yet, `data` must drop to null: keeping the old
+      // url's payload made every panel silently show zone A labeled as
+      // current while zone B was loading (or forever, if the fetch failed).
       if (swrCache.has(url)) {
         setData(swrCache.get(url))
         setLoading(false)
       } else {
+        setData(null)
         setLoading(true)
       }
       setError(null)

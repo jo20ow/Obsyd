@@ -24,7 +24,15 @@ function fmtEnd(iso) {
  * that — most raw messages are withdrawn revisions).
  */
 export default function OutagePanel({ zone = 'DE_LU' }) {
-  const { data, loading } = useFetchWithError(`${API}/power/outages?zone=${zone}`, { deps: [zone], pollMs: POLL_SLOW_MS })
+  const { data, loading, error } = useFetchWithError(`${API}/power/outages?zone=${zone}`, { deps: [zone], pollMs: POLL_SLOW_MS })
+
+  if (error && !data) {
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">OUTAGES // FETCH ERROR</div>
+      </div>
+    )
+  }
 
   if (!data?.available && !loading) {
     return (

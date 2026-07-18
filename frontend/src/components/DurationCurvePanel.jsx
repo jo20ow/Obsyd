@@ -24,7 +24,7 @@ export default function DurationCurvePanel({ zone = 'DE_LU' }) {
   const start = rangeStart(range)
 
   const url = `${API}/v1/series?series=${m.key}&zone=${zone}&start=${start}&resolution=hourly`
-  const { data: resp, loading } = useFetchWithError(url, { deps: [m.key, zone, start] })
+  const { data: resp, loading, error } = useFetchWithError(url, { deps: [m.key, zone, start] })
 
   const { curve, stats } = useMemo(() => {
     const vals = (resp?.data || []).map((p) => p.value * m.scale).filter((v) => v != null && !Number.isNaN(v))
@@ -39,6 +39,13 @@ export default function DurationCurvePanel({ zone = 'DE_LU' }) {
     return { curve, stats: { n, max: vals[0], min: vals[n - 1], median, negHours } }
   }, [resp, m.scale, metric])
 
+  if (error && !resp) {
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">DURATION CURVE // FETCH ERROR</div>
+      </div>
+    )
+  }
   if (!loading && (!resp?.available || !stats)) return null
 
   return (

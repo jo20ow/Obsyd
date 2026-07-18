@@ -18,8 +18,8 @@ export default function MeritOrderScatter({ zone = 'DE_LU' }) {
 
   const priceUrl = `${API}/v1/series?series=price.dayahead&zone=${zone}&start=${start}&resolution=hourly`
   const resUrl = `${API}/v1/series?series=residual.actual&zone=${zone}&start=${start}&resolution=hourly`
-  const { data: priceResp, loading: l1 } = useFetchWithError(priceUrl, { deps: [zone, start] })
-  const { data: resResp, loading: l2 } = useFetchWithError(resUrl, { deps: [zone, start] })
+  const { data: priceResp, loading: l1, error: e1 } = useFetchWithError(priceUrl, { deps: [zone, start] })
+  const { data: resResp, loading: l2, error: e2 } = useFetchWithError(resUrl, { deps: [zone, start] })
   const loading = l1 || l2
 
   const { points, corr } = useMemo(() => {
@@ -42,6 +42,13 @@ export default function MeritOrderScatter({ zone = 'DE_LU' }) {
     return { points, corr }
   }, [priceResp, resResp])
 
+  if ((e1 || e2) && points.length === 0) {
+    return (
+      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+        <div className="font-mono text-[10px] text-red-400">PRICE VS RESIDUAL // FETCH ERROR</div>
+      </div>
+    )
+  }
   if (!loading && points.length === 0) return null
 
   return (

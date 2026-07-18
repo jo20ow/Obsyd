@@ -88,7 +88,7 @@ export default function SeriesExplorer() {
 
   const enc = encodeURIComponent(series)
   const url = `${API}/v1/series?series=${enc}&zone=${zone}&start=${start}&resolution=${resolution}`
-  const { data: resp, loading } = useFetchWithError(url, { deps: [series, zone, start, resolution] })
+  const { data: resp, loading, error } = useFetchWithError(url, { deps: [series, zone, start, resolution] })
 
   const comparing = !!compareZone && compareZone !== zone
   const cmpZoneEff = compareZone || zone  // when off, same URL as primary → served from SWR cache (no extra fetch)
@@ -174,6 +174,9 @@ export default function SeriesExplorer() {
 
       <div className="px-2 pt-3 pb-1" style={{ minHeight: 240 }}>
         {loading && <div className="px-4 py-10 text-center font-mono text-[10px] text-neutral-600 animate-pulse">Loading…</div>}
+        {!loading && error && !resp && (
+          <div className="px-4 py-10 text-center font-mono text-[10px] text-red-400">Fetch error — retrying on next refresh.</div>
+        )}
         {!loading && resp && resp.available === false && (
           <div className="px-4 py-10 text-center font-mono text-[10px] text-neutral-600">
             {resp.reason || 'No data for this selection.'}
