@@ -5,7 +5,7 @@ Settings API — runtime provider configuration.
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from backend.auth.dependencies import require_auth
+from backend.auth.dependencies import require_pro
 from backend.providers import price_provider
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -23,8 +23,9 @@ def get_settings():
 
 
 @router.post("/provider")
-def set_provider(body: ProviderUpdate, _user: dict = Depends(require_auth)):
-    """Change the active price provider (auth required)."""
+def set_provider(body: ProviderUpdate, _user: dict = Depends(require_pro)):
+    """Change the active price provider — server-wide state, so owner-only
+    (require_pro), not any free login."""
     try:
         price_provider.set_providers(body.primary, body.fallback)
         return {"status": "ok", **price_provider.get_settings()}

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api_guard import _reset_coverage_cache
 from backend.auth.ratelimit import reset_limits
 from backend.database import get_db
 from backend.main import app
@@ -19,9 +20,11 @@ _H = 3600
 @pytest.fixture(autouse=True)
 def _isolate():
     reset_limits()
+    _reset_coverage_cache()  # process-global; would leak the coverage window between tests
     yield
     app.dependency_overrides.clear()
     reset_limits()
+    _reset_coverage_cache()
 
 
 def _client(db):
@@ -309,3 +312,74 @@ def test_daily_csv_carries_the_hour_count_too(db_session):
     ).text
     assert text.splitlines()[0] == "date,value,hours"
     assert text.splitlines()[1].endswith(",9")
+
+
+# ── DoS guards (2026-07-18) ──────────────────────────────────────────────────
+
+def test_coverage_is_cached_across_calls(db_session, monkeypatch):
+    """The catalog's coverage window must be computed at most once per TTL —
+    the min/max scan is a 28s full-table hit on prod."""
+    import backend.routes.api_v1 as v1
+
+    _seed(db_session)
+    calls = {"n": 0}
+    real = v1._coverage_window
+
+    def counting(db):
+        calls["n"] += 1
+        return real(db)
+
+    monkeypatch.setattr(v1, "_coverage_window", counting)
+    c = _client(db_session)
+    c.get("/api/v1/series/catalog")
+    c.get("/api/v1/series/catalog")
+    c.get("/api/v1/series/catalog")
+    assert calls["n"] == 1, "coverage scan ran more than once despite the cache"
+
+
+def test_series_row_cap_refuses_instead_of_materialising(db_session, monkeypatch):
+    """A range over the per-request row cap must return available:False, not
+    scan+build the whole result."""
+    import backend.routes.api_v1 as v1
+
+    monkeypatch.setattr(v1, "MAX_SCAN_ROWS", 3)
+    _seed(db_session, n=10)
+    body = _client(db_session).get(
+        "/api/v1/series?series=load.actual&zone=DE_LU&start=2026-06-01&end=2026-07-01"
+    ).json()
+    assert body["available"] is False
+    assert "narrow" in body["reason"].lower()
+
+
+def test_snapshot_rejects_oversized_window(db_session):
+    _seed(db_session)
+    body = _client(db_session).get(
+        "/api/v1/snapshot?series=load.actual&start=2020-01-01&end=2026-01-01"
+    ).json()
+    assert body["available"] is False
+    assert "744" in body["reason"]
+
+
+def test_heavy_query_guard_returns_503_when_full(db_session):
+    """When every heavy slot is taken, the next heavy request fails fast (503)
+    instead of queueing and starving the light endpoints."""
+    import backend.api_guard as guard
+
+    _seed(db_session)
+    c = _client(db_session)
+    # Drain every slot, then the guarded endpoint must 503; a light endpoint still 200s.
+    acquired = [guard._heavy_sem.acquire(blocking=False) for _ in range(guard.HEAVY_QUERY_SLOTS)]
+    try:
+        assert all(acquired)
+        assert c.get("/api/v1/series/catalog").status_code == 503
+        assert c.get("/api/v1/zones").status_code == 200  # light endpoint unaffected
+    finally:
+        for _ in acquired:
+            guard._heavy_sem.release()
+
+
+def test_catalog_is_rate_limited(db_session):
+    _seed(db_session)
+    c = _client(db_session)
+    codes = {c.get("/api/v1/series/catalog").status_code for _ in range(130)}
+    assert 429 in codes, "catalog must be throttled like the other data endpoints"

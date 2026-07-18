@@ -3,10 +3,11 @@ import hmac
 import logging
 import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
+from backend.auth.ratelimit import allow, client_ip
 from backend.config import settings
 from backend.database import get_db
 from backend.models.waitlist import Waitlist
@@ -48,7 +49,11 @@ class WaitlistSignup(BaseModel):
 
 
 @router.post("")
-def signup(body: WaitlistSignup, db: Session = Depends(get_db)):
+def signup(body: WaitlistSignup, request: Request, db: Session = Depends(get_db)):
+    # Unauthenticated public insert — throttle per IP so it can't be used to
+    # bloat the table with arbitrary emails.
+    if not allow([(f"waitlist:{client_ip(request)}", 5, 3600.0)]):
+        raise HTTPException(status_code=429, detail="Too many signups — try again later.")
     existing = db.query(Waitlist).filter(Waitlist.email == body.email).first()
     if existing:
         return {"status": "ok", "message": "already registered"}
