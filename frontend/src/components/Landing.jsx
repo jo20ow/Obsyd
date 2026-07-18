@@ -286,6 +286,59 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* FOR DEVELOPERS → the API + Python client are the growth funnel */}
+      <section id="developers" className="px-4 py-14 sm:py-20 max-w-5xl mx-auto">
+        <div className="text-[10px] tracking-[3px] text-neutral-500 mb-3">// FOR DEVELOPERS</div>
+        <h2 className="text-2xl sm:text-3xl text-neutral-100 mb-3 font-bold">
+          Every number, straight into your <span className="text-cyan-glow">notebook</span>.
+        </h2>
+        <p className="text-[13px] text-neutral-400 max-w-2xl mb-7 leading-relaxed">
+          A free, versioned public API over the same official record — day-ahead prices at the
+          market&apos;s real 15-minute resolution, load, generation mix, cross-border flows. No key,
+          no account. JSON, streamed CSV or Parquet — and a pandas client.
+        </p>
+
+        <div className="max-w-2xl border border-border bg-[#0a0a12] rounded overflow-hidden mb-6">
+          <div className="px-4 py-2 border-b border-border/60 text-[10px] tracking-widest text-neutral-600">
+            PYTHON
+          </div>
+          <pre className="px-4 py-4 text-[12px] leading-relaxed text-neutral-300 font-mono overflow-x-auto">
+            <span className="text-neutral-600">$ </span>pip install obsyd
+            {'\n\n'}
+            <span className="text-cyan-glow">from</span> obsyd <span className="text-cyan-glow">import</span> Obsyd
+            {'\n'}
+            df = Obsyd().series(<span className="text-amber-300">&quot;price.dayahead&quot;</span>, <span className="text-amber-300">&quot;DE_LU&quot;</span>, start=<span className="text-amber-300">&quot;2024-01-01&quot;</span>)
+            {'\n'}
+            <span className="text-neutral-600"># → a pandas DataFrame, UTC-indexed. That&apos;s it.</span>
+          </pre>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <a
+            href="/api/docs"
+            className="px-6 py-3 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold text-center"
+          >
+            Interactive API docs →
+          </a>
+          <a
+            href="https://pypi.org/project/obsyd/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-3 text-[11px] tracking-wider border border-border text-neutral-400 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors text-center"
+          >
+            obsyd on PyPI
+          </a>
+          <a
+            href="https://github.com/jo20ow/Obsyd/tree/main/clients/python"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-3 text-[11px] tracking-wider border border-border text-neutral-400 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors text-center"
+          >
+            Client + example notebooks
+          </a>
+        </div>
+      </section>
+
       {/* FOOTER */}
       <footer className="border-t border-border bg-[#0a0a12]">
         <div className="max-w-5xl mx-auto px-4 py-8 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center text-[10px] text-neutral-600">
@@ -301,6 +354,8 @@ export default function Landing() {
             </a>
             {' · '}
             <a href="/api/alerts/rss" className="text-cyan-glow hover:underline">Anomaly radar RSS</a>
+            {' · '}
+            <a href="/api/docs" className="text-cyan-glow hover:underline">API</a>
             {' · '}
             <a href="/impressum" className="text-neutral-500 hover:underline">Impressum</a>
             {' · '}
