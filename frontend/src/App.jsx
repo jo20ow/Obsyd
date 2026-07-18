@@ -41,6 +41,7 @@ import ProductsPanel from './components/ProductsPanel'
 import PowerOverviewMatrix from './components/PowerOverviewMatrix'
 import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
+import LegalPage from './components/LegalPage'
 import CommandPalette from './components/CommandPalette'
 import { useAuth } from './context/AuthContext'
 import { ViewStateProvider, useViewState } from './context/ViewStateContext'
@@ -148,6 +149,9 @@ function App() {
   // Read once at module init — no need to react to client-side navigation
   // since neither route mutates the URL after mount.
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+  if (pathname === '/impressum' || pathname === '/datenschutz') {
+    return <LegalPage page={pathname.slice(1)} />
+  }
   const wantsApp = pathname.startsWith('/app') || pathname.startsWith('/dashboard')
 
   // Anon visitor on the root path -> Landing; everyone else -> Dashboard.

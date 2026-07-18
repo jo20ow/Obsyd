@@ -301,7 +301,10 @@ export default function Landing() {
             </a>
             {' · '}
             <a href="/api/alerts/rss" className="text-cyan-glow hover:underline">Anomaly radar RSS</a>
-            .
+            {' · '}
+            <a href="/impressum" className="text-neutral-500 hover:underline">Impressum</a>
+            {' · '}
+            <a href="/datenschutz" className="text-neutral-500 hover:underline">Datenschutz</a>
           </div>
           <div className="text-neutral-700 max-w-md leading-relaxed">
             Market observation tool — not investment advice, not a trading signal. Data aggregated

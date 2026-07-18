@@ -99,6 +99,11 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
           <StatusDot label="OUTAGES" ok={health?.power_outages ?? false} />
           <StatusDot label="GAS" ok={health?.gas_balance ?? false} />
         </div>
+        <div className="px-1 pt-2 font-mono text-[9px] text-neutral-700">
+          <a href="/impressum" className="hover:text-neutral-500">Impressum</a>
+          {' · '}
+          <a href="/datenschutz" className="hover:text-neutral-500">Datenschutz</a>
+        </div>
       </div>
     </div>
   )
