@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/vessels", tags=["vessels"])
 
 
 @router.get("/positions")
-async def get_vessel_positions(
+def get_vessel_positions(
     zone: str = Query(None, description="Filter by geofence zone name"),
     limit: int = Query(500, ge=1, le=2000),
     db: Session = Depends(get_db),
@@ -69,7 +69,7 @@ async def get_vessel_positions(
 
 
 @router.get("/global")
-async def get_global_vessels(
+def get_global_vessels(
     limit: int = Query(5000, ge=1, le=10000),
     db: Session = Depends(get_db),
 ):
@@ -92,7 +92,7 @@ async def get_global_vessels(
 
 
 @router.get("/geofence-events")
-async def get_geofence_events(
+def get_geofence_events(
     zone: str = Query(None, description="Filter by geofence zone name"),
     limit: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
@@ -115,7 +115,7 @@ async def get_geofence_events(
 
 
 @router.get("/zones")
-async def list_zones():
+def list_zones():
     """List all configured geofence zones, including STS hotspots."""
     main = [
         {
@@ -156,7 +156,7 @@ async def list_zones():
 
 
 @router.get("/weighted")
-async def get_weighted_vessels(
+def get_weighted_vessels(
     zone: str = Query(..., description="Geofence zone name (e.g. 'hormuz', 'suez')"),
     db: Session = Depends(get_db),
 ):
@@ -212,7 +212,7 @@ async def get_weighted_vessels(
 
 
 @router.get("/sts")
-async def get_sts_intelligence(
+def get_sts_intelligence(
     db: Session = Depends(get_db),
 ):
     """STS transfer detection + dark activity tracking.
@@ -280,7 +280,7 @@ async def get_sts_intelligence(
 
 
 @router.get("/floating-storage")
-async def get_floating_storage(
+def get_floating_storage(
     db: Session = Depends(get_db),
 ):
     """Tankers stationary for 7+ days — potential floating storage.
@@ -329,7 +329,7 @@ async def get_floating_storage(
 
 
 @router.get("/zone-history")
-async def get_zone_history(
+def get_zone_history(
     zone: str = Query(None, description="Zone name (e.g. 'hormuz'). Omit for all zones."),
     days: int = Query(90, ge=7, le=365),
     db: Session = Depends(get_db),
@@ -360,7 +360,7 @@ async def get_zone_history(
 
 
 @router.get("/registry")
-async def get_vessel_registry(
+def get_vessel_registry(
     mmsi: str = Query(..., description="Vessel MMSI"),
     db: Session = Depends(get_db),
 ):

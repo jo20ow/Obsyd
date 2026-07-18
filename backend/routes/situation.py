@@ -14,5 +14,5 @@ router = APIRouter(prefix="/api", tags=["situation"])
 
 
 @router.get("/situation")
-async def get_physical_situation(db: Session = Depends(get_db)):
+def get_physical_situation(db: Session = Depends(get_db)):
     return build_physical_situation(db)

@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/ports", tags=["ports"])
 
 
 @router.get("/activity")
-async def get_port_activity(
+def get_port_activity(
     kind: str = Query(None, description="Filter by 'port' or 'chokepoint'"),
     port_id: str = Query(None, description="Filter by port/chokepoint ID"),
     days: int = Query(7, ge=1, le=90),
@@ -53,7 +53,7 @@ async def get_port_activity(
 
 
 @router.get("/summary")
-async def get_port_summary(
+def get_port_summary(
     db: Session = Depends(get_db),
 ):
     """Get latest-day summary per port and chokepoint for dashboard display."""

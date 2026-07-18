@@ -97,7 +97,7 @@ def _window(days: int) -> tuple[str, str]:
 
 
 @router.get("/day-ahead")
-async def get_day_ahead(
+def get_day_ahead(
     days: int = Query(120, ge=1, le=1500),
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),
@@ -258,7 +258,7 @@ def _day_ahead_qh(db: Session, zone: str, date: str | None) -> dict:
 
 
 @router.get("/day-ahead/hourly")
-async def get_day_ahead_hourly(
+def get_day_ahead_hourly(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     date: str = Query(None, description="YYYY-MM-DD; default = latest day with hourly data"),
     resolution: str = Query("hourly", pattern="^(hourly|qh)$",
@@ -308,7 +308,7 @@ async def get_day_ahead_hourly(
 
 
 @router.get("/spark-spread")
-async def get_spark_spread(
+def get_spark_spread(
     days: int = Query(120, ge=7, le=1500),
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL, …"),
     db: Session = Depends(get_db),
@@ -481,7 +481,7 @@ def _flag_dunkelflaute(db: Session, zone: str, rows: list[dict]) -> None:
 
 
 @router.get("/grid")
-async def get_grid(
+def get_grid(
     days: int = Query(120, ge=1, le=1500),
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),
@@ -540,7 +540,7 @@ async def get_grid(
 
 
 @router.get("/load-forecast")
-async def get_load_forecast(
+def get_load_forecast(
     days: int = Query(30, ge=1, le=365),
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),
@@ -612,7 +612,7 @@ async def get_load_forecast(
 
 
 @router.get("/load-forecast/hourly")
-async def get_load_forecast_hourly(
+def get_load_forecast_hourly(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     date: str = Query(None, description="YYYY-MM-DD; default = latest forecast day (tomorrow)"),
     db: Session = Depends(get_db),
@@ -1224,7 +1224,7 @@ def load_power_situations_bulk(db: Session) -> dict[str, dict]:
 
 
 @router.get("/situation")
-async def get_situation(
+def get_situation(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),
 ):
@@ -1270,7 +1270,7 @@ def _flow_direction(from_zone: str, to_zone: str, net_mw: float) -> str:
 
 
 @router.get("/flows")
-async def get_flows(
+def get_flows(
     days: int = Query(30, ge=1, le=1500),
     db: Session = Depends(get_db),
 ):
@@ -1382,7 +1382,7 @@ _FORECAST_PAIRS: dict[str, tuple[str, list[str]]] = {
 
 
 @router.get("/forecast-error")
-async def get_forecast_error(
+def get_forecast_error(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     series: str = Query("load", pattern="^(load|residual|wind|solar)$"),
     days: int = Query(7, ge=1, le=90),
@@ -1435,7 +1435,7 @@ async def get_forecast_error(
 
 
 @router.get("/flows/hourly")
-async def get_flows_hourly(
+def get_flows_hourly(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     hours: int = Query(72, ge=6, le=720, description="Lookback window in hours"),
     db: Session = Depends(get_db),
@@ -1647,7 +1647,7 @@ def get_spread(
 
 
 @router.get("/imbalance")
-async def get_imbalance(
+def get_imbalance(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     days: int = Query(7, ge=1, le=90),
     resolution: str = Query("hourly", pattern="^(hourly|qh)$"),
@@ -1706,7 +1706,7 @@ RECORD_FRESH_DAYS = 7
 
 
 @router.get("/records")
-async def get_records(
+def get_records(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     db: Session = Depends(get_db),
 ):
@@ -1770,7 +1770,7 @@ def _unit_names_for(db: Session, eics: list[str]) -> dict[str, str]:
 
 
 @router.get("/outages")
-async def get_outages(
+def get_outages(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     horizon_days: int = Query(30, ge=1, le=400,
                               description="Include outages starting up to this many days out"),
@@ -1878,7 +1878,7 @@ HYDRO_STALE_DAYS = 16
 
 
 @router.get("/hydro")
-async def get_hydro(db: Session = Depends(get_db)):
+def get_hydro(db: Session = Depends(get_db)):
     """Weekly reservoir filling (ENTSO-E A72, MWh → TWh) for the hydro zones —
     Nordics, Alps, Iberia, France — each compared against the same ISO week in
     its own prior years. Descriptive: a filling level vs its seasonal norm,
@@ -1925,7 +1925,7 @@ async def get_hydro(db: Session = Depends(get_db)):
 
 
 @router.get("/generation-mix")
-async def get_generation_mix(
+def get_generation_mix(
     days: int = Query(30, ge=1, le=1500),
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL"),
     db: Session = Depends(get_db),

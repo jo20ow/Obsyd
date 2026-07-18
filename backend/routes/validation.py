@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/validation", tags=["validation"])
 
 
 @router.get("/scorecards")
-async def get_scorecards(db: Session = Depends(get_db)):
+def get_scorecards(db: Session = Depends(get_db)):
     """Latest per-signal track record (one set per signal × horizon).
 
     Public, but deliberately honest: each card carries `n` and `confident`
@@ -57,7 +57,7 @@ async def get_scorecards(db: Session = Depends(get_db)):
 
 
 @router.get("/disruption-weights")
-async def get_disruption_weights(
+def get_disruption_weights(
     horizon: int = Query(7, ge=1, le=60),
     db: Session = Depends(get_db),
 ):

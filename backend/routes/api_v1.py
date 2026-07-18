@@ -72,7 +72,7 @@ def _to_daily(points: list[tuple[int, float]]) -> list[tuple[str, float, int]]:
 
 
 @router.get("/meta")
-async def meta(db: Session = Depends(get_db)):
+def meta(db: Session = Depends(get_db)):
     """Sources, licenses, enabled zones and available series — the API's front matter."""
     series = [{"key": k, "unit": u} for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()]
     return {
@@ -88,7 +88,7 @@ async def meta(db: Session = Depends(get_db)):
 
 
 @router.get("/status")
-async def status(db: Session = Depends(get_db)):
+def status(db: Session = Depends(get_db)):
     """Honest data-coverage view: per-source + per-zone freshness for the power/gas
     desk (from the shared freshness spec). `healthy` is true when every product-critical
     source is within its window. The transparency answer to a black-box feed — 'here is
@@ -111,7 +111,7 @@ async def status(db: Session = Depends(get_db)):
 
 
 @router.get("/zones")
-async def zones():
+def zones():
     """Every bidding zone in the registry with its enablement + flow-mapping flags —
     the single source of truth for zone selectors/navigation across the frontend."""
     enabled = set(POWER_ZONES)
@@ -132,7 +132,7 @@ async def zones():
 
 
 @router.get("/genmix")
-async def genmix(
+def genmix(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     start: str | None = Query(None, description="YYYY-MM-DD / ISO 8601 (default: 1 year ago)"),
     end: str | None = Query(None, description="default: now"),
@@ -208,7 +208,7 @@ async def genmix(
 
 
 @router.get("/snapshot")
-async def snapshot(
+def snapshot(
     series: str = Query("price.dayahead", description="Series key to snapshot"),
     hours: int = Query(168, ge=1, le=744, description="Lookback window (default 7 days)"),
     start: str | None = Query(None, description="Override window start (ISO / YYYY-MM-DD)"),
@@ -259,7 +259,7 @@ async def snapshot(
 
 
 @router.get("/capacity")
-async def capacity(
+def capacity(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     year: int | None = Query(None, description="Year (default: latest available)"),
     db: Session = Depends(get_db),
@@ -343,7 +343,7 @@ def get_production_units(
 
 
 @router.get("/series/catalog")
-async def catalog(db: Session = Depends(get_db)):
+def catalog(db: Session = Depends(get_db)):
     """What's queryable: every series (key+unit), enabled zones, and the overall
     hourly coverage window."""
     series = [{"key": k, "unit": u} for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()]
@@ -361,7 +361,7 @@ async def catalog(db: Session = Depends(get_db)):
 
 
 @router.get("/series")
-async def series(
+def series(
     request: Request,
     series: str = Query(..., description="Series key, e.g. price.dayahead, load.actual, gen.B16"),
     zone: str = Query(..., description="Bidding zone key, e.g. DE_LU, FR, ES"),

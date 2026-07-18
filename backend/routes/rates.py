@@ -45,7 +45,7 @@ def _latest(db: Session, series_id: str):
 
 
 @router.get("/curve")
-async def get_curve(db: Session = Depends(get_db)):
+def get_curve(db: Session = Depends(get_db)):
     """Latest yield per tenor (ascending by maturity) + the 10Y-2Y inversion spread."""
     points = []
     as_of = None
@@ -72,7 +72,7 @@ async def get_curve(db: Session = Depends(get_db)):
 
 
 @router.get("/history")
-async def get_history(
+def get_history(
     series: str = Query(..., description="FRED tenor series, e.g. DGS10"),
     days: int = Query(365, ge=1, le=3650),
     db: Session = Depends(get_db),
