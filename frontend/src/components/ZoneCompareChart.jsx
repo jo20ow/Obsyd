@@ -57,6 +57,7 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
   }, [r0.data, r1.data, r2.data, r3.data, zones.join(','), scale])
 
   const loading = responses.slice(0, zones.length).some((r) => r.loading)
+  const failedZones = zones.filter((z, i) => responses[i].error && !responses[i].data)
   const colorOf = (z, i) => (i === 0 ? color : COMPARE_COLORS[(i - 1) % COMPARE_COLORS.length])
   const label = (z) => (labelFor ? labelFor(z) : z)
 
@@ -72,6 +73,12 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
           ↓ CSV
         </a>
       </div>
+
+      {failedZones.length > 0 && (
+        <div className="px-3 pt-2 font-mono text-[10px] text-red-400">
+          Fetch error for {failedZones.map(label).join(', ')} — retrying on next refresh.
+        </div>
+      )}
 
       {/* Legend: the zones on the chart, each with its latest value — and, when the last day is
           still filling in, the hours that mean actually averaged. */}

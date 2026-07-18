@@ -14,7 +14,7 @@ export default function MiniMixCard({ title, zone, height = 120 }) {
   const { range } = useViewState()
   const start = rangeStart(range, 90)
   const url = `${API}/v1/genmix?zone=${zone}&start=${start}&resolution=daily`
-  const { data: resp, loading } = useFetchWithError(url, { deps: [zone, start] })
+  const { data: resp, loading, error } = useFetchWithError(url, { deps: [zone, start] })
 
   const { chart, fuels } = useMemo(() => {
     const f = resp?.fuels || []
@@ -55,7 +55,9 @@ export default function MiniMixCard({ title, zone, height = 120 }) {
         </div>
       )}
       {!loading && chart.length === 0 && (
-        <div className="px-3 py-8 text-center font-mono text-[10px] text-neutral-600">No data for this zone.</div>
+        <div className={`px-3 py-8 text-center font-mono text-[10px] ${error ? 'text-red-400' : 'text-neutral-600'}`}>
+          {error ? 'Fetch error — retrying on next refresh.' : 'No data for this zone.'}
+        </div>
       )}
     </div>
   )
