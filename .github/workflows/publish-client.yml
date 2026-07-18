@@ -24,9 +24,11 @@ jobs:
           python-version: "3.12"
 
       - name: Tag must match obsyd.__version__
+        # grep, not import — importing obsyd would need pandas in the bare runner
         run: |
-          test "client-v$(python -c 'import obsyd; print(obsyd.__version__)')" = "$GITHUB_REF_NAME" \
-            || { echo "tag $GITHUB_REF_NAME != client-v$(python -c 'import obsyd; print(obsyd.__version__)')"; exit 1; }
+          V=$(grep -oE '^__version__ = "[^"]+"' obsyd.py | cut -d'"' -f2)
+          test "client-v$V" = "$GITHUB_REF_NAME" \
+            || { echo "tag $GITHUB_REF_NAME != client-v$V"; exit 1; }
 
       - name: Build sdist + wheel
         run: |
