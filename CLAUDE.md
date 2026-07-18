@@ -20,26 +20,44 @@
 >   Links). Anschrift c/o MDC#weisser, Dietmannsried. Kontakt-Mail obsyd.dev@pm.me ist
 >   PROVISORISCH (Owner: „nicht perfekt", irgendwann ersetzen). Bei neuer Datenverarbeitung
 >   Datenschutzerklärung nachziehen.
+> - **Weiter am 2026-07-18 (PRs #114–#124, alle deployed):** #115 Zone-Coherence-Fix
+>   (`useFetchWithError` invalidiert `data` bei URL-Wechsel → kein Cross-Zone-Bleed mehr;
+>   10 Panels zeigen jetzt Fetch-Fehler statt stumm die alte Zone; Regression-Guard
+>   `frontend/scripts/verify-zone-coherence.mjs`, braucht CHROMIUM_PATH). #116 19 Read-Router
+>   von `async def`-ohne-await auf `def` → Starlette-Threadpool-Parallelität (Zonen-Wechsel
+>   14 s Queue → 0,3 s; **NIE `async def` ohne await bei sync-DB-Routen**). #118 Python-Client
+>   v0.2.0 **AUF PYPI LIVE** (`pip install obsyd`, Trusted Publishing via Tag `client-v*`, UA
+>   `obsyd-python/x.y.z` als Adoptions-Metrik) — [[obsyd-launch-stand]]. #122 DoS-Guards
+>   (`backend/api_guard.py`: catalog-Coverage-Cache 28s→0,05s, `heavy_query_guard`-Semaphore
+>   8 Slots→503, Rate-Limit an alle v1-Endpoints, `MAX_SCAN_ROWS`-Cap; + settings/provider→
+>   require_pro, waitlist-Throttle) — [[obsyd-security]]. #123 „For developers"-Block auf der
+>   Landing (`pip install obsyd` + API-docs-Link — der HN-Post versprach die API, die Seite
+>   zeigte sie nicht). #124 10-s-Demo-Video `docs/launch/obsyd-demo.mp4` (Zone-Switch DE→IT,
+>   €81→€167, für r/energytrading; `record-demo.mjs` rendert neu).
 > - **Deploy-Rezept:** Repo `/home/obsyd/obsyd` auf dem VPS (`ssh -p 2222 jo@…`, dann
 >   `sudo -n -u obsyd`). Frontend-only = `git pull` + `npm run build` — Caddy mountet
 >   `frontend/dist`, KEIN Restart. Backend-Änderung = zusätzlich `systemctl restart obsyd`
 >   (Scheduler läuft IM Haupt-Service; `deploy/obsyd-ingest.service` ist NICHT installiert).
 > - GitHub-Repo-Description auf Power-Desk aktualisiert; Plausible läuft (Owner-bestätigt);
->   alle Landing-/Desk-Links geprüft (200); `/api/v1/status` 77/77 fresh.
-> - **Offen (Owner-Ops):** `docker builder prune -af` + Wochen-Cron auf dem VPS (~5 GB
->   Build-Cache, Disk 84 %); ENTSO-E-Token-Rotation (Log-Leak vor #97); LinkedIn ja/nein
->   (Klarnamen-Ausnahme von der Anonym-Positionierung); Offsite-Backup + healthchecks.io.
+>   alle Landing-/Desk-Links geprüft (200); `/api/v1/status` 77/77 fresh. **A-Z-Verifikation
+>   2026-07-18: release-reif** (977 Backend- + 18 Client-Tests grün, alle Endpoints/Guards/
+>   Legal/Client/UI live geprüft, VPS Disk 73 %).
+> - **Offen (Owner-Ops, KEIN Launch-Blocker):** ✅ Prune erledigt (Disk 73 %, Wochen-Cron aktiv).
+>   Verbleibend: `ENVIRONMENT=production` fehlt in der Prod-`.env` (Secret-Guard inaktiv, Low);
+>   ENTSO-E-Token-Rotation (Log-Leak vor #97); Offsite-Backup + healthchecks.io (das eine echte
+>   Launch-Wochenend-Risiko); LinkedIn ja/nein (Klarnamen-Ausnahme). Details [[obsyd-security]].
+> - **Reddit-Kanäle (Owner-Entscheid):** r/energy + r/energytrading. r/energy nur als
+>   DISKUSSION (Preis-Insight, Tool im Kommentar — self-promo-feindlich); r/energytrading
+>   video-first mit #124. Beste Reichweiten-Hebel wären r/selfhosted + r/dataisbeautiful.
 > - **NÄCHSTER SCHRITT: LAUNCH** nach `docs/launch-posts.md`.
 >
 > **POST-LAUNCH-BACKLOG (Ideen-Parkplatz, Owner-abgenommen 2026-07-18 — NICHTS davon
 > vor dem Launch bauen; die Launch-Reaktion wählt die Richtung):**
-> 1. **Python-Client — VORGEZOGEN, GEBAUT 2026-07-18** (Owner-Entscheid: soll in den
->    HN-Post): v0.2.0 in `clients/python/` (alle 9 Endpoints als DataFrames, typisierte
->    Fehler, 429-Retry, UA `obsyd-python/x.y.z` als Adoptions-Metrik in VPS-Logs),
->    gemockte Tests + CI-Job, PyPI-Trusted-Publishing via Tag `client-v*`. OFFEN
->    (Owner-Ops): PyPI-Account + pending trusted publisher (Workflow
->    `publish-client.yml`, Environment `pypi`) + GitHub-Environment `pypi` anlegen,
->    dann Tag pushen. Datasets auf Kaggle/HuggingFace bleiben post-launch.
+> 1. **Python-Client — ERLEDIGT + AUF PYPI LIVE 2026-07-18** (PR #118/#119): v0.2.0,
+>    `pip install obsyd`, Trusted Publishing eingerichtet (Tag `client-v0.2.0` gepusht,
+>    aus dem Index installiert + Live-Pull verifiziert). Release-Rezept: `__version__` in
+>    `clients/python/obsyd.py` bumpen → mergen → Tag `client-vX.Y.Z` pushen. Datasets auf
+>    Kaggle/HuggingFace bleiben post-launch (kurzes Skript über `series_multi`+Parquet).
 > 2. **Forecast-Scoreboard** — ENTSO-E-Last/Wind/Solar-Prognosen laufend öffentlich
 >    benoten (Forecast-Error-Strip ausbauen). Posture-B-konform: fremde Prognosen
 >    bewerten, keine eigenen machen. Frei zugänglich macht das niemand.
