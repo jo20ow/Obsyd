@@ -1,5 +1,36 @@
 # OBSYD — Strategischer Kontext & Arbeitsprinzipien
 
+> ## ⇒ IST-STAND-UPDATE 2026-07-18 (LAUNCH-READY — neuester Block, ergänzt 2026-07-11 unten)
+> Produktstand: Tier 1 (Border-Layer, Driver-Karte, PRs #80–#85) + Tier 2 (Gas pro Land,
+> A09-Subzonen-Grenzen, Episoden-Archiv, #93–#102) + Stufe-0-Datenintegrität (#73–#79) +
+> Desk-Fixes (#103–#108) sind LIVE. Am 2026-07-18 dazu (PRs #109–#113, alle deployed):
+> - **#109 Kanonische Fuel-Palette:** `frontend/src/utils/fuels.js` ist die EINE Farbquelle
+>   für alle Mix-Charts (CVD-validiert, Stack-Reihenfolge konventionell statt alphabetisch).
+>   Recharts-Tooltips: NIE `{...CHART_TOOLTIP_STYLE}` spreaden — `{...CHART_TOOLTIP_PROPS}`.
+> - **#110 KEINE Produkt-E-Mails:** daily_email-Jobs deregistriert, Alert-Resend aus
+>   (`_resend_api_key()` → None), `POST /api/email/subscribe` → 410, UI/Landing bereinigt.
+>   Magic-Link-Login-Mail bleibt (transaktional). Re-Enable-Rezepte als Code-Kommentare.
+> - **#111 Tests lesen die UTC-Uhr:** `date.today()` in Freshness-/Parity-Tests failte
+>   täglich 00–02 Uhr lokal → `datetime.now(timezone.utc).date()`. Suite: 972 passed, 0 failed.
+> - **#112 Launch-Kit:** `docs/launch-posts.md` = Reddit-first-Fahrplan (So r/selfhosted →
+>   Di Show HN → Mi r/energy → Do r/dataisbeautiful → r/Energiewirtschaft → Long Tail) mit
+>   fertigen Entwürfen; `docs/launch/render-price-heatmap.mjs` rendert das DIB-Bild aus der
+>   v1-API (Default GESTERN — heutige 22/23-UTC-Stunden fehlen bis zur nächsten Auktion).
+> - **#113 Impressum + Datenschutz LIVE:** `/impressum` + `/datenschutz` (SPA-Routen, Footer-
+>   Links). Anschrift c/o MDC#weisser, Dietmannsried. Kontakt-Mail obsyd.dev@pm.me ist
+>   PROVISORISCH (Owner: „nicht perfekt", irgendwann ersetzen). Bei neuer Datenverarbeitung
+>   Datenschutzerklärung nachziehen.
+> - **Deploy-Rezept:** Repo `/home/obsyd/obsyd` auf dem VPS (`ssh -p 2222 jo@…`, dann
+>   `sudo -n -u obsyd`). Frontend-only = `git pull` + `npm run build` — Caddy mountet
+>   `frontend/dist`, KEIN Restart. Backend-Änderung = zusätzlich `systemctl restart obsyd`
+>   (Scheduler läuft IM Haupt-Service; `deploy/obsyd-ingest.service` ist NICHT installiert).
+> - GitHub-Repo-Description auf Power-Desk aktualisiert; Plausible läuft (Owner-bestätigt);
+>   alle Landing-/Desk-Links geprüft (200); `/api/v1/status` 77/77 fresh.
+> - **Offen (Owner-Ops):** `docker builder prune -af` + Wochen-Cron auf dem VPS (~5 GB
+>   Build-Cache, Disk 84 %); ENTSO-E-Token-Rotation (Log-Leak vor #97); LinkedIn ja/nein
+>   (Klarnamen-Ausnahme von der Anonym-Positionierung); Offsite-Backup + healthchecks.io.
+> - **NÄCHSTER SCHRITT: LAUNCH** nach `docs/launch-posts.md`.
+
 > ## ⇒ IST-STAND-UPDATE 2026-07-11 (Datentiefe-Roadmap KOMPLETT LIVE, PRs #56–#59)
 > Die „gridstatus-Lücke"-Roadmap ist umgesetzt und deployed. Für Sessions ab jetzt:
 > - **37 Zonen sind enabled und befüllt** (Prod-`.env` ENABLED_ZONES = volle Registry) — nicht 3.
