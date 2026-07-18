@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/voyages", tags=["voyages"])
 
 
 @router.get("/recent")
-async def get_recent_voyages(
+def get_recent_voyages(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
@@ -56,7 +56,7 @@ async def get_recent_voyages(
 
 
 @router.get("/flow-matrix")
-async def get_flow_matrix(
+def get_flow_matrix(
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):

@@ -23,7 +23,7 @@ _SYMBOLS = {sym for _gid, sym, _name in CRYPTO_ASSETS}
 
 
 @router.get("/prices")
-async def get_crypto_prices(db: Session = Depends(get_db)):
+def get_crypto_prices(db: Session = Depends(get_db)):
     """Latest quote per asset (most recent stored date), sorted by market cap desc."""
     latest_date = db.query(func.max(CryptoPrice.date)).scalar()
     if not latest_date:
@@ -48,7 +48,7 @@ async def get_crypto_prices(db: Session = Depends(get_db)):
 
 
 @router.get("/history")
-async def get_crypto_history(
+def get_crypto_history(
     symbol: str = Query(..., description="Ticker, e.g. BTC"),
     days: int = Query(90, ge=1, le=1500),
     db: Session = Depends(get_db),

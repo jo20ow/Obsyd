@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.get("/health")
-async def health_check(db: Session = Depends(get_db)):
+def health_check(db: Session = Depends(get_db)):
     """Liveness + DB readiness. Returns 503 if the DB is unreachable,
     so the health-check cron restarts the service."""
     try:
@@ -20,7 +20,7 @@ async def health_check(db: Session = Depends(get_db)):
 
 
 @router.get("/api/health/collectors")
-async def collector_status(db: Session = Depends(get_db)):
+def collector_status(db: Session = Depends(get_db)):
     """Which data collectors are fresh (not just ever-written).
 
     Product-critical sources (ENTSO-E day-ahead/grid, Energy-Charts flows, gas

@@ -27,7 +27,7 @@ _UNIT = "metric tons"
 
 
 @router.get("/copper")
-async def get_copper_supply(
+def get_copper_supply(
     months: int = Query(36, ge=1, le=120),
     db: Session = Depends(get_db),
 ):

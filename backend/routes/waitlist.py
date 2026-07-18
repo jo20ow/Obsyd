@@ -48,7 +48,7 @@ class WaitlistSignup(BaseModel):
 
 
 @router.post("")
-async def signup(body: WaitlistSignup, db: Session = Depends(get_db)):
+def signup(body: WaitlistSignup, db: Session = Depends(get_db)):
     existing = db.query(Waitlist).filter(Waitlist.email == body.email).first()
     if existing:
         return {"status": "ok", "message": "already registered"}
@@ -65,13 +65,13 @@ async def signup(body: WaitlistSignup, db: Session = Depends(get_db)):
 
 
 @router.get("/count")
-async def count(db: Session = Depends(get_db)):
+def count(db: Session = Depends(get_db)):
     total = db.query(Waitlist).count()
     return {"count": total}
 
 
 @router.get("/unsubscribe")
-async def unsubscribe(email: str, token: str, db: Session = Depends(get_db)):
+def unsubscribe(email: str, token: str, db: Session = Depends(get_db)):
     expected = _make_unsubscribe_token(email)
     if not hmac.compare_digest(token, expected):
         return {"status": "error", "message": "Invalid token"}

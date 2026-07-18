@@ -52,7 +52,7 @@ def _panel_freshness(rows) -> dict:
 
 
 @router.get("/supply")
-async def get_supply(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+def get_supply(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
     """Daily supply (GWh/d) decomposed into pipeline imports, LNG, net UK."""
     date_from, date_to = _window(days)
     rows = validation.compute_daily_supply(db, date_from, date_to)
@@ -134,7 +134,7 @@ def get_storage_countries(
 
 
 @router.get("/storage")
-async def get_storage(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+def get_storage(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
     date_from, date_to = _window(days)
     rows = (
         db.query(GasStorage)
@@ -155,7 +155,7 @@ async def get_storage(days: int = Query(90, ge=1, le=1500), db: Session = Depend
 
 
 @router.get("/lng")
-async def get_lng(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+def get_lng(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
     date_from, date_to = _window(days)
     rows = (
         db.query(GasLng)
@@ -169,7 +169,7 @@ async def get_lng(days: int = Query(90, ge=1, le=1500), db: Session = Depends(ge
 
 
 @router.get("/power-burn")
-async def get_power_burn(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+def get_power_burn(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
     """Gas-fired power generation (measured) + implied gas demand (Phase 2)."""
     date_from, date_to = _window(days)
     rows = (
@@ -192,7 +192,7 @@ async def get_power_burn(days: int = Query(90, ge=1, le=1500), db: Session = Dep
 
 
 @router.get("/demand")
-async def get_demand(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
+def get_demand(days: int = Query(90, ge=1, le=1500), db: Session = Depends(get_db)):
     """Modeled gas demand: HDD-driven heating + flat industrial baseline (Phase 3)."""
     date_from, date_to = _window(days)
     rows = (
@@ -222,7 +222,7 @@ async def get_demand(days: int = Query(90, ge=1, le=1500), db: Session = Depends
 
 
 @router.get("/balance")
-async def get_balance(days: int = Query(120, ge=1, le=1500), db: Session = Depends(get_db)):
+def get_balance(days: int = Query(120, ge=1, le=1500), db: Session = Depends(get_db)):
     """The residual signal (Phase 4): implied vs actual ΔStorage, 7d-smoothed,
     z-scored, flagged. The residual is the product — persistent deviation =
     demand destruction / unexpected flows the market hasn't priced."""
@@ -270,7 +270,7 @@ async def get_balance(days: int = Query(120, ge=1, le=1500), db: Session = Depen
 
 
 @router.get("/validation")
-async def get_validation(
+def get_validation(
     date_from: str = Query(None, description="YYYY-MM-DD; defaults to the Bruegel CSV's span"),
     date_to: str = Query(None),
     db: Session = Depends(get_db),

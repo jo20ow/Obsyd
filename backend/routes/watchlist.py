@@ -58,7 +58,7 @@ class CreateItemBody(BaseModel):
 
 
 @router.get("/catalog")
-async def watchlist_catalog():
+def watchlist_catalog():
     """Everything a user can watch, grouped by kind (material/zone/symbol). Ungated."""
     return {
         kind: [{"key": k, "label": v} for k, v in items.items()]
@@ -67,7 +67,7 @@ async def watchlist_catalog():
 
 
 @router.get("")
-async def list_watchlist(user: dict = Depends(require_auth)):
+def list_watchlist(user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         items = (
@@ -82,7 +82,7 @@ async def list_watchlist(user: dict = Depends(require_auth)):
 
 
 @router.post("")
-async def add_watchlist(body: CreateItemBody, user: dict = Depends(require_auth)):
+def add_watchlist(body: CreateItemBody, user: dict = Depends(require_auth)):
     if body.kind not in VALID_KEYS:
         raise HTTPException(status_code=422, detail=f"unknown kind: {body.kind}")
     if body.key not in VALID_KEYS[body.kind]:
@@ -122,7 +122,7 @@ async def add_watchlist(body: CreateItemBody, user: dict = Depends(require_auth)
 
 
 @router.delete("/{item_id}")
-async def delete_watchlist(item_id: int, user: dict = Depends(require_auth)):
+def delete_watchlist(item_id: int, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         item = (

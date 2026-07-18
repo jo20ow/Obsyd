@@ -66,7 +66,7 @@ def _attach_context(db, items: list[dict]) -> None:
 
 
 @router.get("")
-async def get_alerts(
+def get_alerts(
     rule: str = Query(None, description="Filter by rule name"),
     zone: str = Query(None, description="Filter by zone"),
     vertical: str = Query(None, description="Filter by vertical (oil/gas/power/metals/sentiment)"),
@@ -104,7 +104,7 @@ async def get_alerts(
 
 
 @router.get("/rss")
-async def alerts_rss(
+def alerts_rss(
     vertical: str = Query(None, description="Filter by vertical (oil/gas/power/metals/sentiment)"),
     max_age_hours: int = Query(48, ge=1, le=720),
     limit: int = Query(50, ge=1, le=500),
@@ -139,7 +139,7 @@ async def alerts_rss(
 
 
 @router.get("/portwatch")
-async def get_portwatch_alerts():
+def get_portwatch_alerts():
     """Get current PortWatch chokepoint anomaly alerts (computed live from SQLite)."""
     alerts = check_chokepoint_anomalies()
     return {

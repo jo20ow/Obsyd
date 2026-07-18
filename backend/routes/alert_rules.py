@@ -119,7 +119,7 @@ ACTIVE_TEMPLATE_VERTICALS = {"power", "gas"}
 
 
 @router.get("/templates")
-async def list_templates():
+def list_templates():
     """Schema discovery for the frontend rule-builder. Not behind require_pro
     — even Free users may want to see what they'd get on Pro."""
     return {
@@ -137,7 +137,7 @@ async def list_templates():
 
 
 @router.get("/rules")
-async def list_rules(user: dict = Depends(require_auth)):
+def list_rules(user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         rules = (
@@ -156,7 +156,7 @@ async def list_rules(user: dict = Depends(require_auth)):
 
 
 @router.post("/rules")
-async def create_rule(body: CreateRuleBody, user: dict = Depends(require_auth)):
+def create_rule(body: CreateRuleBody, user: dict = Depends(require_auth)):
     ok, err = validate_params(body.rule_type, body.params)
     if not ok:
         raise HTTPException(status_code=422, detail=err)
@@ -196,7 +196,7 @@ async def create_rule(body: CreateRuleBody, user: dict = Depends(require_auth)):
 
 
 @router.patch("/rules/{rule_id}")
-async def patch_rule(rule_id: int, body: PatchRuleBody, user: dict = Depends(require_auth)):
+def patch_rule(rule_id: int, body: PatchRuleBody, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         rule = (
@@ -218,7 +218,7 @@ async def patch_rule(rule_id: int, body: PatchRuleBody, user: dict = Depends(req
 
 
 @router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: int, user: dict = Depends(require_auth)):
+def delete_rule(rule_id: int, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         rule = (
@@ -239,7 +239,7 @@ async def delete_rule(rule_id: int, user: dict = Depends(require_auth)):
 
 
 @router.get("/notifications")
-async def list_notifications(limit: int = 50, user: dict = Depends(require_auth)):
+def list_notifications(limit: int = 50, user: dict = Depends(require_auth)):
     limit = max(1, min(limit, 200))
     db = SessionLocal()
     try:
@@ -260,7 +260,7 @@ async def list_notifications(limit: int = 50, user: dict = Depends(require_auth)
 
 
 @router.post("/notifications/{event_id}/seen")
-async def mark_seen(event_id: int, user: dict = Depends(require_auth)):
+def mark_seen(event_id: int, user: dict = Depends(require_auth)):
     db = SessionLocal()
     try:
         evt = (

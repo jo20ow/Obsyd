@@ -17,13 +17,13 @@ class ProviderUpdate(BaseModel):
 
 
 @router.get("")
-async def get_settings():
+def get_settings():
     """Get current provider configuration."""
     return price_provider.get_settings()
 
 
 @router.post("/provider")
-async def set_provider(body: ProviderUpdate, _user: dict = Depends(require_auth)):
+def set_provider(body: ProviderUpdate, _user: dict = Depends(require_auth)):
     """Change the active price provider (auth required)."""
     try:
         price_provider.set_providers(body.primary, body.fallback)
@@ -33,7 +33,7 @@ async def set_provider(body: ProviderUpdate, _user: dict = Depends(require_auth)
 
 
 @router.get("/credits")
-async def get_credits():
+def get_credits():
     """Get Twelve Data credit usage for today."""
     from backend.providers.twelvedata_provider import get_credits_used
 

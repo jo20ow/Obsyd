@@ -65,7 +65,7 @@ def _ensure_data(days: int = 30):
 
 
 @router.get("/chokepoints")
-async def get_chokepoints():
+def get_chokepoints():
     """Current daily values for all chokepoints."""
     data = _ensure_data(days=7)
 
@@ -83,7 +83,7 @@ async def get_chokepoints():
 
 
 @router.get("/chokepoints/{name}/history")
-async def get_chokepoint_history(
+def get_chokepoint_history(
     name: str = Path(
         description="Chokepoint name (e.g. 'hormuz', 'suez', 'malacca', 'panama', 'cape')", pattern=r"^[a-z_]+$"
     ),
@@ -163,7 +163,7 @@ def _query_ais_daily(zone_name: str, after_date: str) -> list[dict]:
 
 
 @router.get("/disruptions")
-async def get_disruptions():
+def get_disruptions():
     """Active disruption events."""
     data = fetch_disruptions(days=365)
     store_disruptions(data)
@@ -178,7 +178,7 @@ async def get_disruptions():
 
 
 @router.get("/summary")
-async def get_summary():
+def get_summary():
     """Dashboard overview: current values + anomaly vs 30-day average.
 
     Includes weighted tanker counts from AIS geofence data where available.

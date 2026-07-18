@@ -14,12 +14,12 @@ router = APIRouter(prefix="/api/news", tags=["news"])
 
 
 @router.get("/topics")
-async def topics():
+def topics():
     return {"topics": [{"key": k, "label": label} for k, label, _q in TOPICS]}
 
 
 @router.get("/feed")
-async def feed(
+def feed(
     topic: str = Query(None, description="Curated topic key (see /topics)"),
     q: str = Query(None, description="Free-text query (overrides topic)"),
 ):
