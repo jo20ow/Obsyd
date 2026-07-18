@@ -99,16 +99,30 @@ def upsert_day_hours(
     return upsert_hourly(db, series_key, zone_key, points, unit=unit)
 
 
+class RowCapExceeded(Exception):
+    """A read matched more rows than max_rows — the caller should narrow the range."""
+
+    def __init__(self, cap: int):
+        self.cap = cap
+        super().__init__(f"result exceeds {cap} rows")
+
+
 def read_hourly(
     db: Session,
     series_key: str,
     zone_key: str,
     start_ts: int | None = None,
     end_ts: int | None = None,
+    max_rows: int | None = None,
 ) -> list[tuple[int, float]]:
     """Read (ts_utc, value) for one series+zone in [start_ts, end_ts), ordered by time.
-    Returns [] if the series/zone is unknown. This is the core range scan the future
-    /api/v1/series export builds on."""
+    Returns [] if the series/zone is unknown. This is the core range scan the
+    /api/v1/series export builds on.
+
+    `max_rows` caps a single read so one request can't materialise an unbounded
+    result into memory (and, for parquet, three copies of it). We fetch one row
+    past the cap and raise RowCapExceeded rather than silently truncate — a
+    truncated series is a wrong series."""
     sid = db.query(SeriesDim.id).filter(SeriesDim.key == series_key).scalar()
     zid = db.query(ZoneDim.id).filter(ZoneDim.key == zone_key).scalar()
     if sid is None or zid is None:
@@ -120,4 +134,10 @@ def read_hourly(
         q = q.filter(PowerHourly.ts_utc >= start_ts)
     if end_ts is not None:
         q = q.filter(PowerHourly.ts_utc < end_ts)
-    return [(int(ts), float(v)) for ts, v in q.order_by(PowerHourly.ts_utc.asc()).all()]
+    q = q.order_by(PowerHourly.ts_utc.asc())
+    if max_rows is not None:
+        q = q.limit(max_rows + 1)
+    rows = [(int(ts), float(v)) for ts, v in q.all()]
+    if max_rows is not None and len(rows) > max_rows:
+        raise RowCapExceeded(max_rows)
+    return rows

@@ -14,17 +14,19 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.api_guard import cached_coverage, heavy_query_guard
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
 from backend.models.energy import InstalledCapacity, PowerHourly, SeriesDim, ZoneDim
 from backend.power.entsoe_grid import PSR_LABELS
-from backend.power.hourly_store import read_hourly
+from backend.power.hourly_store import RowCapExceeded, read_hourly
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 MAX_JSON_POINTS = 100_000  # beyond this, JSON is refused with a "use format=csv" hint
+MAX_SCAN_ROWS = 1_500_000  # per-request row cap on a single-series read (csv/parquet too)
 DEFAULT_WINDOW_DAYS = 30
 RATE_PER_MIN = 120  # per-IP requests/minute for the data API
 
@@ -72,7 +74,7 @@ def _to_daily(points: list[tuple[int, float]]) -> list[tuple[str, float, int]]:
 
 
 @router.get("/meta")
-def meta(db: Session = Depends(get_db)):
+def meta(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit)):
     """Sources, licenses, enabled zones and available series — the API's front matter."""
     series = [{"key": k, "unit": u} for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()]
     return {
@@ -88,7 +90,7 @@ def meta(db: Session = Depends(get_db)):
 
 
 @router.get("/status")
-def status(db: Session = Depends(get_db)):
+def status(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g: None = Depends(heavy_query_guard)):
     """Honest data-coverage view: per-source + per-zone freshness for the power/gas
     desk (from the shared freshness spec). `healthy` is true when every product-critical
     source is within its window. The transparency answer to a black-box feed — 'here is
@@ -111,7 +113,7 @@ def status(db: Session = Depends(get_db)):
 
 
 @router.get("/zones")
-def zones():
+def zones(_rl: None = Depends(_rate_limit)):
     """Every bidding zone in the registry with its enablement + flow-mapping flags —
     the single source of truth for zone selectors/navigation across the frontend."""
     enabled = set(POWER_ZONES)
@@ -140,6 +142,7 @@ def genmix(
     format: str = Query("json", pattern="^(json|csv)$"),
     db: Session = Depends(get_db),
     _rl: None = Depends(_rate_limit),
+    _g: None = Depends(heavy_query_guard),
 ):
     """Generation mix over time — every fuel (gen.<psr>) for one zone, aggregated to
     daily or monthly mean MW, in a wide shape ({t, <fuel>: mw, ...}) for a stacked area.
@@ -215,12 +218,18 @@ def snapshot(
     end: str | None = Query(None, description="Override window end (default: now)"),
     db: Session = Depends(get_db),
     _rl: None = Depends(_rate_limit),
+    _g: None = Depends(heavy_query_guard),
 ):
     """Per-zone hourly values for one series over a window, aligned to a common
     timestamp grid ({timestamps: [...], zones: {zone: [v, ...]}}). Powers the map
     time-scrubber — one call, then the client slides the index. Descriptive."""
     end_dt = _parse_ts(end, datetime.now(UTC))
     start_dt = _parse_ts(start, end_dt - timedelta(hours=hours))
+    # start/end overrides mustn't defeat the `hours` cap: this scans every zone,
+    # so an unbounded window is a full-table fan-out. Hold the same 744h ceiling.
+    if end_dt - start_dt > timedelta(hours=744):
+        return {"available": False, "series": series,
+                "reason": "Snapshot window exceeds 744h — narrow it, or use /series for long ranges."}
     sid = db.query(SeriesDim.id).filter(SeriesDim.key == series).scalar()
     unit = db.query(SeriesDim.unit).filter(SeriesDim.key == series).scalar()
     if sid is None:
@@ -263,6 +272,7 @@ def capacity(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     year: int | None = Query(None, description="Year (default: latest available)"),
     db: Session = Depends(get_db),
+    _rl: None = Depends(_rate_limit),
 ):
     """Installed generation capacity per production type (MW) for a zone-year — ENTSO-E
     A68 annual reference data. Defaults to the latest available year. Pan-EU context
@@ -292,6 +302,7 @@ def capacity(
 def get_production_units(
     zone: str = Query(..., description="Bidding zone key"),
     db: Session = Depends(get_db),
+    _rl: None = Depends(_rate_limit),
 ):
     """The zone's published production units (ENTSO-E A71/A33) — reference data.
 
@@ -342,20 +353,30 @@ def get_production_units(
     }
 
 
+def _coverage_window(db: Session) -> dict:
+    """The overall hourly coverage window — a global min/max over power_hourly.
+
+    ts_utc is the 3rd column of the (series_id, zone_id, ts_utc) PK with no
+    standalone index, so this is a full scan (~28s cold on prod). Cached for an
+    hour via cached_coverage: the window only moves when the hourly ingest runs.
+    """
+    lo, hi = db.query(func.min(PowerHourly.ts_utc), func.max(PowerHourly.ts_utc)).first()
+    return {
+        "from": datetime.fromtimestamp(lo, UTC).isoformat() if lo else None,
+        "to": datetime.fromtimestamp(hi, UTC).isoformat() if hi else None,
+    }
+
+
 @router.get("/series/catalog")
-def catalog(db: Session = Depends(get_db)):
+def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g: None = Depends(heavy_query_guard)):
     """What's queryable: every series (key+unit), enabled zones, and the overall
     hourly coverage window."""
     series = [{"key": k, "unit": u} for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()]
-    lo, hi = db.query(func.min(PowerHourly.ts_utc), func.max(PowerHourly.ts_utc)).first()
     return {
         "available": bool(series),
         "series": series,
         "zones": [{"key": k, "label": v["label"]} for k, v in POWER_ZONES.items()],
-        "coverage": {
-            "from": datetime.fromtimestamp(lo, UTC).isoformat() if lo else None,
-            "to": datetime.fromtimestamp(hi, UTC).isoformat() if hi else None,
-        },
+        "coverage": cached_coverage(lambda: _coverage_window(db)),
         "series_count": len(series),
     }
 
@@ -371,6 +392,7 @@ def series(
     format: str = Query("json", pattern="^(json|csv|parquet)$"),
     db: Session = Depends(get_db),
     _rl: None = Depends(_rate_limit),
+    _g: None = Depends(heavy_query_guard),
 ):
     """One series for one zone over a time range — the core data endpoint.
 
@@ -391,11 +413,19 @@ def series(
         raise HTTPException(status_code=400, detail="start must be before end.")
 
     unit = db.query(SeriesDim.unit).filter(SeriesDim.key == series).scalar()
-    points = read_hourly(
-        db, series, zone,
-        int(start_dt.timestamp()),
-        int(end_dt.timestamp()) if end_dt is not None else None,
-    )
+    try:
+        points = read_hourly(
+            db, series, zone,
+            int(start_dt.timestamp()),
+            int(end_dt.timestamp()) if end_dt is not None else None,
+            max_rows=MAX_SCAN_ROWS,
+        )
+    except RowCapExceeded:
+        return {
+            "available": False, "series": series, "zone": zone, "resolution": resolution,
+            "reason": (f"Range matches more than {MAX_SCAN_ROWS:,} rows — narrow start/end. "
+                       "This is a per-request cap, not the coverage limit."),
+        }
 
     if resolution == "daily":
         rows = [{"date": d, "value": v, "hours": n} for d, v, n in _to_daily(points)]
