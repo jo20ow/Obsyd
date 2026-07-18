@@ -1,21 +1,48 @@
 [project]
 name = "obsyd"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Python client for the OBSYD European power data API — a free gridstatus for Europe"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "AGPL-3.0-or-later" }
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [{ name = "OBSYD" }]
-keywords = ["energy", "electricity", "entso-e", "power", "europe", "gridstatus"]
+keywords = ["energy", "electricity", "entso-e", "power", "europe", "gridstatus", "day-ahead"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
 dependencies = ["requests>=2", "pandas>=1.5"]
+
+[project.optional-dependencies]
+parquet = ["pyarrow>=14"]
+dev = ["pytest>=8", "responses>=0.24"]
 
 [project.urls]
 Homepage = "https://obsyd.dev"
 Documentation = "https://obsyd.dev/api/docs"
+Repository = "https://github.com/jo20ow/Obsyd"
+Issues = "https://github.com/jo20ow/Obsyd/issues"
+Changelog = "https://github.com/jo20ow/Obsyd/releases"
 
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["obsyd"]
+
+[tool.setuptools.dynamic]
+version = { attr = "obsyd.__version__" }
+
+[tool.pytest.ini_options]
+markers = ["live: hits the live obsyd.dev API (run manually: pytest -m live)"]
+addopts = "-m 'not live'"

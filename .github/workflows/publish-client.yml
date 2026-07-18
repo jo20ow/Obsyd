@@ -1,0 +1,54 @@
+name: Publish Python client
+
+# Release flow: bump __version__ in clients/python/obsyd.py, merge, then push a
+# matching tag:  git tag client-v0.2.0 && git push origin client-v0.2.0
+# Publishing uses PyPI Trusted Publishing (OIDC) — no token secrets. The PyPI
+# project must have this repo + workflow filename + environment "pypi"
+# registered as a (pending) trusted publisher BEFORE the first tag push.
+
+on:
+  push:
+    tags: ["client-v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tag must match obsyd.__version__
+        run: |
+          test "client-v$(python -c 'import obsyd; print(obsyd.__version__)')" = "$GITHUB_REF_NAME" \
+            || { echo "tag $GITHUB_REF_NAME != client-v$(python -c 'import obsyd; print(obsyd.__version__)')"; exit 1; }
+
+      - name: Build sdist + wheel
+        run: |
+          pip install build twine
+          python -m build
+          python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: clients/python/dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

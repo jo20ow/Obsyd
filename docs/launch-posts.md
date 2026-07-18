@@ -31,7 +31,9 @@ Plausible-Konto aktivieren (sonst launchen wir blind) und einmal alle Links klic
 > measured forecast-error strip instead of any prediction of our own.
 >
 > All official, redistributable sources (ENTSO-E, Fraunhofer Energy-Charts CC BY 4.0,
-> GIE). AGPL-3.0, self-hostable, no accounts, no paywall. Public read API with CSV.
+> GIE). AGPL-3.0, self-hostable, no accounts, no paywall. Public read API with
+> CSV/Parquet, and a Python client: `pip install obsyd` gets you any series as a
+> DataFrame in two lines (example notebooks in the repo).
 >
 > https://obsyd.dev — code: https://github.com/jo20ow/Obsyd
 >
@@ -132,7 +134,8 @@ Falls Show HN < 5 Punkte: nicht löschen, Repost nach 4–6 Wochen ist legitim.
 > "vs this zone's own history", every panel shows its data age, a stalled feed
 > says STALE.
 >
-> AGPL-3.0, no accounts, no telemetry phoning home, public read API with CSV.
+> AGPL-3.0, no accounts, no telemetry phoning home, public read API with CSV/Parquet
+> + a Python client (`pip install obsyd`, pandas DataFrames).
 > Hosted version to try before you deploy: https://obsyd.dev — code:
 > https://github.com/jo20ow/Obsyd. Setup notes in the README; feedback on the
 > self-host path very welcome.
