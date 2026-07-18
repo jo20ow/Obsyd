@@ -50,7 +50,15 @@
 >    template-basierter Wochenrückblick als statische Seite (kein LLM, keine Mails).
 > Auswahlregel: API-/CSV-Traffic steigt → (1); Alert-/Delivery-Nachfrage → (4);
 > Capture-Rate wird zitiert → (3); Forecast-Diskussionen in den Threads → (2).
-> Verworfen bleiben: eigene Prognosen (Posture B), LLM-Features, Bezahlprodukt.
+> Verworfen bleiben: eigene Prognosen (Posture B) und LLM-Features. **Monetarisierung
+> (Owner-Entscheid 2026-07-18): Launch komplett gratis — aber „gratis" ist nicht mehr
+> „für immer", sondern „bis zum Nachfrage-Trigger". Trigger: jemand fragt nach
+> Limits/SLA/Rechnung, ODER ein `obsyd-python/*`-UA-Muster in den VPS-Logs sieht nach
+> Produktionsbetrieb aus. Dann (und erst dann): Bezahl-Tier nach gridstatus-Modell —
+> Daten/Free-Tier bleiben großzügig frei, bezahlt wird Produktions-Quota/Zuverlässigkeit
+> (API-Keys + Metering fehlen noch; Stripe-Erfahrung + dormante Subscription-Maschinerie
+> existieren). Voraussetzung vor dem ersten zahlenden Kunden: Offsite-Backup +
+> healthchecks.io — Zuverlässigkeit verkauft man erst, wenn man sie hat.**
 
 > ## ⇒ IST-STAND-UPDATE 2026-07-11 (Datentiefe-Roadmap KOMPLETT LIVE, PRs #56–#59)
 > Die „gridstatus-Lücke"-Roadmap ist umgesetzt und deployed. Für Sessions ab jetzt:
