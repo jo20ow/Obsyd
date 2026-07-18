@@ -85,3 +85,112 @@ Feedback from anyone who actually trades or analyses EU power would be gold."
 - [ ] OG-Preview testen (opengraph.xyz) — Bild zeigt „37 European bidding zones"
 - [ ] Ein frischer Blick auf EUROPE-Tab mit leerem Cache (anonymer Browser)
 - [ ] HN-Account-Karma-Regeln: als Submitter im Thread aktiv bleiben (erste 3 h)
+
+---
+
+# Erweiterung 2026-07-18 — Reddit-first-Fahrplan (ersetzt die Reihenfolge oben)
+
+Owner-Stärke ist Reddit → Reddit-Anteil ausgebaut. Grundregeln: nie zwei Subs am
+selben Tag (Sitewide-Spam-Filter), vom gealterten Privat-Account posten (nie ein
+frischer „obsyd"-Account), erste 2–3 h nach jedem Post aktiv antworten, Di–Do
+14–16 Uhr MESZ für EU+US-Overlap.
+
+| Tag | Kanal | Was |
+|---|---|---|
+| So/Mo | r/selfhosted | Soft-Launch (Entwurf unten) — schüttelt Setup-/README-Lücken raus |
+| Di 15–17 MESZ | Show HN | Haupttermin (Entwurf oben), 3–4 h am Rechner bleiben |
+| Mi | r/energy | Entwurf oben, als Text-Post in Ich-Form |
+| Do | r/dataisbeautiful | [OC]-Heatmap (unten) — größter Reichweiten-Hebel |
+| Fr / Wo. 2 | r/Energiewirtschaft | deutscher Post (unten) |
+| Wo. 2 | r/InternetIsBeautiful, r/opensource | Kurzfassungen |
+| Wo. 2, parallel | Data Is Plural, Console.dev, Changelog News, awesome-selfhosted-PR | Submit-und-vergessen |
+
+LinkedIn (Entwurf oben) nur, wenn die Klarnamen-Ausnahme von der
+Anonym-Positionierung bewusst gewollt ist — Owner-Entscheidung.
+Falls Show HN < 5 Punkte: nicht löschen, Repost nach 4–6 Wochen ist legitim.
+
+---
+
+## r/selfhosted (Soft-Launch, So/Mo)
+
+**Titel:**
+
+> OBSYD — self-hosted European power-grid desk (37 bidding zones, 15-min day-ahead
+> prices, outage board). FastAPI + SQLite + React, AGPL
+
+**Text:**
+
+> I run this on a single small VPS: FastAPI + one SQLite file (~28M rows of hourly
+> data — single-writer ingest, PK-clustered range scans, no ops) + a static React
+> build behind a reverse proxy. Data comes from ENTSO-E Transparency, Fraunhofer
+> Energy-Charts (CC BY 4.0) and GIE — all free and redistributable, you bring your
+> own (free) API keys.
+>
+> It's the whole desk: day-ahead prices at the market's real 15-minute resolution,
+> residual load & Dunkelflaute, generation mix, cross-border flows, reservoir
+> levels vs seasonal norm, and a revision-aware plant-outage board. Everything is
+> "vs this zone's own history", every panel shows its data age, a stalled feed
+> says STALE.
+>
+> AGPL-3.0, no accounts, no telemetry phoning home, public read API with CSV.
+> Hosted version to try before you deploy: https://obsyd.dev — code:
+> https://github.com/jo20ow/Obsyd. Setup notes in the README; feedback on the
+> self-host path very welcome.
+
+---
+
+## r/dataisbeautiful (Do)
+
+**Bild generieren (am Post-Tag!):**
+
+```
+cd docs/launch && node render-price-heatmap.mjs            # gestern (kompletter Tag)
+node render-price-heatmap.mjs 2026-07-XX                   # oder: bester Tag der letzten 2–3
+```
+
+Den visuell stärksten KOMPLETTEN Tag nehmen (Solar-Tal + Negativpreis-Cluster +
+Spread; ein Hochpreistag wie der 17.07. ist flau, ein Sonnentag wie der 18.07. mit
+blauen Negativ-Zellen ist ideal). PNG entsteht daneben; ohne playwright-core das
+HTML im Browser öffnen und bei 2× screenshotten. Referenz-Sample liegt daneben.
+
+**Titel (Muster [OC]-Regeln: Datenquelle + Tool im Kommentar, Bild statisch):**
+
+> [OC] One day of day-ahead electricity prices across all 37 European bidding
+> zones — from €7/MWh in northern Sweden to €170 in Sicily
+
+**Erster Kommentar (Pflicht-Kommentar mit Quelle/Tool):**
+
+> Data: ENTSO-E Transparency Platform (day-ahead auction results, hourly, UTC).
+> Rendered with a small HTML/Node script; the interactive desk behind it is
+> https://obsyd.dev — free & open source (AGPL), no accounts.
+> Zones are sorted by daily mean. The pale valley around midday is solar pushing
+> prices down; blue cells are hours where the price went below zero. The
+> top-to-bottom gap is Europe's grid bottleneck story: Italy imports expensive
+> evening power while northern Sweden sits on cheap hydro it can't export south.
+
+---
+
+## r/Energiewirtschaft (Fr / Woche 2, deutsch)
+
+**Titel:**
+
+> Kostenloses Open-Source-Dashboard für den europäischen Strommarkt — 37 Gebotszonen,
+> Day-Ahead in 15-min-Auflösung, Kraftwerksausfälle live (ENTSO-E)
+
+**Text:**
+
+> Seit Oktober 2025 handelt der Day-Ahead in 15-Minuten-Produkten, die meisten
+> freien Seiten zeigen weiter Stundenmittel. Ich habe deshalb OBSYD gebaut — einen
+> kostenlosen „gridstatus für Europa": alle 37 Gebotszonen, Preise in echter
+> Auktionsauflösung, Residuallast & Dunkelflaute (kalibriert gegen die eigene
+> Zonen-Historie statt fester Schwellen), Erzeugungsmix, Cross-Border-Flüsse,
+> Speicherfüllstände gegen die Saisonnorm und ein revisionssicheres Ausfall-Board
+> aus dem ENTSO-E-Unavailability-Feed (die meisten Roh-Meldungen sind withdrawn —
+> wer sie zählt, erfindet Gigawatts).
+>
+> Zwei Regeln überall: keine nackte Zahl (alles „vs. eigene Historie"), und
+> ehrliches Datenalter — ein hängender Feed sagt STALE. Keine Prognosen, kein
+> Edge-Claim: deskriptiv, prüfbar, AGPL.
+>
+> https://obsyd.dev — Code: https://github.com/jo20ow/Obsyd. Feedback von Leuten
+> aus der Branche wäre Gold, gerade zu dem, was für den Desk-Alltag noch fehlt.
