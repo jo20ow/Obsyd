@@ -30,6 +30,23 @@
 >   Build-Cache, Disk 84 %); ENTSO-E-Token-Rotation (Log-Leak vor #97); LinkedIn ja/nein
 >   (Klarnamen-Ausnahme von der Anonym-Positionierung); Offsite-Backup + healthchecks.io.
 > - **NÄCHSTER SCHRITT: LAUNCH** nach `docs/launch-posts.md`.
+>
+> **POST-LAUNCH-BACKLOG (Ideen-Parkplatz, Owner-abgenommen 2026-07-18 — NICHTS davon
+> vor dem Launch bauen; die Launch-Reaktion wählt die Richtung):**
+> 1. **Python-Client** (`pip install obsyd`, DataFrames aus der v1-API) + 2–3
+>    Beispiel-Notebooks + Datasets auf Kaggle/HuggingFace — Reichweiten-Hebel Nr. 1
+>    (gridstatus-Playbook: die Library trug die Traktion, nicht das Dashboard).
+> 2. **Forecast-Scoreboard** — ENTSO-E-Last/Wind/Solar-Prognosen laufend öffentlich
+>    benoten (Forecast-Error-Strip ausbauen). Posture-B-konform: fremde Prognosen
+>    bewerten, keine eigenen machen. Frei zugänglich macht das niemand.
+> 3. **PPA-/Asset-Werkzeuge** — Capture-Rate/Negativpreis-Exposure vertiefen
+>    (CapturePanel ist der Kern), Spark-Rechner mit eigenen Wirkungsgrad-Annahmen.
+>    Deskriptiver Nutzwert ohne eine einzige Vorhersage.
+> 4. **Distribution** — Embeddable Zonen-Widgets/Badges, Radar als Webhook,
+>    template-basierter Wochenrückblick als statische Seite (kein LLM, keine Mails).
+> Auswahlregel: API-/CSV-Traffic steigt → (1); Alert-/Delivery-Nachfrage → (4);
+> Capture-Rate wird zitiert → (3); Forecast-Diskussionen in den Threads → (2).
+> Verworfen bleiben: eigene Prognosen (Posture B), LLM-Features, Bezahlprodukt.
 
 > ## ⇒ IST-STAND-UPDATE 2026-07-11 (Datentiefe-Roadmap KOMPLETT LIVE, PRs #56–#59)
 > Die „gridstatus-Lücke"-Roadmap ist umgesetzt und deployed. Für Sessions ab jetzt:
