@@ -27,3 +27,9 @@ STATUS_REPORT.md
 # SQLite sidecars of the local dev DB — swept in by a `git add -A` in #105.
 *.db-wal
 *.db-shm
+
+# Internal working notes — kept local, never in the public repo (deploy recipe /
+# SSH recon, internal strategy, launch playbook, AI planning artifacts).
+CLAUDE.md
+/docs/launch-posts.md
+/docs/superpowers/
