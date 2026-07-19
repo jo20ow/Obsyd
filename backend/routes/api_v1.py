@@ -18,8 +18,7 @@ from backend.api_guard import cached_coverage, heavy_query_guard
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
-from backend.models.energy import InstalledCapacity, PowerHourly, SeriesDim, ZoneDim
-from backend.power.entsoe_grid import PSR_LABELS
+from backend.models.energy import InstalledCapacity, PowerGenMix, PowerHourly, SeriesDim, ZoneDim
 from backend.power.hourly_store import RowCapExceeded, read_hourly
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
@@ -151,29 +150,31 @@ def genmix(
     z = zone if zone in POWER_ZONES else DEFAULT_ZONE
     end_dt = _parse_ts(end, datetime.now(UTC))
     start_dt = _parse_ts(start, end_dt - timedelta(days=365))
-    zid = db.query(ZoneDim.id).filter(ZoneDim.key == z).scalar()
-    gen = db.query(SeriesDim.id, SeriesDim.key).filter(SeriesDim.key.like("gen.%")).all()
-    if zid is None or not gen:
-        return {"available": False, "zone": z, "reason": "No generation-mix data yet."}
-    sid_label = {sid: PSR_LABELS.get(key.split(".", 1)[1], key) for sid, key in gen}
+    # Read the CANONICAL daily generation table (PowerGenMix, daily-mean ÷24 per
+    # daily.py — a fuel absent at night counts as 0). This is the SAME source the
+    # /api/power/generation-mix panel uses, so the public API and the desk can't
+    # disagree. Averaging power_hourly over PUBLISHED hours (the old path) divided
+    # solar by ~18 daylight hours, overstating it (IT-Nord ~29%). Settled days only.
     rows = (
-        db.query(PowerHourly.series_id, PowerHourly.ts_utc, PowerHourly.value)
+        db.query(PowerGenMix.date, PowerGenMix.psr_type, PowerGenMix.gen_mw)
         .filter(
-            PowerHourly.zone_id == zid,
-            PowerHourly.series_id.in_(list(sid_label)),
-            PowerHourly.ts_utc >= int(start_dt.timestamp()),
-            PowerHourly.ts_utc < int(end_dt.timestamp()),
+            PowerGenMix.zone == z,
+            PowerGenMix.date >= start_dt.strftime("%Y-%m-%d"),
+            PowerGenMix.date <= end_dt.strftime("%Y-%m-%d"),
         )
         .all()
     )
-    fmt = "%Y-%m-%d" if resolution == "daily" else "%Y-%m"
+    if not rows:
+        return {"available": False, "zone": z, "reason": "No generation-mix data yet."}
+    monthly = resolution == "monthly"
     buckets: dict[str, dict[str, list[float]]] = {}
-    for sid, ts, v in rows:
-        pk = datetime.fromtimestamp(ts, UTC).strftime(fmt)
-        buckets.setdefault(pk, {}).setdefault(sid_label[sid], []).append(v)
+    for date, psr, mw in rows:
+        pk = date[:7] if monthly else date
+        buckets.setdefault(pk, {}).setdefault(psr, []).append(mw)
     data = []
     for pk in sorted(buckets):
         row: dict = {"t": pk}
+        # daily: one value per fuel already; monthly: mean of the daily means.
         for label, vals in buckets[pk].items():
             row[label] = round(sum(vals) / len(vals), 1)
         data.append(row)

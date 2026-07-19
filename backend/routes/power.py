@@ -432,9 +432,15 @@ def _grid_row_values(
     wind = wind_mw or 0.0
     solar = solar_mw or 0.0
     has_load = load_mw is not None and load_mw > 0
+    # A whole-day A75 blackout leaves wind AND solar None (unknown) with gen_hours 0.
+    # Reading those as 0 would invent residual = full load and a 0% renewable share
+    # (the mirror of the missing-load bug). So generation counts as present only if
+    # a renewable leg exists OR gen_hours says the feed ran — an all-thermal day
+    # (no wind/solar, gen_hours > 0) is a REAL 0% share, not a blackout.
+    has_gen = wind_mw is not None or solar_mw is not None or (gen_hours is not None and gen_hours > 0)
 
-    residual_mw = round(load_mw - wind - solar, 2) if has_load else None
-    renewable_share = round((wind + solar) / load_mw, 4) if has_load else None
+    residual_mw = round(load_mw - wind - solar, 2) if has_load and has_gen else None
+    renewable_share = round((wind + solar) / load_mw, 4) if has_load and has_gen else None
 
     return {
         "date": date,
