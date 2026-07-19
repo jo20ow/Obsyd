@@ -103,10 +103,13 @@ def test_evening_ramp_is_the_steepest_three_hour_rise():
     assert p["evening_ramp"] == pytest.approx(hours[20] - hours[17])
 
 
-def test_negative_hours_are_counted_on_the_delivery_day():
+def test_negative_hours_not_reported_here():
+    # The canonical negative-hour count is PowerPriceDaily.negative_hours (UTC,
+    # resolution-weighted), shown on the day-ahead panel — products must not
+    # publish a second, CET-day whole-hour count that disagrees with it.
     hours = {h: (-5.0 if h < 6 else 50.0) for h in range(24)}
     p = day_products(hours, weekday=1)
-    assert p["negative_hours"] == 6
+    assert "negative_hours" not in p
 
 
 # ─── DB-backed ────────────────────────────────────────────────────────────────

@@ -62,6 +62,25 @@ def test_compute_renewable_share():
     assert d["renewable_share"] == pytest.approx(0.2)
 
 
+def test_whole_day_generation_blackout_gives_no_residual_not_full_load():
+    """gen_hours=0 (A75 feed down all day) leaves wind/solar None because UNKNOWN.
+    Reading them as 0 would invent residual = full load and a 0% renewable share.
+    Load is present, generation is not → residual/share must be None."""
+    row = _make_row(load_mw=45_000.0, wind_mw=None, solar_mw=None, gen_hours=0)
+    d = _compute_grid_row(row)
+    assert d["residual_mw"] is None
+    assert d["renewable_share"] is None
+
+
+def test_zone_with_no_wind_or_solar_but_generation_present_still_computes():
+    """gen_hours>0 with no wind/solar (e.g. an all-thermal day) is a REAL 0% share
+    and residual == load — must not be suppressed."""
+    row = _make_row(load_mw=30_000.0, wind_mw=None, solar_mw=None, gen_hours=24)
+    d = _compute_grid_row(row)
+    assert d["residual_mw"] == pytest.approx(30_000.0)
+    assert d["renewable_share"] == pytest.approx(0.0)
+
+
 def test_a_single_row_makes_no_dunkelflaute_claim():
     """A Dunkelflaute is a judgment against the zone's own history — a lone row cannot make it.
 

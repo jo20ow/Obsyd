@@ -107,7 +107,10 @@ def day_products(hours: dict[int, float], weekday: int) -> dict:
         ),
         "peak_hours": len(peak_values),
         "hours": len(values),
-        "negative_hours": sum(1 for p in values if p < 0),
+        # negative_hours deliberately NOT reported here: the canonical count is
+        # PowerPriceDaily.negative_hours (resolution-weighted, UTC day), shown on
+        # the day-ahead panel + hero. A whole-hour count on the CET day here gave
+        # a different number for the same day (FR 7 vs 5) — one quantity, one place.
         "min": round(min(values), 2),
         "max": round(max(values), 2),
         "evening_ramp": (lambda r: round(r, 2) if r is not None else None)(_ramp(hours)),

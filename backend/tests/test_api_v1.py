@@ -135,10 +135,19 @@ def test_status_reports_coverage(db_session):
     assert body["total"] >= 6  # 3 zones × (dayahead+grid) + flows/gas/ttf
 
 
+def _seed_genmix(db, date, zone, **fuels):
+    """Seed the canonical PowerGenMix daily table (the source /api/v1/genmix reads,
+    same as the desk panel) rather than power_hourly — so the API and the desk
+    can't disagree on the ÷24 daily mean."""
+    from backend.models.energy import PowerGenMix
+    for label, mw in fuels.items():
+        db.add(PowerGenMix(date=date, zone=zone, psr_type=label, gen_mw=mw))
+    db.commit()
+
+
 def test_genmix_wide_by_fuel(db_session):
-    # 24h of solar (B16) + wind onshore (B19) on one UTC day → one daily row, readable fuels.
-    upsert_hourly(db_session, "gen.B16", "DE_LU", [(_BASE + i * _H, 5_000.0) for i in range(24)], unit="MW")
-    upsert_hourly(db_session, "gen.B19", "DE_LU", [(_BASE + i * _H, 10_000.0) for i in range(24)], unit="MW")
+    # PowerGenMix holds the daily-mean MW per fuel (÷24) — genmix serves it verbatim.
+    _seed_genmix(db_session, "2026-06-01", "DE_LU", Solar=5_000.0, **{"Wind Onshore": 10_000.0})
     body = _client(db_session).get(
         "/api/v1/genmix?zone=DE_LU&start=2026-06-01&end=2026-06-02&resolution=daily"
     ).json()
@@ -150,10 +159,22 @@ def test_genmix_wide_by_fuel(db_session):
     assert row["Wind Onshore"] == 10_000.0
 
 
+def test_genmix_serves_the_canonical_div24_value_not_the_published_hours_mean(db_session):
+    """The bug this closes: solar published only in daylight hours must NOT be
+    divided by its published-hours count. PowerGenMix already stores the ÷24
+    daily mean; genmix serves it, so it matches the desk panel exactly."""
+    # A day where solar's true daily mean (÷24) is 3000 — genmix must return 3000,
+    # not some hourly-store recomputation over daylight hours only.
+    _seed_genmix(db_session, "2026-06-01", "DE_LU", Solar=3_000.0)
+    body = _client(db_session).get(
+        "/api/v1/genmix?zone=DE_LU&start=2026-06-01&end=2026-06-02&resolution=daily"
+    ).json()
+    assert body["data"][0]["Solar"] == 3_000.0
+
+
 def test_genmix_csv_streams_wide_download(db_session):
     # Same wide shape as the JSON view, streamed as a CSV download: header = t + sorted fuels.
-    upsert_hourly(db_session, "gen.B16", "DE_LU", [(_BASE + i * _H, 5_000.0) for i in range(24)], unit="MW")
-    upsert_hourly(db_session, "gen.B19", "DE_LU", [(_BASE + i * _H, 10_000.0) for i in range(24)], unit="MW")
+    _seed_genmix(db_session, "2026-06-01", "DE_LU", Solar=5_000.0, **{"Wind Onshore": 10_000.0})
     resp = _client(db_session).get(
         "/api/v1/genmix?zone=DE_LU&start=2026-06-01&end=2026-06-02&resolution=daily&format=csv"
     )

@@ -102,7 +102,6 @@ export default function ProductsPanel({ zone = 'DE_LU' }) {
                   <th className="text-right px-2 py-1">Off-peak</th>
                   <th className="text-right px-2 py-1" title="Peak ÷ Base. Below 1.0 = the peak product is cheaper than off-peak.">Premium</th>
                   <th className="text-right px-2 py-1" title="Steepest 3-hour rise of the day">Ramp</th>
-                  <th className="text-right px-2 py-1">Neg h</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,9 +124,6 @@ export default function ProductsPanel({ zone = 'DE_LU' }) {
                     </td>
                     <td className="px-2 py-1.5 text-right text-neutral-500">
                       {r.evening_ramp != null ? `€${r.evening_ramp.toFixed(0)}` : '—'}
-                    </td>
-                    <td className={`px-2 py-1.5 text-right ${r.negative_hours > 0 ? 'text-orange-400' : 'text-neutral-700'}`}>
-                      {r.negative_hours || '—'}
                     </td>
                   </tr>
                 ))}
