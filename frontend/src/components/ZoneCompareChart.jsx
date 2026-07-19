@@ -17,11 +17,28 @@ const MAX_COMPARE = 3
 // the third indigo. The primary keeps its section's colour.
 const COMPARE_COLORS = ['#f472b6', '#4ade80', '#818cf8']
 
-export default function ZoneCompareChart({ title, series, zone, compare = [], unit, scale = 1, color = '#22d3ee', labelFor }) {
-  const { range } = useViewState()
-  const start = rangeStart(range)
+// Compact UTC axis label for the hourly view ("Jul 19 08h").
+function fmtHourAxis(iso) {
+  const d = new Date(iso)
+  if (isNaN(d)) return String(iso)
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', hour12: false, timeZone: 'UTC' }).replace(', ', ' ').replace(/:\d\d$/, 'h')
+}
 
-  const urlFor = (z) => `${API}/v1/series?series=${series}&zone=${z}&start=${start}&resolution=daily`
+// Fixed lookback for the hourly view: enough to see the intraday shape across a
+// few days, and — crucially — NOT the global range (5Y × hourly would trip the
+// per-request row cap). One request per zone, well inside the cap.
+const HOURLY_LOOKBACK_DAYS = 3
+
+export default function ZoneCompareChart({ title, series, zone, compare = [], unit, scale = 1, color = '#22d3ee', labelFor, resolution = 'daily' }) {
+  const { range } = useViewState()
+  const hourly = resolution === 'hourly'
+  const start = hourly
+    ? new Date(Date.now() - HOURLY_LOOKBACK_DAYS * 86400_000).toISOString().slice(0, 10)
+    : rangeStart(range)
+  const tkey = hourly ? 'datetime_utc' : 'date'
+  const fmtAxis = hourly ? fmtHourAxis : fmtDate
+
+  const urlFor = (z) => `${API}/v1/series?series=${series}&zone=${z}&start=${start}&resolution=${resolution}`
 
   // Hooks cannot run in a loop, so the compare slots are fixed. An unused slot points at the
   // PRIMARY zone's url — already in the SWR cache, so it costs no request (the SeriesExplorer
@@ -41,8 +58,9 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
     zones.forEach((z, i) => {
       const points = responses[i].data?.data || []
       for (const p of points) {
-        if (!byDate.has(p.date)) byDate.set(p.date, { t: p.date })
-        byDate.get(p.date)[z] = p.value == null ? null : p.value * scale
+        const t = p[tkey]
+        if (!byDate.has(t)) byDate.set(t, { t })
+        byDate.get(t)[z] = p.value == null ? null : p.value * scale
       }
       const last = points.at(-1)
       latestByZone[z] = last?.value == null ? null : last.value * scale
@@ -54,7 +72,7 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
       hours: hoursByZone,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [r0.data, r1.data, r2.data, r3.data, zones.join(','), scale])
+  }, [r0.data, r1.data, r2.data, r3.data, zones.join(','), scale, tkey])
 
   const loading = responses.slice(0, zones.length).some((r) => r.loading)
   const failedZones = zones.filter((z, i) => responses[i].error && !responses[i].data)
@@ -94,7 +112,7 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
             ) : (
               <span className="text-neutral-600">no data</span>
             )}
-            {hours[z] != null && hours[z] < 24 && (
+            {!hourly && hours[z] != null && hours[z] < 24 && (
               <span
                 className="text-neutral-600"
                 title={`The last day is still filling in: this mean averages ${hours[z]} of 24 hours.`}
@@ -117,11 +135,11 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="t" tickFormatter={fmtDate} tick={{ fontSize: 9, fill: '#737373' }} minTickGap={40} />
+              <XAxis dataKey="t" tickFormatter={fmtAxis} tick={{ fontSize: 9, fill: '#737373' }} minTickGap={hourly ? 60 : 40} />
               <YAxis tick={{ fontSize: 9, fill: '#737373' }} width={40} domain={['auto', 'auto']} />
               <Tooltip
                 {...CHART_TOOLTIP_PROPS}
-                labelFormatter={fmtDate}
+                labelFormatter={fmtAxis}
                 formatter={(v, name) => [v != null ? `${Number(v).toFixed(1)} ${unit}` : '—', label(name)]}
               />
               {zones.map((z, i) => (

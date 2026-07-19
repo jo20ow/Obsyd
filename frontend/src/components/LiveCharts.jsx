@@ -29,6 +29,7 @@ function readCompare() {
 
 export default function LiveCharts() {
   const [section, setSection] = useState('prices')
+  const [resolution, setResolution] = useState('daily')  // series view: daily trend vs today's hourly shape
   const [compare, setCompare] = useState(readCompare)
   const { zone } = useViewState()
   const { zones } = useZones()
@@ -118,6 +119,25 @@ export default function LiveCharts() {
           </button>
         ))}
         {full && <span className="text-neutral-600">3 is the limit — four lines is a chart, five is a thicket</span>}
+        {/* Daily trend vs the intraday shape — the hourly view is where a zone's
+            morning solar dip (FR to €0) or evening peak actually shows. */}
+        {s.kind === 'series' && (
+          <div className="ml-auto flex items-center gap-0.5 shrink-0">
+            {['daily', 'hourly'].map((r) => (
+              <button
+                key={r}
+                onClick={() => setResolution(r)}
+                className={`px-2 py-0.5 rounded border transition-colors capitalize ${
+                  resolution === r
+                    ? 'border-cyan-glow/50 text-cyan-glow bg-cyan-glow/10'
+                    : 'border-border text-neutral-500 hover:text-neutral-300'
+                }`}
+              >
+                {r === 'hourly' ? 'Hourly · 3d' : 'Daily'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {s.kind === 'mix' ? (
@@ -141,6 +161,7 @@ export default function LiveCharts() {
           scale={s.scale}
           color={s.color}
           labelFor={labelFor}
+          resolution={resolution}
         />
       )}
     </div>
