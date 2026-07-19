@@ -1,0 +1,15 @@
+# gitleaks configuration — extends the bundled default ruleset.
+#
+# Full-history scan reviewed 2026-07-19: the only finding is a FALSE POSITIVE.
+# gitleaks' generic-api-key rule keys off the word "token" in a prose docstring
+# in backend/gas/balance.py ("… demand = heat+industrial. With a token,
+# heat+industrial = total−power …") and reports the formula string as a secret.
+# No real credential has ever been committed: .env is gitignored, and there is
+# no hard-coded key/token/secret assignment anywhere in the codebase.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "False positive: the word 'token' in the balance.py demand-model docstring"
+regexes = ['''heat\+industrial''']
+paths = ['''backend/gas/balance\.py''']
