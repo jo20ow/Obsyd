@@ -89,6 +89,27 @@ def test_build_hourly_forecast_residual_none_without_renewables():
     assert series[0]["load_mw"] == 60_000.0
 
 
+def test_night_hours_keep_a_residual_when_only_solar_is_absent():
+    """A solar-only-at-daytime zone (ES/IT/PT) must keep its NIGHT residuals:
+    an absent solar leg is 0 (there is no sun at night), not unknown. Dropping
+    them made the residual.actual daily mean disagree with PowerGrid.residual_mw."""
+    load = {h: 40_000.0 for h in range(24)}
+    gen = {
+        "B19": {h: 8_000.0 for h in range(24)},          # wind onshore, all day
+        "B16": {h: 12_000.0 for h in range(8, 17)},      # solar, daytime only
+    }
+    series = build_hourly_forecast(load, gen)
+    # Every one of the 24 hours has a residual now — night included.
+    assert all(p["residual_mw"] is not None for p in series)
+    # Night hour: 40000 − 8000 wind − 0 solar = 32000.
+    night = next(p for p in series if p["hour"] == 3)
+    assert night["residual_mw"] == 32_000.0
+    assert night["solar_mw"] is None  # still reported as absent, just not fatal
+    # Day hour: 40000 − 8000 − 12000 = 20000.
+    day = next(p for p in series if p["hour"] == 12)
+    assert day["residual_mw"] == 20_000.0
+
+
 # ── ingest persists the hourly series (JSON-in-Text) ──────────────────────────
 
 

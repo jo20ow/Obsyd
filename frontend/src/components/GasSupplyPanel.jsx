@@ -37,8 +37,8 @@ export default function GasSupplyPanel() {
     <Panel
       id="gas-supply"
       freshness={data}
-      title="EU GAS SUPPLY · ENTSOG"
-      info="Daily EU gas supply (GWh/d) from ENTSOG physical flows: pipeline imports + LNG send-out + net UK interconnector. Free, official data."
+      title="EU GAS IMPORTS · ENTSOG"
+      info="Daily EU gas imports (GWh/d) from ENTSOG physical flows: pipeline imports + LNG send-out + net UK interconnector. This is the IMPORT side only — the balance panel's 'supply' adds EU domestic production on top, so its number is higher. Free, official data."
       collapsible
       headerRight={latest && <span className="font-mono text-[10px] text-cyan-glow font-bold">{Math.round(latest.supply_gwh).toLocaleString()}</span>}
     >
@@ -50,7 +50,7 @@ export default function GasSupplyPanel() {
           <div className="px-4 py-3 border-b border-border/30">
             <div className="flex items-baseline gap-2 mb-2">
               <span className="font-mono text-3xl font-bold text-cyan-glow">{Math.round(latest.supply_gwh).toLocaleString()}</span>
-              <span className="font-mono text-[10px] text-neutral-600">GWh/d total</span>
+              <span className="font-mono text-[10px] text-neutral-600">GWh/d imports</span>
             </div>
             <div className="space-y-1">
               <Stat label="pipeline" value={latest.pipeline_gwh} />

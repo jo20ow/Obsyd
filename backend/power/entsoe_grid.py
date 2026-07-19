@@ -330,8 +330,11 @@ def build_hourly_forecast(
 ) -> list[dict]:
     """Combine hourly load + wind + solar forecasts into a 24-point residual series.
 
-    residual = load − (wind_offshore + wind_onshore) − solar, per hour. wind/solar
-    (and thus residual) are None for an hour with no renewable forecast. Returns
+    residual = load − (wind_offshore + wind_onshore) − solar, per hour. An absent
+    leg is 0, not unknown: there is no solar at night, so requiring BOTH legs
+    dropped every night hour in zones that omit solar (ES/IT/PT/GR) and made the
+    residual.actual daily mean disagree with PowerGrid.residual_mw (÷24). Residual
+    is None only when NEITHER renewable leg is present (a whole feed down). Returns
     [{hour, load_mw, wind_mw, solar_mw, residual_mw}] ordered by hour.
     """
     off = gen_by_hour.get(PSR_WIND_OFFSHORE, {})
@@ -344,7 +347,8 @@ def build_hourly_forecast(
         if hour in off or hour in on:
             wind = (off.get(hour) or 0.0) + (on.get(hour) or 0.0)
         s = solar.get(hour)
-        resid = round(load - wind - s, 2) if wind is not None and s is not None else None
+        has_gen = wind is not None or s is not None
+        resid = round(load - (wind or 0.0) - (s or 0.0), 2) if has_gen else None
         out.append({
             "hour": hour,
             "load_mw": round(load, 2),

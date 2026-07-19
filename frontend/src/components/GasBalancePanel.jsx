@@ -86,7 +86,7 @@ export default function GasBalancePanel() {
               </span>
             </div>
             <div className="font-mono text-[10px] text-neutral-600 mt-1">
-              {flaggedCount} flagged days / 120 · supply {latest.supply_gwh == null ? '—' : Math.round(latest.supply_gwh).toLocaleString()} − demand {latest.demand_gwh == null ? '—' : Math.round(latest.demand_gwh).toLocaleString()} GWh
+              {flaggedCount} flagged days / 120 · supply {latest.supply_gwh == null ? '—' : Math.round(latest.supply_gwh).toLocaleString()} (imports + EU production) − demand {latest.demand_gwh == null ? '—' : Math.round(latest.demand_gwh).toLocaleString()} (incl. power burn) GWh
             </div>
           </div>
 
