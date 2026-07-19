@@ -708,6 +708,15 @@ def test_imbalance_extreme_needs_baseline(db_session):
 # ─── price_spike ──────────────────────────────────────────────────────────────
 
 
+def test_price_spike_window_equals_the_hero_baseline():
+    """The radar's price σ and the hero's price σ describe the SAME day-ahead
+    price on two surfaces — they must use the same window, or they disagree
+    (radar 45d gave +2.6σ while the hero's 30d gave +2.1σ for one price)."""
+    from backend.power.baseline import BASELINE_DAYS
+    from backend.signals.detectors.power import SPIKE_WINDOW_DAYS
+    assert SPIKE_WINDOW_DAYS == BASELINE_DAYS
+
+
 def _seed_prices(db, zone="DE_LU", days=40, base=60.0, last=None):
     from datetime import date, timedelta
 

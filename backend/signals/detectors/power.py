@@ -7,6 +7,7 @@ hour count is persisted per (date, zone) in ``PowerPriceDaily.negative_hours``.
 from __future__ import annotations
 
 from backend.models.energy import PowerGrid, PowerPriceDaily
+from backend.power.baseline import BASELINE_DAYS
 from backend.power.coverage import renewable_share_reliable
 from backend.power.daily import HOURS_PER_DAY
 from backend.power.dunkelflaute import ABSOLUTE_THRESHOLD
@@ -484,7 +485,12 @@ def detect_imbalance_extremes(db) -> list[DetectorResult]:
 # keeps "3σ above a flat 60±2 €" from paging anyone. Named price_spike — a
 # user-rule template `dayahead_spike` (absolute threshold breach) already
 # exists in the OTHER alert subsystem; distinct names keep the two apart.
-SPIKE_WINDOW_DAYS = 45
+# Same window as the hero/overview/driver price z-score (backend/power/baseline.py):
+# they all label a day-ahead price "+Nσ vs its own norm", and two surfaces showing
+# a different σ for the same price is exactly the incoherence to avoid. The radar's
+# HIGHER firing threshold (SPIKE_WARN_Z below) stays — a curated feed warns less
+# eagerly than the hero's ELEVATED band — but the σ they compute is now the same.
+SPIKE_WINDOW_DAYS = BASELINE_DAYS
 SPIKE_WARN_Z = 2.5
 SPIKE_CRIT_Z = 3.5
 SPIKE_MIN_DELTA_EUR = 25.0
@@ -524,7 +530,7 @@ def detect_price_spikes(db) -> list[DetectorResult]:
                 title=f"{zone}: day-ahead unusually {direction} — {current:.0f} €/MWh ({z:+.1f}σ)",
                 detail=(
                     f"Daily mean {current:.0f} €/MWh on {rows[0].date} vs ~{mean:.0f} €/MWh "
-                    f"45d norm (z {z:+.2f}). Descriptive deviation vs the zone's own "
+                    f"{BASELINE_DAYS}d norm (z {z:+.2f}). Descriptive deviation vs the zone's own "
                     f"history, not a forecast."
                 ),
                 as_of=rows[0].date,
