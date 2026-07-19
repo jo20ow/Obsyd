@@ -20,7 +20,7 @@ from backend.power.borders import (
 )
 from backend.power.hourly_store import upsert_hourly
 
-_NOW = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+_NOW = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)  # now-relative: the db-backed route tests filter on a window ending "now"
 
 
 def _client(db):
