@@ -282,7 +282,7 @@ export default function PowerMap() {
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-[12px] font-semibold text-neutral-300">Europe · power map</span>
-          <InfoPopover text="Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by the day-ahead price on a fixed scale across the shown week — violet = negative prices, brighter cyan = more expensive — or by grid state. Dark shapes = neighbouring countries, no data by design. Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast." />
+          <InfoPopover text="Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by the day-ahead price — or by grid state. IMPORTANT: it shades ONE HOUR at a time (the hour on the slider below), not the whole day — so a zone can read €0 here at 08:00 while the all-zones table shows a positive daily mean. Drag the slider to move through the hours. Fixed colour scale across the shown week: violet = negative prices (a distinct state, not just cheap), brighter cyan = more expensive. Dark shapes = neighbouring countries, no data by design. Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast." />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">

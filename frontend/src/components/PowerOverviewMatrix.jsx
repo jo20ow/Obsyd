@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../utils/poll'
 
@@ -26,6 +27,17 @@ const COLUMNS = [
   { key: 'residual', label: 'Residual', align: 'right', get: (z) => z.residual_gw },
   { key: 'renewables', label: 'Renewables', align: 'right', get: (z) => (z.renewable_reliable === false ? null : z.renewable_share) },
 ]
+
+// One legend for the whole table (per-column popovers would be clipped by the
+// scroll container). Spells out what each column is — and, crucially, that
+// Day-ahead here is the DAILY MEAN, while the map shades a single hour.
+const TABLE_INFO = (
+  'What each column means. '
+  + 'State: how far this zone sits from its own 30-day norm — CALM / ELEVATED (amber) / STRESSED (red); a deviation vs history, not a forecast. '
+  + 'Day-ahead: the auction price (€/MWh), cleared the day before for this delivery day — a settled market price, NOT a forecast. It is the DAILY MEAN across the day’s hours; the map shades one hour at a time (its slider), so the map’s number differs from this average. '
+  + 'Residual: demand − wind − solar (GW), the gap conventional plants must fill — what actually sets the price. '
+  + 'Renewables: wind + solar as a share of load, left blank when the feed is too incomplete to trust the share.'
+)
 
 export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
   const { data, loading, error } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
@@ -77,6 +89,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect }) {
     <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
       <div className="px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
         <span className="font-mono text-[12px] font-semibold text-neutral-300">European power · all zones</span>
+        <InfoPopover text={TABLE_INFO} />
         <span className="font-mono text-[9px] text-neutral-700 ml-auto">sort ↕ · click a zone for detail →</span>
       </div>
       <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
