@@ -26,7 +26,7 @@ from backend.config import settings
 from backend.gas import raw_cache
 from backend.gas.entsoe import ENTSOE_BASE, _localname, _parse_utc, _token
 from backend.models.energy import EnergyPrice, PowerPriceDaily
-from backend.power.hourly_store import upsert_day_hours, upsert_hourly
+from backend.power.hourly_store import day_hour_ts, read_hourly, upsert_day_hours, upsert_hourly
 
 logger = logging.getLogger(__name__)
 
@@ -305,17 +305,9 @@ async def ingest_day_ahead(
             if datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d") in wanted
         )
 
-    written = 0
-    for day, stats in stats_by_day.items():
-        mean = stats["mean"]
-        # Keep EnergyPrice(POWER_DE) identical — scorecard + spark-spread use it.
-        _upsert(db, day, symbol, mean)
-        # Upsert the richer per-day stats row.
-        _upsert_daily(db, day, zone, stats)
-        written += 1
-    db.commit()
-
     # ── Hourly day-ahead price → power_hourly (canonical store; roadmap Block 1) ──
+    # Write this FIRST: the daily mean below is derived from it, so the table's
+    # mean_price is the exact number the chart, the v1 API and the client average.
     price_by_day: dict[str, dict[int, float]] = {
         day: {int(p["hour"]): float(p["price"]) for p in stats["hourly"]}
         for day, stats in stats_by_day.items()
@@ -323,6 +315,22 @@ async def ingest_day_ahead(
     }
     if price_by_day:
         upsert_day_hours(db, "price.dayahead", zone, price_by_day, unit="EUR/MWh")
+
+    written = 0
+    for day, stats in stats_by_day.items():
+        # Derive the mean from the canonical hourly store, NOT from stats["mean"]
+        # (a finest-resolution snapshot). On mixed-resolution days those diverge —
+        # stats["mean"] averaged the QH slots (19h) while the chart averages the
+        # accumulated hourly series (22h), so the table and the chart disagreed.
+        mean = _canonical_daily_mean(db, zone, day)
+        if mean is None:
+            mean = stats["mean"]  # no hourly written (shouldn't happen); stay safe
+        # Keep EnergyPrice(POWER_DE) identical — scorecard + spark-spread use it.
+        _upsert(db, day, symbol, mean)
+        # Upsert the richer per-day stats row (mean overridden to the canonical one).
+        _upsert_daily(db, day, zone, {**stats, "mean": mean})
+        written += 1
+    db.commit()
 
     # ── Raw 15-min auction points → price.dayahead.qh (roadmap Block 2) ──
     # Present only for delivery days since the SDAC 15-min switch (2025-10-01);
@@ -337,6 +345,18 @@ async def ingest_day_ahead(
         symbol,
     )
     return {"days": len(days), "written": written}
+
+
+def _canonical_daily_mean(db: Session, zone: str, day: str) -> float | None:
+    """The day's mean EUR/MWh from the canonical hourly store (price.dayahead) — the
+    same series the chart, the v1 API and the python client average. Deriving
+    mean_price/close from here (instead of a separate finest-resolution snapshot)
+    guarantees no two views of the desk ever disagree on a zone's daily price."""
+    start = day_hour_ts(day, 0)
+    rows = read_hourly(db, "price.dayahead", zone, start, start + 86400)
+    if not rows:
+        return None
+    return sum(p for _, p in rows) / len(rows)
 
 
 def _upsert(db: Session, day: str, symbol: str, close: float) -> None:

@@ -322,3 +322,51 @@ async def test_ingest_qh_respects_the_requested_days(db_session, monkeypatch):
     qh = read_hourly(db_session, "price.dayahead.qh", "DE_LU")
     assert len(qh) == 96
     assert all(v == 10.0 for _, v in qh)
+
+
+# ─── coherence regression: table mean must equal the canonical hourly store ────
+
+
+async def test_mean_price_matches_hourly_store_after_resolution_change(db_session, monkeypatch):
+    """The bug FR exposed 2026-07-19: when ENTSO-E republishes a day as 15-min but
+    the QH series covers fewer hours than the accumulated hourly store, the daily
+    mean (table/situation) must still equal the mean of the canonical price.dayahead
+    series — the exact number the chart, the v1 API and the client average — not the
+    QH-slot snapshot. Reproduced via two ingests (hourly, then a QH subset)."""
+    from pydantic import SecretStr
+
+    from backend.models.energy import PowerPriceDaily
+    from backend.power import entsoe_prices
+    from backend.power.hourly_store import day_hour_ts, read_hourly
+
+    day = "2026-05-01"
+    # Ingest 1 — full hourly day: hours 0-19 @ 100, hours 20-23 @ 0 (cheap evening).
+    xml1 = _a44(_ts(f"{day}T00:00Z", "2026-05-02T00:00Z", [100.0] * 20 + [0.0] * 4, res="PT60M"))
+    # Ingest 2 — same day now 15-min, but only the first 20 hours (80 QH) @ 100.
+    xml2 = _a44(_ts(f"{day}T00:00Z", f"{day}T20:00Z", [100.0] * 80, res="PT15M"))
+
+    monkeypatch.setattr(entsoe_prices.settings, "entsoe_api_token", SecretStr("tok"))
+
+    async def fetch1(eic, m, *, overwrite=False):
+        return xml1
+
+    monkeypatch.setattr(entsoe_prices, "_fetch_zone_month", fetch1)
+    await entsoe_prices.ingest_day_ahead(db_session, [day])
+
+    async def fetch2(eic, m, *, overwrite=False):
+        return xml2
+
+    monkeypatch.setattr(entsoe_prices, "_fetch_zone_month", fetch2)
+    await entsoe_prices.ingest_day_ahead(db_session, [day])
+
+    # Canonical store now holds 24h: 0-19 @ 100 (overwritten by QH), 20-23 @ 0 (kept).
+    start = day_hour_ts(day, 0)
+    rows = read_hourly(db_session, "price.dayahead", "DE_LU", start, start + 86400)
+    assert len(rows) == 24
+    hourly_mean = sum(p for _, p in rows) / len(rows)
+    assert hourly_mean == pytest.approx((20 * 100 + 4 * 0) / 24)  # 83.33, NOT the 100 the QH snapshot gave
+
+    daily = db_session.query(PowerPriceDaily).filter_by(date=day, zone="DE_LU").first()
+    close = db_session.query(EnergyPrice).filter_by(date=day, symbol="POWER_DE").first().close
+    assert daily.mean_price == pytest.approx(hourly_mean)
+    assert close == pytest.approx(hourly_mean)
