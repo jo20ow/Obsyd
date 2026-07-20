@@ -155,7 +155,6 @@ def compute_live(db: Session, zone: str, *, now: datetime | None = None) -> dict
         return {
             "available": False,
             "zone": zone,
-            "zone_label": zone_label,
             "reason": f"No recent load data for {zone_label} yet — check back shortly.",
         }
 
