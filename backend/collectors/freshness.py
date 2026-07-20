@@ -103,6 +103,16 @@ SPECS += [
     # Episodes are DERIVED, not ingested — so the probe asks whether the nightly recompute ran,
     # not whether a feed arrived. A silent episode engine looks exactly like a quiet Europe.
     FreshnessSpec("episodes", PowerEpisode, "updated_at", timedelta(days=2)),
+    # /api/power/live (near-real-time TODAY). The intraday scheduler writes
+    # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
+    # would be the honest window for THIS probe alone — but test_outage_history.py
+    # pins outage_snapshot (below) as the tightest window on the desk on purpose
+    # (it is the one series that cannot be backfilled at all), so this stays
+    # capped at 1 day rather than undercutting that invariant. The live route's
+    # own `lag_minutes` field carries the real-time precision this coarser
+    # health-check window can't.
+    FreshnessSpec("live_load", PowerPriceDaily, "", timedelta(days=1),
+                  hourly_series="load.actual"),
     # The outage snapshot is the ONE series that cannot be backfilled: A77 takes an
     # unavailability down once it is over, so an hour the recorder missed is gone for
     # good. It must therefore be the tightest window on the desk — a day of silence is

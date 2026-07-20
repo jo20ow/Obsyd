@@ -1649,6 +1649,45 @@ def get_spread(
     return compute_spread(db, a, b, days=days)
 
 
+# ─── Live (near-real-time TODAY) ──────────────────────────────────────────────
+
+
+@router.get("/live")
+def get_live(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    db: Session = Depends(get_db),
+):
+    """Near-real-time read of TODAY, hour by hour. Free tier.
+
+    The situation hero and every daily panel read the DAILY rollup tables, which
+    only ever hold COMPLETE days — so the desk has no view of today until the
+    nightly job closes it out, even though the canonical hourly store already
+    fills in every ~30 minutes as ENTSO-E publishes. This is that missing read:
+    published actual load/residual/per-fuel generation/net cross-border flow
+    alongside the day-ahead forecast/price for the SAME hours, straight from
+    backend/power/live.py::compute_live. Descriptive (Posture B): actuals are
+    compared against ENTSO-E's/the auction's own published day-ahead figures,
+    never predicted.
+
+    `zone` defaults to DE_LU; unknown zones fall back (same convention as every
+    other endpoint on this router — see `_resolve_zone`). Shortly after UTC
+    midnight, before today's first actual has published, falls back to
+    yesterday's complete day (`showing: "yesterday"`).
+    """
+    from backend.power.live import compute_live
+
+    resolved_zone = _resolve_zone(zone)
+    result = compute_live(db, resolved_zone)
+    if not result.get("available"):
+        return result
+
+    as_of_date = result["latest_actual_ts"][:10] if result.get("latest_actual_ts") else None
+    return {
+        **result,
+        **_freshness(as_of_date, datetime.now(timezone.utc).date(), max_age_days=1),
+    }
+
+
 # ─── Imbalance prices (free) ──────────────────────────────────────────────────
 
 
