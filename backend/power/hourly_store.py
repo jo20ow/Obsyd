@@ -141,3 +141,64 @@ def read_hourly(
     if max_rows is not None and len(rows) > max_rows:
         raise RowCapExceeded(max_rows)
     return rows
+
+
+def iter_border_points(
+    db: Session,
+    zone: str,
+    start_ts: int | None = None,
+    end_ts: int | None = None,
+    max_rows: int | None = None,
+) -> list[tuple[str, int, float]]:
+    """(neighbor, ts_utc, signed_mw) for every cross-border flow point touching
+    `zone` in [start_ts, end_ts) — the ONE place the flow sign convention is
+    implemented, so `/flows/hourly` (backend/routes/power.py::get_flows_hourly)
+    and the live-desk net-flow reader (backend/power/live.py) can never drift
+    apart on it.
+
+    Sign convention (see backend/power/energy_charts_flows.py's module
+    docstring): a border is stored ONCE, as series ``flow.<TO>`` under zone
+    ``<FROM>`` (the canonical alphabetically-first zone of the pair), with
+    net_mw > 0 meaning FROM exports. `zone` may be either side of any given
+    border:
+      * zone is the storing (FROM) side: its own exports live as
+        ``flow.<neighbor>`` under itself — read with the native sign (Case A).
+      * zone is the counterparty (TO) side: the series lives as
+        ``flow.<zone>`` under each neighbour instead — sign is flipped (Case B).
+
+    `max_rows` bounds each Case-A (native) per-neighbor read exactly like any
+    other `read_hourly` call. Case B (the counterparty side) combines every
+    neighbour that stores `zone` into ONE query and is intentionally NOT
+    capped the same way: it is bounded only by the caller's own
+    [start_ts, end_ts) window times this zone's border count — never large in
+    practice (the busiest European zone has a handful of borders), so an
+    explicit cap here would just be a second number to keep in sync with the
+    window every caller already chooses.
+    """
+    out: list[tuple[str, int, float]] = []
+
+    # Case A: zone is the canonical sorted-FIRST side of some borders — its own exports.
+    for (key,) in db.query(SeriesDim.key).filter(SeriesDim.key.like("flow.%")).all():
+        neighbor = key.removeprefix("flow.")
+        if neighbor == zone:
+            continue
+        for ts, v in read_hourly(db, key, zone, start_ts, end_ts, max_rows=max_rows):
+            out.append((neighbor, ts, v))
+
+    # Case B: zone is the canonical sorted-SECOND side — series flow.<zone> under the
+    # neighbours; flip sign (native value is FROM's export, i.e. zone's import).
+    sid = db.query(SeriesDim.id).filter(SeriesDim.key == f"flow.{zone}").scalar()
+    if sid is not None:
+        q = (
+            db.query(ZoneDim.key, PowerHourly.ts_utc, PowerHourly.value)
+            .join(PowerHourly, PowerHourly.zone_id == ZoneDim.id)
+            .filter(PowerHourly.series_id == sid)
+        )
+        if start_ts is not None:
+            q = q.filter(PowerHourly.ts_utc >= start_ts)
+        if end_ts is not None:
+            q = q.filter(PowerHourly.ts_utc < end_ts)
+        for neighbor, ts, v in q.order_by(PowerHourly.ts_utc.asc()).all():
+            out.append((neighbor, int(ts), -float(v)))
+
+    return out

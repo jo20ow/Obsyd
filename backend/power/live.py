@@ -31,13 +31,19 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from backend.models.energy import PowerHourly, SeriesDim
-from backend.power.hourly_store import read_hourly
+from backend.models.energy import SeriesDim
+from backend.power.hourly_store import iter_border_points, read_hourly
 from backend.power.zones import POWER_ZONES
 
-#: A day is 24 hourly points; the flow-border scan touches a handful of series
-#: per zone. Every read below is capped well above what one day can hold, so a
-#: cap is never actually hit — it exists only to fail loudly if it ever were.
+#: A day is 24 hourly points. Every load/residual/forecast/price/per-fuel read
+#: below is capped at this — well above what one day can hold, so the cap is
+#: never actually hit; it exists only to fail loudly if it ever were. The one
+#: exception is the flow counterparty side (Case B inside
+#: hourly_store.iter_border_points, used by `_zone_net_flow` below): it
+#: combines every neighbour touching this zone into ONE query and is bounded
+#: only by the window × this zone's border count, not by this constant — see
+#: that function's docstring for why an explicit cap there would just be a
+#: second number to keep in sync.
 _MAX_ROWS = 48
 
 _DAY_SECONDS = 24 * 3600
@@ -87,40 +93,14 @@ def _zone_net_flow(db: Session, zone: str, start_ts: int, end_ts: int) -> dict[i
     = zone exports. Empty dict (never a false zero) when the zone has no flow
     series at all — callers must read it with `.get(ts)`, never `[ts]`.
 
-    Sign convention (see backend/power/energy_charts_flows.py's module docstring
-    and backend/routes/power.py::get_flows_hourly, which this mirrors exactly): a
-    border is stored ONCE, as series ``flow.<TO>`` under zone ``<FROM>`` (the
-    canonical-sorted first zone of the pair), with net_mw > 0 meaning FROM
-    exports. `zone` may be either side of any given border:
-      * zone is the storing (FROM) side: its exports live as ``flow.<neighbor>``
-        under itself — read with the native sign.
-      * zone is the counterparty (TO) side: the series lives as ``flow.<zone>``
-        under each neighbour instead — sign must be flipped.
+    The sign convention and storing-side/counterparty-side handling live in ONE
+    shared place, `backend.power.hourly_store.iter_border_points` — see its
+    docstring. `get_flows_hourly` (backend/routes/power.py) reads the same
+    helper so the two can never drift apart on the sign logic.
     """
     per_hour: dict[int, list[float]] = defaultdict(list)
-
-    flow_keys = [k for (k,) in db.query(SeriesDim.key).filter(SeriesDim.key.like("flow.%")).all()]
-    for key in flow_keys:
-        neighbor = key.removeprefix("flow.")
-        if neighbor == zone:
-            continue
-        for ts, v in read_hourly(db, key, zone, start_ts, end_ts, max_rows=_MAX_ROWS):
-            per_hour[ts].append(v)
-
-    sid = db.query(SeriesDim.id).filter(SeriesDim.key == f"flow.{zone}").scalar()
-    if sid is not None:
-        rows = (
-            db.query(PowerHourly.ts_utc, PowerHourly.value)
-            .filter(
-                PowerHourly.series_id == sid,
-                PowerHourly.ts_utc >= start_ts,
-                PowerHourly.ts_utc < end_ts,
-            )
-            .all()
-        )
-        for ts, v in rows:
-            per_hour[int(ts)].append(-float(v))
-
+    for _neighbor, ts, v in iter_border_points(db, zone, start_ts, end_ts, max_rows=_MAX_ROWS):
+        per_hour[ts].append(v)
     return {ts: sum(vs) for ts, vs in per_hour.items()}
 
 
@@ -129,6 +109,15 @@ def compute_live(db: Session, zone: str, *, now: datetime | None = None) -> dict
     actual load/residual/generation/net-flow alongside the day-ahead
     forecast/price for the same hour. Pure apart from `db`; `now` is injectable
     for tests and defaults to the real wall clock.
+
+    `hours[].gen` keys are the raw ENTSO-E production-type codes (``gen.<Bxx>``
+    → "B16", "B19", …) — this module makes no attempt at a friendly label; the
+    frontend maps them via `frontend/src/utils/fuels.js`, the one canonical
+    fuel palette/label source for the desk (PR #109). `summary.gen_total_now`
+    sums only the fuels that published a point for the SAME hour as
+    `latest_actual_ts` — a fuel whose A75 submission lags behind that hour
+    (e.g. a conventional/thermal unit reporting late) is silently absent from
+    the sum, which can under-report total generation for that hour.
     """
     if zone not in POWER_ZONES:
         return {"available": False, "zone": zone, "reason": f"Unknown zone {zone}."}
@@ -198,8 +187,20 @@ def compute_live(db: Session, zone: str, *, now: datetime | None = None) -> dict
 
     latest_actual_ts = max(load_actual)
     latest_actual_iso = _iso(latest_actual_ts)
-    lag_minutes = int((now - datetime.fromtimestamp(latest_actual_ts + 3600, tz=timezone.utc))
-                      .total_seconds() // 60)
+    # Clamped at 0: parse_load_hourly (backend/power/entsoe_grid.py) averages
+    # whatever quarter-hours ENTSO-E has published for an hour, with no
+    # completeness guard — an in-progress hour (say 2 of 4 quarter-hours in)
+    # can therefore already land a load.actual point. When that happens,
+    # latest_actual_ts + 1h is still in the future relative to `now`, and the
+    # raw subtraction goes negative (then more negative once floor-divided by
+    # 60). A lag can't be negative from the reader's perspective, so floor it
+    # at 0 — note this also means `load_vs_forecast_pct` below can be
+    # comparing a PARTIAL-hour actual mean against a FULL-hour forecast for
+    # that same hour, a known (unfixed) skew in the partial-hour case.
+    lag_minutes = max(0, int(
+        (now - datetime.fromtimestamp(latest_actual_ts + 3600, tz=timezone.utc))
+        .total_seconds() // 60
+    ))
 
     a = load_actual.get(latest_actual_ts)
     f = load_fc.get(latest_actual_ts)

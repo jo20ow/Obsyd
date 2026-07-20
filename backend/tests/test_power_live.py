@@ -168,6 +168,29 @@ def test_just_after_midnight_falls_back_to_yesterday(db_session):
     assert out["latest_actual_ts"] == expected_latest
     # hour 23 (23:00-24:00 yesterday) ended exactly at today's midnight; now is 00:15.
     assert out["lag_minutes"] == 15
+    # `now` (00:15 today) falls outside the shown (yesterday's) window, whose
+    # price series was never loaded — price_now is null until today's first
+    # actual lands and the endpoint switches back to showing="today".
+    assert out["summary"]["price_now"] is None
+
+
+def test_lag_minutes_never_negative_for_a_partial_current_hour(db_session):
+    """parse_load_hourly (backend/power/entsoe_grid.py) averages whatever
+    quarter-hours ENTSO-E has published for an hour with no completeness
+    guard, so an in-progress hour (e.g. 2 of 4 quarter-hours in) can already
+    land a load.actual point. That makes `latest_actual_ts + 1h` land in the
+    future relative to `now` — lag must clamp to 0, never go negative."""
+    now = datetime(2026, 7, 20, 13, 20, tzinfo=timezone.utc)
+    day_start = _day_start(now)
+    current_hour_ts = day_start + 13 * H  # 13:00-14:00, still in progress at 13:20
+    upsert_hourly(db_session, "load.actual", "DE_LU",
+                  [(current_hour_ts, 45_000.0)], unit="MW")
+
+    out = compute_live(db_session, "DE_LU", now=now)
+
+    expected_latest = datetime.fromtimestamp(current_hour_ts, tz=timezone.utc).isoformat()
+    assert out["latest_actual_ts"] == expected_latest
+    assert out["lag_minutes"] == 0
 
 
 def test_no_data_at_all_is_unavailable_not_an_error(db_session):
@@ -197,6 +220,7 @@ def test_missing_forecast_series_leaves_forecast_fields_null(db_session):
     assert all(h["load_fc"] is None for h in out["hours"])
     assert all(h["residual_fc"] is None for h in out["hours"])
     assert all(h["residual"] is None for h in out["hours"])
+    assert all(h["gen_fc"] is None for h in out["hours"]), "generation.forecast wasn't seeded either"
     assert out["summary"]["load_vs_forecast_pct"] is None, "no forecast to compare against"
 
 
@@ -265,6 +289,20 @@ def test_route_unknown_zone_mirrors_get_imbalance_fallback(db_session):
     # zone" — see backend/routes/power.py::_resolve_zone).
     assert live_resp["zone"] == DEFAULT_ZONE
     assert imbalance_resp["zone"] == DEFAULT_ZONE
+    # Every sibling endpoint tells the caller what zones ARE valid alongside the
+    # silent fallback (that's the justification for not 400ing) — /live must too.
+    assert set(live_resp["zones"]) == {"DE_LU", "FR", "NL"}
+
+
+def test_route_unavailable_shape_also_carries_zones(db_session):
+    """The unavailable branch (no data at all) must carry `zones` too — not
+    just the happy path. compute_live itself stays pure/zones-agnostic; the
+    route wrapper attaches it either way."""
+    resp = _client(db_session).get("/api/power/live?zone=DE_LU")
+    body = resp.json()
+
+    assert body["available"] is False
+    assert set(body["zones"]) == {"DE_LU", "FR", "NL"}
 
 
 # ─── HTTP route: freshness fields ──────────────────────────────────────────────
@@ -287,3 +325,38 @@ def test_route_carries_freshness_fields(db_session):
     assert "age_days" in body
     assert "stale" in body
     assert body["stale"] is False
+    assert set(body["zones"]) == {"DE_LU", "FR", "NL"}
+
+
+def test_route_fallback_freshness_is_one_day_old_not_stale(db_session):
+    """Real-clock yesterday-fallback via HTTP: seed ONLY yesterday's (relative
+    to whatever wall-clock time the suite runs at) load.actual + price, so
+    compute_live falls back regardless of what hour it actually is right now.
+    as_of then lands on yesterday's calendar date, so age_days is exactly 1 —
+    the boundary case for LIVE_MAX_AGE_DAYS=1 (not stale, not fresh-looking
+    either)."""
+    real_today_start = _day_start(datetime.now(timezone.utc))
+    yesterday_start = real_today_start - 24 * H
+
+    upsert_hourly(db_session, "load.actual", "DE_LU",
+                  [(yesterday_start + h * H, 50_000.0 + h * 10) for h in range(24)], unit="MW")
+    upsert_hourly(db_session, "price.dayahead", "DE_LU",
+                  [(yesterday_start + h * H, 70.0 + h) for h in range(24)], unit="EUR/MWh")
+
+    body = _client(db_session).get("/api/power/live?zone=DE_LU").json()
+
+    assert body["available"] is True
+    assert body["showing"] == "yesterday"
+    assert body["age_days"] == 1
+    assert body["stale"] is False
+
+
+def test_route_max_age_matches_live_load_freshness_spec():
+    """UI/route freshness threshold and the health-check spec must share one
+    truth — mirrors test_power_panel_freshness.py's
+    test_panel_thresholds_match_health_specs for PANEL_MAX_AGE_DAYS vs SPECS."""
+    from backend.collectors.freshness import SPECS
+    from backend.routes.power import LIVE_MAX_AGE_DAYS
+
+    spec = next(s for s in SPECS if s.key == "live_load")
+    assert spec.max_age.days == LIVE_MAX_AGE_DAYS

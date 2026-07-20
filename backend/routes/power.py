@@ -743,6 +743,15 @@ PANEL_MAX_AGE_DAYS = {
     "load_forecast": 2,
 }
 
+#: /api/power/live's own freshness threshold — day granularity like every
+#: other panel caption above (the endpoint's own `lag_minutes` field carries
+#: the real-time precision). Kept in sync with the "live_load" FreshnessSpec
+#: (backend/collectors/freshness.py) by
+#: test_power_live.py::test_route_max_age_matches_live_load_freshness_spec,
+#: the same pattern PANEL_MAX_AGE_DAYS uses against SPECS above
+#: (test_power_panel_freshness.py::test_panel_thresholds_match_health_specs).
+LIVE_MAX_AGE_DAYS = 1
+
 
 def _freshness(as_of: str | None, today: _date | None,
                max_age_days: int = SITUATION_STALE_DAYS) -> dict:
@@ -1455,37 +1464,17 @@ def get_flows_hourly(
     Country-level source — sub-zones without an Energy-Charts country (Italian
     sub-zones, DK1/DK2 …) return available:false with the reason, not a blank.
     """
-    from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
-    from backend.power.hourly_store import read_hourly
+    from backend.power.hourly_store import iter_border_points
 
     resolved_zone = _resolve_zone(zone)
     start_ts = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
 
+    # Sign convention + storing-side/counterparty-side handling now lives in ONE
+    # place (iter_border_points) shared with backend/power/live.py — see its
+    # docstring for the Case A/B mechanics this used to duplicate here.
     borders: dict[str, list[tuple[int, float]]] = {}
-
-    # Case A — resolved zone is the canonical sorted-FIRST zone: its exports
-    # live as series flow.<neighbor> under itself.
-    for (key,) in db.query(SeriesDim.key).filter(SeriesDim.key.like("flow.%")).all():
-        neighbor = key[len("flow."):]
-        if neighbor == resolved_zone:
-            continue
-        pts = read_hourly(db, key, resolved_zone, start_ts=start_ts)
-        if pts:
-            borders[neighbor] = pts  # net > 0 = resolved zone exports (native sign)
-
-    # Case B — resolved zone is sorted-SECOND: series flow.<resolved> under the
-    # neighbours. One query across all zones; flip the sign to "selected exports".
-    sid = db.query(SeriesDim.id).filter(SeriesDim.key == f"flow.{resolved_zone}").scalar()
-    if sid is not None:
-        rows = (
-            db.query(ZoneDim.key, PowerHourly.ts_utc, PowerHourly.value)
-            .join(PowerHourly, PowerHourly.zone_id == ZoneDim.id)
-            .filter(PowerHourly.series_id == sid, PowerHourly.ts_utc >= start_ts)
-            .order_by(PowerHourly.ts_utc.asc())
-            .all()
-        )
-        for neighbor, ts, v in rows:
-            borders.setdefault(neighbor, []).append((int(ts), -float(v)))
+    for neighbor, ts, v in iter_border_points(db, resolved_zone, start_ts=start_ts):
+        borders.setdefault(neighbor, []).append((ts, v))
 
     if not borders:
         return {
@@ -1670,21 +1659,25 @@ def get_live(
     never predicted.
 
     `zone` defaults to DE_LU; unknown zones fall back (same convention as every
-    other endpoint on this router — see `_resolve_zone`). Shortly after UTC
+    other endpoint on this router — see `_resolve_zone`; `zones` in the response
+    lists every valid key, exactly like its siblings). Shortly after UTC
     midnight, before today's first actual has published, falls back to
-    yesterday's complete day (`showing: "yesterday"`).
+    yesterday's complete day (`showing: "yesterday"`) — in that mode
+    `summary.price_now` is null until today's first actual has landed, because
+    only the shown (yesterday's) day-ahead prices are loaded.
     """
     from backend.power.live import compute_live
 
     resolved_zone = _resolve_zone(zone)
     result = compute_live(db, resolved_zone)
     if not result.get("available"):
-        return result
+        return {**result, "zones": _ZONE_KEYS}
 
     as_of_date = result["latest_actual_ts"][:10] if result.get("latest_actual_ts") else None
     return {
         **result,
-        **_freshness(as_of_date, datetime.now(timezone.utc).date(), max_age_days=1),
+        "zones": _ZONE_KEYS,
+        **_freshness(as_of_date, datetime.now(timezone.utc).date(), max_age_days=LIVE_MAX_AGE_DAYS),
     }
 
 
