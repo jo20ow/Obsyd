@@ -1797,9 +1797,12 @@ def get_balancing(
             for t, p, v in rows
         ]
 
-    all_rows = up_rows + down_rows
-    priced_rows = [(t, p) for t, p, _ in all_rows if p is not None]
-    latest_t, latest_p, latest_v = max(all_rows, key=lambda r: r[0])
+    # Tag each row with its direction before merging so latest/peak can report which half
+    # of the market they came from — a bare number doesn't say whether the TSO was paying
+    # for upward or downward regulation.
+    all_rows = [(t, p, v, "up") for t, p, v in up_rows] + [(t, p, v, "down") for t, p, v in down_rows]
+    priced_rows = [(t, p, d) for t, p, _, d in all_rows if p is not None]
+    latest_t, latest_p, latest_v, latest_dir = max(all_rows, key=lambda r: r[0])
     peak_row = max(priced_rows, key=lambda r: abs(r[1])) if priced_rows else None
     as_of = _dt.fromtimestamp(max(r[0] for r in all_rows), tz=timezone.utc).strftime("%Y-%m-%d")
 
@@ -1817,9 +1820,14 @@ def get_balancing(
             "t": _dt.fromtimestamp(latest_t, tz=timezone.utc).isoformat(),
             "price": round(latest_p, 2) if latest_p is not None else None,
             "vol": round(latest_v, 2) if latest_v is not None else None,
+            "direction": latest_dir,
         },
         "peak": (
-            {"t": _dt.fromtimestamp(peak_row[0], tz=timezone.utc).isoformat(), "price": round(peak_row[1], 2)}
+            {
+                "t": _dt.fromtimestamp(peak_row[0], tz=timezone.utc).isoformat(),
+                "price": round(peak_row[1], 2),
+                "direction": peak_row[2],
+            }
             if peak_row is not None else None
         ),
         "note": (

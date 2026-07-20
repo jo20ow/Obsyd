@@ -268,9 +268,10 @@ class _FakeAsyncClient:
 
 
 async def test_fetch_structural_400_is_cached_as_empty(tmp_path, monkeypatch):
-    """The exact wording ENTSO-E uses for a genuinely-empty/unsupported combination — 'is not
-    valid' (A83's structural rejection) or 'No matching data found' (A84's clean empty-window
-    ACK) — is the ONLY 400 shape treated as cacheable no-data."""
+    """The exact wording ENTSO-E uses for a genuinely-empty/unsupported combination — A83's
+    structural rejection ('combination of ... not allowed to be fetched via this service') or
+    A84's 'No matching data found' empty-window ACK — is the ONLY 400 shape treated as
+    cacheable no-data."""
     from datetime import date
 
     import backend.gas.raw_cache as rc
@@ -302,6 +303,28 @@ async def test_fetch_no_matching_data_400_is_cached_as_empty(tmp_path, monkeypat
 
     docs = await bal._fetch_balancing_month("A84", "entsoe_a84_nodata_test", "10YDE-EON------1", date(2026, 6, 1))
     assert docs == [""]
+
+
+async def test_fetch_400_with_only_generic_is_not_valid_text_raises(tmp_path, monkeypatch):
+    """A 400 whose body merely happens to contain the generic phrase 'is not valid' (e.g. an
+    ordinary parameter-validation error, nothing to do with A83/A84's structural rejection)
+    must NOT be treated as cacheable no-data — the matcher keys on the distinctive TAIL of
+    ENTSO-E's actual 'nothing here' wordings ('No matching data found' / 'not allowed to be
+    fetched via this service' / 'combination of'), not the generic phrase alone."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    body = b"Input parameter periodStart is not valid"
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(400, body))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await bal._fetch_balancing_month(
+            "A84", "entsoe_a84_genericfail_test", "10YDE-EON------1", date(2026, 6, 1)
+        )
+    assert rc.read_cached("entsoe_a84_genericfail_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) is None
 
 
 async def test_fetch_401_raises_and_is_not_cached(tmp_path, monkeypatch):
@@ -352,6 +375,76 @@ async def test_ingest_401_is_isolated_and_logged_not_cached(db_session, tmp_path
     r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
     assert r["written"] == 0
     assert read_hourly(db_session, "balancing.afrr.price.up", "FR") == []
+
+
+# ─── per-doctype overwrite: don't re-issue a known-futile A83 request every hour ───────
+#
+# The hourly job refreshes prices every run (overwrite=True) but must NOT re-issue A83's
+# known-futile request 37 zones × 24 times a day once its structural rejection is cached —
+# that's ~888 guaranteed 400s/day against ENTSO-E for nothing. The once-a-day full-overwrite
+# pass is the deliberate "REVERIFY" probe and must keep re-fetching.
+
+
+class _CountingAsyncClient:
+    """Fake httpx.AsyncClient that answers every request with a real, clean structural
+    'no data' 400 httpx.Response and counts calls per documentType — so the caching/
+    overwrite behavior can be verified without touching the network."""
+
+    def __init__(self):
+        self.calls: dict[str, int] = {"A83": 0, "A84": 0}
+
+    def __call__(self, *a, **kw):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None):
+        doc_type = params["documentType"]
+        self.calls[doc_type] = self.calls.get(doc_type, 0) + 1
+        body = b"No matching data found for Data item X"
+        return httpx.Response(400, content=body, request=httpx.Request("GET", url, params=params))
+
+
+async def test_hourly_shaped_call_does_not_refetch_cached_a83(db_session, tmp_path, monkeypatch):
+    """overwrite=True + overwrite_volumes=False (the hourly job's shape): prices are
+    refetched every run, but once A83's rejection is cached, the second run must not hit the
+    network for it again."""
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+    client = _CountingAsyncClient()
+    monkeypatch.setattr(bal.httpx, "AsyncClient", client)
+
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True, overwrite_volumes=False)
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True, overwrite_volumes=False)
+
+    assert client.calls["A84"] == 2  # prices: always refreshed
+    assert client.calls["A83"] == 1  # volumes: cached "no data" short-circuits the 2nd run
+
+
+async def test_daily_shaped_call_always_refetches_a83(db_session, tmp_path, monkeypatch):
+    """overwrite=True with no overwrite_volumes override (the nightly job's shape, and the
+    default for any caller that doesn't pass it): both doctypes refetch every run — this is
+    the once-a-day REVERIFY probe for whether A83 has come back."""
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+    client = _CountingAsyncClient()
+    monkeypatch.setattr(bal.httpx, "AsyncClient", client)
+
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+
+    assert client.calls["A84"] == 2
+    assert client.calls["A83"] == 2
 
 
 # ─── ingest_balancing ───────────────────────────────────────────────────────────
@@ -448,6 +541,35 @@ async def test_ingest_fetch_error_is_isolated_per_doctype(db_session, monkeypatc
     assert r["written"] > 0
 
 
+async def test_ingest_excludes_days_outside_the_wanted_window(db_session, monkeypatch):
+    """A month document naturally spans every day in that calendar month, but
+    ingest_balancing is asked for SPECIFIC days — _merge_wanted's day filter must drop
+    everything else. Every other ingest test in this file uses a single-day document, which
+    never actually exercised that filter (a doc with only one day trivially passes it)."""
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+
+    two_day_doc = _balancing_doc(
+        [{"business_type": "A96", "direction": "A01", "amounts": [100.0 + i for i in range(48)],
+          "tag": "activation_Price.amount", "res": "PT60M"}],
+        start="2026-06-01T00:00Z", end="2026-06-03T00:00Z",
+    )
+
+    async def fake_fetch(document_type, cache_source, eic, month_start, *, overwrite=False):
+        return [two_day_doc] if document_type == "A84" else [""]
+
+    monkeypatch.setattr(bal, "_fetch_balancing_month", fake_fetch)
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+
+    series = read_hourly(db_session, "balancing.afrr.price.up", "FR")
+    assert len(series) == 24  # only 2026-06-01's 24 hours...
+    assert r["written"] == 24
+    from datetime import datetime as _dt_
+    from datetime import timezone as _tz_
+    assert all(
+        _dt_.fromtimestamp(t, tz=_tz_.utc).strftime("%Y-%m-%d") == "2026-06-01" for t, _ in series
+    )  # ...never 2026-06-02, even though the fetched document covers both days
+
+
 # ─── GET /api/power/balancing ───────────────────────────────────────────────────
 
 
@@ -494,9 +616,32 @@ def test_route_happy_path(db_session):
     assert len(body["up"]) >= 24
     assert len(body["down"]) >= 24
     assert body["latest"] is not None
+    assert body["latest"]["direction"] in ("up", "down")
     assert body["peak"] is not None
+    assert body["peak"]["direction"] in ("up", "down")
     assert body["as_of"] is not None
     assert "stale" in body and "age_days" in body
+
+
+def test_route_latest_and_peak_report_correct_direction(db_session):
+    """`direction` must reflect whichever row actually won — not just always 'up' — so a
+    consumer knows which half of the market a latest/peak number came from."""
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+
+    now = (int(_time.time()) // 3600) * 3600
+    upsert_hourly(db_session, "balancing.afrr.price.up", "DE_LU",
+                  [(now - 7200, 10.0), (now - 3600, 11.0)], unit="EUR/MWh")
+    upsert_hourly(db_session, "balancing.afrr.price.down", "DE_LU",
+                  [(now - 3600, -12.0), (now, -500.0)], unit="EUR/MWh")
+
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU&product=afrr").json()
+    assert body["available"] is True
+    assert body["latest"]["direction"] == "down"
+    assert body["latest"]["price"] == -500.0
+    assert body["peak"]["direction"] == "down"
+    assert body["peak"]["price"] == -500.0
 
 
 def test_route_de_lu_carries_tennet_coverage_caveat(db_session):

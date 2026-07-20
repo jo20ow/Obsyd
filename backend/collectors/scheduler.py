@@ -173,6 +173,9 @@ async def _run_power_daily():
             try:
                 from backend.power.entsoe_balancing import ingest_balancing
 
+                # Full overwrite on BOTH doctypes (unlike the hourly job, which passes
+                # overwrite_volumes=False) — this once-a-day pass is the deliberate REVERIFY
+                # probe for whether A83's structural rejection has ever come back.
                 result = await ingest_balancing(db, days, zone=zone_key, overwrite=True)
                 logger.info("power daily balancing ingest [%s]: %s", zone_key, result)
             except Exception as exc:
@@ -398,7 +401,15 @@ async def _run_balancing():
     enabled zones — today's window, like the intraday grid/flows jobs: aFRR/mFRR activation
     is a same-day, near-real-time signal (see backend/power/entsoe_balancing.py's module
     docstring for the live-spike coverage caveats: DE_LU is TenneT-only, A83 volumes are not
-    currently served by the public API at all)."""
+    currently served by the public API at all).
+
+    `overwrite_volumes=False`: A83's structural rejection is stable and gets cached on the
+    first call (see entsoe_balancing.py's module docstring), so this hourly job would
+    otherwise re-issue that known-futile request for all 37 zones × 24 times a day — ~888
+    guaranteed 400s against ENTSO-E for nothing. Prices (`overwrite=True`) still refresh every
+    run. The nightly `_run_power_daily` pass keeps full overwrite for both, which is the
+    deliberate once-a-day "has A83 come back?" probe.
+    """
     from backend.power.entsoe_balancing import ingest_balancing
     from backend.power.zones import POWER_ZONES
 
@@ -407,7 +418,9 @@ async def _run_balancing():
         days = _intraday_days()
         for zone_key in POWER_ZONES:
             try:
-                result = await ingest_balancing(db, days, zone=zone_key, overwrite=True)
+                result = await ingest_balancing(
+                    db, days, zone=zone_key, overwrite=True, overwrite_volumes=False
+                )
                 logger.info("balancing hourly ingest [%s]: %s", zone_key, result)
             except Exception as exc:
                 logger.error("balancing hourly ingest [%s] failed: %s", zone_key, exc)

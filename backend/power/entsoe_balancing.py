@@ -35,7 +35,15 @@ and a full-month window) — trust this over the pre-spike assumptions in the ta
     REVERIFY AT DEPLOY — if ENTSO-E ever restores A83 or a different access tier unlocks it,
     `parse_balancing_volumes` is ready: same Point-walk as prices, reading `quantity` (the
     element name every other MW-quantity ENTSO-E document in this repo uses — A75, A09, A25 —
-    but UNVERIFIED against an actual A83 payload, since none was ever returned).
+    but UNVERIFIED against an actual A83 payload, since none was ever returned). ONE THING TO
+    RE-CHECK FIRST: `_walk_points` accumulates every Point from every TimeSeries matching a
+    given (product, direction) into one list per hour, and `parse_balancing_volumes` SUMS
+    that list. That is correct for genuinely-disjoint quarter-hours, but if a real A83
+    document ever has OVERLAPPING TimeSeries for the same (product, direction, hour) — e.g. a
+    revision superseding an earlier one, the way A85/A09 do — those values would be SUMMED
+    together (double-counted energy), not replaced or averaged. Prices average, so the same
+    overlap there is harmless; volumes are not — verify real A83 documents don't overlap like
+    that before trusting a sum.
 
   * DE_LU HAS NO COUNTRY- OR BIDDING-ZONE-LEVEL BALANCING DATA. Unlike A85's reBAP (nationally
     uniform, published once), aFRR/mFRR activation is published PER TSO CONTROL AREA. Both the
@@ -235,10 +243,12 @@ async def _fetch_balancing_month(
     single-doc ZIP, so every `.xml` member is decoded and returned rather than just the first.
     A plain-XML response (the observed common case) comes back as a one-element list.
 
-    Only a 400 whose body contains ENTSO-E's "No matching data found" or "is not valid"
-    wording (see module docstring) is a clean "no data" — cached and returned as `[""]`,
-    matching entsoe_exchange.py's A09/A25 fetchers. Every OTHER error response (401, 429, 5xx,
-    or a 400 with neither phrase) calls `resp.raise_for_status()` and propagates as
+    Only a 400 whose body contains ENTSO-E's "No matching data found", "not allowed to be
+    fetched via this service", or "combination of" wording (the distinctive tail of its two
+    "nothing here" messages — see module docstring) is a clean "no data" — cached and
+    returned as `[""]`, matching entsoe_exchange.py's A09/A25 fetchers. Every OTHER error
+    response (401, 429, 5xx, or a 400 matching none of those phrases — e.g. an ordinary
+    parameter-validation error) calls `resp.raise_for_status()` and propagates as
     `httpx.HTTPError` — deliberately NOT cached, so a token outage or rate limit gets retried
     next run instead of permanently freezing that zone-month as false emptiness.
 
@@ -262,16 +272,22 @@ async def _fetch_balancing_month(
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.get(ENTSOE_BASE, params=params)
             if resp.status_code == 400 and (
-                b"No matching data found" in resp.content or b"is not valid" in resp.content
+                b"No matching data found" in resp.content
+                or b"not allowed to be fetched via this service" in resp.content
+                or b"combination of" in resp.content
             ):
                 # ENTSO-E's two "there is genuinely nothing here" wordings (see module
-                # docstring): A84's clean empty-window Acknowledgement, and A83's structural
-                # "combination... is not valid" rejection. ONLY this specific 400 shape is
-                # cacheable "no data" (matches entsoe_exchange.py's A09/A25 fetchers) —
-                # anything else must raise below. Caching every >=400 blindly would also
-                # cache a 401 from a rotated/expired token (CLAUDE.md flags rotation as
-                # pending) or a transient 429/5xx into the write-once raw_cache, permanently
-                # poisoning that zone-month for the life of the cache.
+                # docstring): A84's clean empty-window Acknowledgement ("No matching data
+                # found"), and A83's structural rejection ("The combination of [...] is not
+                # valid, or the requested data is not allowed to be fetched via this
+                # service."). Matched on the DISTINCTIVE tail of that sentence, not the bare
+                # "is not valid" fragment — that phrase alone is generic enough to appear in
+                # an ordinary parameter-validation error, which must NOT be cached as no-data.
+                # ONLY this specific 400 shape is cacheable (matches entsoe_exchange.py's
+                # A09/A25 fetchers) — anything else must raise below. Caching every >=400
+                # blindly would also cache a 401 from a rotated/expired token (CLAUDE.md flags
+                # rotation as pending) or a transient 429/5xx into the write-once raw_cache,
+                # permanently poisoning that zone-month for the life of the cache.
                 return {"xml": [""]}
             resp.raise_for_status()
             body = resp.content
@@ -296,7 +312,19 @@ def _merge_wanted(
     wanted: set[str],
 ) -> None:
     """Fold a parsed month's {(product, direction): {day: {hour: value}}} into the running
-    accumulator, keeping only days the caller actually asked for."""
+    accumulator, keeping only days the caller actually asked for.
+
+    WHY last-wins across documents: `ingest_balancing` calls this once per inner .xml member
+    of a fetch (plain-XML responses are a one-element list; see `_fetch_balancing_month`'s
+    ZIP-merge). `bucket.setdefault(day, {}).update(hours)` means if the SAME (product,
+    direction, day, hour) is present in TWO different documents, the later document's value
+    silently overwrites the earlier one — no averaging or summing across documents. That is
+    deliberate for the shape observed in the 2026-07-20 spike (a single plain-XML document per
+    zone-month, never multiple ZIP members), where there is nothing to merge. If ENTSO-E ever
+    starts batching several TSOs' documents into one ZIPped response for the SAME zone, this
+    would need real aggregation (sum for volumes, a defined tie-break for prices) instead of
+    last-wins — reassess before trusting it in that scenario.
+    """
     for key, day_hours in parsed.items():
         bucket = acc.setdefault(key, {})
         for day, hours in day_hours.items():
@@ -305,7 +333,12 @@ def _merge_wanted(
 
 
 async def ingest_balancing(
-    db: Session, days: list[str], *, zone: str = "DE_LU", overwrite: bool = False
+    db: Session,
+    days: list[str],
+    *,
+    zone: str = "DE_LU",
+    overwrite: bool = False,
+    overwrite_volumes: bool | None = None,
 ) -> dict:
     """Fetch + upsert activated-balancing-energy prices (A84) and volumes (A83) for `zone`
     over the month(s) spanning `days`, writing up to 8 canonical series:
@@ -315,6 +348,18 @@ async def ingest_balancing(
     rejection in one (see module docstring re: A83) must never block the other, matching the
     per-step isolation the rest of the daily power ingest uses (backend/collectors/scheduler.py
     ::_run_power_daily).
+
+    `overwrite_volumes` lets the A83 fetch use a DIFFERENT overwrite than the A84 fetch;
+    `None` (the default) means "same as `overwrite`", preserving the original one-flag
+    behaviour for every existing caller. This exists for the hourly job: A83's structural
+    rejection (see module docstring — it fails for every zone/param combination tried) is
+    stable and cheap to cache, but re-running with `overwrite=True` for BOTH doctypes every
+    hour would re-issue that known-futile A83 request for all 37 zones × 24 times a day —
+    ~888 guaranteed 400s against ENTSO-E for nothing. Passing `overwrite_volumes=False` lets
+    the cached `[""]` short-circuit with zero network once it exists, while prices (which
+    DO change hour to hour) keep refreshing via `overwrite=True`. The once-a-day full-overwrite
+    pass (both flags True) is deliberately kept as the "REVERIFY" probe for whether A83 has
+    come back.
     """
     if not settings.entsoe_api_token:
         return {"skipped": "no token"}
@@ -326,6 +371,7 @@ async def ingest_balancing(
 
     wanted = set(days)
     months = sorted({datetime.strptime(d, "%Y-%m-%d").date().replace(day=1) for d in days})
+    vol_overwrite = overwrite if overwrite_volumes is None else overwrite_volumes
 
     price_acc: dict[tuple[str, str], dict[str, dict[int, float]]] = {}
     vol_acc: dict[tuple[str, str], dict[str, dict[int, float]]] = {}
@@ -344,7 +390,7 @@ async def ingest_balancing(
 
         try:
             vol_docs = await _fetch_balancing_month(
-                VOLUME_DOCTYPE, VOLUME_CACHE_SOURCE, ca_eic, month_start, overwrite=overwrite
+                VOLUME_DOCTYPE, VOLUME_CACHE_SOURCE, ca_eic, month_start, overwrite=vol_overwrite
             )
         except httpx.HTTPError as exc:
             logger.warning("balancing volumes [%s %s] fetch failed: %s", zone, month_start, exc)
