@@ -138,6 +138,34 @@ function scrollToSection(id) {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+// /builder — the Chart-Builder as its own route: a slim shell (wordmark +
+// range picker, no sidebar/tabs/ticker) around the same SeriesExplorer the
+// EXPLORE tab renders, full-width. It needs its own ViewStateProvider (the
+// zone/range spine SeriesExplorer reads via useViewState()) since this route
+// never mounts the Dashboard tree that normally supplies one. No auth gate —
+// like /impressum, it's public.
+function BuilderShell() {
+  return (
+    <ViewStateProvider>
+      <div className="min-h-screen bg-surface">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
+          <a href="/" className="font-mono text-sm font-bold tracking-widest text-cyan-glow">OBSYD</a>
+          <span className="font-mono text-[10px] text-neutral-600 tracking-wider">CHART BUILDER</span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-neutral-600 tracking-wider hidden sm:inline">RANGE</span>
+            <RangeSelector />
+          </div>
+        </div>
+        <main className="w-full px-3 py-4">
+          <ErrorBoundary name="chart-builder">
+            <SeriesExplorer />
+          </ErrorBoundary>
+        </main>
+      </div>
+    </ViewStateProvider>
+  )
+}
+
 /**
  * Top-level router. Anonymous visitors hitting `/` see the marketing
  * Landing; signed-in users, the dashboard. Any `/app` path always
@@ -152,6 +180,9 @@ function App() {
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
   if (pathname === '/impressum' || pathname === '/datenschutz') {
     return <LegalPage page={pathname.slice(1)} />
+  }
+  if (pathname === '/builder') {
+    return <BuilderShell />
   }
   const wantsApp = pathname.startsWith('/app') || pathname.startsWith('/dashboard')
 
