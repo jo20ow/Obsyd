@@ -7,10 +7,15 @@ Explorer, not for a planned Chart-Builder that needs the same answer without
 duplicating the mapping in JS. Migrated here so both can read it (the v1 catalog
 endpoint serves it; the frontend switch-over is a follow-on, not this change).
 
-Pure: no DB access, no imports of anything that touches a session. `series_label`
-and `series_group` must be safe to call on any string, known or not.
+No DB access at call time — `series_label`/`series_group`/`catalog_groups` are safe
+to call on any string with no session in scope. That is not the same as import-side
+purity: importing PSR_LABELS from entsoe_grid transitively pulls in httpx/SQLAlchemy/
+settings/raw_cache at IMPORT time (entsoe_grid is a collector module, not a leaf
+constants file). Nothing in this module opens a session or issues a query.
 """
 from __future__ import annotations
+
+from collections.abc import Iterable
 
 from backend.power.entsoe_grid import PSR_LABELS
 from backend.power.zones import ZONE_REGISTRY
@@ -93,3 +98,16 @@ def series_group(key: str) -> str:
     'flow'), which is how every series in the store is namespaced. A key with
     no dot is its own group; this never raises."""
     return key.split(".", 1)[0]
+
+
+def catalog_groups(keys: Iterable[str]) -> list[dict]:
+    """[{key, label}] for exactly the groups present among `keys`, in GROUP_ORDER
+    order — the data a client needs to render grouped pickers (e.g. the
+    Explorer's <optgroup> list) without hardcoding its own copy of GROUP_ORDER/
+    GROUP_LABELS. A group not in GROUP_ORDER (a new series prefix nobody has
+    labelled yet) is appended afterward, sorted by its own key, so the response
+    is deterministic even for an unlabelled group."""
+    present = {series_group(k) for k in keys}
+    ordered = [g for g in GROUP_ORDER if g in present]
+    extra = sorted(present - set(GROUP_ORDER))
+    return [{"key": g, "label": GROUP_LABELS.get(g, g)} for g in ordered + extra]

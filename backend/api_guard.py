@@ -69,12 +69,12 @@ def cached_value(key: str, compute: Callable[[], object], *, ttl: float = _COVER
     """
     t = time.monotonic() if now is None else now
     slot = _cache.get(key)
-    if slot is not None and slot["value"] is not None and t < slot["expires"]:
+    if slot is not None and t < slot["expires"]:
         return slot["value"]
     with _cache_lock:
         # Re-check inside the lock: another thread may have filled it while we waited.
         slot = _cache.get(key)
-        if slot is not None and slot["value"] is not None and t < slot["expires"]:
+        if slot is not None and t < slot["expires"]:
             return slot["value"]
         value = compute()
         _cache[key] = {"value": value, "expires": t + ttl}

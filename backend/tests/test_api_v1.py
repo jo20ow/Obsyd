@@ -479,3 +479,35 @@ def test_catalog_coverage_by_series_is_cached_across_calls(db_session, monkeypat
     c.get("/api/v1/series/catalog")
     c.get("/api/v1/series/catalog")
     assert calls["n"] == 1, "per-series coverage scan ran more than once despite the cache"
+
+
+def test_catalog_coverage_by_series_is_sorted(db_session):
+    # Insert in an order that is NOT already alphabetical, so a passing test
+    # actually exercises the sort rather than an accidental insertion order.
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(_BASE, 1.0)], unit="EUR/MWh")
+    upsert_hourly(db_session, "load.actual", "FR", [(_BASE, 1.0)], unit="MW")
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    pairs = [(c["series"], c["zone"]) for c in body["coverage_by_series"]]
+    assert pairs == sorted(pairs)
+    assert pairs == [("load.actual", "FR"), ("price.dayahead", "DE_LU")]
+
+
+def test_catalog_groups_field_lists_present_groups_in_order(db_session):
+    # gen.* seeded before price.* — GROUP_ORDER still puts price first.
+    upsert_hourly(db_session, "gen.B16", "DE_LU", [(_BASE, 1.0)], unit="MW")
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(_BASE, 1.0)], unit="EUR/MWh")
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    keys = [g["key"] for g in body["groups"]]
+    assert keys == ["price", "gen"]
+    by_key = {g["key"]: g for g in body["groups"]}
+    assert by_key["price"]["label"] == "Prices"
+    assert by_key["gen"]["label"] == "Generation mix (per fuel)"
+
+
+def test_catalog_groups_field_appends_unknown_group_sorted_by_key(db_session):
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(_BASE, 1.0)], unit="EUR/MWh")
+    upsert_hourly(db_session, "zzz.mystery", "DE_LU", [(_BASE, 1.0)], unit=None)
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    keys = [g["key"] for g in body["groups"]]
+    assert keys == ["price", "zzz"]
+    assert next(g for g in body["groups"] if g["key"] == "zzz")["label"] == "zzz"

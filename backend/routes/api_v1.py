@@ -20,7 +20,7 @@ from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
 from backend.models.energy import InstalledCapacity, PowerGenMix, PowerHourly, SeriesDim, ZoneDim
 from backend.power.hourly_store import RowCapExceeded, read_hourly
-from backend.power.series_catalog import series_group, series_label
+from backend.power.series_catalog import catalog_groups, series_group, series_label
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
@@ -370,45 +370,68 @@ def _coverage_window(db: Session) -> dict:
 
 
 def _coverage_by_series(db: Session) -> list[dict]:
-    """Per-(series,zone) coverage: one MIN/MAX(ts_utc) point lookup for every pair
-    that has rows, not one GROUP BY over the whole table.
+    """Per-(series,zone) coverage: two single-aggregate point lookups (one
+    `MIN(ts_utc)`, one `MAX(ts_utc)`) for every pair that has rows, not one
+    GROUP BY over the whole table.
 
     power_hourly's PK is (series_id, zone_id, ts_utc) WITHOUT ROWID — the table's
-    clustering key — so a query that pins (series_id, zone_id) and aggregates
-    ts_utc is a seek to that pair's first/last leaf (SQLite's min/max-over-index
-    optimization), not a scan. A GROUP BY series_id, zone_id would instead walk
-    every one of the multi-million rows once. There are only series-count ×
-    zone-count pairs (low hundreds), so the N cheap seeks beat the one full scan.
-    Pairs with no rows are skipped. Cached (see catalog()) since the ingest only
-    moves this hourly.
+    clustering key — so filtering on (series_id, zone_id) and asking for a SINGLE
+    min/max aggregate is a seek straight to that pair's first/last leaf (SQLite's
+    min/max-over-index optimization). That optimization only fires when the query
+    has exactly one min/max aggregate: a combined `SELECT MIN(ts_utc), MAX(ts_utc)
+    WHERE ...` does NOT qualify, and falls back to scanning every matching row in
+    the pair's slice of the index — cheaper than a scan of the whole multi-million
+    row table, but still O(rows in that pair), not O(1). `EXPLAIN QUERY PLAN`
+    prints the identical "SEARCH power_hourly USING PRIMARY KEY" line for both
+    forms, so this can only be told apart by timing, not by reading the plan —
+    verified empirically (10k vs 100k rows in one pair, ~constant time either way).
+    Splitting into two separate single-aggregate queries per pair is what actually
+    buys the seek. There are only series-count × zone-count pairs (low hundreds),
+    so the 2N cheap seeks beat the one full scan _coverage_window does.
+
+    Pairs with no rows are skipped. Output is sorted by (series, zone) for a
+    deterministic response. Cached (see catalog()) since the ingest only moves
+    this hourly.
     """
     series_rows = db.query(SeriesDim.id, SeriesDim.key).all()
     zone_rows = db.query(ZoneDim.id, ZoneDim.key).all()
     out: list[dict] = []
     for sid, skey in series_rows:
         for zid, zkey in zone_rows:
-            lo, hi = (
-                db.query(func.min(PowerHourly.ts_utc), func.max(PowerHourly.ts_utc))
+            lo = (
+                db.query(func.min(PowerHourly.ts_utc))
                 .filter(PowerHourly.series_id == sid, PowerHourly.zone_id == zid)
-                .first()
+                .scalar()
             )
             if lo is None:
                 continue
+            hi = (
+                db.query(func.max(PowerHourly.ts_utc))
+                .filter(PowerHourly.series_id == sid, PowerHourly.zone_id == zid)
+                .scalar()
+            )
             out.append({
                 "series": skey,
                 "zone": zkey,
                 "from": datetime.fromtimestamp(lo, UTC).isoformat(),
                 "to": datetime.fromtimestamp(hi, UTC).isoformat(),
             })
+    out.sort(key=lambda r: (r["series"], r["zone"]))
     return out
 
 
 @router.get("/series/catalog")
 def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g: None = Depends(heavy_query_guard)):
-    """What's queryable: every series (key+unit+label+group), enabled zones, the
-    overall hourly coverage window, and per-(series,zone) coverage — so a
-    Chart-Builder can grey out a zone with no data for the selected series
-    instead of letting the pick 404 downstream."""
+    """What's queryable: every series (key+unit+label+group), its groups
+    (key+label, in display order), enabled zones, the overall hourly coverage
+    window, and per-(series,zone) coverage — so a Chart-Builder can grey out a
+    zone with no data for the selected series instead of letting the pick 404
+    downstream.
+
+    `coverage_by_series` is cached for an hour (see cached_value below), same as
+    `coverage`: it can lag `series` by up to that TTL, so a pair's absence there
+    means "not yet reflected", not "definitely no data".
+    """
     series = [
         {"key": k, "unit": u, "label": series_label(k), "group": series_group(k)}
         for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()
@@ -416,6 +439,7 @@ def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g:
     return {
         "available": bool(series),
         "series": series,
+        "groups": catalog_groups(s["key"] for s in series),
         "zones": [{"key": k, "label": v["label"]} for k, v in POWER_ZONES.items()],
         "coverage": cached_coverage(lambda: _coverage_window(db)),
         "coverage_by_series": cached_value("coverage_by_series", lambda: _coverage_by_series(db)),
