@@ -120,7 +120,7 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                 value={loadPct != null ? `${loadPct >= 0 ? '+' : ''}${loadPct.toFixed(1)}%` : '—'}
               />
               <StatTile label="Generation now" value={genGw != null ? `${genGw} GW` : '—'} />
-              <StatTile label="Day-ahead price now" value={priceNow != null ? `€${priceNow.toFixed(1)}` : 'n/a'} />
+              <StatTile label="Day-ahead price now" value={priceNow != null ? `€${priceNow.toFixed(1)}/MWh` : 'n/a'} />
             </div>
             <PanelTakeaway className="mt-2">
               {showingToday
@@ -232,7 +232,7 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                       x={nowHour}
                       stroke="#22d3ee"
                       strokeDasharray="3 3"
-                      label={{ value: 'now', position: 'top', fill: '#22d3ee', fontSize: 9 }}
+                      label={{ value: 'now', position: 'insideTop', fill: '#22d3ee', fontSize: 9 }}
                     />
                   )}
                   <Tooltip
