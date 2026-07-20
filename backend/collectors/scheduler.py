@@ -170,6 +170,14 @@ async def _run_power_daily():
             except Exception as exc:
                 logger.error("power daily ingest_imbalance [%s] failed: %s", zone_key, exc)
 
+            try:
+                from backend.power.entsoe_balancing import ingest_balancing
+
+                result = await ingest_balancing(db, days, zone=zone_key, overwrite=True)
+                logger.info("power daily balancing ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_balancing [%s] failed: %s", zone_key, exc)
+
         # Cross-border physical flows (Energy-Charts CBPF, CC BY 4.0).
         try:
             from backend.power.energy_charts_flows import ingest_cbpf
@@ -385,6 +393,30 @@ async def _run_outage_snapshot():
         db.close()
 
 
+async def _run_balancing():
+    """Hourly activated-balancing-energy refresh (ENTSO-E A83 volumes / A84 prices) for all
+    enabled zones — today's window, like the intraday grid/flows jobs: aFRR/mFRR activation
+    is a same-day, near-real-time signal (see backend/power/entsoe_balancing.py's module
+    docstring for the live-spike coverage caveats: DE_LU is TenneT-only, A83 volumes are not
+    currently served by the public API at all)."""
+    from backend.power.entsoe_balancing import ingest_balancing
+    from backend.power.zones import POWER_ZONES
+
+    db = SessionLocal()
+    try:
+        days = _intraday_days()
+        for zone_key in POWER_ZONES:
+            try:
+                result = await ingest_balancing(db, days, zone=zone_key, overwrite=True)
+                logger.info("balancing hourly ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("balancing hourly ingest [%s] failed: %s", zone_key, exc)
+    except Exception as exc:
+        logger.error("_run_balancing outer failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_hydro_weekly():
     """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
     Current year with overwrite=True — the raw cache is write-once and would
@@ -437,6 +469,8 @@ def start_scheduler():
     # over, so the only history that will ever exist is the one we write ourselves —
     # at :45, after the 6h ingest has landed. Local read + upsert, no network.
     scheduler.add_job(_run_outage_snapshot, CronTrigger(minute=45), id="outage_snapshot_hourly", **JOB_DEFAULTS)
+    # Activated balancing energy (aFRR/mFRR, A83/A84): hourly, same-day activation signal.
+    scheduler.add_job(_run_balancing, CronTrigger(minute=20), id="balancing_hourly", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical

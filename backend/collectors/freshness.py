@@ -119,6 +119,13 @@ SPECS += [
     # a day of history destroyed, not a late delivery to catch up on.
     FreshnessSpec("outage_snapshot", PowerPriceDaily, "", timedelta(days=1),
                   hourly_series="outage.offline"),
+    # Activated balancing energy (aFRR/mFRR, A83 volumes/A84 prices — backend/power/
+    # entsoe_balancing.py). aFRR price is the probe: every enabled zone that has any
+    # balancing coverage at all has aFRR (mFRR is sparser). 2 days respects the pinned
+    # invariant that outage_snapshot (1 day, above) stays the tightest hourly spec on the
+    # desk (see test_outage_history.py).
+    FreshnessSpec("balancing_energy", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="balancing.afrr.price.up"),
 ]
 
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled

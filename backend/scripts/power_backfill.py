@@ -24,6 +24,7 @@ from datetime import date, datetime, timedelta
 from backend.database import SessionLocal
 from backend.observability import install_log_redaction
 from backend.power.energy_charts_flows import ingest_cbpf
+from backend.power.entsoe_balancing import ingest_balancing
 from backend.power.entsoe_grid import ingest_grid, ingest_load_forecast
 from backend.power.entsoe_imbalance import ingest_imbalance
 from backend.power.entsoe_prices import ingest_day_ahead
@@ -35,7 +36,7 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "flows", "scheduled", "netpos")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -106,7 +107,7 @@ async def run_backfill(
     done = 0
     # A flows-only run must not walk the zone×month loop — it would do nothing
     # but sleep through the throttle (37 zones × months × 1 s on prod).
-    zone_sources = sources & {"price", "grid", "forecast", "imbalance"}
+    zone_sources = sources & {"price", "grid", "forecast", "imbalance", "balancing"}
     for zone in zones if zone_sources else []:
         cfg = POWER_ZONES[zone]
         eic = cfg["eic"]
@@ -127,6 +128,8 @@ async def run_backfill(
                 await _with_retry(lambda d=days: ingest_load_forecast(db, d, eic=eic, zone=zone, overwrite=overwrite), f"forecast {tag}")
             if "imbalance" in sources:
                 await _with_retry(lambda d=days: ingest_imbalance(db, d, zone=zone, overwrite=overwrite), f"imbalance {tag}")
+            if "balancing" in sources:
+                await _with_retry(lambda d=days: ingest_balancing(db, d, zone=zone, overwrite=overwrite), f"balancing {tag}")
             done += 1
             logger.info("power_backfill: %s done (%d/%d)", tag, done, plan)
             if throttle:

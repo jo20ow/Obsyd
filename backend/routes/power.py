@@ -741,6 +741,7 @@ PANEL_MAX_AGE_DAYS = {
     "imbalance": 4,     # mirrors SPECS "imbalance_qh" — reBAP settles late
     "spark": 4,  # gas leg is yfinance TTF — ~3 trading days plus weekends
     "load_forecast": 2,
+    "balancing": 2,  # mirrors SPECS "balancing_energy"
 }
 
 #: /api/power/live's own freshness threshold — day granularity like every
@@ -1734,6 +1735,96 @@ def get_imbalance(
             for t, v in points
         ],
         **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["imbalance"]),
+    }
+
+
+# ─── Activated balancing energy (free) ────────────────────────────────────────
+
+
+@router.get("/balancing")
+def get_balancing(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    days: int = Query(30, ge=1, le=90),
+    product: str = Query("afrr", pattern="^(afrr|mfrr)$"),
+    db: Session = Depends(get_db),
+):
+    """Activated balancing energy (ENTSO-E A84 prices EUR/MWh + A83 volumes MWh) for aFRR or
+    mFRR, split by direction — what the TSO actually called on beyond the day-ahead price, in
+    real time. Free tier, descriptive (Posture B: context, not a forecast).
+
+    Coverage varies by zone/product — see backend/power/entsoe_balancing.py's module
+    docstring for the live-spiked specifics: DE_LU is TenneT's control area only (one of four
+    German TSOs, not the national total), and activation VOLUMES (A83) are not currently
+    served by the public API at all for any zone (prices still populate).
+    """
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+
+    def _direction_rows(direction: str) -> list[tuple[int, float | None, float | None]]:
+        prices = dict(read_hourly(db, f"balancing.{product}.price.{direction}", resolved_zone, start_ts=start_ts))
+        vols = dict(read_hourly(db, f"balancing.{product}.vol.{direction}", resolved_zone, start_ts=start_ts))
+        return [(t, prices.get(t), vols.get(t)) for t in sorted(set(prices) | set(vols))]
+
+    up_rows = _direction_rows("up")
+    down_rows = _direction_rows("down")
+    if not up_rows and not down_rows:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zone_label": POWER_ZONES[resolved_zone]["label"],
+            "zones": _ZONE_KEYS,
+            "product": product,
+            "reason": (
+                f"No {product} activated-balancing-energy series for "
+                f"{POWER_ZONES[resolved_zone]['label']} — A83/A84 coverage varies by zone "
+                "(and activation volumes aren't currently served by the public API at all; "
+                "see backend/power/entsoe_balancing.py)."
+            ),
+        }
+
+    def _fmt(rows: list[tuple[int, float | None, float | None]]) -> list[dict]:
+        return [
+            {
+                "t": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(),
+                "price": round(p, 2) if p is not None else None,
+                "vol": round(v, 2) if v is not None else None,
+            }
+            for t, p, v in rows
+        ]
+
+    all_rows = up_rows + down_rows
+    priced_rows = [(t, p) for t, p, _ in all_rows if p is not None]
+    latest_t, latest_p, latest_v = max(all_rows, key=lambda r: r[0])
+    peak_row = max(priced_rows, key=lambda r: abs(r[1])) if priced_rows else None
+    as_of = _dt.fromtimestamp(max(r[0] for r in all_rows), tz=timezone.utc).strftime("%Y-%m-%d")
+
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zone_label": POWER_ZONES[resolved_zone]["label"],
+        "zones": _ZONE_KEYS,
+        "product": product,
+        "unit": "EUR/MWh",
+        "days": days,
+        "up": _fmt(up_rows),
+        "down": _fmt(down_rows),
+        "latest": {
+            "t": _dt.fromtimestamp(latest_t, tz=timezone.utc).isoformat(),
+            "price": round(latest_p, 2) if latest_p is not None else None,
+            "vol": round(latest_v, 2) if latest_v is not None else None,
+        },
+        "peak": (
+            {"t": _dt.fromtimestamp(peak_row[0], tz=timezone.utc).isoformat(), "price": round(peak_row[1], 2)}
+            if peak_row is not None else None
+        ),
+        "note": (
+            "Activated balancing energy — what the TSO actually called on to keep the grid "
+            "balanced, beyond the day-ahead auction. Descriptive context, not a forecast "
+            "(Posture B)."
+        ),
+        **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["balancing"]),
     }
 
 
