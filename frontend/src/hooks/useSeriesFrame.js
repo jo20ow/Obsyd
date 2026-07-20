@@ -82,7 +82,7 @@ export default function useSeriesFrame(rows, range, resolution = 'daily') {
   // deps, perRow[i].loading/error froze at whatever they were on the render
   // that last touched `data`, so a failed row stayed {loading:true,
   // error:null} forever instead of surfacing the failure.
-  const respSig = responses.map((r, i) => `${i}:${r.loading}:${!!r.error}`).join('|')
+  const respSig = responses.map((r) => `${r.loading}:${!!r.error}`).join('|')
 
   const { frame, perRow } = useMemo(() => {
     const n = activeRows.length

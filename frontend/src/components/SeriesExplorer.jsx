@@ -79,6 +79,18 @@ function serializeRows(rows) {
   return rows.map((r) => `${r.series}:${r.zone}`).join(',')
 }
 
+// The `rows=`/`res=` pair for the canonical URL, omitting each when it's the
+// default (a lone default-series row / daily resolution) — shared by the
+// history.replaceState sync effect and the /builder "open full-screen" link,
+// so the two can never disagree on what counts as "default enough to omit".
+function rowsQueryParams(rows, resolution, primarySeries) {
+  const p = new URLSearchParams()
+  const isDefaultSingleRow = rows.length === 1 && primarySeries === DEFAULT_SERIES
+  if (!isDefaultSingleRow) p.set('rows', serializeRows(rows))
+  if (resolution !== DEFAULT_RESOLUTION) p.set('res', resolution)
+  return p
+}
+
 function rowLabel(row, seriesList, zoneList) {
   if (!row) return ''
   const s = seriesList.find((x) => x.key === row.series)
@@ -93,6 +105,7 @@ function rowLabel(row, seriesList, zoneList) {
 function SeriesPicker({ value, onChange, seriesList, groups }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [sel, setSel] = useState(0)  // index into the FLATTENED filtered list
   const ref = useRef(null)
 
   useEffect(() => {
@@ -116,8 +129,21 @@ function SeriesPicker({ value, onChange, seriesList, groups }) {
       })
       .filter((g) => g.items.length > 0)
   }, [groups, query])
+  // Flattened for arrow-key navigation/highlighting — same idiom as
+  // CommandPalette's `results`/`sel` (a group boundary is just a render
+  // detail, the selection index doesn't know about groups).
+  const flatItems = useMemo(() => filteredGroups.flatMap((g) => g.items), [filteredGroups])
+  const indexByKey = useMemo(() => new Map(flatItems.map((s, i) => [s.key, i])), [flatItems])
+  const safeSel = Math.min(sel, Math.max(flatItems.length - 1, 0))
 
-  const pick = (key) => { onChange(key); setOpen(false); setQuery('') }
+  const pick = (key) => { onChange(key); setOpen(false); setQuery(''); setSel(0) }
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false) }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, flatItems.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (flatItems[safeSel]) pick(flatItems[safeSel].key) }
+  }
 
   return (
     <div className="relative" ref={ref}>
@@ -134,15 +160,8 @@ function SeriesPicker({ value, onChange, seriesList, groups }) {
           <input
             autoFocus
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') { e.preventDefault(); setOpen(false) }
-              else if (e.key === 'Enter') {
-                e.preventDefault()
-                const first = filteredGroups[0]?.items[0]
-                if (first) pick(first.key)
-              }
-            }}
+            onChange={(e) => { setQuery(e.target.value); setSel(0) }}
+            onKeyDown={onKeyDown}
             placeholder="Filter series…"
             className="w-full border-b border-border px-2 py-1.5 font-mono text-[11px] text-neutral-200 placeholder:text-neutral-600 outline-none sticky top-0 bg-surface"
           />
@@ -152,19 +171,23 @@ function SeriesPicker({ value, onChange, seriesList, groups }) {
           {filteredGroups.map((g) => (
             <div key={g.group}>
               <div className="px-2 pt-1.5 pb-0.5 font-mono text-[9px] tracking-wider text-neutral-600">{g.group}</div>
-              {g.items.map((s) => (
-                <button
-                  key={s.key}
-                  type="button"
-                  onClick={() => pick(s.key)}
-                  className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[11px] hover:bg-white/[0.04] ${
-                    s.key === value ? 'bg-cyan-glow/10 text-cyan-glow' : 'text-neutral-300'
-                  }`}
-                >
-                  <span className="truncate">{s.label}</span>
-                  {s.unit && <span className="text-[9px] text-neutral-600 shrink-0">{s.unit}</span>}
-                </button>
-              ))}
+              {g.items.map((s) => {
+                const idx = indexByKey.get(s.key)
+                return (
+                  <button
+                    key={s.key}
+                    type="button"
+                    onClick={() => pick(s.key)}
+                    onMouseEnter={() => setSel(idx)}
+                    className={`w-full flex items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[11px] ${
+                      idx === safeSel ? 'bg-cyan-glow/10 text-cyan-glow' : s.key === value ? 'text-cyan-glow' : 'text-neutral-300 hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    <span className="truncate">{s.label}</span>
+                    {s.unit && <span className="text-[9px] text-neutral-600 shrink-0">{s.unit}</span>}
+                  </button>
+                )
+              })}
             </div>
           ))}
         </div>
@@ -209,7 +232,14 @@ export default function SeriesExplorer() {
 
   const [primarySeries, setPrimarySeries] = useState(initial.primarySeries)
   const [extraRows, setExtraRows] = useState(initial.extra)  // [{id,series,zone}] — rows 1..5
-  const [resolution, setResolution] = useState(() => readParam('res', DEFAULT_RESOLUTION))
+  const [resolution, setResolution] = useState(() => {
+    // A mistyped/stale shared link (e.g. `?res=hour`) must fall back to the
+    // default instead of being sent straight to the API — `resolution` isn't
+    // validated server-side beyond a 422, and the bad value would just get
+    // re-persisted into the URL by the sync effect below.
+    const r = readParam('res', DEFAULT_RESOLUTION)
+    return r === 'hourly' || r === 'daily' ? r : DEFAULT_RESOLUTION
+  })
   const [spread, setSpread] = useState(false)  // Δ (row0 − row1) instead of separate lines
 
   // A `rows=` link may carry an explicit zone for row 0 (the legacy `s=`/`vs=`
@@ -232,16 +262,25 @@ export default function SeriesExplorer() {
   // also erases any leftover legacy `s=`/`vs=` from the link that seeded us.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const isDefaultSingleRow = rows.length === 1 && primarySeries === DEFAULT_SERIES
-    if (isDefaultSingleRow) params.delete('rows')
-    else params.set('rows', serializeRows(rows))
-    if (resolution !== DEFAULT_RESOLUTION) params.set('res', resolution)
-    else params.delete('res')
+    const rq = rowsQueryParams(rows, resolution, primarySeries)
+    if (rq.has('rows')) params.set('rows', rq.get('rows')); else params.delete('rows')
+    if (rq.has('res')) params.set('res', rq.get('res')); else params.delete('res')
     params.delete('s')
     params.delete('vs')
     const qs = params.toString()
     history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
   }, [rows, resolution, primarySeries])
+
+  // /builder discoverability: a link out of the EXPLORE tab (never shown ON
+  // /builder itself, which already IS the full-screen view) carrying the
+  // current chart + the zone/range spine, so the exact view travels.
+  const isBuilderRoute = typeof window !== 'undefined' && window.location.pathname === '/builder'
+  const builderHref = (() => {
+    const p = rowsQueryParams(rows, resolution, primarySeries)
+    p.set('zone', zone)
+    p.set('range', range)
+    return `/builder?${p.toString()}`
+  })()
 
   const { data: catalog } = useFetchWithError(`${API}/v1/series/catalog`)
   const seriesList = catalog?.series || FALLBACK_SERIES
@@ -256,7 +295,11 @@ export default function SeriesExplorer() {
   }, [catalog])
   // coverage_by_series can lag `series` by up to an hour (server-cached) — its
   // absence for a (series,zone) pair means "not yet reflected", never a hard
-  // block. Used only to dim zone options, never to disable them.
+  // block. Used only to dim zone options, never to disable them. A missing/
+  // empty coverage list (catalog not loaded yet, or itself failed) is NOT
+  // evidence of "no data anywhere" — dimming every zone in that case would be
+  // a lie, so dimming is gated on the catalog actually having coverage rows.
+  const hasCoverageData = (catalog?.coverage_by_series?.length ?? 0) > 0
   const coverageSet = useMemo(() => {
     const set = new Set()
     for (const c of catalog?.coverage_by_series || []) set.add(`${c.series}|${c.zone}`)
@@ -265,23 +308,25 @@ export default function SeriesExplorer() {
 
   const { frame, loading, error, perRow } = useSeriesFrame(rows, range, resolution)
 
-  // Dual-axis-by-unit assignment: row 0 defines the left axis; the first row
-  // with a genuinely different unit gets the right axis; a third distinct
-  // unit is rejected (2 axes max) rather than drawn on a meaningless scale.
+  // Dual-axis-by-unit assignment: the left axis anchors to the FIRST row with
+  // a known unit — not strictly row 0 — so a slow-to-load or errored row 0
+  // doesn't collapse every other (already-known, possibly different) unit
+  // onto one axis while it waits; the first genuinely different unit seen
+  // gets the right axis, and a third distinct unit is rejected (2 axes max)
+  // rather than drawn on a meaningless scale.
   const { assigned, rejected, rightUnit } = useMemo(() => {
-    const leftUnit = perRow[0]?.unit ?? null
+    const leftUnit = perRow.find((r) => r.unit != null)?.unit ?? null
     let right = null
     const bad = []
     const out = perRow.map((r, i) => {
       const color = ROW_COLORS[i % ROW_COLORS.length]
-      if (i === 0) return { ...r, axis: 'left', color }
       if (r.unit == null || leftUnit == null || r.unit === leftUnit) return { ...r, axis: 'left', color }
       if (right == null) { right = r.unit; return { ...r, axis: 'right', color } }
       if (r.unit === right) return { ...r, axis: 'right', color }
       bad.push({ ...r, color })
       return { ...r, axis: null, color }
     })
-    return { assigned: out, rejected: bad, leftUnit, rightUnit: right }
+    return { assigned: out, rejected: bad, rightUnit: right }
   }, [perRow])
   const visibleRows = assigned.filter((r) => r.axis)
 
@@ -314,7 +359,18 @@ export default function SeriesExplorer() {
           <span className="font-mono text-xs text-neutral-500 tracking-wider">SERIES EXPLORER · /api/v1</span>
           <InfoPopover text="Query any series for any zone over the canonical hourly store via the public data API (GET /api/v1/series). Add up to 6 series×zone rows; a second unit gets its own right-hand axis, and two same-unit rows can show their Δ spread instead. Download any row as CSV, or share the exact chart — it's all in the URL. Free, official, redistributable data — descriptive, not a forecast." />
         </div>
-        <span className="font-mono text-[9px] text-neutral-700 tracking-wider">{rows.length}/{MAX_SERIES_ROWS} rows</span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[9px] text-neutral-700 tracking-wider">{rows.length}/{MAX_SERIES_ROWS} rows</span>
+          {!isBuilderRoute && (
+            <a
+              href={builderHref}
+              title="Open this chart full-screen at /builder"
+              className="font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+            >
+              open full-screen ↗
+            </a>
+          )}
+        </div>
       </div>
 
       <div className="px-4 py-2.5 border-b border-border/50 space-y-1.5">
@@ -333,7 +389,7 @@ export default function SeriesExplorer() {
               className={`font-mono text-[11px] bg-[#0a0a12] border rounded px-2 py-1 ${i === 0 ? 'border-cyan-500/40 text-cyan-300' : 'border-border text-neutral-300'}`}
             >
               {zoneList.map((z) => {
-                const covered = coverageSet.has(`${row.series}|${z.key}`)
+                const covered = !hasCoverageData || coverageSet.has(`${row.series}|${z.key}`)
                 return (
                   <option key={z.key} value={z.key} style={covered ? undefined : { color: '#525252' }}>
                     {z.label || z.key}{covered ? '' : ' · no data'}

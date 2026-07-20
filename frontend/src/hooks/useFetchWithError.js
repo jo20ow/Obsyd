@@ -5,6 +5,49 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // the background — instead of flashing a skeleton and re-fetching cold.
 const swrCache = new Map() // url -> last successful (transformed) payload
 
+// Module-level in-flight-request map: concurrent callers for the SAME url
+// share ONE physical fetch's raw JSON. Fixed-slot components (ZoneCompareChart's
+// compare zones, useSeriesFrame's 6 series rows) point several sibling hook
+// instances at the identical url in the same render — each used to fire its
+// own GET, multiplying load against the backend's shared heavy_query_guard
+// semaphore (at the limit, one visitor's fixed-slot waste could transiently
+// 503 a different visitor's real request). The entry is removed the instant
+// its fetch settles, so this dedupes only genuinely CONCURRENT callers — a
+// later poll or refetch always starts a fresh request. Skipped entirely when
+// the caller passes custom `headers`, so a request under different
+// credentials never risks sharing another caller's response.
+//
+// The physical fetch is wired to whichever caller happens to be first for a
+// given url (the "leader"); a follower just awaits that same promise. If the
+// leader's own component unmounts first, its AbortController cancels the
+// shared fetch and every follower sees an AbortError too — `run()` below
+// already treats AbortError as a silent no-op (same as the un-deduped path),
+// and a still-mounted follower gets fresh data on its own next natural
+// refetch. This only matters when two DIFFERENT components request the
+// exact same url at the exact same moment; the common single-caller path is
+// untouched — still tied to its own controller, still cancels on unmount
+// exactly as before this map existed.
+const inFlightRequests = new Map() // url -> Promise<rawJson>
+
+function fetchRawJson(url, { headers, signal }) {
+  return fetch(url, { credentials: 'include', headers, signal }).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.json()
+  })
+}
+
+function dedupedFetchRawJson(url, { headers, signal }) {
+  if (headers) return fetchRawJson(url, { headers, signal }) // custom headers: never share
+  const existing = inFlightRequests.get(url)
+  if (existing) return existing
+  const p = fetchRawJson(url, { headers, signal })
+  inFlightRequests.set(url, p)
+  p.finally(() => {
+    if (inFlightRequests.get(url) === p) inFlightRequests.delete(url)
+  })
+  return p
+}
+
 /**
  * Tiny replacement for the `.catch(() => {})` pattern that hides
  * errors in many panels. Always returns the same shape and never
@@ -50,15 +93,7 @@ export default function useFetchWithError(url, opts = {}) {
       }
       setError(null)
       try {
-        const res = await fetch(url, {
-          credentials: 'include',
-          headers,
-          signal: controller.signal,
-        })
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`)
-        }
-        const json = await res.json()
+        const json = await dedupedFetchRawJson(url, { headers, signal: controller.signal })
         if (myReq !== reqRef.current) return // a newer call superseded us
         const payload = transform ? transform(json) : json
         swrCache.set(url, payload)
