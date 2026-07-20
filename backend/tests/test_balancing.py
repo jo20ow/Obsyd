@@ -2,6 +2,7 @@
 `balancing.<afrr|mfrr>.<price|vol>.<up|down>`. Mirrors test_imbalance.py's shape."""
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from backend.models.energy import PowerHourly, SeriesDim, ZoneDim  # noqa: F401 — register tables
@@ -59,6 +60,19 @@ def test_control_area_eic_de_uses_tennet_not_country_code():
     assert control_area_eic("DE_LU") == "10YDE-EON------1"
     assert control_area_eic("FR") == "10YFR-RTE------C"
     assert control_area_eic("NL") == "10YNL----------L"
+
+
+def test_coverage_caveat_present_for_override_zone_absent_otherwise():
+    """The route layer must derive its coverage caveat from the same override mapping
+    control_area_eic reads, rather than hardcoding a zone check — this is that single
+    source of truth."""
+    from backend.power.entsoe_balancing import coverage_caveat
+
+    caveat = coverage_caveat("DE_LU")
+    assert caveat is not None
+    assert "TenneT" in caveat and "not the national total" in caveat
+    assert coverage_caveat("FR") is None
+    assert coverage_caveat("NL") is None
 
 
 # ─── parse_balancing_prices ────────────────────────────────────────────────────
@@ -202,6 +216,9 @@ def test_parse_multi_xml_zip_members_merge(tmp_path, monkeypatch):
         async def get(self, *a, **kw):
             return _FakeResp()
 
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
     monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeClient)
     monkeypatch.setattr(bal, "_token", lambda: "tok")
 
@@ -216,6 +233,125 @@ def test_parse_multi_xml_zip_members_merge(tmp_path, monkeypatch):
             merged.setdefault(key, {}).update(days)
     assert merged[("afrr", "up")]["2026-06-01"][0] == 111.0
     assert merged[("afrr", "down")]["2026-06-01"][0] == 222.0
+
+
+# ─── _fetch_balancing_month: which 400s are cacheable "no data" vs. real failures ──────
+#
+# ENTSO-E answers a genuinely-empty or structurally-unsupported request with HTTP 400 (see
+# the module docstring's A83 spike findings) — that specific shape is safe to cache as
+# emptiness. But a 400 is ALSO what a rotated/expired token or an ENTSO-E-side incident could
+# produce, and those must NOT be cached: the raw_cache is write-once, so caching a transient
+# failure would permanently poison that zone-month across the outage (a real, live risk per
+# CLAUDE.md's pending ENTSO-E token rotation note).
+
+
+class _FakeAsyncClient:
+    """Minimal async-context-manager httpx.AsyncClient stand-in returning one canned
+    httpx.Response — a REAL Response (not a hand-rolled stub) so .raise_for_status()
+    behaves exactly like the library."""
+
+    def __init__(self, status_code: int, content: bytes):
+        self._status_code = status_code
+        self._content = content
+
+    def __call__(self, *a, **kw):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None):
+        return httpx.Response(self._status_code, content=self._content, request=httpx.Request("GET", url))
+
+
+async def test_fetch_structural_400_is_cached_as_empty(tmp_path, monkeypatch):
+    """The exact wording ENTSO-E uses for a genuinely-empty/unsupported combination — 'is not
+    valid' (A83's structural rejection) or 'No matching data found' (A84's clean empty-window
+    ACK) — is the ONLY 400 shape treated as cacheable no-data."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    body = (
+        b"<Acknowledgement_MarketDocument><Reason><code>999</code>"
+        b"<text>The combination of [DOCUMENT_TYPE=A83] is not valid, or the requested data "
+        b"is not allowed to be fetched via this service.</text></Reason></Acknowledgement_MarketDocument>"
+    )
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(400, body))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    docs = await bal._fetch_balancing_month("A83", "entsoe_a83_structural_test", "10YDE-EON------1", date(2026, 6, 1))
+    assert docs == [""]
+    # cached: read_cached now finds it without hitting the (removed) client again.
+    assert rc.read_cached("entsoe_a83_structural_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) == {"xml": [""]}
+
+
+async def test_fetch_no_matching_data_400_is_cached_as_empty(tmp_path, monkeypatch):
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    body = b"<Acknowledgement_MarketDocument><Reason><code>999</code><text>No matching data found for Data item X</text></Reason></Acknowledgement_MarketDocument>"
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(400, body))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    docs = await bal._fetch_balancing_month("A84", "entsoe_a84_nodata_test", "10YDE-EON------1", date(2026, 6, 1))
+    assert docs == [""]
+
+
+async def test_fetch_401_raises_and_is_not_cached(tmp_path, monkeypatch):
+    """A bad/rotated token must raise, not be swallowed as 'no data' — and must NOT be
+    written to the write-once raw_cache (that would poison the month for good)."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(401, b"Unauthorized"))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await bal._fetch_balancing_month("A84", "entsoe_a84_authfail_test", "10YDE-EON------1", date(2026, 6, 1))
+
+    assert rc.read_cached("entsoe_a84_authfail_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) is None
+
+
+async def test_fetch_500_raises_and_is_not_cached(tmp_path, monkeypatch):
+    """An ENTSO-E-side incident (5xx) is exactly the transient failure the retry logic in
+    power_backfill.py's _with_retry exists for — it must propagate, not get cached as empty."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(503, b"Service Unavailable"))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await bal._fetch_balancing_month("A83", "entsoe_a83_5xx_test", "10YDE-EON------1", date(2026, 6, 1))
+
+    assert rc.read_cached("entsoe_a83_5xx_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) is None
+
+
+async def test_ingest_401_is_isolated_and_logged_not_cached(db_session, tmp_path, monkeypatch):
+    """End-to-end: ingest_balancing must not blow up on an auth failure (matches every other
+    per-step try/except in this vertical) — the month is skipped this run and retried next
+    time, rather than being cached as a permanent false 'no data'."""
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(401, b"Unauthorized"))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+    assert r["written"] == 0
+    assert read_hourly(db_session, "balancing.afrr.price.up", "FR") == []
 
 
 # ─── ingest_balancing ───────────────────────────────────────────────────────────
@@ -361,6 +497,26 @@ def test_route_happy_path(db_session):
     assert body["peak"] is not None
     assert body["as_of"] is not None
     assert "stale" in body and "age_days" in body
+
+
+def test_route_de_lu_carries_tennet_coverage_caveat(db_session):
+    """DE_LU uses a control-area override (TenneT, one of four German TSOs) — the JSON
+    response itself must say so, not just docstrings, so an API consumer without the source
+    open still learns the scope."""
+    _seed_balancing(db_session, zone="DE_LU")
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU").json()
+    assert body["available"] is True
+    assert body["coverage"] is not None
+    assert "TenneT" in body["coverage"]
+    assert "not the national total" in body["coverage"]
+
+
+def test_route_non_override_zone_has_no_coverage_caveat(db_session):
+    """FR uses its normal bidding-zone EIC directly — there's nothing to caveat."""
+    _seed_balancing(db_session, zone="FR")
+    body = _client(db_session).get("/api/power/balancing?zone=FR").json()
+    assert body["available"] is True
+    assert body["coverage"] is None
 
 
 def test_route_defaults_to_afrr_and_30_days(db_session):

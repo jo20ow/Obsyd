@@ -120,10 +120,13 @@ SPECS += [
     FreshnessSpec("outage_snapshot", PowerPriceDaily, "", timedelta(days=1),
                   hourly_series="outage.offline"),
     # Activated balancing energy (aFRR/mFRR, A83 volumes/A84 prices — backend/power/
-    # entsoe_balancing.py). aFRR price is the probe: every enabled zone that has any
-    # balancing coverage at all has aFRR (mFRR is sparser). 2 days respects the pinned
-    # invariant that outage_snapshot (1 day, above) stays the tightest hourly spec on the
-    # desk (see test_outage_history.py).
+    # entsoe_balancing.py). aFRR price is the probe — ONE reference series across ALL
+    # zones ("is the collector alive at all"), the same pattern flows_hourly/
+    # scheduled_exchanges/net_position use above, NOT a per-zone coverage claim: the live
+    # spike found aFRR/mFRR coverage varies by zone and even by window (FR's own 3-day
+    # spike window carried mFRR/FCR/RR prices but no aFRR at all). 2 days respects the
+    # pinned invariant that outage_snapshot (1 day, above) stays the tightest hourly spec
+    # on the desk (see test_outage_history.py).
     FreshnessSpec("balancing_energy", PowerPriceDaily, "", timedelta(days=2),
                   hourly_series="balancing.afrr.price.up"),
 ]

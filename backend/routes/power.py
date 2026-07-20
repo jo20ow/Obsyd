@@ -1757,9 +1757,11 @@ def get_balancing(
     German TSOs, not the national total), and activation VOLUMES (A83) are not currently
     served by the public API at all for any zone (prices still populate).
     """
+    from backend.power.entsoe_balancing import coverage_caveat
     from backend.power.hourly_store import read_hourly
 
     resolved_zone = _resolve_zone(zone)
+    caveat = coverage_caveat(resolved_zone)
     start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
 
     def _direction_rows(direction: str) -> list[tuple[int, float | None, float | None]]:
@@ -1782,6 +1784,7 @@ def get_balancing(
                 "(and activation volumes aren't currently served by the public API at all; "
                 "see backend/power/entsoe_balancing.py)."
             ),
+            "coverage": caveat,
         }
 
     def _fmt(rows: list[tuple[int, float | None, float | None]]) -> list[dict]:
@@ -1824,6 +1827,7 @@ def get_balancing(
             "balanced, beyond the day-ahead auction. Descriptive context, not a forecast "
             "(Posture B)."
         ),
+        "coverage": caveat,
         **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["balancing"]),
     }
 

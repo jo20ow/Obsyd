@@ -23,10 +23,15 @@ and a full-month window) — trust this over the pre-spike assumptions in the ta
     BUSINESS_TYPE, never the domain) is ENTSO-E's STRUCTURAL-rejection message — distinct
     from the "No matching data found" Acknowledgement A84 returns for a genuinely empty
     zone/window. Conclusion: activated-balancing-energy VOLUMES are not obtainable through
-    this public Web API / token today, independent of zone. The fetcher below treats the
-    rejection exactly like this codebase's existing "clean no-data ACK" convention
-    (entsoe_exchange.py's A09/A25 fetchers: any >=400 response → cache the emptiness, no
-    exception) so ingestion stays green and the 4 volume series simply go unwritten.
+    this public Web API / token today, independent of zone. The fetcher below recognises
+    BOTH of ENTSO-E's "genuinely nothing here" wordings — this structural rejection and
+    A84's "No matching data found" empty-window Acknowledgement — and, ONLY for those, caches
+    the emptiness like this codebase's existing convention (entsoe_exchange.py's A09/A25
+    fetchers) so ingestion stays green and the 4 volume series simply go unwritten. Any OTHER
+    >=400 (401 from a rotated/expired token, 429, 5xx) is deliberately NOT treated as no-data:
+    it raises and propagates to ingest_balancing's `except httpx.HTTPError`, which logs and
+    skips the month WITHOUT caching it — caching an outage would permanently poison that
+    zone-month in the write-once raw_cache for as long as the token stays broken.
     REVERIFY AT DEPLOY — if ENTSO-E ever restores A83 or a different access tier unlocks it,
     `parse_balancing_volumes` is ready: same Point-walk as prices, reading `quantity` (the
     element name every other MW-quantity ENTSO-E document in this repo uses — A75, A09, A25 —
@@ -101,9 +106,18 @@ _PRODUCT = {"A96": "afrr", "A97": "mfrr"}
 
 _DIRECTION = {"A01": "up", "A02": "down"}
 
-#: DE_LU's balancing energy has no country/bidding-zone-level publication (spiked 2026-07-20)
-#: — TenneT's control area is the one verified-working proxy. See module docstring.
-_CONTROL_AREA_OVERRIDE = {"DE_LU": "10YDE-EON------1"}
+#: Zones whose A83/A84 domain differs from their bidding-zone EIC: {zone: (control-area EIC,
+#: coverage caveat)}. DE_LU's balancing energy has no country/bidding-zone-level publication
+#: (spiked 2026-07-20) — TenneT's control area is the one verified-working proxy, but it is
+#: only one of Germany's four TSOs, not the national total. Kept as ONE dict (not a separate
+#: EIC map + caveat map) so `control_area_eic` and `coverage_caveat` can never drift apart —
+#: see module docstring.
+_CONTROL_AREA_OVERRIDE: dict[str, tuple[str, str]] = {
+    "DE_LU": (
+        "10YDE-EON------1",
+        "TenneT control area only (one of four German TSOs), not the national total.",
+    ),
+}
 
 PRICE_DOCTYPE = "A84"
 VOLUME_DOCTYPE = "A83"
@@ -113,9 +127,19 @@ VOLUME_CACHE_SOURCE = "entsoe_a83"
 
 def control_area_eic(zone: str) -> str | None:
     """Control-area domain EIC for A83/A84 (single-TSO zones = the bidding EIC)."""
-    if zone in _CONTROL_AREA_OVERRIDE:
-        return _CONTROL_AREA_OVERRIDE[zone]
+    override = _CONTROL_AREA_OVERRIDE.get(zone)
+    if override is not None:
+        return override[0]
     return ZONE_REGISTRY.get(zone, {}).get("eic")
+
+
+def coverage_caveat(zone: str) -> str | None:
+    """A short caveat for zones whose balancing-energy domain is a partial, single-TSO
+    override rather than the normal bidding-zone EIC (see module docstring) — None for every
+    other zone. Callers (e.g. GET /api/power/balancing) read this instead of hardcoding a
+    zone check, so the route can never drift from `_CONTROL_AREA_OVERRIDE`."""
+    override = _CONTROL_AREA_OVERRIDE.get(zone)
+    return override[1] if override is not None else None
 
 
 def _walk_points(xml_text: str, amount_tag: str) -> dict[tuple[str, str], dict[str, dict[int, list[float]]]]:
@@ -209,9 +233,14 @@ async def _fetch_balancing_month(
     Returns a LIST of inner XML documents: a ZIP archive (if the response is one — see module
     docstring, none was observed in the spike) can hold MULTIPLE members, unlike A85's
     single-doc ZIP, so every `.xml` member is decoded and returned rather than just the first.
-    A plain-XML response (the observed common case) comes back as a one-element list; any
-    >=400 response is a clean "no data" (matches entsoe_exchange.py's A09/A25 fetchers) and
-    comes back as `[""]`.
+    A plain-XML response (the observed common case) comes back as a one-element list.
+
+    Only a 400 whose body contains ENTSO-E's "No matching data found" or "is not valid"
+    wording (see module docstring) is a clean "no data" — cached and returned as `[""]`,
+    matching entsoe_exchange.py's A09/A25 fetchers. Every OTHER error response (401, 429, 5xx,
+    or a 400 with neither phrase) calls `resp.raise_for_status()` and propagates as
+    `httpx.HTTPError` — deliberately NOT cached, so a token outage or rate limit gets retried
+    next run instead of permanently freezing that zone-month as false emptiness.
 
     NOTE on window size: verified to work at full-calendar-month granularity for a single
     control area (1.57 MB / 469 TimeSeries, no timeout). If a future zone/month combination
@@ -232,12 +261,19 @@ async def _fetch_balancing_month(
         }
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.get(ENTSOE_BASE, params=params)
-            if resp.status_code >= 400:
-                # A83 in particular answers 400 for volumes today (see module docstring), and
-                # any TSO/month/product combination can legitimately have nothing published.
-                # Treat exactly like entsoe_exchange.py's A09/A25 fetchers: a clean "no data"
-                # response is data, not an error — cache the emptiness so we never ask again.
+            if resp.status_code == 400 and (
+                b"No matching data found" in resp.content or b"is not valid" in resp.content
+            ):
+                # ENTSO-E's two "there is genuinely nothing here" wordings (see module
+                # docstring): A84's clean empty-window Acknowledgement, and A83's structural
+                # "combination... is not valid" rejection. ONLY this specific 400 shape is
+                # cacheable "no data" (matches entsoe_exchange.py's A09/A25 fetchers) —
+                # anything else must raise below. Caching every >=400 blindly would also
+                # cache a 401 from a rotated/expired token (CLAUDE.md flags rotation as
+                # pending) or a transient 429/5xx into the write-once raw_cache, permanently
+                # poisoning that zone-month for the life of the cache.
                 return {"xml": [""]}
+            resp.raise_for_status()
             body = resp.content
             if body[:2] == b"PK":  # ZIP archive — merge every inner .xml member
                 zf = zipfile.ZipFile(io.BytesIO(body))
