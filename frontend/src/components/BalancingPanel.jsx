@@ -112,7 +112,9 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
         'Activated balancing energy (ENTSO-E A84) — what the TSO actually called on beyond ' +
           'the day-ahead auction, by direction. Coverage varies by zone/product — many combinations ' +
           "publish nothing on a given day. Activation volumes aren't currently served by the public " +
-          'API for any zone. All times UTC. Descriptive, not a forecast.'
+          'API for any zone. Gaps in the chart mean no activation was published for that direction/' +
+          'hour, not missing data — the line never holds a price forward across them. All times UTC. ' +
+          'Descriptive, not a forecast.'
       }
       collapsible
       downloadUrl={
@@ -174,14 +176,19 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
                   formatter={(v, name) => [v == null ? '—' : `${Number(v).toFixed(1)} ${unit}`, name]}
                   labelFormatter={fmtTs}
                 />
+                {/* No connectNulls: the backend deliberately never holds a price
+                    forward across an hour nothing activated in (episodic mFRR
+                    especially — 25 vs 444 TimeSeries in the spiked TenneT month).
+                    A dot marks lone activation hours so they don't vanish; real
+                    gaps in either direction render as honest breaks, not a
+                    fabricated flat line. */}
                 <Line
                   type="stepAfter"
                   dataKey="up"
                   name="up-regulation"
                   stroke={COLOR_UP}
                   strokeWidth={1}
-                  dot={false}
-                  connectNulls
+                  dot={{ r: 1.5, strokeWidth: 0 }}
                   isAnimationActive={false}
                 />
                 <Line
@@ -190,8 +197,7 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
                   name="down-regulation"
                   stroke={COLOR_DOWN}
                   strokeWidth={1}
-                  dot={false}
-                  connectNulls
+                  dot={{ r: 1.5, strokeWidth: 0 }}
                   isAnimationActive={false}
                 />
               </LineChart>
