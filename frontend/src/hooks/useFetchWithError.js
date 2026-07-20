@@ -11,23 +11,27 @@ const swrCache = new Map() // url -> last successful (transformed) payload
 // instances at the identical url in the same render — each used to fire its
 // own GET, multiplying load against the backend's shared heavy_query_guard
 // semaphore (at the limit, one visitor's fixed-slot waste could transiently
-// 503 a different visitor's real request). The entry is removed the instant
-// its fetch settles, so this dedupes only genuinely CONCURRENT callers — a
-// later poll or refetch always starts a fresh request. Skipped entirely when
-// the caller passes custom `headers`, so a request under different
-// credentials never risks sharing another caller's response.
+// 503 a different visitor's real request). Skipped entirely when the caller
+// passes custom `headers`, so a request under different credentials never
+// risks sharing another caller's response.
 //
-// The physical fetch is wired to whichever caller happens to be first for a
-// given url (the "leader"); a follower just awaits that same promise. If the
-// leader's own component unmounts first, its AbortController cancels the
-// shared fetch and every follower sees an AbortError too — `run()` below
-// already treats AbortError as a silent no-op (same as the un-deduped path),
-// and a still-mounted follower gets fresh data on its own next natural
-// refetch. This only matters when two DIFFERENT components request the
-// exact same url at the exact same moment; the common single-caller path is
-// untouched — still tied to its own controller, still cancels on unmount
-// exactly as before this map existed.
-const inFlightRequests = new Map() // url -> Promise<rawJson>
+// Each entry owns its OWN AbortController (never any single caller's) plus a
+// subscriber count:
+//   - a caller's own unmount/abort only decrements the count and rejects
+//     THAT caller's returned promise with AbortError; the PHYSICAL fetch is
+//     aborted only once the LAST subscriber leaves — a solo caller's unmount
+//     still cancels its fetch exactly as before this map existed, and a
+//     leader's early unmount no longer strands a still-mounted follower.
+//   - reusing an entry is guarded by `entry.controller.signal.aborted`, so a
+//     StrictMode double-invoke (dev: setup→cleanup→setup runs synchronously,
+//     before the settled entry's removal microtask has a chance to run) or a
+//     genuinely quick unmount/remount never joins an already-doomed entry —
+//     it starts a fresh fetch instead of awaiting a promise that can only
+//     ever reject.
+//   - the entry is removed as soon as its fetch settles, on BOTH the resolve
+//     and the reject branch (never an unhandled rejection), so a later poll
+//     or refetch always starts against a clean slate.
+const inFlightRequests = new Map() // url -> { promise, controller, subscribers }
 
 function fetchRawJson(url, { headers, signal }) {
   return fetch(url, { credentials: 'include', headers, signal }).then((res) => {
@@ -38,14 +42,24 @@ function fetchRawJson(url, { headers, signal }) {
 
 function dedupedFetchRawJson(url, { headers, signal }) {
   if (headers) return fetchRawJson(url, { headers, signal }) // custom headers: never share
-  const existing = inFlightRequests.get(url)
-  if (existing) return existing
-  const p = fetchRawJson(url, { headers, signal })
-  inFlightRequests.set(url, p)
-  p.finally(() => {
-    if (inFlightRequests.get(url) === p) inFlightRequests.delete(url)
+  let entry = inFlightRequests.get(url)
+  if (!entry || entry.controller.signal.aborted) {   // never share a dead fetch (StrictMode / quick remount)
+    const controller = new AbortController()
+    const promise = fetchRawJson(url, { headers, signal: controller.signal })
+    entry = { promise, controller, subscribers: 0 }
+    inFlightRequests.set(url, entry)
+    const remove = () => { if (inFlightRequests.get(url) === entry) inFlightRequests.delete(url) }
+    promise.then(remove, remove)                     // both-ways handler: no unhandled rejection
+  }
+  entry.subscribers++
+  signal.addEventListener('abort', () => {           // abort the PHYSICAL fetch only when the LAST subscriber leaves
+    if (--entry.subscribers === 0) entry.controller.abort()
+  }, { once: true })
+  return new Promise((resolve, reject) => {          // each caller still gets ITS OWN AbortError on ITS OWN unmount
+    if (signal.aborted) return reject(new DOMException('aborted', 'AbortError'))
+    signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+    entry.promise.then(resolve, reject)
   })
-  return p
 }
 
 /**
