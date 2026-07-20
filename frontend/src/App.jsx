@@ -28,6 +28,7 @@ import InsightsStrip from './components/InsightsStrip'
 import NarrativeHero from './components/NarrativeHero'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
+import LiveNowPanel from './components/LiveNowPanel'
 import HydroReservoirPanel from './components/HydroReservoirPanel'
 import OutagePanel from './components/OutagePanel'
 import RecordChip from './components/RecordChip'
@@ -579,6 +580,9 @@ function Dashboard() {
 
             <ErrorBoundary name="power-situation">
               <PowerSituationHeader zone={energyZone} />
+            </ErrorBoundary>
+            <ErrorBoundary name="power-live">
+              <LiveNowPanel zone={energyZone} />
             </ErrorBoundary>
             <ErrorBoundary name="record-chip">
               <RecordChip zone={energyZone} />
