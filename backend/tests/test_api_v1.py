@@ -404,3 +404,78 @@ def test_catalog_is_rate_limited(db_session):
     c = _client(db_session)
     codes = {c.get("/api/v1/series/catalog").status_code for _ in range(130)}
     assert 429 in codes, "catalog must be throttled like the other data endpoints"
+
+
+# ── Catalog metadata: server-side labels/groups + per-(series,zone) coverage
+#    (Chart-Builder P1) ────────────────────────────────────────────────────
+
+def test_catalog_series_carry_label_and_group(db_session):
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(_BASE, 40.0)], unit="EUR/MWh")
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    by_key = {s["key"]: s for s in body["series"]}
+    assert by_key["price.dayahead"]["label"] == "Day-ahead price · hourly"
+    assert by_key["price.dayahead"]["group"] == "price"
+
+
+def test_catalog_pattern_labels_resolve_gen_and_flow(db_session):
+    upsert_hourly(db_session, "gen.B16", "DE_LU", [(_BASE, 5_000.0)], unit="MW")
+    upsert_hourly(db_session, "flow.FR", "DE_LU", [(_BASE, 100.0)], unit="MW")
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    by_key = {s["key"]: s for s in body["series"]}
+    assert by_key["gen.B16"]["label"] == "Generation · Solar"
+    assert by_key["gen.B16"]["group"] == "gen"
+    assert by_key["flow.FR"]["label"] == "Flow ↔ FR"
+    assert by_key["flow.FR"]["group"] == "flow"
+
+
+def test_catalog_unknown_series_label_falls_back_to_raw_key(db_session):
+    upsert_hourly(db_session, "mystery.metric", "DE_LU", [(_BASE, 1.0)], unit=None)
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    entry = next(s for s in body["series"] if s["key"] == "mystery.metric")
+    assert entry["label"] == "mystery.metric"
+    assert entry["group"] == "mystery"
+
+
+def test_catalog_coverage_by_series_matches_seeded_pairs(db_session):
+    # Two distinct (series, zone) pairs, different windows — coverage_by_series
+    # must report exactly these two, each with its own from/to.
+    upsert_hourly(db_session, "price.dayahead", "DE_LU",
+                  [(_BASE + i * _H, 40.0 + i) for i in range(3)], unit="EUR/MWh")
+    upsert_hourly(db_session, "load.actual", "FR",
+                  [(_BASE + i * _H, 30_000.0 + i) for i in range(5)], unit="MW")
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    pairs = {(c["series"], c["zone"]): c for c in body["coverage_by_series"]}
+    assert set(pairs) == {("price.dayahead", "DE_LU"), ("load.actual", "FR")}
+    pd = pairs[("price.dayahead", "DE_LU")]
+    assert pd["from"] == datetime.fromtimestamp(_BASE, UTC).isoformat()
+    assert pd["to"] == datetime.fromtimestamp(_BASE + 2 * _H, UTC).isoformat()
+    la = pairs[("load.actual", "FR")]
+    assert la["from"] == datetime.fromtimestamp(_BASE, UTC).isoformat()
+    assert la["to"] == datetime.fromtimestamp(_BASE + 4 * _H, UTC).isoformat()
+
+
+def test_catalog_coverage_by_series_empty_on_empty_db(db_session):
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    assert body["coverage_by_series"] == []
+    assert body["available"] is False  # no series at all yet — catalog still responds
+
+
+def test_catalog_coverage_by_series_is_cached_across_calls(db_session, monkeypatch):
+    """Same DoS concern as the global coverage window: the per-pair scan must
+    run at most once per TTL, not once per request."""
+    import backend.routes.api_v1 as v1
+
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(_BASE, 40.0)], unit="EUR/MWh")
+    calls = {"n": 0}
+    real = v1._coverage_by_series
+
+    def counting(db):
+        calls["n"] += 1
+        return real(db)
+
+    monkeypatch.setattr(v1, "_coverage_by_series", counting)
+    c = _client(db_session)
+    c.get("/api/v1/series/catalog")
+    c.get("/api/v1/series/catalog")
+    c.get("/api/v1/series/catalog")
+    assert calls["n"] == 1, "per-series coverage scan ran more than once despite the cache"

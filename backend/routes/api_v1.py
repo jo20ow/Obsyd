@@ -14,12 +14,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.api_guard import cached_coverage, heavy_query_guard
+from backend.api_guard import cached_coverage, cached_value, heavy_query_guard
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
 from backend.models.energy import InstalledCapacity, PowerGenMix, PowerHourly, SeriesDim, ZoneDim
 from backend.power.hourly_store import RowCapExceeded, read_hourly
+from backend.power.series_catalog import series_group, series_label
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
@@ -368,16 +369,56 @@ def _coverage_window(db: Session) -> dict:
     }
 
 
+def _coverage_by_series(db: Session) -> list[dict]:
+    """Per-(series,zone) coverage: one MIN/MAX(ts_utc) point lookup for every pair
+    that has rows, not one GROUP BY over the whole table.
+
+    power_hourly's PK is (series_id, zone_id, ts_utc) WITHOUT ROWID — the table's
+    clustering key — so a query that pins (series_id, zone_id) and aggregates
+    ts_utc is a seek to that pair's first/last leaf (SQLite's min/max-over-index
+    optimization), not a scan. A GROUP BY series_id, zone_id would instead walk
+    every one of the multi-million rows once. There are only series-count ×
+    zone-count pairs (low hundreds), so the N cheap seeks beat the one full scan.
+    Pairs with no rows are skipped. Cached (see catalog()) since the ingest only
+    moves this hourly.
+    """
+    series_rows = db.query(SeriesDim.id, SeriesDim.key).all()
+    zone_rows = db.query(ZoneDim.id, ZoneDim.key).all()
+    out: list[dict] = []
+    for sid, skey in series_rows:
+        for zid, zkey in zone_rows:
+            lo, hi = (
+                db.query(func.min(PowerHourly.ts_utc), func.max(PowerHourly.ts_utc))
+                .filter(PowerHourly.series_id == sid, PowerHourly.zone_id == zid)
+                .first()
+            )
+            if lo is None:
+                continue
+            out.append({
+                "series": skey,
+                "zone": zkey,
+                "from": datetime.fromtimestamp(lo, UTC).isoformat(),
+                "to": datetime.fromtimestamp(hi, UTC).isoformat(),
+            })
+    return out
+
+
 @router.get("/series/catalog")
 def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g: None = Depends(heavy_query_guard)):
-    """What's queryable: every series (key+unit), enabled zones, and the overall
-    hourly coverage window."""
-    series = [{"key": k, "unit": u} for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()]
+    """What's queryable: every series (key+unit+label+group), enabled zones, the
+    overall hourly coverage window, and per-(series,zone) coverage — so a
+    Chart-Builder can grey out a zone with no data for the selected series
+    instead of letting the pick 404 downstream."""
+    series = [
+        {"key": k, "unit": u, "label": series_label(k), "group": series_group(k)}
+        for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()
+    ]
     return {
         "available": bool(series),
         "series": series,
         "zones": [{"key": k, "label": v["label"]} for k, v in POWER_ZONES.items()],
         "coverage": cached_coverage(lambda: _coverage_window(db)),
+        "coverage_by_series": cached_value("coverage_by_series", lambda: _coverage_by_series(db)),
         "series_count": len(series),
     }
 
