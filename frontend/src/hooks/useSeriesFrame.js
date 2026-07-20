@@ -27,8 +27,14 @@ function seriesUrl(row, start, resolution) {
  * React hooks cannot be called in a loop, so — exactly like
  * ZoneCompareChart's MAX_COMPARE slots — there are always exactly
  * MAX_SERIES_ROWS useFetchWithError calls. A slot beyond the real row count
- * re-points at row 0's URL, which is already in the SWR cache: it costs no
- * extra request, just a cache hit.
+ * re-points at row 0's URL. That does NOT skip a request — useFetchWithError
+ * revalidates in every hook instance it's called from, regardless of cache —
+ * but the URL matches an already-cached entry, so the unused slot renders
+ * row 0's data with no loading flash instead of a distinct fetch of its own.
+ * Net effect: a full chart is still bounded at <= MAX_SERIES_ROWS requests per
+ * change, never more. A real request-level dedupe for concurrent identical
+ * URLs (so an unused slot's revalidation doesn't even hit the network) would
+ * be a desk-wide improvement to useFetchWithError itself — out of scope here.
  *
  * Returns `{ frame, loading, error, perRow }`:
  *   - `frame`: time-sorted outer join, one entry per distinct timestamp seen
@@ -70,6 +76,13 @@ export default function useSeriesFrame(rows, range, resolution = 'daily') {
 
   const tkey = resolution === 'daily' ? 'date' : 'datetime_utc'
   const rowSig = activeRows.map((r) => `${r.series}:${r.zone}`).join(',')
+  // r{i}.data's referential identity already drives the memo below, but
+  // loading/error are separate state on the same hook instance and can flip
+  // (e.g. a slot 429s, or recovers) with no new `data` — without this in the
+  // deps, perRow[i].loading/error froze at whatever they were on the render
+  // that last touched `data`, so a failed row stayed {loading:true,
+  // error:null} forever instead of surfacing the failure.
+  const respSig = responses.map((r, i) => `${i}:${r.loading}:${!!r.error}`).join('|')
 
   const { frame, perRow } = useMemo(() => {
     const n = activeRows.length
@@ -101,10 +114,11 @@ export default function useSeriesFrame(rows, range, resolution = 'daily') {
     }
     const frameOut = [...byT.values()].sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0))
     return { frame: frameOut, perRow: perRowOut }
-    // responses[i].data are the real per-row payloads; rowSig covers row identity/order,
-    // start/resolution/tkey cover the query window — together the full input surface.
+    // responses[i].data are the real per-row payloads; respSig covers each
+    // slot's loading/error; rowSig covers row identity/order; start/
+    // resolution/tkey cover the query window — together the full input surface.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [r0.data, r1.data, r2.data, r3.data, r4.data, r5.data, rowSig, tkey, resolution, start])
+  }, [r0.data, r1.data, r2.data, r3.data, r4.data, r5.data, respSig, rowSig, tkey, resolution, start])
 
   const loading = activeRows.length > 0 && responses.slice(0, activeRows.length).some((r) => r.loading)
   const error = activeRows.length > 0 && responses[0].error && !responses[0].data ? responses[0].error : null

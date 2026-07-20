@@ -23,6 +23,17 @@ const FALLBACK_SERIES = [{ key: DEFAULT_SERIES, unit: 'EUR/MWh', label: 'Day-ahe
 const FALLBACK_ZONES = [{ key: 'DE_LU', label: 'DE-LU' }]
 const FALLBACK_GROUPS = [{ key: 'price', label: 'Prices' }]
 
+// Module-level (page-load-scoped, NOT per-mount) latch for the row-0-zone
+// adoption effect below. SeriesExplorer unmounts/remounts every time the
+// EXPLORE tab is switched away from and back, but the `rows=` URL param it
+// last wrote is never cleared on unmount — so a naive per-mount effect would
+// re-read that stale link on every remount and silently snap the global zone
+// back to it, even after the user picked a different zone elsewhere (e.g.
+// RegionPills) in between. Adoption must happen at most once per SPA session
+// (a genuine fresh page load, or a shared /builder link) — this flag is that
+// gate. `let` (not `const`) since exactly one mount flips it.
+let adoptedRowZone = false
+
 // Subsequence fuzzy match (same idiom as CommandPalette.jsx's fuzzyScore):
 // every char of `q` appears in order in `text`. Lower score = better match.
 function fuzzyScore(text, q) {
@@ -177,34 +188,43 @@ export default function SeriesExplorer() {
       initialRef.current = {
         primarySeries: rowsParam[0].series,
         primaryZone: rowsParam[0].zone,
-        extra: rowsParam.slice(1, MAX_SERIES_ROWS),
+        // Stable ids (not array position) so removing a middle row later
+        // doesn't reassign a sibling SeriesPicker's open/query state onto it.
+        extra: rowsParam.slice(1, MAX_SERIES_ROWS).map((r, idx) => ({ ...r, id: idx + 1 })),
       }
     } else {
       const legacyS = params.get('s')
       const legacyVs = params.get('vs')
-      initialRef.current = {
-        primarySeries: legacyS || DEFAULT_SERIES,
-        primaryZone: null,
-        extra: legacyVs ? [{ series: legacyS || DEFAULT_SERIES, zone: legacyVs }] : [],
-      }
+      // The old 2-line Explorer treated vs === the current zone as a no-op
+      // (`comparing = compareZone && compareZone !== zone`) — never a second
+      // line. Preserve that: don't manufacture a duplicate row for it.
+      const extra = legacyVs && legacyVs !== zone
+        ? [{ series: legacyS || DEFAULT_SERIES, zone: legacyVs, id: 1 }]
+        : []
+      initialRef.current = { primarySeries: legacyS || DEFAULT_SERIES, primaryZone: null, extra }
     }
   }
   const initial = initialRef.current
+  const nextRowId = useRef(initial.extra.length + 1)  // ids already used: 1..extra.length
 
   const [primarySeries, setPrimarySeries] = useState(initial.primarySeries)
-  const [extraRows, setExtraRows] = useState(initial.extra)  // [{series,zone}] — rows 1..5
+  const [extraRows, setExtraRows] = useState(initial.extra)  // [{id,series,zone}] — rows 1..5
   const [resolution, setResolution] = useState(() => readParam('res', DEFAULT_RESOLUTION))
   const [spread, setSpread] = useState(false)  // Δ (row0 − row1) instead of separate lines
 
   // A `rows=` link may carry an explicit zone for row 0 (the legacy `s=`/`vs=`
-  // scheme never did — it always rode the global zone spine). Adopt it once.
+  // scheme never did — it always rode the global zone spine). Adopt it AT
+  // MOST ONCE per page load (see `adoptedRowZone` above), never on a
+  // tab-switch remount.
   useEffect(() => {
+    if (adoptedRowZone) return
+    adoptedRowZone = true
     if (initial.primaryZone && initial.primaryZone !== zone) setZone(initial.primaryZone)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const rows = useMemo(
-    () => [{ series: primarySeries, zone }, ...extraRows],
+    () => [{ id: 'primary', series: primarySeries, zone }, ...extraRows],
     [primarySeries, zone, extraRows]
   )
 
@@ -280,7 +300,7 @@ export default function SeriesExplorer() {
     if (!canAddRow) return
     const used = new Set(rows.map((r) => r.zone))
     const nextZone = zoneList.find((z) => !used.has(z.key))?.key || zone
-    setExtraRows((rs) => [...rs, { series: primarySeries, zone: nextZone }])
+    setExtraRows((rs) => [...rs, { id: nextRowId.current++, series: primarySeries, zone: nextZone }])
   }
   const removeExtraRow = (i) => setExtraRows((rs) => rs.filter((_, idx) => idx !== i))
   const updateExtraRow = (i, patch) => setExtraRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
@@ -299,7 +319,7 @@ export default function SeriesExplorer() {
 
       <div className="px-4 py-2.5 border-b border-border/50 space-y-1.5">
         {rows.map((row, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-1.5">
+          <div key={row.id} className="flex flex-wrap items-center gap-1.5">
             <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: ROW_COLORS[i % ROW_COLORS.length] }} />
             <SeriesPicker
               value={row.series}
@@ -338,7 +358,9 @@ export default function SeriesExplorer() {
                 ×
               </button>
             )}
-            {perRow[i]?.available === false && (
+            {perRow[i]?.error ? (
+              <span className="font-mono text-[9px] text-red-400" title={perRow[i].error}>fetch error</span>
+            ) : perRow[i]?.available === false && (
               <span className="font-mono text-[9px] text-neutral-600">{perRow[i].reason || 'no data'}</span>
             )}
           </div>
@@ -400,6 +422,9 @@ export default function SeriesExplorer() {
                   <span key={r.key} className="flex items-center gap-1">
                     <span className="inline-block w-2 h-0.5" style={{ background: r.color }} />
                     <span>{rowLabel(r, seriesList, zoneList)}{r.unit ? ` (${r.unit})` : ''}</span>
+                    {r.error && (
+                      <span className="text-red-400" title={r.error}>fetch error</span>
+                    )}
                     {r.partialHours != null && (
                       <span className="text-neutral-600" title={`The last day averages ${r.partialHours} of 24 hours — it is still filling in.`}>
                         {r.partialHours}/24h
