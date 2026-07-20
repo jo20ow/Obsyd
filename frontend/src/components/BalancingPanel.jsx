@@ -59,6 +59,21 @@ function dirColor(direction) {
   return direction === 'down' ? COLOR_DOWN : direction === 'up' ? COLOR_UP : '#a3a3a3'
 }
 
+const HOUR_MS = 60 * 60 * 1000
+const WINDOW_DAYS = 30
+
+// Static explanation of the panel — always shown, since the backend's own
+// `note` (present whenever available:true) is a shorter one-liner and would
+// otherwise replace this instead of supplementing it (like ImbalancePanel's
+// info popover, which is likewise always the full explanation).
+const INFO_TEXT =
+  'Activated balancing energy (ENTSO-E A84) — what the TSO actually called on beyond ' +
+  'the day-ahead auction, by direction. Coverage varies by zone/product — many combinations ' +
+  "publish nothing on a given day. Activation volumes aren't currently served by the public " +
+  'API for any zone. Gaps in the chart mean no activation was published for that direction/' +
+  'hour, not missing data — the line never holds a price forward across them. All times UTC. ' +
+  'Descriptive, not a forecast.'
+
 /**
  * Activated balancing energy (ENTSO-E A84 aFRR/mFRR prices) — what the TSO
  * actually called on beyond the day-ahead auction to keep the grid balanced,
@@ -70,7 +85,7 @@ function dirColor(direction) {
  */
 export default function BalancingPanel({ zone = 'DE_LU' }) {
   const [product, setProduct] = useState('afrr')
-  const url = `${API}/power/balancing?zone=${zone}&days=30&product=${product}`
+  const url = `${API}/power/balancing?zone=${zone}&days=${WINDOW_DAYS}&product=${product}`
   const { data, loading, error } = useFetchWithError(url, {
     deps: [zone, product],
     pollMs: POLL_SLOW_MS,
@@ -91,31 +106,37 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
   const peak = data?.peak
   const unit = data?.unit ?? 'EUR/MWh'
 
-  // Merge the up/down direction series on timestamp for a two-line chart —
-  // the two arrays don't share indices, only (usually) overlapping hours.
+  // Merge the up/down direction series on timestamp, keyed by hour-aligned
+  // epoch ms (not the raw string) so a real point always coalesces with its
+  // filler below instead of duplicating under a differently-formatted key.
   const rowsByT = new Map()
-  for (const p of data?.up ?? []) rowsByT.set(p.t, { t: p.t, up: p.price })
+  for (const p of data?.up ?? []) rowsByT.set(Date.parse(p.t), { t: p.t, up: p.price })
   for (const p of data?.down ?? []) {
-    const row = rowsByT.get(p.t) ?? { t: p.t }
+    const k = Date.parse(p.t)
+    const row = rowsByT.get(k) ?? { t: p.t }
     row.down = p.price
-    rowsByT.set(p.t, row)
+    rowsByT.set(k, row)
   }
-  const rows = [...rowsByT.values()].sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0))
+  // Densify over the full hourly grid, window-start (now − 30d, aligned to the
+  // hour) to the latest published hour: an hour where NEITHER direction
+  // activated must still get its own category, or two activations days apart
+  // would sit in adjacent chart categories joined by a line — the exact
+  // fabricated continuity dropping connectNulls (below) is meant to prevent.
+  if (rowsByT.size) {
+    const latestMs = Math.max(...rowsByT.keys())
+    const startMs = Math.floor((new Date().getTime() - WINDOW_DAYS * 24 * HOUR_MS) / HOUR_MS) * HOUR_MS
+    for (let ms = startMs; ms <= latestMs; ms += HOUR_MS) {
+      if (!rowsByT.has(ms)) rowsByT.set(ms, { t: new Date(ms).toISOString() })
+    }
+  }
+  const rows = [...rowsByT.entries()].sort(([a], [b]) => a - b).map(([, row]) => row)
 
   return (
     <Panel
       id="power-balancing"
       freshness={data}
       title={`BALANCING · ${zl}`}
-      info={
-        data?.note ||
-        'Activated balancing energy (ENTSO-E A84) — what the TSO actually called on beyond ' +
-          'the day-ahead auction, by direction. Coverage varies by zone/product — many combinations ' +
-          "publish nothing on a given day. Activation volumes aren't currently served by the public " +
-          'API for any zone. Gaps in the chart mean no activation was published for that direction/' +
-          'hour, not missing data — the line never holds a price forward across them. All times UTC. ' +
-          'Descriptive, not a forecast.'
-      }
+      info={data?.note ? `${data.note} ${INFO_TEXT}` : INFO_TEXT}
       collapsible
       downloadUrl={
         data?.available
@@ -179,16 +200,20 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
                 {/* No connectNulls: the backend deliberately never holds a price
                     forward across an hour nothing activated in (episodic mFRR
                     especially — 25 vs 444 TimeSeries in the spiked TenneT month).
-                    A dot marks lone activation hours so they don't vanish; real
-                    gaps in either direction render as honest breaks, not a
-                    fabricated flat line. */}
+                    The hourly grid above densifies `rows` so a genuinely silent
+                    hour always gets its own null category instead of vanishing —
+                    without that, two activations days apart would sit in
+                    adjacent categories joined by a line, the very thing dropping
+                    connectNulls is meant to prevent. A dot (explicitly filled —
+                    Recharts' own default dot fill is white, not the line color)
+                    keeps a lone activation hour visible without a line to carry it. */}
                 <Line
                   type="stepAfter"
                   dataKey="up"
                   name="up-regulation"
                   stroke={COLOR_UP}
                   strokeWidth={1}
-                  dot={{ r: 1.5, strokeWidth: 0 }}
+                  dot={{ r: 1.5, strokeWidth: 0, fill: COLOR_UP }}
                   isAnimationActive={false}
                 />
                 <Line
@@ -197,7 +222,7 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
                   name="down-regulation"
                   stroke={COLOR_DOWN}
                   strokeWidth={1}
-                  dot={{ r: 1.5, strokeWidth: 0 }}
+                  dot={{ r: 1.5, strokeWidth: 0, fill: COLOR_DOWN }}
                   isAnimationActive={false}
                 />
               </LineChart>
@@ -209,7 +234,8 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
           </div>
           <div className="px-4 py-2">
             <PanelTakeaway>
-              Latest {productLabel} activation: {fmtDirPrice(latest?.price, latest?.direction)}/MWh
+              Last {data?.days ?? WINDOW_DAYS}d · latest {productLabel} activation:{' '}
+              {fmtDirPrice(latest?.price, latest?.direction)}/MWh
               {peak && ` · window peak ${fmtDirPrice(peak.price, peak.direction)}/MWh (${fmtTs(peak.t)})`}.{' '}
               Volumes aren't published by the public API today — this is prices only.
             </PanelTakeaway>
