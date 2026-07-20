@@ -44,7 +44,9 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
   const url = `${API}/power/live?zone=${zone}`
   const { data, loading, error } = useFetchWithError(url, { deps: [zone], pollMs: POLL_FAST_MS })
 
-  if (error)
+  // A transient poll failure must not blank a chart that already has good (if
+  // slightly stale) data — mirrors PowerSituationHeader/OutagePanel/GenMixHistoryPanel.
+  if (error && !data)
     return (
       <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
         <div className="font-mono text-[10px] text-red-400">LIVE NOW // FETCH ERROR</div>
@@ -119,8 +121,14 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                 label="Load vs forecast"
                 value={loadPct != null ? `${loadPct >= 0 ? '+' : ''}${loadPct.toFixed(1)}%` : '—'}
               />
-              <StatTile label="Generation now" value={genGw != null ? `${genGw} GW` : '—'} />
-              <StatTile label="Day-ahead price now" value={priceNow != null ? `€${priceNow.toFixed(1)}/MWh` : 'n/a'} />
+              <StatTile
+                label={showingToday ? 'Generation now' : 'Generation, latest hour'}
+                value={genGw != null ? `${genGw} GW` : '—'}
+              />
+              <StatTile
+                label={showingToday ? 'Day-ahead price now' : 'Day-ahead price, latest hour'}
+                value={priceNow != null ? `€${priceNow.toFixed(1)}/MWh` : 'n/a'}
+              />
             </div>
             <PanelTakeaway className="mt-2">
               {showingToday
@@ -178,7 +186,6 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                       fillOpacity={0.18}
                       strokeWidth={1}
                       dot={false}
-                      connectNulls
                       isAnimationActive={false}
                     />
                   ))}
