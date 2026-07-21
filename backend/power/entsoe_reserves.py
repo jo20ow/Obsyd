@@ -284,7 +284,7 @@ def parse_capacity_document(xml_text: str) -> dict[str, dict[str, dict[int, floa
 def _count_timeseries(xml_text: str) -> int:
     """How many TimeSeries a page carries — the pagination stop signal. A malformed page
     (never observed) counts as 0 (stop) rather than looping forever on unparsable input;
-    `parse_capacity_document` is the one that raises on real malformed XML during ingest."""
+    `parse_capacity_bids` is the one that raises on real malformed XML during ingest."""
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
