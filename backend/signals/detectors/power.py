@@ -239,7 +239,8 @@ def forced_outage_severity(total_mw: float, installed_mw: float | None) -> str |
 
 
 def latest_outage_revisions(
-    db, zone: str | None = None, *, ending_after: str | None = None
+    db, zone: str | None = None, *, ending_after: str | None = None,
+    doc_type: str | None = "A77",
 ) -> list:
     """Highest revision per (zone, mRID), resolved in SQL via a window function.
 
@@ -254,6 +255,16 @@ def latest_outage_revisions(
     running/upcoming no matter which revision wins. The filter is per-mRID, not
     per-row: dropping single rows on end_utc would let an older longer revision
     beat a newer shortened one.
+
+    `doc_type` scopes the ranked population — default "A77" (generation
+    unavailability), so every EXISTING caller (the forced-outage helpers below, the
+    outage-history snapshot, the /outages generation list) keeps ranking only among
+    generation events now that A78 (transmission) rows share this table. Pass
+    doc_type="A78" for the transmission section, or None to rank across both (no
+    caller needs that today: nominal_mw is always null for A78, so a mixed MW total
+    would silently be missing capacity rather than double-counting it — but partition
+    correctness does not depend on doc_type at all, since mRIDs are unique per message
+    regardless of type).
     """
     from sqlalchemy import func
 
@@ -270,10 +281,14 @@ def latest_outage_revisions(
     ranked = db.query(PowerOutage.id.label("oid"), rn)
     if zone is not None:
         ranked = ranked.filter(PowerOutage.zone == zone)
+    if doc_type is not None:
+        ranked = ranked.filter(PowerOutage.doc_type == doc_type)
     if ending_after is not None:
         relevant = db.query(PowerOutage.mrid).filter(PowerOutage.end_utc >= ending_after)
         if zone is not None:
             relevant = relevant.filter(PowerOutage.zone == zone)
+        if doc_type is not None:
+            relevant = relevant.filter(PowerOutage.doc_type == doc_type)
         ranked = ranked.filter(PowerOutage.mrid.in_(relevant.subquery().select()))
     ranked = ranked.subquery()
     return (
@@ -319,6 +334,13 @@ def forced_outage_totals_now(db) -> dict[str, float]:
     one SUM per zone; _running_forced's filters move into the outer query,
     which is exactly why ranking (all revisions) and filtering (rn=1 only)
     stay separate stages.
+
+    A77-only: unlike latest_outage_revisions this bypasses that helper (its own
+    ranked/relevant subqueries, kept inline for the SQL-side SUM above), so the
+    doc_type filter is repeated here explicitly rather than inherited. Belt-and-
+    braces — nominal_mw.isnot(None) below already excludes every A78 row on its own,
+    since a transmission asset never publishes one — but an explicit filter does not
+    depend on that schema fact staying true forever.
     """
     from datetime import datetime, timezone
 
@@ -335,7 +357,9 @@ def forced_outage_totals_now(db) -> dict[str, float]:
         )
         .label("rn")
     )
-    relevant = db.query(PowerOutage.mrid).filter(PowerOutage.end_utc >= now_iso)
+    relevant = db.query(PowerOutage.mrid).filter(
+        PowerOutage.end_utc >= now_iso, PowerOutage.doc_type == "A77",
+    )
     ranked = (
         db.query(PowerOutage.id.label("oid"), rn)
         .filter(PowerOutage.mrid.in_(relevant.subquery().select()))
@@ -347,6 +371,7 @@ def forced_outage_totals_now(db) -> dict[str, float]:
         .join(ranked, PowerOutage.id == ranked.c.oid)
         .filter(
             ranked.c.rn == 1,
+            PowerOutage.doc_type == "A77",
             PowerOutage.status == "active",
             PowerOutage.business_type == "A54",
             PowerOutage.nominal_mw.isnot(None),

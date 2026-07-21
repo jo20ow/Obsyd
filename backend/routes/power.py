@@ -2020,17 +2020,27 @@ def get_outages(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     horizon_days: int = Query(30, ge=1, le=400,
                               description="Include outages starting up to this many days out"),
+    kind: str = Query("all", pattern="^(generation|transmission|all)$",
+                      description="generation = A77 unit unavailability, transmission = "
+                                  "A78 interconnector/line unavailability, all = both"),
     db: Session = Depends(get_db),
 ):
-    """Generation unavailability (ENTSO-E A77) for a bidding zone. Free tier.
+    """Generation unavailability (ENTSO-E A77) AND transmission-infrastructure
+    unavailability (ENTSO-E A78) for a bidding zone. Free tier.
 
     Revision semantics: only the HIGHEST revision per message counts, and
-    withdrawn messages (docStatus A09) hide the event — of 31 live documents
-    sampled, 26 were withdrawn. `total_offline_mw` counts only outages running
-    RIGHT NOW; the list also includes ones starting within `horizon_days`.
-    Descriptive: what capacity is off and why, not a price call.
+    withdrawn messages (docStatus A09) hide the event — of 31 live A77 documents
+    sampled, 26 were withdrawn; A78 shares the identical semantics (spiked live
+    2026-07-21). `total_offline_mw`/`forced_offline_mw` are GENERATION-only (A78
+    never publishes a nominal capacity for the asset, so there is no baseline to
+    subtract from — see `transmission[].available_mw` instead); both count only
+    outages running RIGHT NOW, the lists also include ones starting within
+    `horizon_days`. `transmission[]` entries carry `counterparty_zone` — the
+    OTHER end of the interconnector/line. Descriptive: what capacity is off and
+    why, not a price call.
     """
     from backend.models.energy import PowerOutage
+    from backend.power.entsoe_outages import ASSET_TYPE_LABELS
     from backend.signals.detectors.power import latest_outage_revisions
 
     resolved_zone = _resolve_zone(zone)
@@ -2038,11 +2048,17 @@ def get_outages(
     now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
     horizon_iso = (now + timedelta(days=horizon_days)).strftime("%Y-%m-%dT%H:%MZ")
 
-    # Highest revision per mRID wins; withdrawn events disappear. The dedupe
-    # runs in SQL (shared with the radar detector) instead of loading every
-    # revision row into Python.
-    latest_rows = latest_outage_revisions(db, resolved_zone)
-    if not latest_rows:
+    want_generation = kind in ("generation", "all")
+    want_transmission = kind in ("transmission", "all")
+
+    # Highest revision per mRID wins; withdrawn events disappear. The dedupe runs in SQL
+    # (shared with the radar detector) instead of loading every revision row into Python.
+    # doc_type scopes each query to its own section — A77 and A78 share this table but
+    # must never mix into one list (see latest_outage_revisions docstring).
+    latest_rows = latest_outage_revisions(db, resolved_zone, doc_type="A77") if want_generation else []
+    transmission_rows = latest_outage_revisions(db, resolved_zone, doc_type="A78") if want_transmission else []
+
+    if not latest_rows and not transmission_rows:
         return {
             "available": False,
             "zone": resolved_zone,
@@ -2051,48 +2067,90 @@ def get_outages(
         }
 
     outages: list[dict] = []
-    total_offline = 0.0
-    forced_offline = 0.0
-    # Names for the EICs, in ONE query. PowerOutage.unit_eic has been written since the outage
-    # ingest was built and read by nothing; the unit registry (A71/A33) is what it was waiting
-    # for. Hydrating per row would repeat the 0.25 s / 8.5k-entity mistake the outage board has
-    # already made once.
-    unit_names = _unit_names_for(db, [r.unit_eic for r in latest_rows if r.unit_eic])
+    total_offline: float | None = None
+    forced_offline: float | None = None
 
-    for r in latest_rows:
-        if r.status != "active":
-            continue
-        if r.end_utc < now_iso or r.start_utc > horizon_iso:
-            continue
-        offline = (
-            round(r.nominal_mw - (r.available_mw or 0.0), 1)
-            if r.nominal_mw is not None else None
-        )
-        running_now = r.start_utc <= now_iso <= r.end_utc
-        if running_now and offline:
-            total_offline += offline
-            if r.business_type == "A54":
-                forced_offline += offline
-        outages.append({
-            "mrid": r.mrid,
-            # The message's own name if it carries one, else the registry's. Many A77 messages
-            # carry no name at all — which is why the board used to print raw EICs.
-            "unit_name": r.unit_name or unit_names.get(r.unit_eic),
-            "unit_eic": r.unit_eic,
-            "location": r.location,
-            "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
-            "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
-            "nominal_mw": r.nominal_mw,
-            "available_mw": r.available_mw,
-            "offline_mw": offline,
-            "start_utc": r.start_utc,
-            "end_utc": r.end_utc,
-            "running_now": running_now,
-        })
+    if want_generation:
+        total_offline = 0.0
+        forced_offline = 0.0
+        # Names for the EICs, in ONE query. PowerOutage.unit_eic has been written since the outage
+        # ingest was built and read by nothing; the unit registry (A71/A33) is what it was waiting
+        # for. Hydrating per row would repeat the 0.25 s / 8.5k-entity mistake the outage board has
+        # already made once.
+        unit_names = _unit_names_for(db, [r.unit_eic for r in latest_rows if r.unit_eic])
 
-    outages.sort(key=lambda o: (not o["running_now"], -(o["offline_mw"] or 0.0)))
-    # Freshness = newest message we EVER ingested for the zone (any revision) —
-    # a superseded revision still proves the collector is alive.
+        for r in latest_rows:
+            if r.status != "active":
+                continue
+            if r.end_utc < now_iso or r.start_utc > horizon_iso:
+                continue
+            offline = (
+                round(r.nominal_mw - (r.available_mw or 0.0), 1)
+                if r.nominal_mw is not None else None
+            )
+            running_now = r.start_utc <= now_iso <= r.end_utc
+            if running_now and offline:
+                total_offline += offline
+                if r.business_type == "A54":
+                    forced_offline += offline
+            outages.append({
+                "mrid": r.mrid,
+                # The message's own name if it carries one, else the registry's. Many A77 messages
+                # carry no name at all — which is why the board used to print raw EICs.
+                "unit_name": r.unit_name or unit_names.get(r.unit_eic),
+                "unit_eic": r.unit_eic,
+                "location": r.location,
+                "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
+                "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
+                "nominal_mw": r.nominal_mw,
+                "available_mw": r.available_mw,
+                "offline_mw": offline,
+                "start_utc": r.start_utc,
+                "end_utc": r.end_utc,
+                "running_now": running_now,
+            })
+        outages.sort(key=lambda o: (not o["running_now"], -(o["offline_mw"] or 0.0)))
+        total_offline = round(total_offline, 1)
+        forced_offline = round(forced_offline, 1)
+
+    transmission: list[dict] = []
+    if want_transmission:
+        for r in transmission_rows:
+            if r.status != "active":
+                continue
+            if r.end_utc < now_iso or r.start_utc > horizon_iso:
+                continue
+            # nominal_mw is always null for a transmission asset (no capacity baseline is
+            # ever published — see entsoe_outages.py), so offline_mw stays null too; the
+            # honest figure to show is the reduced available_mw itself.
+            offline = (
+                round(r.nominal_mw - (r.available_mw or 0.0), 1)
+                if r.nominal_mw is not None else None
+            )
+            running_now = r.start_utc <= now_iso <= r.end_utc
+            transmission.append({
+                "mrid": r.mrid,
+                "asset_name": r.unit_name or r.unit_eic,
+                "asset_eic": r.unit_eic,
+                "counterparty_zone": r.counterparty_zone,
+                "asset_type": ASSET_TYPE_LABELS.get(r.psr_type, r.psr_type),
+                "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
+                "nominal_mw": r.nominal_mw,
+                "available_mw": r.available_mw,
+                "offline_mw": offline,
+                "start_utc": r.start_utc,
+                "end_utc": r.end_utc,
+                "running_now": running_now,
+            })
+        # Most-constrained first: lowest remaining transfer capacity is the one worth
+        # noticing. offline_mw is not a usable sort key here (near-always null).
+        transmission.sort(key=lambda o: (
+            not o["running_now"],
+            o["available_mw"] if o["available_mw"] is not None else float("inf"),
+        ))
+
+    # Freshness = newest message we EVER ingested for the zone (any revision, either doc
+    # type) — a superseded revision still proves the collector is alive.
     newest_msg = (
         db.query(func.max(PowerOutage.created_at))
         .filter(PowerOutage.zone == resolved_zone)
@@ -2103,10 +2161,11 @@ def get_outages(
         "zone": resolved_zone,
         "zones": _ZONE_KEYS,
         "unit": "MW",
-        "total_offline_mw": round(total_offline, 1),
-        "forced_offline_mw": round(forced_offline, 1),
+        "total_offline_mw": total_offline,
+        "forced_offline_mw": forced_offline,
         "horizon_days": horizon_days,
         "outages": outages,
+        "transmission": transmission,
         **_freshness(newest_msg.strftime("%Y-%m-%d") if newest_msg else None,
                      now.date(), 2),
     }

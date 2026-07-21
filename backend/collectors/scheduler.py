@@ -343,17 +343,25 @@ async def _run_records_nightly():
 
 
 async def _run_outages():
-    """Refresh the rolling generation-unavailability window (ENTSO-E A77) for all
-    enabled zones. Every 6 h: forced outages land intraday, and the desk's whole
-    point is showing them before the price does."""
+    """Refresh the rolling generation-unavailability (ENTSO-E A77) AND transmission-
+    infrastructure-unavailability (A78) windows for all enabled zones/borders. Every
+    6 h: forced outages land intraday, and the desk's whole point is showing them
+    before the price does. The two passes are independent try/excepts — A78 uses a
+    completely different query shape (directed border pairs, see entsoe_outages.py),
+    so a break there must not take down the A77 pass that already worked."""
     from backend.power.entsoe_outages import ingest_outages
 
     db = SessionLocal()
     try:
         result = await ingest_outages(db)
-        logger.info("outages: %s", result)
+        logger.info("outages (A77 generation): %s", result)
     except Exception as exc:
-        logger.error("_run_outages failed: %s", exc)
+        logger.error("_run_outages (A77 generation) failed: %s", exc)
+    try:
+        result78 = await ingest_outages(db, doc_type="A78")
+        logger.info("outages (A78 transmission): %s", result78)
+    except Exception as exc:
+        logger.error("_run_outages (A78 transmission) failed: %s", exc)
     finally:
         db.close()
 

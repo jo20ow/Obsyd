@@ -86,8 +86,21 @@ SPECS += [
     FreshnessSpec("hydro_reservoir", PowerPriceDaily, "", timedelta(days=16),
                   hourly_series="hydro.reservoir"),
     # Outage messages land continuously across 37 zones; a silent day means
-    # the collector is dead, not that Europe stopped breaking.
+    # the collector is dead, not that Europe stopped breaking. Doc-type-agnostic
+    # (no filter_col) by construction: it watches the OVERALL ingest job. A78
+    # (below) gets its OWN probe rather than riding on this one, because A77's much
+    # higher message volume would keep this one "fresh" even if the A78 pass inside
+    # _run_outages broke silently — the two passes are independent try/excepts
+    # specifically so one can fail without the other, and the freshness layer has to
+    # be able to tell that apart too.
     FreshnessSpec("power_outages", PowerOutage, "created_at", timedelta(days=2)),
+    # A78 transmission-infrastructure unavailability (Task P12) is real but much
+    # rarer than A77 across the 126 directed border-pair queries — the live spike
+    # found ~1 new document every ~2 days on JUST one border-direction (DE_LU->FR,
+    # 26 docs / 7 weeks), so a global window wider than power_outages' 2 days avoids
+    # false "stale" alarms on quiet weeks while still catching a genuinely dead pass.
+    FreshnessSpec("power_outages_transmission", PowerOutage, "created_at", timedelta(days=7),
+                  filter_col="doc_type", filter_val="A78"),
     # Hourly cross-border flows (Block 2.4). flow.FR is the probe because a
     # French border (DE_LU-FR sorts DE_LU-first) exists in every enabled setup;
     # the daily grain keeps its own power_flows spec above.
