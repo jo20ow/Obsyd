@@ -44,12 +44,15 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
   const { data, loading, error } = useFetchWithError(
     `${API}/power/capture?zone=${zone}&months=36`, { deps: [zone], pollMs: POLL_SLOW_MS },
   )
-  // 'vf' = value factor (the cannibalisation story) · 'price' = raw capture €/MWh (PPA framing).
-  const [chartMode, setChartMode] = useState('vf')
   // A PPA strike is a €/MWh floor a buyer negotiated — empty means off. Kept as the raw input
   // string (not a number) so a user can type "45" through an intermediate empty/partial state
   // without the field fighting back.
   const [strikeInput, setStrikeInput] = useState(() => readStrikeParam())
+  // 'vf' = value factor (the cannibalisation story) · 'price' = raw capture €/MWh (PPA framing).
+  // Seeded from whether a `?strike=` link was actually shared: a strike is invisible in VF
+  // mode, so a shared link must land on CAPTURE €/MWh, not the mode default. Not itself
+  // persisted to the URL — the strike value already round-trips the intent.
+  const [chartMode, setChartMode] = useState(() => (readStrikeParam() !== '' ? 'price' : 'vf'))
 
   // Rewrite the URL on every edit, same idiom as SeriesExplorer's rows=/res= sync: set when
   // present, delete when cleared, so an empty strike never leaves a stale `?strike=` behind.
@@ -96,7 +99,10 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
   // PPA framing: a strike is a floor a buyer negotiated. Backward-looking only — how many of
   // the cannibalised technology's OWN recent months would have landed below it.
   const strike = strikeInput === '' ? null : Number(strikeInput)
-  const hasStrike = strike != null && Number.isFinite(strike)
+  // A negative €/MWh floor isn't a PPA strike anyone negotiates — reject it rather than
+  // draw a ReferenceLine and a summary that both imply a number that doesn't mean anything.
+  // Zero stays legitimate (a strike of "never pay less than nothing" is a real floor).
+  const hasStrike = strike != null && Number.isFinite(strike) && strike >= 0
   const worstFuel = fuels[0]
   const worstRecent = worstFuel ? worstFuel.data.slice(-12) : []
   const belowStrikeCount = hasStrike
@@ -210,6 +216,7 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                         type="number"
                         inputMode="decimal"
                         step="any"
+                        min="0"
                         placeholder="off"
                         value={strikeInput}
                         onChange={(e) => setStrikeInput(e.target.value)}
@@ -230,7 +237,10 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                     // Baseload itself. Everything below this line earned less than the base product.
                     <ReferenceLine y={1} stroke="#525252" strokeDasharray="4 4" />
                   ) : hasStrike && (
-                    <ReferenceLine y={strike} stroke="#fbbf24" strokeDasharray="4 4"
+                    // extendDomain: Recharts' default ("discard") silently drops the line when
+                    // the strike sits outside the y-axis's auto-computed range — leaving the
+                    // chart mute while the summary line below still asserts a count against it.
+                    <ReferenceLine y={strike} stroke="#fbbf24" strokeDasharray="4 4" ifOverflow="extendDomain"
                       label={{ value: `strike €${strike}`, position: 'insideTopLeft', fontSize: 8, fill: '#fbbf24' }} />
                   )}
                   <Tooltip

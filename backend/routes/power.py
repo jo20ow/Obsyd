@@ -6,7 +6,7 @@ GET /api/power/day-ahead?days=120&zone=DE_LU  — FREE
     Returns EnergyPrice rows + richer PowerPriceDaily stats (negative prices etc.)
     Each response includes `zone` (resolved) and `zones` (all supported zone keys).
 
-GET /api/power/spark-spread?days=120  — PRO
+GET /api/power/spark-spread?days=120  — FREE
     Historical spark spread (power − gas × heat_rate).
     DE-LU only (SparkSpreadHistory has no zone column); stays DE-only intentionally.
 
