@@ -125,14 +125,21 @@ def test_a_technology_that_produced_nothing_has_no_capture_price():
 # ─── DB-backed ────────────────────────────────────────────────────────────────
 
 
-def _seed(db, zone="DE_LU", days=75, *, solar_days=None):
+def _seed(db, zone="DE_LU", days=75, *, solar_days=None, anchor=None):
     """Solar produces in the cheap half of the day and writes NO row at night — the
     real ENTSO-E shape. Gas runs in the dear half. 75 days back guarantees at least
     one COMPLETE calendar month; capture is a monthly figure.
 
     `solar_days`: if set, solar only appears on that many days — a broken feed.
+    `anchor`: override for "now" (tz-aware UTC); defaults to the real wall clock. A test
+    that jumps `today` FORWARD afterwards (to check staleness) needs an anchor whose
+    CURRENT, still-running month (partial at seed time) stays under MIN_DAYS/
+    MIN_PRICE_HOURS forever — otherwise, on any real day of the month ≥ MIN_DAYS (the
+    20th onward), that partial month already has enough volume to qualify once `today`
+    moves past it, and the `as_of`/`latest_month` the test assumes stays fixed drifts
+    forward too, silently erasing the staleness under test.
     """
-    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    now = (anchor or datetime.now(timezone.utc)).replace(minute=0, second=0, microsecond=0)
     start = now - timedelta(days=days)
     price_pts, solar_pts, gas_pts = [], [], []
     for i in range(days * 24):
@@ -238,9 +245,41 @@ def test_the_running_month_is_not_reported_as_a_month(db_session):
 def test_freshness_is_the_newest_hour_used_not_the_month_label(db_session):
     """The panel convention: as_of is a date, and it is the newest hour the numbers
     were actually built from. A monthly figure is legitimately weeks behind — a month
-    only completes once — so it goes stale on a wider window than any daily panel."""
-    _seed(db_session)
-    out = compute_capture(db_session, "DE_LU", months=3)
+    only completes once — so it goes stale on a wider window than any daily panel.
+
+    Anchored to a FIXED reference date rather than the real wall clock (unlike every
+    other DB-backed test here, which is deliberately allowed to float with real "now").
+    This test simulates `today` jumping forward past STALE_AFTER_DAYS to prove staleness
+    trips — and with the ordinary `_seed()` (anchored to real `now`), that jump used to
+    make the test's own pass/fail outcome depend on which day of the REAL month it
+    happened to run on:
+
+    `_seed()` writes data all the way up to "now", so at seed time the still-running
+    month is only PARTIAL. On the 20th of any real month or later, that partial month
+    already has ≥ MIN_DAYS (20) distinct days and ≥ MIN_PRICE_HOURS (480 = 20×24) hours
+    — enough to pass both thresholds by volume alone, even though it is still incomplete.
+    The only thing keeping it out of the baseline is the SEPARATE `month < running` rule
+    in compute_capture(), which is evaluated against `today`. Jump `today` forward (as
+    this test does, to check staleness) and that same partial month is no longer
+    "running" — so it gets admitted retroactively, becomes the new (much more recent)
+    `latest_month`, and drags `as_of` forward with it, quietly cancelling the very
+    staleness this test exists to prove. Verified against the unpatched version by
+    seeding at several fixed anchor days-of-month and reproducing the exact assertion
+    above: day 1/5/20 stayed green, day 21/28 failed exactly like the original flake
+    (the precise cutover shifts by up to a day with the anchor's hour-of-day, since
+    what actually matters is accumulated HOURS/DAYS crossing MIN_PRICE_HOURS/MIN_DAYS,
+    not the calendar day number itself).
+
+    The fix anchors the seed to a fixed 2024-01-05 — day 5, nowhere near MIN_DAYS — so
+    the run's own partial month (Jan 2024, 5 days/120 hours) can NEVER cross either
+    threshold, no matter how far `today` is later pushed; only the two already-COMPLETE
+    months before it (Nov/Dec 2023) ever qualify, so `as_of`/`latest_month` are pinned for
+    real. (Anchoring at day 21 or 28 instead would reproduce the original bug — this is
+    exactly the failure mode above, just deterministically on those two dates.)
+    """
+    anchor = datetime(2024, 1, 5, tzinfo=timezone.utc)
+    _seed(db_session, anchor=anchor)
+    out = compute_capture(db_session, "DE_LU", months=3, today=anchor.date())
 
     assert date.fromisoformat(out["as_of"]), "an ISO date, not '2026-06'"
     assert out["as_of"].startswith(out["latest_month"])
