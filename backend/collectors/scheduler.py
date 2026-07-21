@@ -13,6 +13,7 @@ Schedule (UTC):
   - EU gas balance: daily 10:00; gas registry: weekly Mon 03:30
   - Signals (radar): every 5 min; scorecards: weekly Mon 05:00
   - Live prices: every 4h; user alert rules: every 30 min
+  - Balancing-capacity prices (FCR/aFRR/mFRR, DE_LU only): daily 11:30
   - Daily email: PAUSED 2026-07-18 (no product emails; see registration site below)
   - Retention: daily 04:00; collector watchdog: daily 09:00
 """
@@ -430,6 +431,30 @@ async def _run_balancing():
         db.close()
 
 
+async def _run_capacity_prices():
+    """Daily German balancing-capacity refresh (ENTSO-E A15: FCR/aFRR/mFRR tenders).
+
+    DE_LU only (see backend/power/entsoe_reserves.py) — no zone loop. A 3-day window with
+    overwrite=True: yesterday's tender is the frontier this desk cares about, and a short
+    rolling overwrite catches any late TSO revision the way the rest of the daily power
+    ingest does for its own zone-day windows.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.entsoe_reserves import ingest_capacity_prices
+
+    today = datetime.now(timezone.utc).date()
+    days = [(today - timedelta(days=i)).isoformat() for i in range(3)][::-1]
+    db = SessionLocal()
+    try:
+        result = await ingest_capacity_prices(db, days, overwrite=True)
+        logger.info("capacity prices daily: %s", result)
+    except Exception as exc:
+        logger.error("_run_capacity_prices failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_hydro_weekly():
     """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
     Current year with overwrite=True — the raw cache is write-once and would
@@ -484,6 +509,10 @@ def start_scheduler():
     scheduler.add_job(_run_outage_snapshot, CronTrigger(minute=45), id="outage_snapshot_hourly", **JOB_DEFAULTS)
     # Activated balancing energy (aFRR/mFRR, A83/A84): hourly, same-day activation signal.
     scheduler.add_job(_run_balancing, CronTrigger(minute=20), id="balancing_hourly", **JOB_DEFAULTS)
+    # Procured balancing-capacity prices (FCR/aFRR/mFRR, A15): daily 11:30 UTC — comfortably
+    # after all three TSO publication windows (FCR ~08:30, aFRR ~09:30, mFRR ~11:00
+    # Europe/Berlin, i.e. UTC+1/+2 — see docs/findings/2026-07-20-regelleistung-capacity-prices.md).
+    scheduler.add_job(_run_capacity_prices, CronTrigger(hour=11, minute=30), id="capacity_prices_daily", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical

@@ -36,7 +36,7 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "capacity")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -189,9 +189,32 @@ async def run_backfill(
             logger.info("power_backfill: netpos %s done (%d/%d)",
                         f"{m_start:%Y-%m}", netpos_months, len(windows))
 
+    # Balancing-capacity prices (FCR/aFRR/mFRR, A15) are DE_LU-only and zone-independent —
+    # one sweep per month covers the whole German market, like flows/scheduled/netpos above.
+    # NOTE: each day fetches 3 processTypes, each individually offset-paginated (see
+    # backend/power/entsoe_reserves.py) — a deep multi-year --start on this source alone is a
+    # much heavier pull than the other zone-independent sources; pass a narrower --start
+    # (the market's daily-tender history only goes back to ~2018/2019) when backfilling it.
+    capacity_months = 0
+    if "capacity" in sources:
+        from backend.power.entsoe_reserves import ingest_capacity_prices
+
+        for m_start, m_end in windows:
+            if dry_run:
+                capacity_months += 1
+                continue
+            days = _daterange(m_start, m_end)
+            await _with_retry(
+                lambda d=days: ingest_capacity_prices(db, d, overwrite=overwrite),
+                f"capacity {m_start:%Y-%m}",
+            )
+            capacity_months += 1
+            logger.info("power_backfill: capacity %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", capacity_months, len(windows))
+
     return {"zone_months": done, "zones": zones, "months": len(windows),
             "flow_months": flow_months, "scheduled_months": sched_months,
-            "netpos_months": netpos_months, "dry_run": dry_run}
+            "netpos_months": netpos_months, "capacity_months": capacity_months, "dry_run": dry_run}
 
 
 def _weeks_in(m_start, m_end) -> list:

@@ -129,6 +129,11 @@ SPECS += [
     # on the desk (see test_outage_history.py).
     FreshnessSpec("balancing_energy", PowerPriceDaily, "", timedelta(days=2),
                   hourly_series="balancing.afrr.price.up"),
+    # Procured balancing-CAPACITY prices (FCR/aFRR/mFRR tenders, ENTSO-E A15 — backend/power/
+    # entsoe_reserves.py). DE_LU only (the German LFC block has no per-zone equivalent), daily
+    # tenders publish every day, so 2 days mirrors balancing_energy's window above.
+    FreshnessSpec("capacity_prices", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="capacity.fcr.price"),
 ]
 
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled

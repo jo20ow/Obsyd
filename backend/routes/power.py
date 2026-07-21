@@ -762,6 +762,7 @@ PANEL_MAX_AGE_DAYS = {
     "spark": 4,  # gas leg is yfinance TTF — ~3 trading days plus weekends
     "load_forecast": 2,
     "balancing": 2,  # mirrors SPECS "balancing_energy"
+    "capacity_prices": 2,  # mirrors SPECS "capacity_prices"
 }
 
 #: /api/power/live's own freshness threshold — day granularity like every
@@ -1857,6 +1858,90 @@ def get_balancing(
         ),
         "coverage": caveat,
         **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["balancing"]),
+    }
+
+
+# ─── Procured balancing-capacity prices (FCR/aFRR/mFRR, free) ─────────────────
+
+
+@router.get("/capacity-prices")
+def get_capacity_prices(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    days: int = Query(30, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    """German procured balancing-CAPACITY prices (ENTSO-E A15: FCR/aFRR/mFRR daily tenders) —
+    the DE-LU LFC block only, structurally (not a coverage gap): individual German control
+    areas publish nothing at this domain, and no other enabled zone has an equivalent tender.
+    See backend/power/entsoe_reserves.py's module docstring for the live-spiked XML shape and
+    pagination findings. Free tier, descriptive (Posture B: context, not a forecast).
+    """
+    from backend.power.entsoe_reserves import PRODUCT_SUFFIXES
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    if resolved_zone != "DE_LU":
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zone_label": POWER_ZONES[resolved_zone]["label"],
+            "zones": ["DE_LU"],
+            "reason": (
+                "German balancing-capacity market — DE-LU LFC block only "
+                f"(no equivalent tender for {POWER_ZONES[resolved_zone]['label']})."
+            ),
+        }
+
+    start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+
+    products: dict[str, list[dict]] = {}
+    latest: dict[str, dict | None] = {}
+    newest_ts: list[int] = []
+    for json_key, suffix in PRODUCT_SUFFIXES:
+        rows = read_hourly(db, f"capacity.{suffix}.price", "DE_LU", start_ts=start_ts)
+        series = [
+            {"t": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(), "price": round(p, 4)}
+            for t, p in rows
+        ]
+        products[json_key] = series
+        latest[json_key] = series[-1] if series else None
+        if rows:
+            newest_ts.append(rows[-1][0])
+
+    zone_label = POWER_ZONES["DE_LU"]["label"]
+    if not newest_ts:
+        return {
+            "available": False,
+            "zone": "DE_LU",
+            "zone_label": zone_label,
+            "zones": ["DE_LU"],
+            "reason": "No German balancing-capacity data yet for DE-LU — check back shortly.",
+        }
+
+    as_of = _dt.fromtimestamp(max(newest_ts), tz=timezone.utc).strftime("%Y-%m-%d")
+
+    return {
+        "available": True,
+        "zone": "DE_LU",
+        "zone_label": zone_label,
+        "zones": ["DE_LU"],
+        "unit": "EUR/MW/h",
+        "days": days,
+        "products": products,
+        "latest": latest,
+        "note": (
+            "German balancing-capacity market (ENTSO-E A15, GL EB 12.3.F) — DE-LU LFC block "
+            "only. Each series is the VOLUME-WEIGHTED AVERAGE of that day's accepted capacity "
+            "bids per 4-hour product block, normalized to EUR/MW/h (FCR's native EUR-per-4h-"
+            "block price is divided by 4; aFRR/mFRR are already EUR/MW/h). FCR is pay-as-"
+            "CLEARED and symmetric (no up/down split); aFRR/mFRR are pay-as-BID and split by "
+            "direction, so the weighted average reflects what procurement actually cost, not "
+            "a single clearing price. FCR settles across borders under one clearing "
+            "mechanism, so a specific country's own settlement price can differ slightly from "
+            "this DE-LU-block reconstruction on days when export limits bind. Source: ENTSO-E "
+            "Transparency Platform. Descriptive, not a forecast (Posture B)."
+        ),
+        **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["capacity_prices"]),
     }
 
 
