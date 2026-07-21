@@ -26,6 +26,14 @@ export default function EmbedPage({ zone, metric }) {
     )
   }
 
+  if (!metric) {
+    return (
+      <EmbedFrame zoneLabel={zoneLabel(zone)} metricTitle="Unknown">
+        <EmbedUnknownCard message="No metric specified — use /embed/<ZONE>/<metric>." />
+      </EmbedFrame>
+    )
+  }
+
   if (!VALID_METRICS.includes(metric)) {
     return (
       <EmbedFrame zoneLabel={zoneLabel(zone)} metricTitle="Unknown">

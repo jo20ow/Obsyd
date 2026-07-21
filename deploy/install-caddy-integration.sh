@@ -59,7 +59,9 @@ obsyd.dev, www.obsyd.dev {
     # site. The global X-Frame-Options DENY above blocks ALL embedding by default —
     # here we punch a narrow, path-scoped hole for the iframe widgets only, and only
     # for that path. Must come AFTER @api (so /api/* keeps its own headers/proxy) and
-    # BEFORE the generic catch-all `handle` below (or its unscoped DENY wins first).
+    # BEFORE the generic catch-all `handle` below — handles are mutually exclusive in
+    # file order, and only THIS handle carries the `header -X-Frame-Options` delete;
+    # if the catch-all matched first, the site-global DENY header would survive.
     @embed path /embed/*
     handle @embed {
         header -X-Frame-Options

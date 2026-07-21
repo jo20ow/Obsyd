@@ -78,6 +78,12 @@ def _badge_svg(text: str, *, bg: str, border: str, fill: str, title: str) -> str
         f'<rect x="0.5" y="0.5" width="{width - 1}" height="{_HEIGHT - 1}" rx="3" '
         f'fill="none" stroke="{border}"/>'
         f'<text x="{_PAD_X}" y="14" font-family="{_FONT}" font-size="{_FONT_SIZE}" '
+        # textLength + lengthAdjust: the SVG renderer compresses glyph spacing (and,
+        # if still needed, the glyphs themselves) to fit exactly this width instead of
+        # letting the text overflow the pill. `_CHAR_W` is only an average — real
+        # Verdana-at-11px glyphs (especially caps/digits) run a bit wider, so without
+        # this a long badge could clip past its own rounded-rect background.
+        f'textLength="{width - 2 * _PAD_X}" lengthAdjust="spacingAndGlyphs" '
         f'fill="{fill}">{esc_text}</text>'
         f"</svg>"
     )
@@ -95,6 +101,20 @@ def _no_data_badge(text: str) -> str:
         text, bg=_GREY_BG, border=_GREY_BORDER, fill=_GREY_TEXT,
         title=f"OBSYD · {text}",
     )
+
+
+def _fmt_eur_per_mwh(value: float) -> str:
+    """€X/MWh — sign BEFORE the currency symbol for a negative price (e.g. "−€5/MWh",
+    never Python's default "€-5/MWh": the minus reads as "negative five euros", not
+    "euro-negative-five"). Negative day-ahead prices are a real, headline state for
+    this product (renewable oversupply), not an edge case to hide.
+
+    `round()` on a float with no `ndigits` returns a plain Python `int` — ints have no
+    signed zero, so a value like -0.2 rounds to the int `0`, not a float `-0.0` that
+    would otherwise format as the confusing "€-0/MWh".
+    """
+    n = round(value)
+    return f"−€{abs(n)}/MWh" if n < 0 else f"€{n}/MWh"
 
 
 def _svg_response(svg: str) -> Response:
@@ -118,33 +138,41 @@ def badge(
     metric=load   -> latest published load.actual hourly point (GW) + its UTC hour.
 
     Unknown zone/metric or genuinely no data yet: a neutral grey "no data" pill,
-    HTTP 200 (see module docstring — badges must never break a README).
+    HTTP 200 (see module docstring — badges must never break a README). A transient
+    DB error inside the reads degrades to the same grey pill; the one residual case
+    this guard cannot reach is a failure inside the `get_db` dependency itself,
+    which still surfaces as a 500 before this function runs.
     """
     if zone not in POWER_ZONES or metric not in VALID_METRICS:
         return _svg_response(_no_data_badge(f"{zone} · no data"))
 
     zone_label = POWER_ZONES[zone]["label"]
 
-    if metric == "price":
-        row = (
-            db.query(PowerPriceDaily)
-            .filter(PowerPriceDaily.zone == zone)
-            .order_by(PowerPriceDaily.date.desc())
-            .first()
-        )
-        if row is None:
-            return _svg_response(_no_data_badge(f"{zone_label} · no data"))
-        text = f"{zone_label} day-ahead · €{row.mean_price:.0f}/MWh · {row.date}"
-        return _svg_response(_ok_badge(text))
+    try:
+        if metric == "price":
+            row = (
+                db.query(PowerPriceDaily)
+                .filter(PowerPriceDaily.zone == zone)
+                .order_by(PowerPriceDaily.date.desc())
+                .first()
+            )
+            if row is None:
+                return _svg_response(_no_data_badge(f"{zone_label} · no data"))
+            text = f"{zone_label} day-ahead · {_fmt_eur_per_mwh(row.mean_price)} · {row.date}"
+            return _svg_response(_ok_badge(text))
 
-    # metric == "load"
-    now = datetime.now(timezone.utc)
-    start_ts = int(now.timestamp()) - 6 * 3600  # a handful of recent hours — bounded read
-    points = read_hourly(db, "load.actual", zone, start_ts=start_ts, max_rows=12)
-    if not points:
+        # metric == "load"
+        now = datetime.now(timezone.utc)
+        start_ts = int(now.timestamp()) - 6 * 3600  # a handful of recent hours — bounded read
+        points = read_hourly(db, "load.actual", zone, start_ts=start_ts, max_rows=12)
+        if not points:
+            return _svg_response(_no_data_badge(f"{zone_label} · no data"))
+        ts, value = points[-1]
+        hh = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M")
+        gw = value / 1000.0
+        text = f"{zone_label} load · {gw:.1f} GW · {hh} UTC"
+        return _svg_response(_ok_badge(text))
+    except Exception:
+        # The docstrings promise an unconditional 200 — a momentary DB hiccup must
+        # render as the same grey pill as "no data yet", never a broken image.
         return _svg_response(_no_data_badge(f"{zone_label} · no data"))
-    ts, value = points[-1]
-    hh = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M")
-    gw = value / 1000.0
-    text = f"{zone_label} load · {gw:.1f} GW · {hh} UTC"
-    return _svg_response(_ok_badge(text))

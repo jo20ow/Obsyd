@@ -201,3 +201,44 @@ def test_price_badge_attribution_in_title(db_session):
     root = _parse_svg(resp.text)
     title_el = root.find("{http://www.w3.org/2000/svg}title")
     assert "ENTSO-E" in title_el.text
+
+
+def test_negative_price_badge_sign_before_currency(db_session):
+    """Negative day-ahead prices are a headline state for this product — the badge
+    must render them unambiguously: sign BEFORE the currency ("−€5/MWh"), never
+    Python's default "€-5/MWh"."""
+    _seed_price(db_session, mean=-5.4)
+    resp = _client(db_session).get("/api/v1/badge/DE_LU/price.svg")
+    assert resp.status_code == 200
+    text_el = _parse_svg(resp.text).find("{http://www.w3.org/2000/svg}text")
+    assert "−€5/MWh" in text_el.text
+    assert "€-" not in text_el.text
+
+
+def test_near_zero_negative_price_never_renders_minus_zero(db_session):
+    # -0.4 rounds to the int 0 (no signed zero) — must render "€0/MWh", not "€-0/MWh"
+    # or "−€0/MWh".
+    _seed_price(db_session, zone="FR", mean=-0.4)
+    resp = _client(db_session).get("/api/v1/badge/FR/price.svg")
+    text_el = _parse_svg(resp.text).find("{http://www.w3.org/2000/svg}text")
+    assert "€0/MWh" in text_el.text
+    # currency-scoped: a bare "-0" would also match the date ("2026-06-01")
+    assert "€-0" not in text_el.text and "−€0" not in text_el.text
+
+
+def test_db_error_degrades_to_grey_200(db_session, monkeypatch):
+    """The module docstring and API.md promise an unconditional 200 — a transient DB
+    error inside the data read must degrade to the grey pill, not a 500 broken image."""
+    import backend.routes.embed as embed_mod
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("db exploded")
+
+    monkeypatch.setattr(embed_mod, "read_hourly", _boom)
+    resp = _client(db_session).get("/api/v1/badge/DE_LU/load.svg")
+    assert resp.status_code == 200
+    root = _parse_svg(resp.text)
+    fill = root.find("{http://www.w3.org/2000/svg}rect").get("fill")
+    assert fill == "#1a1c22"  # grey, same as "no data yet"
+    text_el = root.find("{http://www.w3.org/2000/svg}text")
+    assert "no data" in text_el.text
