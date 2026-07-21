@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -116,6 +117,32 @@ def test_unknown_zone_returns_grey_200(db_session):
     assert fill == "#1a1c22"  # the grey "no data" background, not the ok-badge dark
     text_el = root.find("{http://www.w3.org/2000/svg}text")
     assert "no data" in text_el.text
+
+
+def test_unknown_zone_quote_injection_is_neutralized(db_session):
+    """Regression for a reflected-XSS finding: an unknown zone reaches `_no_data_badge`
+    with the RAW URL path segment as `text`, which `_badge_svg` places both in an
+    element body (<title>/<text>, safe with plain & < > escaping) and in an ATTRIBUTE
+    value (`aria-label="..."`). A `"` in the zone must not be able to close that
+    attribute early and inject a new one (e.g. `onload=`) — `_badge_svg` must escape
+    quotes specifically for the attribute sink."""
+    # No "/" in the payload — a URL-encoded %2F is decoded back to a literal "/" by
+    # the ASGI path before routing, which would split it into extra path segments
+    # (a routing quirk, not part of what this regression is about) rather than
+    # reach the handler as a single {zone} value.
+    payload = 'x" onload="alert(1)'
+    resp = _client(db_session).get(f"/api/v1/badge/{quote(payload, safe='')}/price.svg")
+    assert resp.status_code == 200
+    root = _parse_svg(resp.text)  # raises ET.ParseError if the injected attribute broke the XML
+    assert root.tag.endswith("svg")
+    # No element anywhere in the document may have picked up an "onload" attribute —
+    # the whole point of the injection would be a real, parseable onload="...".
+    for el in root.iter():
+        assert "onload" not in el.attrib
+    aria_label = root.get("aria-label")
+    assert aria_label is not None
+    assert '"' in aria_label  # the literal quote survived — safely, as &quot; on the wire
+    assert "onload" in aria_label  # present as inert TEXT inside the attribute value, not a new attribute
 
 
 def test_unknown_metric_returns_grey_200(db_session):

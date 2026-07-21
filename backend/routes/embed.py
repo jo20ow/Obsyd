@@ -62,9 +62,17 @@ def _badge_svg(text: str, *, bg: str, border: str, fill: str, title: str) -> str
     width = max(_MIN_WIDTH, int(_PAD_X * 2 + len(text) * _CHAR_W))
     esc_text = escape(text)
     esc_title = escape(title)
+    # `escape()` alone only handles & < > — safe for an ELEMENT BODY (<title>/<text>
+    # above and below), but `aria-label` is an ATTRIBUTE VALUE: a `"` in `text` would
+    # close the attribute early and let whatever follows (e.g. a zone path segment
+    # like `x" onload="alert(1)//`) be parsed as a new attribute. `text` here can
+    # originate straight from the URL's `{zone}` path segment (see the unknown-
+    # zone/metric branch in `badge()` below), so it's untrusted — escape quotes too,
+    # for this attribute sink specifically.
+    esc_attr = escape(text, {'"': "&quot;", "'": "&apos;"})
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{_HEIGHT}" '
-        f'role="img" aria-label="{esc_text}">'
+        f'role="img" aria-label="{esc_attr}">'
         f"<title>{esc_title}</title>"
         f'<rect width="{width}" height="{_HEIGHT}" rx="3" fill="{bg}"/>'
         f'<rect x="0.5" y="0.5" width="{width - 1}" height="{_HEIGHT - 1}" rx="3" '
