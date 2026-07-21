@@ -23,6 +23,7 @@ from backend.routes import briefing as briefing_routes
 from backend.routes import crypto as crypto_routes
 from backend.routes import econ as econ_routes
 from backend.routes import email as email_routes
+from backend.routes import embed as embed_routes
 from backend.routes import filings as filings_routes
 from backend.routes import gas as gas_routes
 from backend.routes import jodi as jodi_routes
@@ -191,5 +192,6 @@ app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)
 app.include_router(power_routes.router)
 app.include_router(api_v1.router)  # public data API v1 (/api/v1/series, catalog, meta)
+app.include_router(embed_routes.router)  # /api/v1/badge/*.svg — embeddable status badges
 app.include_router(situation_routes.router)
 app.include_router(watchlist_routes.router)
