@@ -311,6 +311,12 @@ def get_day_ahead_hourly(
 def get_spark_spread(
     days: int = Query(120, ge=7, le=1500),
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL, …"),
+    efficiency: float | None = Query(
+        None, ge=0.30, le=0.65,
+        description="Override the CCGT electrical efficiency (0.30–0.65) used for this "
+        "request's heat rate. Defaults to settings.gas_ccgt_efficiency. A PPA/asset-modelling "
+        "knob: the desk's own fleet-average assumption may not match a specific plant.",
+    ),
     db: Session = Depends(get_db),
 ):
     """DIRTY spark spread (power − gas × heat_rate, EUR/MWh) for any zone — and the carbon
@@ -329,10 +335,17 @@ def get_spark_spread(
     The gas leg is TTF for every zone (a per-zone hub is a later refinement) and its raw close is
     NOT returned: yfinance's TTF is Yahoo's copy of the ICE Endex front-month, licensed exchange
     data this project does not redistribute. That is a mitigation, not a cure — see spark.py.
+
+    `efficiency`, when given, overrides settings.gas_ccgt_efficiency for THIS request only — the
+    heat rate and everything derived from it (the spread, the break-even carbon price, the carbon
+    intensity) are recomputed at the requested efficiency. The raw gas price stays unexposed
+    regardless: the override changes the arithmetic applied to it, not what leaves the response.
+    The efficiency actually used (requested or defaulted) is always echoed back as `efficiency`.
     """
     resolved_zone = _resolve_zone(zone)
     symbol = POWER_ZONES[resolved_zone]["price_symbol"]
-    heat_rate = round(1.0 / settings.gas_ccgt_efficiency, 4)
+    eff = efficiency if efficiency is not None else settings.gas_ccgt_efficiency
+    heat_rate = round(1.0 / eff, 4)
     date_from, date_to = _window(days)
 
     def _prices(sym: str) -> dict[str, float]:
@@ -353,6 +366,7 @@ def get_spark_spread(
             "available": False,
             "zone": resolved_zone,
             "zones": _ZONE_KEYS,
+            "efficiency": eff,
             "reason": f"Spark spread isn't available for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
 
@@ -376,7 +390,13 @@ def get_spark_spread(
         "zone": resolved_zone,
         "zones": _ZONE_KEYS,
         "unit": "EUR/MWh",
-        "heat_rate_note": "1 / CCGT_efficiency; default efficiency = 0.50",
+        "efficiency": eff,
+        "heat_rate_note": (
+            "1 / CCGT_efficiency; default efficiency = "
+            f"{settings.gas_ccgt_efficiency}, this request used {eff}"
+            if efficiency is not None
+            else f"1 / CCGT_efficiency; default efficiency = {settings.gas_ccgt_efficiency}"
+        ),
         "co2_intensity_t_per_mwh": round(co2_intensity(heat_rate), 4),
         "gas_leg_note": (
             "Gas leg = TTF front-month for every zone (a per-zone hub is a later refinement). Its "

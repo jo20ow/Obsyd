@@ -101,7 +101,18 @@ def test_no_value_factor_through_a_zero_baseload():
 def test_negative_generation_share_is_the_technologys_own_output():
     prices = _hours(0, {0: -5.0, 1: 50.0, 2: 50.0, 3: 50.0})
     gen = _hours(0, {0: 300.0, 1: 100.0, 2: 100.0, 3: 100.0})
-    assert capture_metrics(prices, gen)["negative_gen_pct"] == 50.0  # 300 of 600 MWh
+    m = capture_metrics(prices, gen)
+    assert m["negative_gen_pct"] == 50.0  # 300 of 600 MWh
+    assert m["negative_hours"] == 1  # only hour 0 is both negative-price and producing
+
+
+def test_negative_hours_counts_hours_not_generation():
+    """negative_hours is a volume-blind COUNT: an hour of a small plant counts the
+    same as an hour of a large one, unlike negative_gen_pct which is weighted."""
+    prices = _hours(0, {0: -5.0, 1: -1.0, 2: 50.0, 3: -2.0})
+    gen = _hours(0, {0: 1.0, 1: 900.0, 2: 100.0, 3: 0.0})  # hour 3: negative price, ZERO output
+    m = capture_metrics(prices, gen)
+    assert m["negative_hours"] == 2, "hours 0 and 1 — hour 3 had no output despite the negative price"
 
 
 def test_a_technology_that_produced_nothing_has_no_capture_price():
@@ -251,6 +262,9 @@ def test_route(db_session):
     assert body["available"] is True
     assert body["baseload_price"] == 60.0
     assert body["fuels"][0]["latest"]["capture_price"] is not None
+    # negative_hours travels next to negative_gen_pct in both `latest` and the monthly rows.
+    assert "negative_hours" in body["fuels"][0]["latest"]
+    assert all("negative_hours" in row for f in body["fuels"] for row in f["data"])
 
 
 def _seed_messy(db, zone="DE_LU", days=390):
@@ -313,7 +327,8 @@ def test_the_sql_and_the_definition_agree(db_session):
             # EXACT, not approximate. A rel=1e-3 tolerance is precisely wide enough to hide
             # the drift that actually happened.
             for key in ("capture_price", "baseload_price", "value_factor",
-                        "hours", "days", "generation_gwh", "negative_gen_pct"):
+                        "hours", "days", "generation_gwh", "negative_gen_pct",
+                        "negative_hours"):
                 assert got[key] == want[key], f"{fuel['psr']} {got['month']}.{key}"
             checked += 1
     assert checked >= 20, "too few month-fuel pairs to catch a boundary-crossing rounding"
