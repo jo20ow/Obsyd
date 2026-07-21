@@ -34,6 +34,7 @@ import OutagePanel from './components/OutagePanel'
 import RecordChip from './components/RecordChip'
 import ImbalancePanel from './components/ImbalancePanel'
 import BalancingPanel from './components/BalancingPanel'
+import CapacityPricePanel from './components/CapacityPricePanel'
 import RecordsPanel from './components/RecordsPanel'
 import EpisodeArchivePanel from './components/EpisodeArchivePanel'
 import CapturePanel from './components/CapturePanel'
@@ -642,6 +643,9 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="power-balancing">
                 <BalancingPanel zone={energyZone} />
+              </ErrorBoundary>
+              <ErrorBoundary name="power-capacity-prices">
+                <CapacityPricePanel zone={energyZone} />
               </ErrorBoundary>
               <ErrorBoundary name="power-spark">
                 <SparkSpreadPanel zone={energyZone} />
