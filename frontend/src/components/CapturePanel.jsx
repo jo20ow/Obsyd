@@ -1,13 +1,36 @@
+import { useEffect, useState } from 'react'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_SLOW_MS } from '../utils/poll'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, Legend,
 } from 'recharts'
-import { CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS } from '../utils/chart'
 import { fuelColor } from '../utils/fuels'
 
 const API = '/api'
+
+// Segmented toggle idiom shared with GasBalancePanel's RESIDUAL / IMPLIED-ACTUAL switch.
+function ToggleBtn({ id, label, view, setView }) {
+  return (
+    <button
+      type="button"
+      onClick={() => setView(id)}
+      className={`font-mono text-[9px] tracking-wider px-2 py-0.5 rounded border transition-colors ${
+        view === id ? 'text-cyan-glow border-cyan-glow/50 bg-cyan-glow/5' : 'text-neutral-600 border-border hover:text-neutral-400'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+// `?strike=` is shareable, same replaceState-on-every-edit idiom as SeriesExplorer's
+// `rows=`/`res=` params — read once at mount, rewritten (or removed, when cleared) on change.
+function readStrikeParam() {
+  if (typeof window === 'undefined') return ''
+  return new URLSearchParams(window.location.search).get('strike') ?? ''
+}
 
 /**
  * Capture rate — what a MWh of each technology actually earned.
@@ -21,6 +44,21 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
   const { data, loading, error } = useFetchWithError(
     `${API}/power/capture?zone=${zone}&months=36`, { deps: [zone], pollMs: POLL_SLOW_MS },
   )
+  // 'vf' = value factor (the cannibalisation story) · 'price' = raw capture €/MWh (PPA framing).
+  const [chartMode, setChartMode] = useState('vf')
+  // A PPA strike is a €/MWh floor a buyer negotiated — empty means off. Kept as the raw input
+  // string (not a number) so a user can type "45" through an intermediate empty/partial state
+  // without the field fighting back.
+  const [strikeInput, setStrikeInput] = useState(() => readStrikeParam())
+
+  // Rewrite the URL on every edit, same idiom as SeriesExplorer's rows=/res= sync: set when
+  // present, delete when cleared, so an empty strike never leaves a stale `?strike=` behind.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (strikeInput !== '') params.set('strike', strikeInput); else params.delete('strike')
+    const qs = params.toString()
+    history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
+  }, [strikeInput])
 
   if (error) {
     return (
@@ -41,17 +79,29 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
 
   const fuels = data?.fuels ?? []
 
-  // One row per month, one column per technology: the value-factor history.
+  // One row per month, one column per technology — value factor or raw capture price,
+  // whichever the toggle currently shows.
   const months = [...new Set(fuels.flatMap((f) => f.data.map((r) => r.month)))].sort()
+  const chartField = chartMode === 'price' ? 'capture_price' : 'value_factor'
   const chart = months.map((month) => {
     const row = { month }
     for (const f of fuels) {
       const hit = f.data.find((r) => r.month === month)
-      if (hit) row[f.psr] = hit.value_factor
+      if (hit) row[f.psr] = hit[chartField]
     }
     return row
   })
   const worst = fuels[0]?.latest
+
+  // PPA framing: a strike is a floor a buyer negotiated. Backward-looking only — how many of
+  // the cannibalised technology's OWN recent months would have landed below it.
+  const strike = strikeInput === '' ? null : Number(strikeInput)
+  const hasStrike = strike != null && Number.isFinite(strike)
+  const worstFuel = fuels[0]
+  const worstRecent = worstFuel ? worstFuel.data.slice(-12) : []
+  const belowStrikeCount = hasStrike
+    ? worstRecent.filter((r) => r.capture_price < strike).length
+    : null
 
   return (
     <Panel
@@ -89,6 +139,7 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                   <th className="text-right px-2 py-1" title="Capture price ÷ the month's baseload price. Below 1.00 = earned less than baseload.">Value factor</th>
                   <th className="px-2 py-1"></th>
                   <th className="text-right px-2 py-1" title="Share of this technology's own output that landed in negative-price hours">Neg. output</th>
+                  <th className="text-right px-2 py-1" title="Hours this technology was producing while the day-ahead price was negative (a count, not generation-weighted)">Neg. hours</th>
                   <th className="text-right px-2 py-1">Volume</th>
                 </tr>
               </thead>
@@ -130,6 +181,9 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                       <td className={`px-2 py-1.5 text-right ${L.negative_gen_pct > 0 ? 'text-orange-400' : 'text-neutral-700'}`}>
                         {L.negative_gen_pct > 0 ? `${L.negative_gen_pct.toFixed(1)}%` : '—'}
                       </td>
+                      <td className={`px-2 py-1.5 text-right ${L.negative_hours > 0 ? 'text-orange-400' : 'text-neutral-700'}`}>
+                        {L.negative_hours > 0 ? L.negative_hours : '—'}
+                      </td>
                       <td className="px-2 py-1.5 text-right text-neutral-500">{L.generation_gwh.toFixed(0)} GWh</td>
                     </tr>
                   )
@@ -140,20 +194,51 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
 
           {chart.length > 1 && (
             <div className="px-2 pb-2">
-              <div className="px-2 pb-1 font-mono text-[9px] text-neutral-600 uppercase tracking-wider">
-                Value factor by month
+              <div className="px-2 pb-1.5 flex items-center justify-between gap-2 flex-wrap">
+                <span className="font-mono text-[9px] text-neutral-600 uppercase tracking-wider">
+                  {chartMode === 'price' ? 'Capture price by month' : 'Value factor by month'}
+                </span>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <ToggleBtn id="vf" label="VALUE FACTOR" view={chartMode} setView={setChartMode} />
+                    <ToggleBtn id="price" label="CAPTURE €/MWh" view={chartMode} setView={setChartMode} />
+                  </div>
+                  {chartMode === 'price' && (
+                    <label className="flex items-center gap-1.5 font-mono text-[9px] text-neutral-500">
+                      PPA strike
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="any"
+                        placeholder="off"
+                        value={strikeInput}
+                        onChange={(e) => setStrikeInput(e.target.value)}
+                        className="w-16 bg-[#0a0a12] border border-border rounded px-1.5 py-0.5 font-mono text-[10px] text-neutral-200 outline-none focus:border-cyan-glow/40"
+                      />
+                      €/MWh
+                    </label>
+                  )}
+                </div>
               </div>
               <ResponsiveContainer width="100%" height={170}>
                 <LineChart data={chart} margin={{ top: 4, right: 8, bottom: 2, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
                   <XAxis dataKey="month" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={40} />
                   <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={34}
-                    tickFormatter={(v) => `×${v.toFixed(1)}`} />
-                  {/* Baseload itself. Everything below this line earned less than the base product. */}
-                  <ReferenceLine y={1} stroke="#525252" strokeDasharray="4 4" />
+                    tickFormatter={(v) => chartMode === 'price' ? `€${v.toFixed(0)}` : `×${v.toFixed(1)}`} />
+                  {chartMode === 'vf' ? (
+                    // Baseload itself. Everything below this line earned less than the base product.
+                    <ReferenceLine y={1} stroke="#525252" strokeDasharray="4 4" />
+                  ) : hasStrike && (
+                    <ReferenceLine y={strike} stroke="#fbbf24" strokeDasharray="4 4"
+                      label={{ value: `strike €${strike}`, position: 'insideTopLeft', fontSize: 8, fill: '#fbbf24' }} />
+                  )}
                   <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    formatter={(v, n) => [v == null ? '—' : `×${Number(v).toFixed(2)}`, n]}
+                    {...CHART_TOOLTIP_PROPS}
+                    formatter={(v, n) => [
+                      v == null ? '—' : chartMode === 'price' ? `€${Number(v).toFixed(1)}` : `×${Number(v).toFixed(2)}`,
+                      n,
+                    ]}
                   />
                   <Legend wrapperStyle={{ fontSize: 9, color: '#737373' }} iconSize={6} />
                   {fuels.map((f) => (
@@ -163,6 +248,12 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                   ))}
                 </LineChart>
               </ResponsiveContainer>
+              {chartMode === 'price' && hasStrike && worstFuel && (
+                <div className="px-2 pt-1 font-mono text-[9px] text-amber-400/90">
+                  {belowStrikeCount} of the last {worstRecent.length} month{worstRecent.length === 1 ? '' : 's'} closed
+                  below the €{strike}/MWh strike for {worstFuel.label} — realised, not a projection.
+                </div>
+              )}
             </div>
           )}
 

@@ -37,6 +37,7 @@ import BalancingPanel from './components/BalancingPanel'
 import RecordsPanel from './components/RecordsPanel'
 import EpisodeArchivePanel from './components/EpisodeArchivePanel'
 import CapturePanel from './components/CapturePanel'
+import SparkCalculatorPanel from './components/SparkCalculatorPanel'
 import BordersPanel from './components/BordersPanel'
 import DriversPanel from './components/DriversPanel'
 import ProductsPanel from './components/ProductsPanel'
@@ -732,6 +733,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="power-capture">
                 <CapturePanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="power-spark-calculator">
+                <SparkCalculatorPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
             <div className="mt-3">
