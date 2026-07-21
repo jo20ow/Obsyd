@@ -47,6 +47,7 @@ import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
 import LegalPage from './components/LegalPage'
 import CommandPalette from './components/CommandPalette'
+import EmbedPage from './components/embed/EmbedPage'
 import { useAuth } from './context/AuthContext'
 import { ViewStateProvider, useViewState } from './context/ViewStateContext'
 
@@ -141,6 +142,14 @@ function scrollToSection(id) {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+// /embed/<ZONE>/<metric> — parsed straight from the pathname, no router lib (matches
+// the rest of this file's convention). Returns nulls for a malformed path; EmbedPage
+// turns those into the explicit "unknown" card rather than guessing a zone.
+function parseEmbedPath(pathname) {
+  const parts = pathname.split('/').filter(Boolean) // "/embed/DE_LU/price" -> ["embed","DE_LU","price"]
+  return { zone: parts[1] || null, metric: parts[2] || null }
+}
+
 // /builder — the Chart-Builder as its own route: a slim shell (wordmark +
 // range picker, no sidebar/tabs/ticker) around the same SeriesExplorer the
 // EXPLORE tab renders, full-width. It needs its own ViewStateProvider (the
@@ -181,6 +190,19 @@ function App() {
   // Read once at module init — no need to react to client-side navigation
   // since neither route mutates the URL after mount.
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+
+  // /embed/<zone>/<metric> — the embeddable iframe widgets (Task P10). Handled
+  // BEFORE and OUTSIDE ViewStateProvider: an embed is one fixed zone+metric, never
+  // a navigable desk, so it must skip ViewStateProvider's URL-query rewriting
+  // (?zone=&range=) and localStorage persistence entirely, not just Dashboard's own
+  // boot fetches. EmbedPage does its own (per-metric) zone validation against each
+  // endpoint's response rather than the silent DE_LU fallback the underlying
+  // /api/power/* routes use.
+  if (pathname.startsWith('/embed/')) {
+    const { zone, metric } = parseEmbedPath(pathname)
+    return <EmbedPage zone={zone} metric={metric} />
+  }
+
   if (pathname === '/impressum' || pathname === '/datenschutz') {
     return <LegalPage page={pathname.slice(1)} />
   }
