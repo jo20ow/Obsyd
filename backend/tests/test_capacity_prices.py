@@ -278,14 +278,19 @@ class _PagingClient:
         return httpx.Response(200, content=body, request=httpx.Request("GET", url, params=params))
 
 
-async def test_pagination_stops_on_short_page(tmp_path, monkeypatch):
-    """Two full 100-entry pages then a short (< 100) page: 3 requests, all docs merged."""
+async def test_pagination_stops_on_short_page(db_session, tmp_path, monkeypatch):
+    """Two full 100-entry pages then a short (< 100) page: 3 requests, all docs merged.
+
+    All 240 bids across the 3 pages belong to the SAME (afrr.pos) block — this is the
+    regression case for aggregating per page and merging via dict.update: the LAST page's
+    partial average would silently win instead of the weighted average over all 240 bids.
+    """
     import backend.gas.raw_cache as rc
 
     pages = {
-        0: _n_bid_doc(100, price_start=1.0).encode(),
-        100: _n_bid_doc(100, price_start=200.0).encode(),
-        200: _n_bid_doc(40, price_start=400.0).encode(),
+        0: _n_bid_doc(100, price_start=1.0).encode(),      # prices 1..100,   sum=5050
+        100: _n_bid_doc(100, price_start=200.0).encode(),  # prices 200..299, sum=24950
+        200: _n_bid_doc(40, price_start=400.0).encode(),    # prices 400..439, sum=16780
     }
     client = _PagingClient(pages)
     monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
@@ -297,6 +302,47 @@ async def test_pagination_stops_on_short_page(tmp_path, monkeypatch):
     docs = await cap._fetch_capacity_day("A51", date(2026, 6, 1))
     assert client.calls == [0, 100, 200]
     assert len(docs) == 3
+
+    # Combining every page's RAW bids for the block before aggregating (the fix) yields the
+    # true weighted average over all 240 bids (quantity is uniform 1.0, so this is a plain
+    # mean): (5050 + 24950 + 16780) / 240.
+    merged_raw: dict = {}
+    for xml in docs:
+        for key, pairs in cap.parse_capacity_bids(xml).items():
+            merged_raw.setdefault(key, []).extend(pairs)
+    assert len(merged_raw) == 1  # one block only
+    ((suffix, _start, _end), pairs), = merged_raw.items()
+    assert suffix == "afrr.pos"
+    assert len(pairs) == 240
+    correct_avg = aggregate_bids(pairs)["weighted_avg"]
+    assert correct_avg == pytest.approx((5050 + 24950 + 16780) / 240)  # 194.91666...
+
+    # The regression this guards: aggregating PER PAGE (parse_capacity_document, which runs
+    # aggregate_bids WITHIN one document) and then merging by (day, hour) via dict.update lets
+    # the LAST page's partial average silently overwrite every earlier page's — concretely a
+    # different (and, since bids arrive in ascending-price/merit order, systematically biased
+    # high) number here, not the correct 194.92.
+    old_style_value = None
+    for xml in docs:
+        parsed = parse_capacity_document(xml)
+        if "afrr.pos" in parsed:
+            old_style_value = parsed["afrr.pos"]["2026-06-01"][0]
+    assert old_style_value == pytest.approx(419.5)  # mean of the LAST page alone (400..439)
+    assert old_style_value != pytest.approx(correct_avg)
+
+    # And the production entry point (ingest_capacity_prices) must land on the CORRECT
+    # cross-page value in the actual hourly store, not the old per-page-last-wins one.
+    async def fake_fetch(process_type, day, *, overwrite=False):
+        return docs if process_type == "A51" else []
+
+    monkeypatch.setattr(cap.settings, "entsoe_api_token", "x")
+    monkeypatch.setattr(cap, "_fetch_capacity_day", fake_fetch)
+    r = await cap.ingest_capacity_prices(db_session, ["2026-06-01"], overwrite=True)
+    assert r["written"] > 0
+    stored = read_hourly(db_session, "capacity.afrr.pos.price", "DE_LU")
+    assert stored
+    assert stored[0][1] == pytest.approx(correct_avg)
+    assert stored[0][1] != pytest.approx(old_style_value)
 
 
 async def test_pagination_stops_on_clean_empty_acknowledgement(tmp_path, monkeypatch):

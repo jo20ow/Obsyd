@@ -41,7 +41,13 @@ LIVE SPIKE (2026-07-21, curl against https://web-api.tp.entsoe.eu/api, DE-LU LFC
     strict 4900 cutoff would have silently dropped ~2000 real aFRR bids on an ordinary day.
     `_MAX_OFFSET` below is therefore a generous runaway-loop safety valve (20,000 — ~3x the
     highest observed count), not an expected truncation point; a page short of 100 TimeSeries
-    (including a genuinely empty one) is the real, verified stop condition.
+    (including a genuinely empty one) is the real, verified stop condition. Precisely BECAUSE
+    a block's bids routinely span many pages this way (~574 bids per block/direction on the
+    busiest spiked aFRR day), `parse_capacity_bids` returns raw, un-aggregated bids and
+    `ingest_capacity_prices` accumulates them across every page of a day BEFORE aggregating —
+    see those two docstrings. An earlier version of this module aggregated per page/document
+    and merged the results, which let the LAST page's partial (and, since ENTSO-E orders bids
+    by price, systematically skewed) average silently overwrite every earlier page's.
 
   * ERROR DISCIPLINE DIFFERS FROM A83/A84: every "nothing here" case tried — a future date
     (2030-01-01), a pre-tender date (2010-01-01), the wrong (control-area) domain, and
@@ -162,14 +168,26 @@ def _series_suffix(product: str, direction_code: str | None) -> str | None:
     return f"{product}.{direction}" if direction else None
 
 
-def parse_capacity_document(xml_text: str) -> dict[str, dict[str, dict[int, float]]]:
-    """One A15 document -> {series_suffix: {day: {hour: normalized EUR/MW/h}}}.
+def parse_capacity_bids(xml_text: str) -> dict[tuple[str, int, int], list[tuple[float, float]]]:
+    """One A15 document/page -> RAW, un-aggregated
+    {(series_suffix, block_start_epoch, block_end_epoch): [(quantity, price), ...]}.
 
     Namespace-agnostic (matches local tag names, like every other parser in this vertical).
     An Acknowledgement (no `process.processType`, no TimeSeries) yields {}. The document's
     OWN `process.processType` decides the product for every TimeSeries in it — read off the
     wire rather than trusted from the request, so a mislabelled or merged document can never
     silently write to the wrong product's series.
+
+    Deliberately returns raw bids rather than an aggregated price: a busy day's bids for ONE
+    block are split across many paginated pages (live-spiked: ~574 bids per block/direction on
+    the busiest aFRR day, ~69 pages total for that day). A caller that aggregated per page (as
+    an earlier version of this module did, via a since-removed per-document aggregation step)
+    would average only that page's partial subset — and since ENTSO-E returns bids in
+    ascending-price (merit) order, that silently biases every page's average toward whichever
+    price band it happened to land on, with the LAST page's partial average winning once pages
+    are merged. Callers MUST accumulate every page's raw bids for the SAME block across a
+    whole fetch (see `ingest_capacity_prices`) and call `aggregate_bids` on the COMBINED list
+    exactly once per block.
     """
     try:
         root = ET.fromstring(xml_text)
@@ -222,8 +240,18 @@ def parse_capacity_document(xml_text: str) -> dict[str, dict[str, dict[int, floa
                     continue
                 bids.setdefault(key, []).append((qty, price))
 
+    return bids
+
+
+def _aggregate_and_densify(
+    bids_by_block: dict[tuple[str, int, int], list[tuple[float, float]]],
+) -> dict[str, dict[str, dict[int, float]]]:
+    """{(series_suffix, block_start, block_end): [(qty, price), ...]} -> {series_suffix:
+    {day: {hour: normalized EUR/MW/h}}}. `aggregate_bids` runs EXACTLY ONCE per block here, on
+    the caller's already-fully-combined bid list — see `parse_capacity_bids`'s docstring for
+    why that combining must happen first."""
     out: dict[str, dict[str, dict[int, float]]] = {}
-    for (suffix, block_start, block_end), pairs in bids.items():
+    for (suffix, block_start, block_end), pairs in bids_by_block.items():
         agg = aggregate_bids(pairs)
         weighted_avg = agg["weighted_avg"]
         if weighted_avg is None:
@@ -239,6 +267,18 @@ def parse_capacity_document(xml_text: str) -> dict[str, dict[str, dict[int, floa
             t += 3600
 
     return out
+
+
+def parse_capacity_document(xml_text: str) -> dict[str, dict[str, dict[int, float]]]:
+    """One SINGLE, already-complete A15 document -> {series_suffix: {day: {hour: normalized
+    EUR/MW/h}}} — a thin convenience wrapper (`parse_capacity_bids` + `_aggregate_and_densify`)
+    for tests and any caller that genuinely has one whole document's bids for a block in hand.
+
+    Real (paginated) production fetches must NOT use this per-document: `ingest_capacity_prices`
+    accumulates raw bids across every page of a day via `parse_capacity_bids` before aggregating
+    — see that function's docstring for why per-page aggregation silently biases the result.
+    """
+    return _aggregate_and_densify(parse_capacity_bids(xml_text))
 
 
 def _count_timeseries(xml_text: str) -> int:
@@ -291,7 +331,17 @@ async def _fetch_capacity_day(process_type: str, day: date, *, overwrite: bool =
                     page_docs = [resp.text]
                 docs.extend(page_docs)
                 page_count = sum(_count_timeseries(d) for d in page_docs if d)
-                if page_count < _PAGE_SIZE or offset >= _MAX_OFFSET:
+                if page_count < _PAGE_SIZE:
+                    break  # natural end: a short (or empty-Acknowledgement) page
+                if offset >= _MAX_OFFSET:
+                    # A FULL page still sitting at the safety-valve ceiling means there is
+                    # real data beyond it we are choosing not to fetch. That truncated payload
+                    # is about to land in the write-once raw cache — silent truncation there
+                    # would be permanent on a backfill path, so this must be loud, not just a
+                    # comment in the source.
+                    logger.warning(
+                        "A15 %s %s hit _MAX_OFFSET (%d) — page truncated", process_type, day, _MAX_OFFSET
+                    )
                     break
                 offset += _PAGE_SIZE
         return {"xml": docs}
@@ -313,13 +363,24 @@ async def ingest_capacity_prices(db: Session, days: list[str], *, overwrite: boo
     no per-zone equivalent on this desk (see AREA_DOMAIN). Each day/processType fetch is
     isolated (log + continue), matching the rest of this vertical's per-step failure
     isolation — one bad day must never blank the others.
+
+    CROSS-PAGE ACCUMULATION (the correctness-critical part): every page/ZIP-member of every
+    day/processType fetch is parsed with `parse_capacity_bids` into RAW bids first, and all of
+    them are folded into ONE `all_bids` accumulator keyed by (series_suffix, block_start,
+    block_end) across the ENTIRE call — never aggregated per page or per document. Only after
+    every fetch has landed does `_aggregate_and_densify` run `aggregate_bids` exactly once per
+    block, on that block's COMPLETE bid list. See `parse_capacity_bids`'s docstring: a block's
+    bids routinely span many pages, and aggregating page-by-page then merging (an earlier,
+    incorrect version of this function did that, with the LAST page silently overwriting every
+    earlier one) would average only whichever partial subset of bids the last page happened to
+    contain.
     """
     if not settings.entsoe_api_token:
         return {"skipped": "no token"}
     if not days:
         return {"days": 0, "written": 0}
 
-    acc: dict[str, dict[str, dict[int, float]]] = {}
+    all_bids: dict[tuple[str, int, int], list[tuple[float, float]]] = {}
     for day_str in days:
         day = datetime.strptime(day_str, "%Y-%m-%d").date()
         for process_type in PROCESS_TYPES.values():
@@ -332,14 +393,14 @@ async def ingest_capacity_prices(db: Session, days: list[str], *, overwrite: boo
                 if not xml:
                     continue
                 try:
-                    parsed = parse_capacity_document(xml)
+                    parsed_bids = parse_capacity_bids(xml)
                 except ValueError as exc:
                     logger.warning("capacity prices [%s %s] parse failed: %s", process_type, day, exc)
                     continue
-                for suffix, day_hours in parsed.items():
-                    bucket = acc.setdefault(suffix, {})
-                    for d, hours in day_hours.items():
-                        bucket.setdefault(d, {}).update(hours)
+                for key, pairs in parsed_bids.items():
+                    all_bids.setdefault(key, []).extend(pairs)
+
+    acc = _aggregate_and_densify(all_bids)
 
     written = 0
     for suffix, day_hours in acc.items():
