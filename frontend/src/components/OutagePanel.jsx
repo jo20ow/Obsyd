@@ -21,6 +21,7 @@ function ToggleBtn({ id, label, view, setView }) {
   return (
     <button
       type="button"
+      aria-pressed={view === id}
       onClick={() => setView(id)}
       className={`font-mono text-[9px] tracking-wider px-2 py-0.5 rounded border transition-colors ${
         view === id ? 'text-cyan-glow border-cyan-glow/50 bg-cyan-glow/5' : 'text-neutral-600 border-border hover:text-neutral-400'
@@ -112,8 +113,10 @@ export default function OutagePanel({ zone = 'DE_LU' }) {
             <>
               <div className="px-4 py-3 border-b border-border/30">
                 <PanelTakeaway tone={forced > 1000 ? 'warn' : 'info'}>
-                  {`${fmtGw(data.total_offline_mw)} of generation is offline right now` +
-                    (forced > 0 ? ` — ${fmtGw(forced)} of it forced (unplanned).` : ', all of it planned maintenance.')}
+                  {data.total_offline_mw > 0
+                    ? `${fmtGw(data.total_offline_mw)} of generation is offline right now` +
+                      (forced > 0 ? ` — ${fmtGw(forced)} of it forced (unplanned).` : ', all of it planned maintenance.')
+                    : `${fmtGw(data.total_offline_mw)} of generation is offline right now.`}
                   {upcoming.length > 0 ? ` ${upcoming.length} more outage${upcoming.length === 1 ? '' : 's'} start within 30 days.` : ''}
                 </PanelTakeaway>
               </div>
@@ -161,7 +164,7 @@ export default function OutagePanel({ zone = 'DE_LU' }) {
                 )}
                 {running.length > 12 && (
                   <div className="font-mono text-[9px] text-neutral-600 px-2 pt-1">
-                    + {running.length - 12} smaller outages running
+                    + {running.length - 12} more running
                   </div>
                 )}
               </div>
@@ -220,7 +223,7 @@ export default function OutagePanel({ zone = 'DE_LU' }) {
                 )}
                 {transRunning.length > 12 && (
                   <div className="font-mono text-[9px] text-neutral-600 px-2 pt-1">
-                    + {transRunning.length - 12} smaller outages running
+                    + {transRunning.length - 12} more running
                   </div>
                 )}
               </div>
