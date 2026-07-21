@@ -1,3 +1,10 @@
+# LEGACY / self-hoster path: the included `deploy/setup-vps.sh` provisions this
+# standalone nginx config for people running their own instance. The hosted
+# obsyd.dev does NOT use this — it runs behind Caddy (deploy/install-caddy-
+# integration.sh), which is where the maintained /embed frame exception lives
+# first. Keep the two in sync when either changes; this file is not exercised
+# by CI or by the hosted deploy.
+#
 # HTTPS is handled by Let's Encrypt / certbot on the VPS.
 # This config shows the HTTP server block only.
 # Certbot auto-generates the SSL server block in /etc/nginx/sites-available/.
@@ -16,6 +23,25 @@ server {
 
     # SPA Routing
     location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # /embed/<zone>/<metric> iframe widgets — mirrors the Caddy @embed exception in
+    # deploy/install-caddy-integration.sh, the only frameable path on the site. nginx's
+    # add_header does NOT inherit into a location block that declares its own add_header,
+    # so every security header below is repeated on purpose — this list is identical to
+    # the server-level ones further down EXCEPT X-Frame-Options (omitted, dropping the
+    # site-wide DENY here) and Content-Security-Policy (a permissive frame-ancestors
+    # instead of the strict default-src one). Also serves the SPA (this is a client-side
+    # route, not a distinct static page) with a 5-minute cache for the embedded widget.
+    location /embed/ {
+        add_header X-Content-Type-Options nosniff;
+        add_header X-XSS-Protection "1; mode=block";
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header Content-Security-Policy "frame-ancestors *";
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        add_header Cache-Control "public, max-age=300";
         try_files $uri $uri/ /index.html;
     }
 

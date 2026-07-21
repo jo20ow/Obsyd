@@ -428,6 +428,30 @@ def test_catalog_pattern_labels_resolve_gen_and_flow(db_session):
     assert by_key["flow.FR"]["group"] == "flow"
 
 
+def test_catalog_pattern_labels_resolve_balancing_capacity_outage_netpos(db_session):
+    """New branch-added prefixes: activated balancing ENERGY, procured balancing
+    CAPACITY (disambiguated from /api/v1/capacity's installed generation capacity),
+    outages and net position all need readable labels + groups on day one."""
+    upsert_hourly(db_session, "balancing.afrr.price.up", "DE_LU", [(_BASE, 5.0)], unit="EUR/MWh")
+    upsert_hourly(db_session, "balancing.mfrr.vol.down", "DE_LU", [(_BASE, 5.0)], unit="MWh")
+    upsert_hourly(db_session, "capacity.fcr.price", "DE_LU", [(_BASE, 3.0)], unit="EUR/MW/h")
+    upsert_hourly(db_session, "capacity.afrr.price.pos", "DE_LU", [(_BASE, 8.0)], unit="EUR/MW/h")
+    upsert_hourly(db_session, "outage.offline", "DE_LU", [(_BASE, 1_000.0)], unit="MW")
+    upsert_hourly(db_session, "netpos.dayahead", "DE_LU", [(_BASE, 500.0)], unit="MW")
+    body = _client(db_session).get("/api/v1/series/catalog").json()
+    by_key = {s["key"]: s for s in body["series"]}
+    assert by_key["balancing.afrr.price.up"]["label"] == "Balancing · aFRR activation price (up)"
+    assert by_key["balancing.afrr.price.up"]["group"] == "balancing"
+    assert by_key["balancing.mfrr.vol.down"]["label"] == "Balancing · mFRR activated volume (down)"
+    assert by_key["capacity.fcr.price"]["label"] == "Balancing capacity · FCR price"
+    assert by_key["capacity.fcr.price"]["group"] == "capacity"
+    assert by_key["capacity.afrr.price.pos"]["label"] == "Balancing capacity · aFRR price (pos)"
+    assert by_key["outage.offline"]["label"] == "Outages · capacity offline"
+    assert by_key["outage.offline"]["group"] == "outage"
+    assert by_key["netpos.dayahead"]["label"] == "Net position · day-ahead"
+    assert by_key["netpos.dayahead"]["group"] == "netpos"
+
+
 def test_catalog_unknown_series_label_falls_back_to_raw_key(db_session):
     upsert_hourly(db_session, "mystery.metric", "DE_LU", [(_BASE, 1.0)], unit=None)
     body = _client(db_session).get("/api/v1/series/catalog").json()

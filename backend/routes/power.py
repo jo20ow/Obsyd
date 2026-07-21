@@ -1898,7 +1898,7 @@ def get_capacity_prices(
     latest: dict[str, dict | None] = {}
     newest_ts: list[int] = []
     for json_key, suffix in PRODUCT_SUFFIXES:
-        rows = read_hourly(db, f"capacity.{suffix}.price", "DE_LU", start_ts=start_ts)
+        rows = read_hourly(db, f"capacity.{suffix}", "DE_LU", start_ts=start_ts)
         series = [
             {"t": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(), "price": round(p, 4)}
             for t, p in rows

@@ -11,6 +11,13 @@ ingest_load_forecast (which now also populate power_hourly). Every write is an
 upsert and every raw payload is disk-cached (raw_cache), so a crashed run resumes
 from cache for free. Meant to run in the ingest process (never the API worker) —
 a mass backfill is a throttled, multi-day marathon against ENTSO-E's rate limit.
+
+FIRST DEPLOY of the balancing/capacity collectors: right after the service restart
+that ships them, run `--sources balancing` and `--sources capacity` once each. Not
+a launch blocker if skipped — the 09:00 UTC collector watchdog will email a
+balancing_energy/capacity_prices stale alert until the 11:30 UTC daily job fills the
+series in on its own (self-heals within 24h) — but the backfill closes the gap
+immediately instead of waiting out one noisy watchdog cycle.
 """
 
 from __future__ import annotations

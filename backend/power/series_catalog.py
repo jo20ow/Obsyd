@@ -37,7 +37,14 @@ SERIES_LABELS: dict[str, str] = {
     "hydro.reservoir": "Hydro reservoir filling · weekly",
     "wind.actual": "Wind · actual",
     "solar.actual": "Solar · actual",
+    "outage.offline": "Outages · capacity offline",
+    "outage.forced": "Outages · forced offline",
+    "netpos.dayahead": "Net position · day-ahead",
 }
+
+#: aFRR/mFRR product-code -> display name, shared by the balancing.*/capacity.* pattern
+#: rules below (FCR/aFRR/mFRR are ENTSO-E's own product names, not this desk's invention).
+_RESERVE_PRODUCT_LABELS: dict[str, str] = {"fcr": "FCR", "afrr": "aFRR", "mfrr": "mFRR"}
 
 # Display order for grouped pickers (e.g. the Explorer's <optgroup> list) and the
 # friendly name for each group key. Any group encountered that isn't listed here
@@ -45,6 +52,7 @@ SERIES_LABELS: dict[str, str] = {
 GROUP_ORDER: list[str] = [
     "price", "imbalance", "load", "residual", "generation", "wind", "solar",
     "gen", "consumption", "flow", "sched", "hydro",
+    "balancing", "capacity", "outage", "netpos",
 ]
 GROUP_LABELS: dict[str, str] = {
     "price": "Prices",
@@ -59,6 +67,10 @@ GROUP_LABELS: dict[str, str] = {
     "flow": "Cross-border flows (hourly)",
     "sched": "Scheduled commercial exchange (hourly)",
     "hydro": "Hydro",
+    "balancing": "Balancing energy",
+    "capacity": "Balancing capacity",
+    "outage": "Outages",
+    "netpos": "Net position",
 }
 
 
@@ -76,6 +88,11 @@ def series_label(key: str) -> str:
     Dynamic keys are pattern-matched by their dot-prefix:
       gen.<Bxx> / consumption.<Bxx>  → PSR_LABELS (ENTSO-E production-type codes)
       flow.<ZONEKEY> / sched.<ZONEKEY> → the zone registry's label
+      balancing.<product>.<price|vol>.<up|down> → activated balancing ENERGY (A83/A84)
+      capacity.<fcr.price | <product>.price.<pos|neg>> → procured balancing CAPACITY (A15)
+    The "Balancing capacity ·" prefix on the latter is deliberate: this is NOT the same
+    thing as `/api/v1/capacity` (installed generation capacity, A68) — the label must say
+    so on sight, not just via a different key.
     An unrecognised key falls back to itself — never raise, never hide a series.
     """
     if key in SERIES_LABELS:
@@ -90,6 +107,25 @@ def series_label(key: str) -> str:
     if key.startswith("consumption."):
         code = key[len("consumption."):]
         return f"Consumption · {PSR_LABELS.get(code, code)}"
+    if key.startswith("balancing."):
+        parts = key.split(".")
+        if len(parts) == 4:
+            _, product, measure, direction = parts
+            name = _RESERVE_PRODUCT_LABELS.get(product, product.upper())
+            if measure == "price":
+                return f"Balancing · {name} activation price ({direction})"
+            if measure == "vol":
+                return f"Balancing · {name} activated volume ({direction})"
+        return f"Balancing · {key[len('balancing.'):]}"
+    if key.startswith("capacity."):
+        parts = key.split(".")
+        if parts[1:] == ["fcr", "price"]:
+            return "Balancing capacity · FCR price"
+        if len(parts) == 4 and parts[2] == "price":
+            _, product, _measure, direction = parts
+            name = _RESERVE_PRODUCT_LABELS.get(product, product.upper())
+            return f"Balancing capacity · {name} price ({direction})"
+        return f"Balancing capacity · {key[len('capacity.'):]}"
     return key
 
 

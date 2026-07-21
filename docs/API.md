@@ -92,7 +92,12 @@ delivery date), and an overall `healthy` flag. "Here is exactly what is fresh an
 | `generation.forecast` | Day-ahead total generation forecast (A71) | MW |
 | `consumption.<PSR>` | Consumption of consumption-type PSRs (e.g. pumped-storage pumping) | MW |
 | `flow.<ZONE>` | Cross-border physical flow to `<ZONE>`, stored under the FROM zone; positive = FROM exports | MW |
+| `sched.<ZONE>` | Scheduled (day-ahead auction) commercial exchange to `<ZONE>`, stored under the FROM zone on the same sorted-pair/net-sign convention as `flow.<ZONE>` — `flow − sched` is loop flow | MW |
 | `hydro.reservoir` | Weekly reservoir filling (A72; hydro zones only) | MWh |
+| `netpos.dayahead` | Signed day-ahead market net position (A25); positive = zone is a net exporter | MW |
+| `outage.offline` / `outage.forced` | Generation capacity offline right now — all published unavailability / the A54 forced-outage subset (A77; today-only snapshot series, not backfillable — see `backend/power/outage_history.py`) | MW |
+| `balancing.<product>.price.<up\|down>` / `balancing.<product>.vol.<up\|down>` | Activated balancing energy price/volume, `<product>` = `afrr`/`mfrr` (ENTSO-E A84/A83). Volume (A83) currently fails structurally at ENTSO-E for every zone tried — the `.vol.*` series are defined but empty. DE_LU is served via TenneT's control area only (one of four German TSOs), not the national total | EUR/MWh / MWh |
+| `capacity.fcr.price` / `capacity.<afrr\|mfrr>.price.<pos\|neg>` | Procured balancing-CAPACITY price — volume-weighted average of accepted tenders (ENTSO-E A15), normalized to EUR/MW/h (FCR's native EUR-per-4h-block price divided by 4). DE_LU only (German LFC block; no per-zone equivalent) | EUR/MW/h |
 
 Call `/api/v1/meta` for the live list. Values are hourly-canonical UTC; actuals carry a
 ~1 hour publication lag (the honest ceiling of free ENTSO-E data).

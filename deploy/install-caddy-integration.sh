@@ -21,6 +21,15 @@
 # There is no live-server automation here on purpose — the script's own
 # guard against double-appending would otherwise make it easy to believe a
 # re-run had shipped this change when it silently no-opped.
+#
+# First deploy of the balancing/capacity collectors (activated balancing energy +
+# procured balancing-capacity prices): right after step [4/7]'s `systemctl restart
+# obsyd`, manually run `python -m backend.scripts.power_backfill --sources balancing`
+# and `python -m backend.scripts.power_backfill --sources capacity` once. Skipping
+# this is not a launch blocker — the 09:00 UTC collector watchdog will email a
+# capacity_prices/balancing_energy stale alert until the 11:30 UTC daily job fills the
+# series in on its own (self-heals within 24h) — but running the backfill closes the
+# gap immediately instead of waiting out one noisy watchdog cycle.
 set -e
 TS=$(date +%s)
 cd /home/jo/valuekick

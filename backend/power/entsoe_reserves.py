@@ -1,5 +1,10 @@
 """ENTSO-E procured balancing CAPACITY prices (FCR/aFRR/mFRR tenders) → hourly
-`capacity.<fcr|afrr.pos|afrr.neg|mfrr.pos|mfrr.neg>.price` (EUR/MW/h), DE_LU only.
+`capacity.<fcr.price|afrr.price.pos|afrr.price.neg|mfrr.price.pos|mfrr.price.neg>`
+(EUR/MW/h), DE_LU only. Series-key grammar unified 2026-07-21 to the repo-wide
+`family.product.measure[.direction]` shape (measure BEFORE direction — this module
+originally put the direction segment before the measure segment, diverging from
+entsoe_balancing.py's `balancing.afrr.price.up`). Nothing was deployed under the old
+grammar, so this was a rename, not a migration.
 
 NOT to be confused with `backend/power/entsoe_capacity.py` (installed GENERATION capacity,
 A68, pan-EU) or `backend/power/entsoe_balancing.py` (activated balancing ENERGY, A83/A84,
@@ -121,18 +126,23 @@ CACHE_SOURCE = "entsoe_a15"
 PROCESS_TYPES: dict[str, str] = {"fcr": "A52", "afrr": "A51", "mfrr": "A47"}
 
 #: direction code -> series-key direction segment. FCR (symmetric, A03) is handled
-#: separately below and never consults this map.
+#: separately below and never consults this map. Deliberately "pos"/"neg" — A15's own
+#: contract vocabulary (Positiv-/Negativsekundärleistung) — NOT activation's "up"/"down"
+#: (entsoe_balancing.py); the two vocabularies are kept distinct on purpose, not an
+#: inconsistency to fix.
 _DIRECTION = {"A01": "pos", "A02": "neg"}
 
 #: (json_key, series_suffix) for the 5 canonical series, in a fixed display order.
 #: json_key is what the /api/power/capacity-prices response uses; series_suffix is the
-#: `capacity.<suffix>.price` hourly-store key. Single source of truth shared with the route.
+#: tail of the `capacity.<suffix>` hourly-store key — it already carries the `price`
+#: segment ("fcr.price", "afrr.price.pos", ...) so the final key is simply
+#: `f"capacity.{suffix}"`. Single source of truth shared with the route.
 PRODUCT_SUFFIXES: list[tuple[str, str]] = [
-    ("fcr", "fcr"),
-    ("afrr_pos", "afrr.pos"),
-    ("afrr_neg", "afrr.neg"),
-    ("mfrr_pos", "mfrr.pos"),
-    ("mfrr_neg", "mfrr.neg"),
+    ("fcr", "fcr.price"),
+    ("afrr_pos", "afrr.price.pos"),
+    ("afrr_neg", "afrr.price.neg"),
+    ("mfrr_pos", "mfrr.price.pos"),
+    ("mfrr_neg", "mfrr.price.neg"),
 ]
 
 _PAGE_SIZE = 100
@@ -160,12 +170,14 @@ def aggregate_bids(bids: list[tuple[float, float]]) -> dict[str, float | None]:
 
 
 def _series_suffix(product: str, direction_code: str | None) -> str | None:
-    """product ('fcr'/'afrr'/'mfrr') + raw flowDirection code -> series-key suffix, or None
-    for a direction this desk doesn't recognise (skip rather than guess)."""
+    """product ('fcr'/'afrr'/'mfrr') + raw flowDirection code -> series-key suffix (already
+    including the `price` measure segment, e.g. 'fcr.price' / 'afrr.price.pos' — the final
+    hourly-store key is `f"capacity.{suffix}"`), or None for a direction this desk doesn't
+    recognise (skip rather than guess)."""
     if product == "fcr":
-        return "fcr"  # symmetric — direction (A03) is deliberately ignored
+        return "fcr.price"  # symmetric — direction (A03) is deliberately ignored
     direction = _DIRECTION.get(direction_code or "")
-    return f"{product}.{direction}" if direction else None
+    return f"{product}.price.{direction}" if direction else None
 
 
 def parse_capacity_bids(xml_text: str) -> dict[tuple[str, int, int], list[tuple[float, float]]]:
@@ -258,7 +270,7 @@ def _aggregate_and_densify(
             continue
         # FCR is quoted EUR per 4h block (pay-as-cleared); aFRR/mFRR are already EUR/MW/h
         # (pay-as-bid) — divide only FCR so every stored series shares one unit.
-        value = weighted_avg / 4.0 if suffix == "fcr" else weighted_avg
+        value = weighted_avg / 4.0 if suffix == "fcr.price" else weighted_avg
         day_hours = out.setdefault(suffix, {})
         t = block_start
         while t < block_end:
@@ -357,7 +369,7 @@ async def ingest_capacity_prices(db: Session, days: list[str], *, overwrite: boo
     """Fetch + upsert FCR/aFRR/mFRR procured-capacity prices for DE_LU over `days` (a flat
     list of 'YYYY-MM-DD' strings — fetched per DAY per processType, not batched by month; see
     module docstring's pagination finding), writing up to 5 canonical series:
-    `capacity.{fcr,afrr.pos,afrr.neg,mfrr.pos,mfrr.neg}.price`.
+    `capacity.{fcr.price,afrr.price.pos,afrr.price.neg,mfrr.price.pos,mfrr.price.neg}`.
 
     DE_LU only, deliberately no `zone` parameter — the German balancing-capacity market has
     no per-zone equivalent on this desk (see AREA_DOMAIN). Each day/processType fetch is
@@ -405,6 +417,6 @@ async def ingest_capacity_prices(db: Session, days: list[str], *, overwrite: boo
     written = 0
     for suffix, day_hours in acc.items():
         if day_hours:
-            written += upsert_day_hours(db, f"capacity.{suffix}.price", "DE_LU", day_hours, unit="EUR/MW/h")
+            written += upsert_day_hours(db, f"capacity.{suffix}", "DE_LU", day_hours, unit="EUR/MW/h")
 
     return {"days": len(days), "written": written}

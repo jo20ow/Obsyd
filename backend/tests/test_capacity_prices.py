@@ -1,6 +1,8 @@
 """ENTSO-E procured balancing-capacity prices (A15: FCR/aFRR/mFRR) → hourly
-`capacity.<fcr|afrr.pos|afrr.neg|mfrr.pos|mfrr.neg>.price`. Mirrors test_balancing.py's shape,
-adapted for A15's different pagination/error semantics (see entsoe_reserves.py's docstring)."""
+`capacity.<fcr.price|afrr.price.pos|afrr.price.neg|mfrr.price.pos|mfrr.price.neg>` (measure
+BEFORE direction — unified 2026-07-21 to the repo-wide `family.product.measure[.direction]`
+grammar, matching `balancing.afrr.price.up`). Mirrors test_balancing.py's shape, adapted for
+A15's different pagination/error semantics (see entsoe_reserves.py's docstring)."""
 from __future__ import annotations
 
 import httpx
@@ -87,10 +89,10 @@ def test_parse_fcr_symmetric_weighted_average_and_quartered_normalization():
         {"direction": "A03", "quantity": 30.0, "price": 10.0},
     ])
     out = parse_capacity_document(xml)
-    assert set(out.keys()) == {"fcr"}
+    assert set(out.keys()) == {"fcr.price"}
     weighted_avg_block = (10 * 20 + 30 * 10) / 40  # 12.5 EUR/MW per 4h block
     expected = weighted_avg_block / 4.0  # 3.125 EUR/MW/h
-    day = out["fcr"]["2026-06-01"]
+    day = out["fcr.price"]["2026-06-01"]
     assert day == {0: pytest.approx(expected), 1: pytest.approx(expected),
                    2: pytest.approx(expected), 3: pytest.approx(expected)}
 
@@ -102,9 +104,9 @@ def test_parse_afrr_splits_by_direction_no_normalization():
         {"direction": "A02", "quantity": 50.0, "price": 3.0},
     ])
     out = parse_capacity_document(xml)
-    assert set(out.keys()) == {"afrr.pos", "afrr.neg"}
-    assert out["afrr.pos"]["2026-06-01"][0] == 8.0
-    assert out["afrr.neg"]["2026-06-01"][0] == 3.0
+    assert set(out.keys()) == {"afrr.price.pos", "afrr.price.neg"}
+    assert out["afrr.price.pos"]["2026-06-01"][0] == 8.0
+    assert out["afrr.price.neg"]["2026-06-01"][0] == 3.0
 
 
 def test_parse_mfrr_splits_by_direction():
@@ -113,9 +115,9 @@ def test_parse_mfrr_splits_by_direction():
         {"direction": "A02", "quantity": 10.0, "price": 2.0},
     ])
     out = parse_capacity_document(xml)
-    assert set(out.keys()) == {"mfrr.pos", "mfrr.neg"}
-    assert out["mfrr.pos"]["2026-06-01"][0] == 5.0
-    assert out["mfrr.neg"]["2026-06-01"][0] == 2.0
+    assert set(out.keys()) == {"mfrr.price.pos", "mfrr.price.neg"}
+    assert out["mfrr.price.pos"]["2026-06-01"][0] == 5.0
+    assert out["mfrr.price.neg"]["2026-06-01"][0] == 2.0
 
 
 def test_parse_marginal_is_never_the_stored_value():
@@ -126,7 +128,7 @@ def test_parse_marginal_is_never_the_stored_value():
         {"direction": "A01", "quantity": 10.0, "price": 50.0},
     ])
     out = parse_capacity_document(xml)
-    stored = out["afrr.pos"]["2026-06-01"][0]
+    stored = out["afrr.price.pos"]["2026-06-01"][0]
     agg = aggregate_bids([(90.0, 5.0), (10.0, 50.0)])
     assert stored == pytest.approx(agg["weighted_avg"])
     assert stored != agg["marginal"]
@@ -136,7 +138,7 @@ def test_parse_marginal_is_never_the_stored_value():
 def test_parse_densifies_across_all_hours_in_the_block():
     xml = _capacity_doc("A51", [{"direction": "A01", "quantity": 1.0, "price": 42.0}],
                         start="2026-06-01T08:00Z", end="2026-06-01T12:00Z")
-    day = parse_capacity_document(xml)["afrr.pos"]["2026-06-01"]
+    day = parse_capacity_document(xml)["afrr.price.pos"]["2026-06-01"]
     assert set(day.keys()) == {8, 9, 10, 11}
     assert all(v == 42.0 for v in day.values())
 
@@ -147,7 +149,7 @@ def test_parse_block_crossing_midnight_splits_across_two_days():
     not all be attributed to one day."""
     xml = _capacity_doc("A52", [{"direction": "A03", "quantity": 5.0, "price": 8.0}],
                         start="2026-05-31T22:00Z", end="2026-06-01T02:00Z")
-    out = parse_capacity_document(xml)["fcr"]
+    out = parse_capacity_document(xml)["fcr.price"]
     assert set(out["2026-05-31"].keys()) == {22, 23}
     assert set(out["2026-06-01"].keys()) == {0, 1}
     expected = 8.0 / 4.0
@@ -242,8 +244,8 @@ async def test_fetch_multi_xml_zip_members_merge(tmp_path, monkeypatch):
     for xml in docs:
         for key, days in parse_capacity_document(xml).items():
             merged.setdefault(key, {}).update(days)
-    assert merged["afrr.pos"]["2026-06-01"][0] == 111.0
-    assert merged["afrr.neg"]["2026-06-01"][0] == 222.0
+    assert merged["afrr.price.pos"]["2026-06-01"][0] == 111.0
+    assert merged["afrr.price.neg"]["2026-06-01"][0] == 222.0
 
 
 # ─── pagination loop ────────────────────────────────────────────────────────────
@@ -281,7 +283,7 @@ class _PagingClient:
 async def test_pagination_stops_on_short_page(db_session, tmp_path, monkeypatch):
     """Two full 100-entry pages then a short (< 100) page: 3 requests, all docs merged.
 
-    All 240 bids across the 3 pages belong to the SAME (afrr.pos) block — this is the
+    All 240 bids across the 3 pages belong to the SAME (afrr.price.pos) block — this is the
     regression case for aggregating per page and merging via dict.update: the LAST page's
     partial average would silently win instead of the weighted average over all 240 bids.
     """
@@ -312,7 +314,7 @@ async def test_pagination_stops_on_short_page(db_session, tmp_path, monkeypatch)
             merged_raw.setdefault(key, []).extend(pairs)
     assert len(merged_raw) == 1  # one block only
     ((suffix, _start, _end), pairs), = merged_raw.items()
-    assert suffix == "afrr.pos"
+    assert suffix == "afrr.price.pos"
     assert len(pairs) == 240
     correct_avg = aggregate_bids(pairs)["weighted_avg"]
     assert correct_avg == pytest.approx((5050 + 24950 + 16780) / 240)  # 194.91666...
@@ -325,8 +327,8 @@ async def test_pagination_stops_on_short_page(db_session, tmp_path, monkeypatch)
     old_style_value = None
     for xml in docs:
         parsed = parse_capacity_document(xml)
-        if "afrr.pos" in parsed:
-            old_style_value = parsed["afrr.pos"]["2026-06-01"][0]
+        if "afrr.price.pos" in parsed:
+            old_style_value = parsed["afrr.price.pos"]["2026-06-01"][0]
     assert old_style_value == pytest.approx(419.5)  # mean of the LAST page alone (400..439)
     assert old_style_value != pytest.approx(correct_avg)
 
@@ -339,7 +341,7 @@ async def test_pagination_stops_on_short_page(db_session, tmp_path, monkeypatch)
     monkeypatch.setattr(cap, "_fetch_capacity_day", fake_fetch)
     r = await cap.ingest_capacity_prices(db_session, ["2026-06-01"], overwrite=True)
     assert r["written"] > 0
-    stored = read_hourly(db_session, "capacity.afrr.pos.price", "DE_LU")
+    stored = read_hourly(db_session, "capacity.afrr.price.pos", "DE_LU")
     assert stored
     assert stored[0][1] == pytest.approx(correct_avg)
     assert stored[0][1] != pytest.approx(old_style_value)
@@ -511,10 +513,10 @@ async def test_ingest_writes_all_five_series(db_session, monkeypatch):
     assert r["written"] > 0
 
     assert read_hourly(db_session, "capacity.fcr.price", "DE_LU")[0][1] == pytest.approx(10.0)
-    assert read_hourly(db_session, "capacity.afrr.pos.price", "DE_LU")[0][1] == 8.0
-    assert read_hourly(db_session, "capacity.afrr.neg.price", "DE_LU")[0][1] == 3.0
-    assert read_hourly(db_session, "capacity.mfrr.pos.price", "DE_LU")[0][1] == 5.0
-    assert read_hourly(db_session, "capacity.mfrr.neg.price", "DE_LU")[0][1] == 2.0
+    assert read_hourly(db_session, "capacity.afrr.price.pos", "DE_LU")[0][1] == 8.0
+    assert read_hourly(db_session, "capacity.afrr.price.neg", "DE_LU")[0][1] == 3.0
+    assert read_hourly(db_session, "capacity.mfrr.price.pos", "DE_LU")[0][1] == 5.0
+    assert read_hourly(db_session, "capacity.mfrr.price.neg", "DE_LU")[0][1] == 2.0
 
 
 async def test_ingest_isolates_fetch_failure_per_process_type(db_session, monkeypatch):
@@ -528,7 +530,7 @@ async def test_ingest_isolates_fetch_failure_per_process_type(db_session, monkey
 
     monkeypatch.setattr(cap, "_fetch_capacity_day", fake_fetch)
     r = await cap.ingest_capacity_prices(db_session, ["2026-06-01"], overwrite=True)
-    assert read_hourly(db_session, "capacity.afrr.pos.price", "DE_LU")
+    assert read_hourly(db_session, "capacity.afrr.price.pos", "DE_LU")
     assert read_hourly(db_session, "capacity.fcr.price", "DE_LU") == []
     assert r["written"] > 0
 
@@ -628,10 +630,11 @@ def _seed_capacity(db):
 
     now = (int(_time.time()) // 3600) * 3600
     for suffix, price in (
-        ("fcr", 3.0), ("afrr.pos", 8.0), ("afrr.neg", 3.5), ("mfrr.pos", 5.0), ("mfrr.neg", 2.0),
+        ("fcr.price", 3.0), ("afrr.price.pos", 8.0), ("afrr.price.neg", 3.5),
+        ("mfrr.price.pos", 5.0), ("mfrr.price.neg", 2.0),
     ):
         points = [(now - i * 3600, price + i * 0.01) for i in range(24, 0, -1)]
-        upsert_hourly(db, f"capacity.{suffix}.price", "DE_LU", points, unit="EUR/MW/h")
+        upsert_hourly(db, f"capacity.{suffix}", "DE_LU", points, unit="EUR/MW/h")
 
 
 def test_route_happy_path(db_session):
@@ -685,8 +688,8 @@ def test_route_stale_data_is_declared(db_session):
     from backend.power.hourly_store import upsert_hourly
 
     old = int((datetime.now(timezone.utc) - timedelta(days=10)).timestamp() // 3600) * 3600
-    for suffix in ("fcr", "afrr.pos", "afrr.neg", "mfrr.pos", "mfrr.neg"):
-        upsert_hourly(db_session, f"capacity.{suffix}.price", "DE_LU", [(old, 5.0)], unit="EUR/MW/h")
+    for suffix in ("fcr.price", "afrr.price.pos", "afrr.price.neg", "mfrr.price.pos", "mfrr.price.neg"):
+        upsert_hourly(db_session, f"capacity.{suffix}", "DE_LU", [(old, 5.0)], unit="EUR/MW/h")
 
     body = _client(db_session).get("/api/power/capacity-prices?zone=DE_LU").json()
     assert body["available"] is True
