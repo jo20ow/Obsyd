@@ -2,6 +2,25 @@
 # Integrate obsyd.dev into the existing Caddy reverse-proxy used by ValueKick.
 # Only touches: Caddyfile, docker-compose.prod.yml (Caddy service block),
 # obsyd.service (uvicorn bind), UFW (deny 8000 from outside).
+#
+# Deploying the /embed exception (Task P10) to an ALREADY-deployed obsyd.dev:
+# step [2/7] below is idempotent — it skips the whole obsyd.dev block (including
+# this new @embed handle) whenever "obsyd.dev" already appears in the live
+# Caddyfile, which it will on any server this script has already run on. So
+# picking up the @embed block on a live host is a MANUAL step, not something
+# re-running this script accomplishes:
+#   1. On the VPS, open the live Caddyfile (the one this script appends to,
+#      here /home/jo/valuekick/Caddyfile) and paste in the `@embed`
+#      matcher + `handle @embed { ... }` block from step [2/7] below, placed
+#      after `handle @api` and before the generic `handle { ... }` — matching
+#      order matters (Caddy's `handle` blocks are mutually exclusive and
+#      evaluated top-to-bottom, first match wins).
+#   2. Apply it exactly like step [6/7] does: `docker compose -f
+#      docker-compose.prod.yml up -d --force-recreate caddy` (a `caddy reload`
+#      inside the container works too if you'd rather not recreate it).
+# There is no live-server automation here on purpose — the script's own
+# guard against double-appending would otherwise make it easy to believe a
+# re-run had shipped this change when it silently no-opped.
 set -e
 TS=$(date +%s)
 cd /home/jo/valuekick
@@ -34,6 +53,21 @@ obsyd.dev, www.obsyd.dev {
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
         }
+    }
+
+    # Task P10 (embeddable zone widgets): /embed/* is the ONLY frameable part of the
+    # site. The global X-Frame-Options DENY above blocks ALL embedding by default —
+    # here we punch a narrow, path-scoped hole for the iframe widgets only, and only
+    # for that path. Must come AFTER @api (so /api/* keeps its own headers/proxy) and
+    # BEFORE the generic catch-all `handle` below (or its unscoped DENY wins first).
+    @embed path /embed/*
+    handle @embed {
+        header -X-Frame-Options
+        header Content-Security-Policy "frame-ancestors *"
+        header Cache-Control "public, max-age=300"
+        root * /srv/obsyd
+        try_files {path} /index.html
+        file_server
     }
 
     handle {
