@@ -85,15 +85,16 @@ SPECS += [
                   hourly_series="generation.forecast"),
     FreshnessSpec("hydro_reservoir", PowerPriceDaily, "", timedelta(days=16),
                   hourly_series="hydro.reservoir"),
-    # Outage messages land continuously across 37 zones; a silent day means
-    # the collector is dead, not that Europe stopped breaking. Doc-type-agnostic
-    # (no filter_col) by construction: it watches the OVERALL ingest job. A78
-    # (below) gets its OWN probe rather than riding on this one, because A77's much
-    # higher message volume would keep this one "fresh" even if the A78 pass inside
-    # _run_outages broke silently — the two passes are independent try/excepts
-    # specifically so one can fail without the other, and the freshness layer has to
-    # be able to tell that apart too.
-    FreshnessSpec("power_outages", PowerOutage, "created_at", timedelta(days=2)),
+    # Outage messages land continuously across 37 zones; a silent day means the
+    # collector is dead, not that Europe stopped breaking. Doc-type masking runs in
+    # BOTH directions on a shared probe: A77's much higher volume could keep it
+    # "fresh" while A78 died silently, and (found in review) the REVERSE is just as
+    # real — A78 traffic alone could keep a doc-type-agnostic probe "fresh" while the
+    # desk-critical A77 pass was dead. _run_outages runs the two as independent
+    # try/excepts specifically so one can fail without the other, so each doc type
+    # gets its OWN scoped probe here too.
+    FreshnessSpec("power_outages", PowerOutage, "created_at", timedelta(days=2),
+                  filter_col="doc_type", filter_val="A77"),
     # A78 transmission-infrastructure unavailability (Task P12) is real but much
     # rarer than A77 across the 126 directed border-pair queries — the live spike
     # found ~1 new document every ~2 days on JUST one border-direction (DE_LU->FR,

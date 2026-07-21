@@ -2035,9 +2035,11 @@ def get_outages(
     never publishes a nominal capacity for the asset, so there is no baseline to
     subtract from — see `transmission[].available_mw` instead); both count only
     outages running RIGHT NOW, the lists also include ones starting within
-    `horizon_days`. `transmission[]` entries carry `counterparty_zone` — the
-    OTHER end of the interconnector/line. Descriptive: what capacity is off and
-    why, not a price call.
+    `horizon_days`. `transmission[]` entries carry `counterparty_zone` — the OTHER
+    end of the interconnector/line, RELATIVE to the requested `zone` (a message
+    published from the counterparty's own query still surfaces here, since A78
+    matches on either side — see latest_outage_revisions). Descriptive: what
+    capacity is off and why, not a price call.
     """
     from backend.models.energy import PowerOutage
     from backend.power.entsoe_outages import ASSET_TYPE_LABELS
@@ -2128,11 +2130,26 @@ def get_outages(
                 if r.nominal_mw is not None else None
             )
             running_now = r.start_utc <= now_iso <= r.end_utc
+            # latest_outage_revisions(doc_type="A78") now matches rows where resolved_zone
+            # is EITHER end (zone OR counterparty_zone — review fix), because a border
+            # publishes once per queried direction and the two directions are DISJOINT
+            # messages (live spike: zero mRID overlap). A row filed as zone=FR/
+            # counterparty_zone=DE_LU IS just as much DE_LU's outage, so "the other end"
+            # must be reported RELATIVE to resolved_zone, not read off the row verbatim —
+            # otherwise DE_LU's own panel would show "DE_LU" as its own counterparty.
+            # `reported_by` keeps the row's raw filing zone visible (which direction's
+            # query surfaced this message) — mostly diagnostic today.
+            # Accepted consequence: the SAME physical asset can appear TWICE on one
+            # zone's panel (once per queried direction), and the two rows' available_mw
+            # can legitimately differ (each TSO reports its own side). Display-dedupe by
+            # (asset_eic, start, end) only if this looks noisy in production.
+            other_zone = r.zone if r.counterparty_zone == resolved_zone else r.counterparty_zone
             transmission.append({
                 "mrid": r.mrid,
                 "asset_name": r.unit_name or r.unit_eic,
                 "asset_eic": r.unit_eic,
-                "counterparty_zone": r.counterparty_zone,
+                "counterparty_zone": other_zone,
+                "reported_by": r.zone,
                 "asset_type": ASSET_TYPE_LABELS.get(r.psr_type, r.psr_type),
                 "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
                 "nominal_mw": r.nominal_mw,

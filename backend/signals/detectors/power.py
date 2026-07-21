@@ -265,10 +265,30 @@ def latest_outage_revisions(
     would silently be missing capacity rather than double-counting it — but partition
     correctness does not depend on doc_type at all, since mRIDs are unique per message
     regardless of type).
+
+    A78 zone matching is BOTH-SIDED (review fix): a transmission message is published
+    once per QUERIED direction and stored as zone=in_Domain / counterparty_zone=
+    out_Domain — the live spike found the two directions of one border are DISJOINT
+    messages, not duplicates, so an FR->DE_LU-direction row is filed under zone="FR"
+    even though it is just as much DE_LU's outage. Asking for zone="DE_LU" with
+    doc_type="A78" must therefore match rows where DE_LU is EITHER `zone` OR
+    `counterparty_zone`, or half of all border events never reach the affected zone's
+    own panel. This only widens the filter for doc_type=="A78" — for A77,
+    counterparty_zone is always NULL by construction, so the OR is a no-op there, and
+    skipping it on the far higher-volume A77 default keeps that (hot-path: /overview,
+    the 5-minute radar detector) query on the indexed `zone` equality plan instead of
+    an unindexed OR.
     """
-    from sqlalchemy import func
+    from sqlalchemy import func, or_
 
     from backend.models.energy import PowerOutage
+
+    def _apply_zone_filter(q):
+        if zone is None:
+            return q
+        if doc_type == "A78":
+            return q.filter(or_(PowerOutage.zone == zone, PowerOutage.counterparty_zone == zone))
+        return q.filter(PowerOutage.zone == zone)
 
     rn = (
         func.row_number()
@@ -278,15 +298,11 @@ def latest_outage_revisions(
         )
         .label("rn")
     )
-    ranked = db.query(PowerOutage.id.label("oid"), rn)
-    if zone is not None:
-        ranked = ranked.filter(PowerOutage.zone == zone)
+    ranked = _apply_zone_filter(db.query(PowerOutage.id.label("oid"), rn))
     if doc_type is not None:
         ranked = ranked.filter(PowerOutage.doc_type == doc_type)
     if ending_after is not None:
-        relevant = db.query(PowerOutage.mrid).filter(PowerOutage.end_utc >= ending_after)
-        if zone is not None:
-            relevant = relevant.filter(PowerOutage.zone == zone)
+        relevant = _apply_zone_filter(db.query(PowerOutage.mrid).filter(PowerOutage.end_utc >= ending_after))
         if doc_type is not None:
             relevant = relevant.filter(PowerOutage.doc_type == doc_type)
         ranked = ranked.filter(PowerOutage.mrid.in_(relevant.subquery().select()))

@@ -555,3 +555,211 @@ def test_counterparty_zone_migration_is_idempotent(tmp_path, monkeypatch):
     # Idempotent: running again must not raise or duplicate the column.
     migrations.run_migrations()
     assert "counterparty_zone" in migrations._existing_columns("power_outage")
+
+
+# ─── review fix #1: A78 zone matching must be both-sided ──────────────────────
+#
+# A border publishes ONE row per queried direction (zone=in_Domain,
+# counterparty_zone=out_Domain), and the live spike found the two directions are
+# DISJOINT messages, not duplicates. Filtering latest_outage_revisions on
+# PowerOutage.zone == z alone therefore missed every message filed under the OTHER
+# zone even though it is just as much z's outage — half of all border events never
+# reached the affected zone's panel.
+
+
+def test_latest_outage_revisions_a78_matches_either_side_of_the_border(db_session):
+    from backend.signals.detectors.power import latest_outage_revisions
+
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    common = dict(business_type="A53", status="active",
+                  start_utc=(now - timedelta(days=1)).strftime(fmt),
+                  end_utc=(now + timedelta(days=1)).strftime(fmt))
+    db_session.add(out.PowerOutage(mrid="de-side", revision=1, doc_type="A78",
+                                    zone="DE_LU", counterparty_zone="FR", **common))
+    db_session.add(out.PowerOutage(mrid="fr-side", revision=1, doc_type="A78",
+                                    zone="FR", counterparty_zone="DE_LU", **common))
+    db_session.commit()
+
+    rows = latest_outage_revisions(db_session, "DE_LU", doc_type="A78")
+    assert {r.mrid for r in rows} == {"de-side", "fr-side"}
+
+
+def test_latest_outage_revisions_a77_default_does_not_fall_back_to_counterparty(db_session):
+    """The both-sided OR-match is scoped to doc_type=='A78' only. A77 never carries a
+    counterparty_zone in real ingest — this row is constructed by hand purely to prove
+    the A77-default query stays a plain zone==z filter, not a behavior change."""
+    from backend.signals.detectors.power import latest_outage_revisions
+
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    db_session.add(out.PowerOutage(
+        mrid="not-de-lu", revision=1, doc_type="A77", zone="FR", counterparty_zone="DE_LU",
+        business_type="A53", status="active",
+        start_utc=(now - timedelta(days=1)).strftime(fmt),
+        end_utc=(now + timedelta(days=1)).strftime(fmt),
+    ))
+    db_session.commit()
+
+    assert latest_outage_revisions(db_session, "DE_LU") == []
+
+
+def test_latest_outage_revisions_a78_ending_after_prunes_both_sides(db_session):
+    """The `ending_after` mRID-relevance prune must also match either column, or an
+    event whose only zone-DE_LU-adjacent row already ended would wrongly survive via
+    a still-running counterparty-side row that the (unfixed) prune could not see."""
+    from backend.signals.detectors.power import latest_outage_revisions
+
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    now_iso = now.strftime(fmt)
+    db_session.add(out.PowerOutage(
+        mrid="fr-side-running", revision=1, doc_type="A78", zone="FR", counterparty_zone="DE_LU",
+        business_type="A53", status="active",
+        start_utc=(now - timedelta(days=1)).strftime(fmt),
+        end_utc=(now + timedelta(days=1)).strftime(fmt),
+    ))
+    db_session.commit()
+
+    rows = latest_outage_revisions(db_session, "DE_LU", doc_type="A78", ending_after=now_iso)
+    assert {r.mrid for r in rows} == {"fr-side-running"}
+
+
+def test_route_transmission_shows_reversed_direction_row_with_relative_counterparty(db_session):
+    """An FR->DE_LU-direction message (zone=FR, counterparty_zone=DE_LU) is just as
+    much DE_LU's outage — it must appear on DE_LU's panel, and its counterparty_zone
+    must read "FR" (relative to the requested zone), not "DE_LU" (a zone cannot be
+    its own counterparty)."""
+    _seed_transmission(db_session, mrid="rev1", zone="FR", counterparty_zone="DE_LU")
+    body = _client(db_session).get("/api/power/outages?zone=DE_LU").json()
+    assert len(body["transmission"]) == 1
+    t = body["transmission"][0]
+    assert t["mrid"] == "rev1"
+    assert t["counterparty_zone"] == "FR"
+    assert t["reported_by"] == "FR"
+
+
+def test_route_transmission_normal_direction_counterparty_unchanged(db_session):
+    _seed_transmission(db_session, mrid="norm1", zone="DE_LU", counterparty_zone="FR")
+    body = _client(db_session).get("/api/power/outages?zone=DE_LU").json()
+    t = next(x for x in body["transmission"] if x["mrid"] == "norm1")
+    assert t["counterparty_zone"] == "FR"
+    assert t["reported_by"] == "DE_LU"
+
+
+def test_route_transmission_both_directions_of_a_border_both_appear(db_session):
+    """Both directions can legitimately coexist as disjoint messages — the panel must
+    show both, not just the one filed under the exact zone value (accepted
+    consequence: the same physical asset can appear twice, per direction)."""
+    _seed_transmission(db_session, mrid="a", zone="DE_LU", counterparty_zone="FR")
+    _seed_transmission(db_session, mrid="b", zone="FR", counterparty_zone="DE_LU")
+    body = _client(db_session).get("/api/power/outages?zone=DE_LU").json()
+    assert {t["mrid"] for t in body["transmission"]} == {"a", "b"}
+    assert all(t["counterparty_zone"] == "FR" for t in body["transmission"])
+
+
+def test_route_transmission_a77_generation_list_unaffected_by_reversed_direction_rows(db_session):
+    """Regression guard: the both-sided A78 match must not leak into the A77
+    generation list or its totals."""
+    _seed_generation(db_session)
+    _seed_transmission(db_session, mrid="rev1", zone="FR", counterparty_zone="DE_LU")
+    body = _client(db_session).get("/api/power/outages?zone=DE_LU").json()
+    assert len(body["outages"]) == 1
+    assert body["total_offline_mw"] == pytest.approx(1000.0)
+
+
+# ─── review fix #2: the shared scheduler session must survive a mid-pass error ──
+
+
+async def test_run_outages_rolls_back_after_a77_failure_so_a78_pass_still_runs(monkeypatch):
+    """_run_outages shares ONE Session across the A77 and A78 passes. Without
+    db.rollback() in the except, a DB-level error in the A77 pass leaves the session
+    in SQLAlchemy's failed-transaction state and the very next statement the A78 pass
+    tries to run raises PendingRollbackError instead of actually attempting anything
+    — silently defeating the "independent try/excepts" the docstring promises."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import backend.power.entsoe_outages as entsoe_outages_mod
+    from backend.collectors import scheduler
+    from backend.database import Base
+    from backend.models.energy import PowerOutage
+
+    test_engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=test_engine)
+    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+    monkeypatch.setattr(scheduler, "SessionLocal", TestSessionLocal)
+
+    calls: list[str] = []
+    results: dict = {}
+
+    def _row(mrid, revision):
+        return PowerOutage(
+            mrid=mrid, revision=revision, doc_type="A77", zone="DE_LU",
+            business_type="A53", start_utc="2026-01-01T00:00Z", end_utc="2026-01-02T00:00Z",
+            status="active",
+        )
+
+    async def fake_ingest(db, *, doc_type="A77", **kw):
+        calls.append(doc_type)
+        if doc_type == "A77":
+            # A REAL IntegrityError — a raw "bad SELECT" does not actually poison a
+            # SQLAlchemy Session on SQLite the way a failed FLUSH does. Violating the
+            # (mrid, revision) unique constraint on commit is what genuinely puts the
+            # Session in the "failed transaction" state PendingRollbackError guards.
+            db.add(_row("dup", 1))
+            db.add(_row("dup", 1))
+            db.commit()
+            return {"written": 2}
+        # A78 pass: prove the session is still usable for real work. Without the
+        # rollback fix, this raises PendingRollbackError.
+        try:
+            results["a78_count"] = db.query(PowerOutage).count()
+            results["a78_ok"] = True
+        except Exception as exc:
+            results["a78_ok"] = False
+            results["a78_error"] = type(exc).__name__
+            raise
+        return {"written": 0}
+
+    monkeypatch.setattr(entsoe_outages_mod, "ingest_outages", fake_ingest)
+
+    await scheduler._run_outages()
+
+    assert calls == ["A77", "A78"]
+    assert results.get("a78_ok") is True, (
+        f"A78 pass failed against the shared session ({results.get('a78_error')}) — "
+        "the A77 except must call db.rollback() before the A78 pass runs"
+    )
+    assert results.get("a78_count") == 0
+
+
+# ─── review fix #3: the A77 freshness probe must not be masked by A78 traffic ──
+
+
+def test_a77_freshness_probe_is_not_masked_by_a78_only_traffic(db_session):
+    """The reverse of the masking power_outages_transmission already guards against:
+    A78 traffic alone must not keep the desk-critical A77 (generation) probe looking
+    healthy while the A77 pass is silently dead."""
+    from backend.collectors.freshness import evaluate_freshness
+
+    db_session.add(out.PowerOutage(
+        mrid="t-only", revision=1, doc_type="A78", zone="DE_LU", counterparty_zone="FR",
+        business_type="A53", start_utc="2026-07-01T00:00Z", end_utc="2026-08-01T00:00Z",
+        status="active",
+    ))
+    db_session.commit()
+    result = evaluate_freshness(db_session)
+    assert result["power_outages"]["fresh"] is False
+    assert result["power_outages"]["last_seen"] is None
+
+
+def test_a77_freshness_probe_is_scoped_to_doc_type(db_session):
+    from backend.collectors.freshness import SPECS
+
+    spec = next(s for s in SPECS if s.key == "power_outages")
+    assert spec.filter_col == "doc_type"
+    assert spec.filter_val == "A77"

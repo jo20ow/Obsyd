@@ -338,7 +338,11 @@ class PowerOutage(Base):
     available_mw. counterparty_zone is A78-only (null for A77): ENTSO-E requires a
     DIRECTED zone pair for A78 (in_Domain/out_Domain), so ingest stores one row per
     queried direction under zone=in_Domain, counterparty_zone=out_Domain — mapped
-    through ZONE_REGISTRY where possible, kept as a raw EIC when unmapped.
+    through ZONE_REGISTRY where possible, kept as a raw EIC when unmapped. Because a
+    border publishes as two DISJOINT messages (one per direction — see the live
+    spike in entsoe_outages.py), a zone's transmission outages live under BOTH
+    `zone == that zone` AND `counterparty_zone == that zone` rows; the read side
+    (latest_outage_revisions, doc_type="A78") matches either column, not just `zone`.
     """
 
     __tablename__ = "power_outage"

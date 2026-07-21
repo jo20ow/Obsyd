@@ -348,7 +348,12 @@ async def _run_outages():
     6 h: forced outages land intraday, and the desk's whole point is showing them
     before the price does. The two passes are independent try/excepts — A78 uses a
     completely different query shape (directed border pairs, see entsoe_outages.py),
-    so a break there must not take down the A77 pass that already worked."""
+    so a break there must not take down the A77 pass that already worked. They share
+    one Session, so each except calls db.rollback() before moving on: without it, an
+    IntegrityError (or any DB-level error) in the first pass leaves the session in
+    SQLAlchemy's failed-transaction state, and every statement the second pass tries
+    to run raises PendingRollbackError instead of actually attempting anything —
+    which would make the "independent" claim above false exactly when it matters."""
     from backend.power.entsoe_outages import ingest_outages
 
     db = SessionLocal()
@@ -356,11 +361,13 @@ async def _run_outages():
         result = await ingest_outages(db)
         logger.info("outages (A77 generation): %s", result)
     except Exception as exc:
+        db.rollback()
         logger.error("_run_outages (A77 generation) failed: %s", exc)
     try:
         result78 = await ingest_outages(db, doc_type="A78")
         logger.info("outages (A78 transmission): %s", result78)
     except Exception as exc:
+        db.rollback()
         logger.error("_run_outages (A78 transmission) failed: %s", exc)
     finally:
         db.close()
