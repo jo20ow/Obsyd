@@ -108,6 +108,12 @@ def run_migrations() -> None:
     if _add_column_if_missing("power_grid", "gen_hours", "INTEGER"):
         applied.append("power_grid.gen_hours")
 
+    # 2026-07-21: A78 transmission-infrastructure unavailability shares power_outage with
+    # A77; the counterparty area (the OTHER end of the interconnector/line) is a concept
+    # A77 never had. NULL for every existing (A77) row, populated going forward for A78.
+    if _add_column_if_missing("power_outage", "counterparty_zone", "VARCHAR"):
+        applied.append("power_outage.counterparty_zone")
+
     # 2026-07-14: name the fuels that had no name. B03/B07/B08/B13 were missing from PSR_LABELS,
     # so the ingest stored the RAW code as psr_type and the mix legend read "gen.B03". Adding the
     # labels fixes new rows; without this, the record would carry the same fuel under two names

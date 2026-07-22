@@ -139,6 +139,11 @@ def capture_metrics(prices: dict[int, float], generation: dict[int, float]) -> d
         "negative_gen_pct": round(
             100.0 * sum(g for p, g in zip(px, gen) if p < 0) / total_gen, 1
         ),
+        # The COUNT (not generation-weighted) of hours this technology was actually
+        # producing (gen > 0) while the auction price was negative — a volume-blind
+        # complement to negative_gen_pct: one hour of a small plant counts the same
+        # as one hour of a large one.
+        "negative_hours": sum(1 for p, g in zip(px, gen) if p < 0 and g > 0),
     }
 
 
@@ -182,7 +187,10 @@ SELECT g.series_id                                        AS sid,
        SUM(g.gen)                                         AS total_gen,
        COUNT(*)                                           AS hours,
        COUNT(DISTINCT date(g.ts_utc, 'unixepoch'))        AS days,
-       SUM(CASE WHEN p.price < 0 THEN g.gen ELSE 0 END)   AS neg_gen
+       SUM(CASE WHEN p.price < 0 THEN g.gen ELSE 0 END)   AS neg_gen,
+       -- COUNT (not generation-weighted) of hours this technology was actually
+       -- producing (gen > 0) while the price was negative — see capture_metrics().
+       SUM(CASE WHEN p.price < 0 AND g.gen > 0 THEN 1 ELSE 0 END) AS neg_hours
   FROM g JOIN p ON p.ts_utc = g.ts_utc
  GROUP BY sid, month
 """
@@ -202,7 +210,8 @@ def _aggregate(db: Session, zone: str, start_ts: int) -> tuple[dict, dict]:
     """(price_months, fuel_months) — the whole capture table in two aggregate queries.
 
     price_months: {month: (baseload, hours)}
-    fuel_months:  {psr: {month: {hours, days, generation_gwh, capture_price, negative_gen_pct}}}
+    fuel_months:  {psr: {month: {hours, days, generation_gwh, capture_price, negative_gen_pct,
+                                  negative_hours}}}
     """
     keys = [PRICE_SERIES] + [f"gen.{f}" for f in CAPTURE_FUELS]
     sids, zid = _ids(db, zone, keys)
@@ -222,7 +231,7 @@ def _aggregate(db: Session, zone: str, start_ts: int) -> tuple[dict, dict]:
         text(_FUEL_SQL).bindparams(bindparam("gids", expanding=True)),
         {**params, "gids": list(gids)},
     ).all()
-    for sid, month, pxg, total_gen, hours, days, neg_gen in rows:
+    for sid, month, pxg, total_gen, hours, days, neg_gen, neg_hours in rows:
         if not total_gen or total_gen <= 0:
             continue  # a technology that produced nothing has no capture price
         psr = gids[sid].removeprefix("gen.")
@@ -232,6 +241,7 @@ def _aggregate(db: Session, zone: str, start_ts: int) -> tuple[dict, dict]:
             "generation_gwh": round(total_gen / 1000.0, 1),  # hourly MW → MWh → GWh
             "capture_price": round(pxg / total_gen, 2),
             "negative_gen_pct": round(100.0 * (neg_gen or 0.0) / total_gen, 1),
+            "negative_hours": int(neg_hours or 0),
             # Unrounded, and it matters: the value factor divides this by the baseload, and
             # a numerator already rounded to cents moves the third decimal of the ratio.
             # Round the inputs OR round the result — doing both rounds twice.

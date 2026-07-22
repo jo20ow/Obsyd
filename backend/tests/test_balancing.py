@@ -1,0 +1,732 @@
+"""ENTSO-E activated balancing energy (A83 volumes / A84 prices) → hourly series
+`balancing.<afrr|mfrr>.<price|vol>.<up|down>`. Mirrors test_imbalance.py's shape."""
+from __future__ import annotations
+
+import httpx
+import pytest
+
+from backend.models.energy import PowerHourly, SeriesDim, ZoneDim  # noqa: F401 — register tables
+from backend.power import entsoe_balancing as bal
+from backend.power.entsoe_balancing import (
+    control_area_eic,
+    parse_balancing_prices,
+    parse_balancing_volumes,
+)
+from backend.power.hourly_store import read_hourly
+
+NS = "urn:iec62325.351:tc57wg16:451-6:balancingdocument:4:1"
+
+
+def _balancing_doc(series: list[dict], start="2026-06-01T00:00Z", end="2026-06-02T00:00Z") -> str:
+    """Build a Balancing_MarketDocument with one TimeSeries per `series` entry.
+
+    Each entry: {"business_type": "A96", "direction": "A01", "amounts": [...],
+    "tag": "activation_Price.amount", "res": "PT15M"}.
+    """
+    ts_blocks = []
+    for s in series:
+        pts = "".join(
+            f"<Point><position>{i + 1}</position><{s['tag']}>{v}</{s['tag']}></Point>"
+            for i, v in enumerate(s["amounts"])
+        )
+        ts_blocks.append(
+            f"<TimeSeries><mRID>1</mRID><businessType>{s['business_type']}</businessType>"
+            f"<flowDirection.direction>{s['direction']}</flowDirection.direction>"
+            f"<curveType>A03</curveType><Period>"
+            f"<timeInterval><start>{start}</start><end>{end}</end></timeInterval>"
+            f"<resolution>{s.get('res', 'PT15M')}</resolution>{pts}</Period></TimeSeries>"
+        )
+    return (
+        f'<?xml version="1.0"?><Balancing_MarketDocument xmlns="{NS}">'
+        + "".join(ts_blocks)
+        + "</Balancing_MarketDocument>"
+    )
+
+
+def _afrr_up_prices(amounts, **kw):
+    return _balancing_doc(
+        [{"business_type": "A96", "direction": "A01", "amounts": amounts,
+          "tag": "activation_Price.amount", **kw}]
+    )
+
+
+# ─── control-area domain resolution ───────────────────────────────────────────
+
+
+def test_control_area_eic_de_uses_tennet_not_country_code():
+    """Spiked 2026-07-20 live: unlike A85's reBAP, DE aFRR/mFRR prices are NOT published at
+    the country EIC (10Y1001A1001A83F) or the DE_LU bidding-zone EIC — both answer a clean
+    'No matching data found'. TenneT's control area (10YDE-EON------1) carries real data."""
+    assert control_area_eic("DE_LU") == "10YDE-EON------1"
+    assert control_area_eic("FR") == "10YFR-RTE------C"
+    assert control_area_eic("NL") == "10YNL----------L"
+
+
+def test_coverage_caveat_present_for_override_zone_absent_otherwise():
+    """The route layer must derive its coverage caveat from the same override mapping
+    control_area_eic reads, rather than hardcoding a zone check — this is that single
+    source of truth."""
+    from backend.power.entsoe_balancing import coverage_caveat
+
+    caveat = coverage_caveat("DE_LU")
+    assert caveat is not None
+    assert "TenneT" in caveat and "not the national total" in caveat
+    assert coverage_caveat("FR") is None
+    assert coverage_caveat("NL") is None
+
+
+# ─── parse_balancing_prices ────────────────────────────────────────────────────
+
+
+def test_parse_prices_hourly_mean_afrr_up():
+    xml = _afrr_up_prices([100.0 + i for i in range(96)])  # 96 PT15M -> 24 hourly means
+    out = parse_balancing_prices(xml)
+    assert set(out.keys()) == {("afrr", "up")}
+    day = out[("afrr", "up")]["2026-06-01"]
+    assert len(day) == 24
+    # hour 0 = mean of positions 1-4 -> 100,101,102,103 -> mean 101.5
+    assert day[0] == pytest.approx(101.5)
+
+
+def test_parse_prices_splits_by_direction_and_product():
+    xml = _balancing_doc([
+        {"business_type": "A96", "direction": "A01", "amounts": [150.0] * 4, "tag": "activation_Price.amount"},
+        {"business_type": "A96", "direction": "A02", "amounts": [50.0] * 4, "tag": "activation_Price.amount"},
+        {"business_type": "A97", "direction": "A01", "amounts": [200.0] * 4, "tag": "activation_Price.amount"},
+    ])
+    out = parse_balancing_prices(xml)
+    assert out[("afrr", "up")]["2026-06-01"][0] == 150.0
+    assert out[("afrr", "down")]["2026-06-01"][0] == 50.0
+    assert out[("mfrr", "up")]["2026-06-01"][0] == 200.0
+    assert ("mfrr", "down") not in out
+
+
+def test_parse_prices_ignores_fcr_and_rr():
+    """FCR (A95) and RR (A98) are out of scope for this desk (aFRR/mFRR only)."""
+    xml = _balancing_doc([
+        {"business_type": "A95", "direction": "A01", "amounts": [999.0] * 4, "tag": "activation_Price.amount"},
+        {"business_type": "A98", "direction": "A01", "amounts": [888.0] * 4, "tag": "activation_Price.amount"},
+    ])
+    assert parse_balancing_prices(xml) == {}
+
+
+def test_parse_prices_gap_between_periods_is_not_filled():
+    """curveType A03 is declared but does NOT behave like A09's step function here: a gap
+    between two Periods means genuinely no activation happened, not a value to hold forward
+    (spiked live 2026-07-20 — see module docstring). A second Period starting after a gap
+    must not smuggle in the first period's last value for the missing slot."""
+    xml = (
+        f'<?xml version="1.0"?><Balancing_MarketDocument xmlns="{NS}"><TimeSeries>'
+        "<businessType>A96</businessType><flowDirection.direction>A01</flowDirection.direction>"
+        "<curveType>A03</curveType>"
+        '<Period><timeInterval><start>2026-06-01T00:00Z</start><end>2026-06-01T01:00Z</end></timeInterval>'
+        "<resolution>PT15M</resolution>"
+        "<Point><position>1</position><activation_Price.amount>10.0</activation_Price.amount></Point>"
+        "<Point><position>2</position><activation_Price.amount>10.0</activation_Price.amount></Point>"
+        "<Point><position>3</position><activation_Price.amount>10.0</activation_Price.amount></Point>"
+        "<Point><position>4</position><activation_Price.amount>10.0</activation_Price.amount></Point>"
+        "</Period>"
+        # gap: 01:00-01:30 has no Period at all
+        '<Period><timeInterval><start>2026-06-01T01:30Z</start><end>2026-06-01T02:00Z</end></timeInterval>'
+        "<resolution>PT15M</resolution>"
+        "<Point><position>1</position><activation_Price.amount>20.0</activation_Price.amount></Point>"
+        "<Point><position>2</position><activation_Price.amount>20.0</activation_Price.amount></Point>"
+        "</Period></TimeSeries></Balancing_MarketDocument>"
+    )
+    out = parse_balancing_prices(xml)[("afrr", "up")]["2026-06-01"]
+    assert len(out) == 2  # only hours 0 and 1 exist; nothing invented for the gap
+    assert out[0] == 10.0
+    # hour 1 only has the 01:30/01:45 quarter-hours (2 points), not 4 — no fill-forward
+    assert out[1] == 20.0
+
+
+def test_parse_acknowledgement_is_empty():
+    ack = '<?xml version="1.0"?><Acknowledgement_MarketDocument><mRID>x</mRID></Acknowledgement_MarketDocument>'
+    assert parse_balancing_prices(ack) == {}
+    assert parse_balancing_volumes(ack) == {}
+
+
+def test_parse_malformed_raises():
+    with pytest.raises(ValueError):
+        parse_balancing_prices("<not-xml")
+    with pytest.raises(ValueError):
+        parse_balancing_volumes("<not-xml")
+
+
+# ─── parse_balancing_volumes ────────────────────────────────────────────────────
+
+
+def test_parse_volumes_hourly_sum_not_mean():
+    """Volumes (MWh) are SUMMED per hour — 4 quarter-hour MWh amounts add up to the hour's
+    total energy, unlike prices which are averaged."""
+    xml = _balancing_doc([
+        {"business_type": "A96", "direction": "A01", "amounts": [10.0, 20.0, 30.0, 40.0], "tag": "quantity"},
+    ])
+    out = parse_balancing_volumes(xml)[("afrr", "up")]["2026-06-01"]
+    assert out[0] == 100.0  # sum, not mean (25.0)
+
+
+def test_parse_volumes_splits_by_direction_and_product():
+    xml = _balancing_doc([
+        {"business_type": "A97", "direction": "A02", "amounts": [5.0] * 4, "tag": "quantity"},
+    ])
+    out = parse_balancing_volumes(xml)
+    assert set(out.keys()) == {("mfrr", "down")}
+    assert out[("mfrr", "down")]["2026-06-01"][0] == 20.0
+
+
+# ─── ZIP unwrap: multiple inner XML documents merge ────────────────────────────
+
+
+def test_parse_multi_xml_zip_members_merge(tmp_path, monkeypatch):
+    """A83/A84 ZIP archives can hold MULTIPLE inner .xml documents — every member must be
+    parsed and merged, not just the first (unlike A85's single-doc ZIP)."""
+    import asyncio
+    import io
+    import zipfile
+
+    doc1 = _balancing_doc([{"business_type": "A96", "direction": "A01", "amounts": [111.0] * 4,
+                             "tag": "activation_Price.amount"}])
+    doc2 = _balancing_doc([{"business_type": "A96", "direction": "A02", "amounts": [222.0] * 4,
+                             "tag": "activation_Price.amount"}])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("doc1.xml", doc1)
+        zf.writestr("doc2.xml", doc2)
+    zip_bytes = buf.getvalue()
+
+    class _FakeResp:
+        status_code = 200
+        content = zip_bytes
+        text = ""
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **kw):
+            return _FakeResp()
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    from datetime import date
+
+    docs = asyncio.run(
+        bal._fetch_balancing_month("A84", "entsoe_a84_test", "10YDE-EON------1", date(2026, 6, 1))
+    )
+    merged: dict = {}
+    for xml in docs:
+        for key, days in parse_balancing_prices(xml).items():
+            merged.setdefault(key, {}).update(days)
+    assert merged[("afrr", "up")]["2026-06-01"][0] == 111.0
+    assert merged[("afrr", "down")]["2026-06-01"][0] == 222.0
+
+
+# ─── _fetch_balancing_month: which 400s are cacheable "no data" vs. real failures ──────
+#
+# ENTSO-E answers a genuinely-empty or structurally-unsupported request with HTTP 400 (see
+# the module docstring's A83 spike findings) — that specific shape is safe to cache as
+# emptiness. But a 400 is ALSO what a rotated/expired token or an ENTSO-E-side incident could
+# produce, and those must NOT be cached: the raw_cache is write-once, so caching a transient
+# failure would permanently poison that zone-month across the outage (a real, live risk per
+# CLAUDE.md's pending ENTSO-E token rotation note).
+
+
+class _FakeAsyncClient:
+    """Minimal async-context-manager httpx.AsyncClient stand-in returning one canned
+    httpx.Response — a REAL Response (not a hand-rolled stub) so .raise_for_status()
+    behaves exactly like the library."""
+
+    def __init__(self, status_code: int, content: bytes):
+        self._status_code = status_code
+        self._content = content
+
+    def __call__(self, *a, **kw):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None):
+        return httpx.Response(self._status_code, content=self._content, request=httpx.Request("GET", url))
+
+
+async def test_fetch_structural_400_is_cached_as_empty(tmp_path, monkeypatch):
+    """The exact wording ENTSO-E uses for a genuinely-empty/unsupported combination — A83's
+    structural rejection ('combination of ... not allowed to be fetched via this service') or
+    A84's 'No matching data found' empty-window ACK — is the ONLY 400 shape treated as
+    cacheable no-data."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    body = (
+        b"<Acknowledgement_MarketDocument><Reason><code>999</code>"
+        b"<text>The combination of [DOCUMENT_TYPE=A83] is not valid, or the requested data "
+        b"is not allowed to be fetched via this service.</text></Reason></Acknowledgement_MarketDocument>"
+    )
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(400, body))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    docs = await bal._fetch_balancing_month("A83", "entsoe_a83_structural_test", "10YDE-EON------1", date(2026, 6, 1))
+    assert docs == [""]
+    # cached: read_cached now finds it without hitting the (removed) client again.
+    assert rc.read_cached("entsoe_a83_structural_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) == {"xml": [""]}
+
+
+async def test_fetch_no_matching_data_400_is_cached_as_empty(tmp_path, monkeypatch):
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    body = b"<Acknowledgement_MarketDocument><Reason><code>999</code><text>No matching data found for Data item X</text></Reason></Acknowledgement_MarketDocument>"
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(400, body))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    docs = await bal._fetch_balancing_month("A84", "entsoe_a84_nodata_test", "10YDE-EON------1", date(2026, 6, 1))
+    assert docs == [""]
+
+
+async def test_fetch_400_with_only_generic_is_not_valid_text_raises(tmp_path, monkeypatch):
+    """A 400 whose body merely happens to contain the generic phrase 'is not valid' (e.g. an
+    ordinary parameter-validation error, nothing to do with A83/A84's structural rejection)
+    must NOT be treated as cacheable no-data — the matcher keys on the distinctive TAIL of
+    ENTSO-E's actual 'nothing here' wordings ('No matching data found' / 'not allowed to be
+    fetched via this service' / 'combination of'), not the generic phrase alone."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    body = b"Input parameter periodStart is not valid"
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(400, body))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await bal._fetch_balancing_month(
+            "A84", "entsoe_a84_genericfail_test", "10YDE-EON------1", date(2026, 6, 1)
+        )
+    assert rc.read_cached("entsoe_a84_genericfail_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) is None
+
+
+async def test_fetch_401_raises_and_is_not_cached(tmp_path, monkeypatch):
+    """A bad/rotated token must raise, not be swallowed as 'no data' — and must NOT be
+    written to the write-once raw_cache (that would poison the month for good)."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(401, b"Unauthorized"))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await bal._fetch_balancing_month("A84", "entsoe_a84_authfail_test", "10YDE-EON------1", date(2026, 6, 1))
+
+    assert rc.read_cached("entsoe_a84_authfail_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) is None
+
+
+async def test_fetch_500_raises_and_is_not_cached(tmp_path, monkeypatch):
+    """An ENTSO-E-side incident (5xx) is exactly the transient failure the retry logic in
+    power_backfill.py's _with_retry exists for — it must propagate, not get cached as empty."""
+    from datetime import date
+
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(503, b"Service Unavailable"))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await bal._fetch_balancing_month("A83", "entsoe_a83_5xx_test", "10YDE-EON------1", date(2026, 6, 1))
+
+    assert rc.read_cached("entsoe_a83_5xx_test", "10YDE-EON------1_2026-06", date(2026, 6, 1)) is None
+
+
+async def test_ingest_401_is_isolated_and_logged_not_cached(db_session, tmp_path, monkeypatch):
+    """End-to-end: ingest_balancing must not blow up on an auth failure (matches every other
+    per-step try/except in this vertical) — the month is skipped this run and retried next
+    time, rather than being cached as a permanent false 'no data'."""
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    monkeypatch.setattr(bal.httpx, "AsyncClient", _FakeAsyncClient(401, b"Unauthorized"))
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+    assert r["written"] == 0
+    assert read_hourly(db_session, "balancing.afrr.price.up", "FR") == []
+
+
+# ─── per-doctype overwrite: don't re-issue a known-futile A83 request every hour ───────
+#
+# The hourly job refreshes prices every run (overwrite=True) but must NOT re-issue A83's
+# known-futile request 37 zones × 24 times a day once its structural rejection is cached —
+# that's ~888 guaranteed 400s/day against ENTSO-E for nothing. The once-a-day full-overwrite
+# pass is the deliberate "REVERIFY" probe and must keep re-fetching.
+
+
+class _CountingAsyncClient:
+    """Fake httpx.AsyncClient that answers every request with a real, clean structural
+    'no data' 400 httpx.Response and counts calls per documentType — so the caching/
+    overwrite behavior can be verified without touching the network."""
+
+    def __init__(self):
+        self.calls: dict[str, int] = {"A83": 0, "A84": 0}
+
+    def __call__(self, *a, **kw):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None):
+        doc_type = params["documentType"]
+        self.calls[doc_type] = self.calls.get(doc_type, 0) + 1
+        body = b"No matching data found for Data item X"
+        return httpx.Response(400, content=body, request=httpx.Request("GET", url, params=params))
+
+
+async def test_hourly_shaped_call_does_not_refetch_cached_a83(db_session, tmp_path, monkeypatch):
+    """overwrite=True + overwrite_volumes=False (the hourly job's shape): prices are
+    refetched every run, but once A83's rejection is cached, the second run must not hit the
+    network for it again."""
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+    client = _CountingAsyncClient()
+    monkeypatch.setattr(bal.httpx, "AsyncClient", client)
+
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True, overwrite_volumes=False)
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True, overwrite_volumes=False)
+
+    assert client.calls["A84"] == 2  # prices: always refreshed
+    assert client.calls["A83"] == 1  # volumes: cached "no data" short-circuits the 2nd run
+
+
+async def test_daily_shaped_call_always_refetches_a83(db_session, tmp_path, monkeypatch):
+    """overwrite=True with no overwrite_volumes override (the nightly job's shape, and the
+    default for any caller that doesn't pass it): both doctypes refetch every run — this is
+    the once-a-day REVERIFY probe for whether A83 has come back."""
+    import backend.gas.raw_cache as rc
+
+    monkeypatch.setattr(rc, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    monkeypatch.setattr(bal, "_token", lambda: "tok")
+    client = _CountingAsyncClient()
+    monkeypatch.setattr(bal.httpx, "AsyncClient", client)
+
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+    await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+
+    assert client.calls["A84"] == 2
+    assert client.calls["A83"] == 2
+
+
+# ─── ingest_balancing ───────────────────────────────────────────────────────────
+
+
+async def test_ingest_no_token_skips(db_session, monkeypatch):
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", None)
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR")
+    assert r == {"skipped": "no token"}
+
+
+async def test_ingest_no_days_returns_zero(db_session, monkeypatch):
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    r = await bal.ingest_balancing(db_session, [], zone="FR")
+    assert r["days"] == 0
+
+
+async def test_ingest_writes_eight_series(db_session, monkeypatch):
+    """One month of both aFRR+mFRR, up+down, price+volume -> all 8 canonical series land."""
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+
+    price_xml = _balancing_doc([
+        {"business_type": "A96", "direction": "A01", "amounts": [150.0] * 4, "tag": "activation_Price.amount"},
+        {"business_type": "A96", "direction": "A02", "amounts": [50.0] * 4, "tag": "activation_Price.amount"},
+        {"business_type": "A97", "direction": "A01", "amounts": [200.0] * 4, "tag": "activation_Price.amount"},
+        {"business_type": "A97", "direction": "A02", "amounts": [80.0] * 4, "tag": "activation_Price.amount"},
+    ])
+    vol_xml = _balancing_doc([
+        {"business_type": "A96", "direction": "A01", "amounts": [10.0] * 4, "tag": "quantity"},
+        {"business_type": "A96", "direction": "A02", "amounts": [5.0] * 4, "tag": "quantity"},
+        {"business_type": "A97", "direction": "A01", "amounts": [20.0] * 4, "tag": "quantity"},
+        {"business_type": "A97", "direction": "A02", "amounts": [8.0] * 4, "tag": "quantity"},
+    ])
+
+    async def fake_fetch(document_type, cache_source, eic, month_start, *, overwrite=False):
+        return [price_xml] if document_type == "A84" else [vol_xml]
+
+    monkeypatch.setattr(bal, "_fetch_balancing_month", fake_fetch)
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+    assert r["written"] > 0
+
+    for product, price in (("afrr", 150.0), ("mfrr", 200.0)):
+        series = read_hourly(db_session, f"balancing.{product}.price.up", "FR")
+        assert series[0][1] == price
+    for product, price in (("afrr", 50.0), ("mfrr", 80.0)):
+        series = read_hourly(db_session, f"balancing.{product}.price.down", "FR")
+        assert series[0][1] == price
+    for product, vol in (("afrr", 40.0), ("mfrr", 80.0)):  # sum of 4 quarter-hours, not the mean
+        series = read_hourly(db_session, f"balancing.{product}.vol.up", "FR")
+        assert series[0][1] == vol
+    for product, vol in (("afrr", 20.0), ("mfrr", 32.0)):
+        series = read_hourly(db_session, f"balancing.{product}.vol.down", "FR")
+        assert series[0][1] == vol
+
+
+async def test_ingest_volumes_structurally_rejected_is_graceful(db_session, monkeypatch):
+    """Spiked live 2026-07-20: A83 answers a structural 400 ('combination not valid') for
+    every zone/param combination tried — treated exactly like the codebase's existing
+    'clean no-data ACK' convention (entsoe_exchange.py's A09/A25 fetchers): ingestion must
+    stay green, prices still write, volumes just come back empty."""
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    price_xml = _afrr_up_prices([150.0] * 4)
+
+    async def fake_fetch(document_type, cache_source, eic, month_start, *, overwrite=False):
+        return [price_xml] if document_type == "A84" else [""]
+
+    monkeypatch.setattr(bal, "_fetch_balancing_month", fake_fetch)
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+    assert r["written"] > 0
+    assert read_hourly(db_session, "balancing.afrr.price.up", "FR")
+    assert read_hourly(db_session, "balancing.afrr.vol.up", "FR") == []
+
+
+async def test_ingest_fetch_error_is_isolated_per_doctype(db_session, monkeypatch):
+    """A price-fetch failure must not stop volumes (and vice versa) — each documentType is
+    fetched and handled independently, matching the rest of this vertical's isolate-and-log
+    convention."""
+    import httpx
+
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+    vol_xml = _balancing_doc([
+        {"business_type": "A96", "direction": "A01", "amounts": [10.0] * 4, "tag": "quantity"},
+    ])
+
+    async def fake_fetch(document_type, cache_source, eic, month_start, *, overwrite=False):
+        if document_type == "A84":
+            raise httpx.HTTPError("boom")
+        return [vol_xml]
+
+    monkeypatch.setattr(bal, "_fetch_balancing_month", fake_fetch)
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+    assert read_hourly(db_session, "balancing.afrr.vol.up", "FR")
+    assert read_hourly(db_session, "balancing.afrr.price.up", "FR") == []
+    assert r["written"] > 0
+
+
+async def test_ingest_excludes_days_outside_the_wanted_window(db_session, monkeypatch):
+    """A month document naturally spans every day in that calendar month, but
+    ingest_balancing is asked for SPECIFIC days — _merge_wanted's day filter must drop
+    everything else. Every other ingest test in this file uses a single-day document, which
+    never actually exercised that filter (a doc with only one day trivially passes it)."""
+    monkeypatch.setattr(bal.settings, "entsoe_api_token", "x")
+
+    two_day_doc = _balancing_doc(
+        [{"business_type": "A96", "direction": "A01", "amounts": [100.0 + i for i in range(48)],
+          "tag": "activation_Price.amount", "res": "PT60M"}],
+        start="2026-06-01T00:00Z", end="2026-06-03T00:00Z",
+    )
+
+    async def fake_fetch(document_type, cache_source, eic, month_start, *, overwrite=False):
+        return [two_day_doc] if document_type == "A84" else [""]
+
+    monkeypatch.setattr(bal, "_fetch_balancing_month", fake_fetch)
+    r = await bal.ingest_balancing(db_session, ["2026-06-01"], zone="FR", overwrite=True)
+
+    series = read_hourly(db_session, "balancing.afrr.price.up", "FR")
+    assert len(series) == 24  # only 2026-06-01's 24 hours...
+    assert r["written"] == 24
+    from datetime import datetime as _dt_
+    from datetime import timezone as _tz_
+    assert all(
+        _dt_.fromtimestamp(t, tz=_tz_.utc).strftime("%Y-%m-%d") == "2026-06-01" for t, _ in series
+    )  # ...never 2026-06-02, even though the fetched document covers both days
+
+
+# ─── GET /api/power/balancing ───────────────────────────────────────────────────
+
+
+def _client(db):
+    from fastapi.testclient import TestClient
+
+    from backend.database import get_db
+    from backend.main import app
+
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _clear_overrides():
+    yield
+    from backend.main import app
+    app.dependency_overrides.clear()
+
+
+def _seed_balancing(db, zone="DE_LU", product="afrr"):
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+
+    now = (int(_time.time()) // 3600) * 3600
+    up_prices = [(now - i * 3600, 100.0 + i) for i in range(24, 0, -1)]
+    down_prices = [(now - i * 3600, -50.0 - i) for i in range(24, 0, -1)]
+    up_vols = [(now - i * 3600, 5.0 + i) for i in range(24, 0, -1)]
+    down_vols = [(now - i * 3600, 2.0 + i) for i in range(24, 0, -1)]
+    upsert_hourly(db, f"balancing.{product}.price.up", zone, up_prices, unit="EUR/MWh")
+    upsert_hourly(db, f"balancing.{product}.price.down", zone, down_prices, unit="EUR/MWh")
+    upsert_hourly(db, f"balancing.{product}.vol.up", zone, up_vols, unit="MWh")
+    upsert_hourly(db, f"balancing.{product}.vol.down", zone, down_vols, unit="MWh")
+
+
+def test_route_happy_path(db_session):
+    _seed_balancing(db_session)
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU&product=afrr").json()
+    assert body["available"] is True
+    assert body["zone"] == "DE_LU"
+    assert body["product"] == "afrr"
+    assert body["unit"] == "EUR/MWh"
+    assert len(body["up"]) >= 24
+    assert len(body["down"]) >= 24
+    assert body["latest"] is not None
+    assert body["latest"]["direction"] in ("up", "down")
+    assert body["peak"] is not None
+    assert body["peak"]["direction"] in ("up", "down")
+    assert body["as_of"] is not None
+    assert "stale" in body and "age_days" in body
+
+
+def test_route_latest_and_peak_report_correct_direction(db_session):
+    """`direction` must reflect whichever row actually won — not just always 'up' — so a
+    consumer knows which half of the market a latest/peak number came from."""
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+
+    now = (int(_time.time()) // 3600) * 3600
+    upsert_hourly(db_session, "balancing.afrr.price.up", "DE_LU",
+                  [(now - 7200, 10.0), (now - 3600, 11.0)], unit="EUR/MWh")
+    upsert_hourly(db_session, "balancing.afrr.price.down", "DE_LU",
+                  [(now - 3600, -12.0), (now, -500.0)], unit="EUR/MWh")
+
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU&product=afrr").json()
+    assert body["available"] is True
+    assert body["latest"]["direction"] == "down"
+    assert body["latest"]["price"] == -500.0
+    assert body["peak"]["direction"] == "down"
+    assert body["peak"]["price"] == -500.0
+
+
+def test_route_de_lu_carries_tennet_coverage_caveat(db_session):
+    """DE_LU uses a control-area override (TenneT, one of four German TSOs) — the JSON
+    response itself must say so, not just docstrings, so an API consumer without the source
+    open still learns the scope."""
+    _seed_balancing(db_session, zone="DE_LU")
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU").json()
+    assert body["available"] is True
+    assert body["coverage"] is not None
+    assert "TenneT" in body["coverage"]
+    assert "not the national total" in body["coverage"]
+
+
+def test_route_non_override_zone_has_no_coverage_caveat(db_session):
+    """FR uses its normal bidding-zone EIC directly — there's nothing to caveat."""
+    _seed_balancing(db_session, zone="FR")
+    body = _client(db_session).get("/api/power/balancing?zone=FR").json()
+    assert body["available"] is True
+    assert body["coverage"] is None
+
+
+def test_route_defaults_to_afrr_and_30_days(db_session):
+    _seed_balancing(db_session, product="afrr")
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU").json()
+    assert body["product"] == "afrr"
+    assert body["days"] == 30
+
+
+def test_route_mfrr_product(db_session):
+    _seed_balancing(db_session, product="mfrr")
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU&product=mfrr").json()
+    assert body["available"] is True
+    assert body["product"] == "mfrr"
+
+
+def test_route_invalid_product_is_rejected(db_session):
+    resp = _client(db_session).get("/api/power/balancing?zone=DE_LU&product=bogus")
+    assert resp.status_code == 422
+
+
+def test_route_days_clamped(db_session):
+    resp_low = _client(db_session).get("/api/power/balancing?zone=DE_LU&days=0")
+    resp_high = _client(db_session).get("/api/power/balancing?zone=DE_LU&days=91")
+    assert resp_low.status_code == 422
+    assert resp_high.status_code == 422
+
+
+def test_route_unknown_zone_falls_back(db_session):
+    """Mirrors get_imbalance / _resolve_zone: an unknown zone falls back to DEFAULT_ZONE
+    rather than 400ing (the `zones` list in the response tells the caller what's valid)."""
+    _seed_balancing(db_session, zone="DE_LU")
+    body = _client(db_session).get("/api/power/balancing?zone=NOPE").json()
+    assert body["zone"] == "DE_LU"
+
+
+def test_route_no_data_is_honest(db_session):
+    body = _client(db_session).get("/api/power/balancing?zone=NL&product=mfrr").json()
+    assert body["available"] is False
+    assert "reason" in body
+    assert body["zone"] == "NL"
+
+
+def test_route_zones_list_present(db_session):
+    _seed_balancing(db_session)
+    body = _client(db_session).get("/api/power/balancing?zone=DE_LU").json()
+    assert "zones" in body and "DE_LU" in body["zones"]
+
+
+# ─── freshness spec ─────────────────────────────────────────────────────────────
+
+
+def test_freshness_spec_registered():
+    from backend.collectors.freshness import SPECS
+
+    spec = next((s for s in SPECS if s.key == "balancing_energy"), None)
+    assert spec is not None
+    assert spec.hourly_series == "balancing.afrr.price.up"
+    assert spec.max_age.days == 2
+
+
+# ─── backfill registration ──────────────────────────────────────────────────────
+
+
+def test_backfill_source_registered():
+    from backend.scripts import power_backfill as pb
+
+    assert "balancing" in pb.ALL_SOURCES

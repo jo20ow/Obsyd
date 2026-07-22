@@ -11,6 +11,13 @@ ingest_load_forecast (which now also populate power_hourly). Every write is an
 upsert and every raw payload is disk-cached (raw_cache), so a crashed run resumes
 from cache for free. Meant to run in the ingest process (never the API worker) —
 a mass backfill is a throttled, multi-day marathon against ENTSO-E's rate limit.
+
+FIRST DEPLOY of the balancing/capacity collectors: right after the service restart
+that ships them, run `--sources balancing` and `--sources capacity` once each. Not
+a launch blocker if skipped — the 09:00 UTC collector watchdog will email a
+balancing_energy/capacity_prices stale alert until the 11:30 UTC daily job fills the
+series in on its own (self-heals within 24h) — but the backfill closes the gap
+immediately instead of waiting out one noisy watchdog cycle.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from datetime import date, datetime, timedelta
 from backend.database import SessionLocal
 from backend.observability import install_log_redaction
 from backend.power.energy_charts_flows import ingest_cbpf
+from backend.power.entsoe_balancing import ingest_balancing
 from backend.power.entsoe_grid import ingest_grid, ingest_load_forecast
 from backend.power.entsoe_imbalance import ingest_imbalance
 from backend.power.entsoe_prices import ingest_day_ahead
@@ -35,7 +43,7 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "flows", "scheduled", "netpos")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "capacity")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -106,7 +114,7 @@ async def run_backfill(
     done = 0
     # A flows-only run must not walk the zone×month loop — it would do nothing
     # but sleep through the throttle (37 zones × months × 1 s on prod).
-    zone_sources = sources & {"price", "grid", "forecast", "imbalance"}
+    zone_sources = sources & {"price", "grid", "forecast", "imbalance", "balancing"}
     for zone in zones if zone_sources else []:
         cfg = POWER_ZONES[zone]
         eic = cfg["eic"]
@@ -127,6 +135,8 @@ async def run_backfill(
                 await _with_retry(lambda d=days: ingest_load_forecast(db, d, eic=eic, zone=zone, overwrite=overwrite), f"forecast {tag}")
             if "imbalance" in sources:
                 await _with_retry(lambda d=days: ingest_imbalance(db, d, zone=zone, overwrite=overwrite), f"imbalance {tag}")
+            if "balancing" in sources:
+                await _with_retry(lambda d=days: ingest_balancing(db, d, zone=zone, overwrite=overwrite), f"balancing {tag}")
             done += 1
             logger.info("power_backfill: %s done (%d/%d)", tag, done, plan)
             if throttle:
@@ -186,9 +196,32 @@ async def run_backfill(
             logger.info("power_backfill: netpos %s done (%d/%d)",
                         f"{m_start:%Y-%m}", netpos_months, len(windows))
 
+    # Balancing-capacity prices (FCR/aFRR/mFRR, A15) are DE_LU-only and zone-independent —
+    # one sweep per month covers the whole German market, like flows/scheduled/netpos above.
+    # NOTE: each day fetches 3 processTypes, each individually offset-paginated (see
+    # backend/power/entsoe_reserves.py) — a deep multi-year --start on this source alone is a
+    # much heavier pull than the other zone-independent sources; pass a narrower --start
+    # (the market's daily-tender history only goes back to ~2018/2019) when backfilling it.
+    capacity_months = 0
+    if "capacity" in sources:
+        from backend.power.entsoe_reserves import ingest_capacity_prices
+
+        for m_start, m_end in windows:
+            if dry_run:
+                capacity_months += 1
+                continue
+            days = _daterange(m_start, m_end)
+            await _with_retry(
+                lambda d=days: ingest_capacity_prices(db, d, overwrite=overwrite),
+                f"capacity {m_start:%Y-%m}",
+            )
+            capacity_months += 1
+            logger.info("power_backfill: capacity %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", capacity_months, len(windows))
+
     return {"zone_months": done, "zones": zones, "months": len(windows),
             "flow_months": flow_months, "scheduled_months": sched_months,
-            "netpos_months": netpos_months, "dry_run": dry_run}
+            "netpos_months": netpos_months, "capacity_months": capacity_months, "dry_run": dry_run}
 
 
 def _weeks_in(m_start, m_end) -> list:

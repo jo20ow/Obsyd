@@ -6,7 +6,7 @@ GET /api/power/day-ahead?days=120&zone=DE_LU  — FREE
     Returns EnergyPrice rows + richer PowerPriceDaily stats (negative prices etc.)
     Each response includes `zone` (resolved) and `zones` (all supported zone keys).
 
-GET /api/power/spark-spread?days=120  — PRO
+GET /api/power/spark-spread?days=120  — FREE
     Historical spark spread (power − gas × heat_rate).
     DE-LU only (SparkSpreadHistory has no zone column); stays DE-only intentionally.
 
@@ -311,6 +311,12 @@ def get_day_ahead_hourly(
 def get_spark_spread(
     days: int = Query(120, ge=7, le=1500),
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key: DE_LU, FR, NL, …"),
+    efficiency: float | None = Query(
+        None, ge=0.30, le=0.65,
+        description="Override the CCGT electrical efficiency (0.30–0.65) used for this "
+        "request's heat rate. Defaults to settings.gas_ccgt_efficiency. A PPA/asset-modelling "
+        "knob: the desk's own fleet-average assumption may not match a specific plant.",
+    ),
     db: Session = Depends(get_db),
 ):
     """DIRTY spark spread (power − gas × heat_rate, EUR/MWh) for any zone — and the carbon
@@ -329,10 +335,17 @@ def get_spark_spread(
     The gas leg is TTF for every zone (a per-zone hub is a later refinement) and its raw close is
     NOT returned: yfinance's TTF is Yahoo's copy of the ICE Endex front-month, licensed exchange
     data this project does not redistribute. That is a mitigation, not a cure — see spark.py.
+
+    `efficiency`, when given, overrides settings.gas_ccgt_efficiency for THIS request only — the
+    heat rate and everything derived from it (the spread, the break-even carbon price, the carbon
+    intensity) are recomputed at the requested efficiency. The raw gas price stays unexposed
+    regardless: the override changes the arithmetic applied to it, not what leaves the response.
+    The efficiency actually used (requested or defaulted) is always echoed back as `efficiency`.
     """
     resolved_zone = _resolve_zone(zone)
     symbol = POWER_ZONES[resolved_zone]["price_symbol"]
-    heat_rate = round(1.0 / settings.gas_ccgt_efficiency, 4)
+    eff = efficiency if efficiency is not None else settings.gas_ccgt_efficiency
+    heat_rate = round(1.0 / eff, 4)
     date_from, date_to = _window(days)
 
     def _prices(sym: str) -> dict[str, float]:
@@ -353,6 +366,7 @@ def get_spark_spread(
             "available": False,
             "zone": resolved_zone,
             "zones": _ZONE_KEYS,
+            "efficiency": eff,
             "reason": f"Spark spread isn't available for {POWER_ZONES[resolved_zone]['label']} yet — check back shortly.",
         }
 
@@ -376,7 +390,13 @@ def get_spark_spread(
         "zone": resolved_zone,
         "zones": _ZONE_KEYS,
         "unit": "EUR/MWh",
-        "heat_rate_note": "1 / CCGT_efficiency; default efficiency = 0.50",
+        "efficiency": eff,
+        "heat_rate_note": (
+            "1 / CCGT_efficiency; default efficiency = "
+            f"{settings.gas_ccgt_efficiency}, this request used {eff}"
+            if efficiency is not None
+            else f"1 / CCGT_efficiency; default efficiency = {settings.gas_ccgt_efficiency}"
+        ),
         "co2_intensity_t_per_mwh": round(co2_intensity(heat_rate), 4),
         "gas_leg_note": (
             "Gas leg = TTF front-month for every zone (a per-zone hub is a later refinement). Its "
@@ -741,7 +761,18 @@ PANEL_MAX_AGE_DAYS = {
     "imbalance": 4,     # mirrors SPECS "imbalance_qh" — reBAP settles late
     "spark": 4,  # gas leg is yfinance TTF — ~3 trading days plus weekends
     "load_forecast": 2,
+    "balancing": 2,  # mirrors SPECS "balancing_energy"
+    "capacity_prices": 2,  # mirrors SPECS "capacity_prices"
 }
+
+#: /api/power/live's own freshness threshold — day granularity like every
+#: other panel caption above (the endpoint's own `lag_minutes` field carries
+#: the real-time precision). Kept in sync with the "live_load" FreshnessSpec
+#: (backend/collectors/freshness.py) by
+#: test_power_live.py::test_route_max_age_matches_live_load_freshness_spec,
+#: the same pattern PANEL_MAX_AGE_DAYS uses against SPECS above
+#: (test_power_panel_freshness.py::test_panel_thresholds_match_health_specs).
+LIVE_MAX_AGE_DAYS = 1
 
 
 def _freshness(as_of: str | None, today: _date | None,
@@ -1455,37 +1486,17 @@ def get_flows_hourly(
     Country-level source — sub-zones without an Energy-Charts country (Italian
     sub-zones, DK1/DK2 …) return available:false with the reason, not a blank.
     """
-    from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
-    from backend.power.hourly_store import read_hourly
+    from backend.power.hourly_store import iter_border_points
 
     resolved_zone = _resolve_zone(zone)
     start_ts = int((datetime.now(timezone.utc) - timedelta(hours=hours)).timestamp())
 
+    # Sign convention + storing-side/counterparty-side handling now lives in ONE
+    # place (iter_border_points) shared with backend/power/live.py — see its
+    # docstring for the Case A/B mechanics this used to duplicate here.
     borders: dict[str, list[tuple[int, float]]] = {}
-
-    # Case A — resolved zone is the canonical sorted-FIRST zone: its exports
-    # live as series flow.<neighbor> under itself.
-    for (key,) in db.query(SeriesDim.key).filter(SeriesDim.key.like("flow.%")).all():
-        neighbor = key[len("flow."):]
-        if neighbor == resolved_zone:
-            continue
-        pts = read_hourly(db, key, resolved_zone, start_ts=start_ts)
-        if pts:
-            borders[neighbor] = pts  # net > 0 = resolved zone exports (native sign)
-
-    # Case B — resolved zone is sorted-SECOND: series flow.<resolved> under the
-    # neighbours. One query across all zones; flip the sign to "selected exports".
-    sid = db.query(SeriesDim.id).filter(SeriesDim.key == f"flow.{resolved_zone}").scalar()
-    if sid is not None:
-        rows = (
-            db.query(ZoneDim.key, PowerHourly.ts_utc, PowerHourly.value)
-            .join(PowerHourly, PowerHourly.zone_id == ZoneDim.id)
-            .filter(PowerHourly.series_id == sid, PowerHourly.ts_utc >= start_ts)
-            .order_by(PowerHourly.ts_utc.asc())
-            .all()
-        )
-        for neighbor, ts, v in rows:
-            borders.setdefault(neighbor, []).append((int(ts), -float(v)))
+    for neighbor, ts, v in iter_border_points(db, resolved_zone, start_ts=start_ts):
+        borders.setdefault(neighbor, []).append((ts, v))
 
     if not borders:
         return {
@@ -1649,6 +1660,49 @@ def get_spread(
     return compute_spread(db, a, b, days=days)
 
 
+# ─── Live (near-real-time TODAY) ──────────────────────────────────────────────
+
+
+@router.get("/live")
+def get_live(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    db: Session = Depends(get_db),
+):
+    """Near-real-time read of TODAY, hour by hour. Free tier.
+
+    The situation hero and every daily panel read the DAILY rollup tables, which
+    only ever hold COMPLETE days — so the desk has no view of today until the
+    nightly job closes it out, even though the canonical hourly store already
+    fills in every ~30 minutes as ENTSO-E publishes. This is that missing read:
+    published actual load/residual/per-fuel generation/net cross-border flow
+    alongside the day-ahead forecast/price for the SAME hours, straight from
+    backend/power/live.py::compute_live. Descriptive (Posture B): actuals are
+    compared against ENTSO-E's/the auction's own published day-ahead figures,
+    never predicted.
+
+    `zone` defaults to DE_LU; unknown zones fall back (same convention as every
+    other endpoint on this router — see `_resolve_zone`; `zones` in the response
+    lists every valid key, exactly like its siblings). Shortly after UTC
+    midnight, before today's first actual has published, falls back to
+    yesterday's complete day (`showing: "yesterday"`) — in that mode
+    `summary.price_now` is null until today's first actual has landed, because
+    only the shown (yesterday's) day-ahead prices are loaded.
+    """
+    from backend.power.live import compute_live
+
+    resolved_zone = _resolve_zone(zone)
+    result = compute_live(db, resolved_zone)
+    if not result.get("available"):
+        return {**result, "zones": _ZONE_KEYS}
+
+    as_of_date = result["latest_actual_ts"][:10] if result.get("latest_actual_ts") else None
+    return {
+        **result,
+        "zones": _ZONE_KEYS,
+        **_freshness(as_of_date, datetime.now(timezone.utc).date(), max_age_days=LIVE_MAX_AGE_DAYS),
+    }
+
+
 # ─── Imbalance prices (free) ──────────────────────────────────────────────────
 
 
@@ -1702,6 +1756,192 @@ def get_imbalance(
             for t, v in points
         ],
         **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["imbalance"]),
+    }
+
+
+# ─── Activated balancing energy (free) ────────────────────────────────────────
+
+
+@router.get("/balancing")
+def get_balancing(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    days: int = Query(30, ge=1, le=90),
+    product: str = Query("afrr", pattern="^(afrr|mfrr)$"),
+    db: Session = Depends(get_db),
+):
+    """Activated balancing energy (ENTSO-E A84 prices EUR/MWh + A83 volumes MWh) for aFRR or
+    mFRR, split by direction — what the TSO actually called on beyond the day-ahead price, in
+    real time. Free tier, descriptive (Posture B: context, not a forecast).
+
+    Coverage varies by zone/product — see backend/power/entsoe_balancing.py's module
+    docstring for the live-spiked specifics: DE_LU is TenneT's control area only (one of four
+    German TSOs, not the national total), and activation VOLUMES (A83) are not currently
+    served by the public API at all for any zone (prices still populate).
+    """
+    from backend.power.entsoe_balancing import coverage_caveat
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    caveat = coverage_caveat(resolved_zone)
+    start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+
+    def _direction_rows(direction: str) -> list[tuple[int, float | None, float | None]]:
+        prices = dict(read_hourly(db, f"balancing.{product}.price.{direction}", resolved_zone, start_ts=start_ts))
+        vols = dict(read_hourly(db, f"balancing.{product}.vol.{direction}", resolved_zone, start_ts=start_ts))
+        return [(t, prices.get(t), vols.get(t)) for t in sorted(set(prices) | set(vols))]
+
+    up_rows = _direction_rows("up")
+    down_rows = _direction_rows("down")
+    if not up_rows and not down_rows:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zone_label": POWER_ZONES[resolved_zone]["label"],
+            "zones": _ZONE_KEYS,
+            "product": product,
+            "reason": (
+                f"No {product} activated-balancing-energy series for "
+                f"{POWER_ZONES[resolved_zone]['label']} — A83/A84 coverage varies by zone "
+                "(and activation volumes aren't currently served by the public API at all; "
+                "see backend/power/entsoe_balancing.py)."
+            ),
+            "coverage": caveat,
+        }
+
+    def _fmt(rows: list[tuple[int, float | None, float | None]]) -> list[dict]:
+        return [
+            {
+                "t": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(),
+                "price": round(p, 2) if p is not None else None,
+                "vol": round(v, 2) if v is not None else None,
+            }
+            for t, p, v in rows
+        ]
+
+    # Tag each row with its direction before merging so latest/peak can report which half
+    # of the market they came from — a bare number doesn't say whether the TSO was paying
+    # for upward or downward regulation.
+    all_rows = [(t, p, v, "up") for t, p, v in up_rows] + [(t, p, v, "down") for t, p, v in down_rows]
+    priced_rows = [(t, p, d) for t, p, _, d in all_rows if p is not None]
+    latest_t, latest_p, latest_v, latest_dir = max(all_rows, key=lambda r: r[0])
+    peak_row = max(priced_rows, key=lambda r: abs(r[1])) if priced_rows else None
+    as_of = _dt.fromtimestamp(max(r[0] for r in all_rows), tz=timezone.utc).strftime("%Y-%m-%d")
+
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zone_label": POWER_ZONES[resolved_zone]["label"],
+        "zones": _ZONE_KEYS,
+        "product": product,
+        "unit": "EUR/MWh",
+        "days": days,
+        "up": _fmt(up_rows),
+        "down": _fmt(down_rows),
+        "latest": {
+            "t": _dt.fromtimestamp(latest_t, tz=timezone.utc).isoformat(),
+            "price": round(latest_p, 2) if latest_p is not None else None,
+            "vol": round(latest_v, 2) if latest_v is not None else None,
+            "direction": latest_dir,
+        },
+        "peak": (
+            {
+                "t": _dt.fromtimestamp(peak_row[0], tz=timezone.utc).isoformat(),
+                "price": round(peak_row[1], 2),
+                "direction": peak_row[2],
+            }
+            if peak_row is not None else None
+        ),
+        "note": (
+            "Activated balancing energy — what the TSO actually called on to keep the grid "
+            "balanced, beyond the day-ahead auction. Descriptive context, not a forecast "
+            "(Posture B)."
+        ),
+        "coverage": caveat,
+        **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["balancing"]),
+    }
+
+
+# ─── Procured balancing-capacity prices (FCR/aFRR/mFRR, free) ─────────────────
+
+
+@router.get("/capacity-prices")
+def get_capacity_prices(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    days: int = Query(30, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    """German procured balancing-CAPACITY prices (ENTSO-E A15: FCR/aFRR/mFRR daily tenders) —
+    the DE-LU LFC block only, structurally (not a coverage gap): individual German control
+    areas publish nothing at this domain, and no other enabled zone has an equivalent tender.
+    See backend/power/entsoe_reserves.py's module docstring for the live-spiked XML shape and
+    pagination findings. Free tier, descriptive (Posture B: context, not a forecast).
+    """
+    from backend.power.entsoe_reserves import PRODUCT_SUFFIXES
+    from backend.power.hourly_store import read_hourly
+
+    resolved_zone = _resolve_zone(zone)
+    if resolved_zone != "DE_LU":
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zone_label": POWER_ZONES[resolved_zone]["label"],
+            "zones": ["DE_LU"],
+            "reason": (
+                "German balancing-capacity market — DE-LU LFC block only "
+                f"(no equivalent tender for {POWER_ZONES[resolved_zone]['label']})."
+            ),
+        }
+
+    start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
+
+    products: dict[str, list[dict]] = {}
+    latest: dict[str, dict | None] = {}
+    newest_ts: list[int] = []
+    for json_key, suffix in PRODUCT_SUFFIXES:
+        rows = read_hourly(db, f"capacity.{suffix}", "DE_LU", start_ts=start_ts)
+        series = [
+            {"t": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(), "price": round(p, 4)}
+            for t, p in rows
+        ]
+        products[json_key] = series
+        latest[json_key] = series[-1] if series else None
+        if rows:
+            newest_ts.append(rows[-1][0])
+
+    zone_label = POWER_ZONES["DE_LU"]["label"]
+    if not newest_ts:
+        return {
+            "available": False,
+            "zone": "DE_LU",
+            "zone_label": zone_label,
+            "zones": ["DE_LU"],
+            "reason": "No German balancing-capacity data yet for DE-LU — check back shortly.",
+        }
+
+    as_of = _dt.fromtimestamp(max(newest_ts), tz=timezone.utc).strftime("%Y-%m-%d")
+
+    return {
+        "available": True,
+        "zone": "DE_LU",
+        "zone_label": zone_label,
+        "zones": ["DE_LU"],
+        "unit": "EUR/MW/h",
+        "days": days,
+        "products": products,
+        "latest": latest,
+        "note": (
+            "German balancing-capacity market (ENTSO-E A15, GL EB 12.3.F) — DE-LU LFC block "
+            "only. Each series is the VOLUME-WEIGHTED AVERAGE of that day's accepted capacity "
+            "bids per 4-hour product block, normalized to EUR/MW/h (FCR's native EUR-per-4h-"
+            "block price is divided by 4; aFRR/mFRR are already EUR/MW/h). FCR is pay-as-"
+            "CLEARED and symmetric (no up/down split); aFRR/mFRR are pay-as-BID and split by "
+            "direction, so the weighted average reflects what procurement actually cost, not "
+            "a single clearing price. FCR settles across borders under one clearing "
+            "mechanism, so a specific country's own settlement price can differ slightly from "
+            "this DE-LU-block reconstruction on days when export limits bind. Source: ENTSO-E "
+            "Transparency Platform. Descriptive, not a forecast (Posture B)."
+        ),
+        **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["capacity_prices"]),
     }
 
 
@@ -1780,17 +2020,29 @@ def get_outages(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     horizon_days: int = Query(30, ge=1, le=400,
                               description="Include outages starting up to this many days out"),
+    kind: str = Query("all", pattern="^(generation|transmission|all)$",
+                      description="generation = A77 unit unavailability, transmission = "
+                                  "A78 interconnector/line unavailability, all = both"),
     db: Session = Depends(get_db),
 ):
-    """Generation unavailability (ENTSO-E A77) for a bidding zone. Free tier.
+    """Generation unavailability (ENTSO-E A77) AND transmission-infrastructure
+    unavailability (ENTSO-E A78) for a bidding zone. Free tier.
 
     Revision semantics: only the HIGHEST revision per message counts, and
-    withdrawn messages (docStatus A09) hide the event — of 31 live documents
-    sampled, 26 were withdrawn. `total_offline_mw` counts only outages running
-    RIGHT NOW; the list also includes ones starting within `horizon_days`.
-    Descriptive: what capacity is off and why, not a price call.
+    withdrawn messages (docStatus A09) hide the event — of 31 live A77 documents
+    sampled, 26 were withdrawn; A78 shares the identical semantics (spiked live
+    2026-07-21). `total_offline_mw`/`forced_offline_mw` are GENERATION-only (A78
+    never publishes a nominal capacity for the asset, so there is no baseline to
+    subtract from — see `transmission[].available_mw` instead); both count only
+    outages running RIGHT NOW, the lists also include ones starting within
+    `horizon_days`. `transmission[]` entries carry `counterparty_zone` — the OTHER
+    end of the interconnector/line, RELATIVE to the requested `zone` (a message
+    published from the counterparty's own query still surfaces here, since A78
+    matches on either side — see latest_outage_revisions). Descriptive: what
+    capacity is off and why, not a price call.
     """
     from backend.models.energy import PowerOutage
+    from backend.power.entsoe_outages import ASSET_TYPE_LABELS
     from backend.signals.detectors.power import latest_outage_revisions
 
     resolved_zone = _resolve_zone(zone)
@@ -1798,11 +2050,17 @@ def get_outages(
     now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
     horizon_iso = (now + timedelta(days=horizon_days)).strftime("%Y-%m-%dT%H:%MZ")
 
-    # Highest revision per mRID wins; withdrawn events disappear. The dedupe
-    # runs in SQL (shared with the radar detector) instead of loading every
-    # revision row into Python.
-    latest_rows = latest_outage_revisions(db, resolved_zone)
-    if not latest_rows:
+    want_generation = kind in ("generation", "all")
+    want_transmission = kind in ("transmission", "all")
+
+    # Highest revision per mRID wins; withdrawn events disappear. The dedupe runs in SQL
+    # (shared with the radar detector) instead of loading every revision row into Python.
+    # doc_type scopes each query to its own section — A77 and A78 share this table but
+    # must never mix into one list (see latest_outage_revisions docstring).
+    latest_rows = latest_outage_revisions(db, resolved_zone, doc_type="A77") if want_generation else []
+    transmission_rows = latest_outage_revisions(db, resolved_zone, doc_type="A78") if want_transmission else []
+
+    if not latest_rows and not transmission_rows:
         return {
             "available": False,
             "zone": resolved_zone,
@@ -1811,48 +2069,105 @@ def get_outages(
         }
 
     outages: list[dict] = []
-    total_offline = 0.0
-    forced_offline = 0.0
-    # Names for the EICs, in ONE query. PowerOutage.unit_eic has been written since the outage
-    # ingest was built and read by nothing; the unit registry (A71/A33) is what it was waiting
-    # for. Hydrating per row would repeat the 0.25 s / 8.5k-entity mistake the outage board has
-    # already made once.
-    unit_names = _unit_names_for(db, [r.unit_eic for r in latest_rows if r.unit_eic])
+    total_offline: float | None = None
+    forced_offline: float | None = None
 
-    for r in latest_rows:
-        if r.status != "active":
-            continue
-        if r.end_utc < now_iso or r.start_utc > horizon_iso:
-            continue
-        offline = (
-            round(r.nominal_mw - (r.available_mw or 0.0), 1)
-            if r.nominal_mw is not None else None
-        )
-        running_now = r.start_utc <= now_iso <= r.end_utc
-        if running_now and offline:
-            total_offline += offline
-            if r.business_type == "A54":
-                forced_offline += offline
-        outages.append({
-            "mrid": r.mrid,
-            # The message's own name if it carries one, else the registry's. Many A77 messages
-            # carry no name at all — which is why the board used to print raw EICs.
-            "unit_name": r.unit_name or unit_names.get(r.unit_eic),
-            "unit_eic": r.unit_eic,
-            "location": r.location,
-            "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
-            "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
-            "nominal_mw": r.nominal_mw,
-            "available_mw": r.available_mw,
-            "offline_mw": offline,
-            "start_utc": r.start_utc,
-            "end_utc": r.end_utc,
-            "running_now": running_now,
-        })
+    if want_generation:
+        total_offline = 0.0
+        forced_offline = 0.0
+        # Names for the EICs, in ONE query. PowerOutage.unit_eic has been written since the outage
+        # ingest was built and read by nothing; the unit registry (A71/A33) is what it was waiting
+        # for. Hydrating per row would repeat the 0.25 s / 8.5k-entity mistake the outage board has
+        # already made once.
+        unit_names = _unit_names_for(db, [r.unit_eic for r in latest_rows if r.unit_eic])
 
-    outages.sort(key=lambda o: (not o["running_now"], -(o["offline_mw"] or 0.0)))
-    # Freshness = newest message we EVER ingested for the zone (any revision) —
-    # a superseded revision still proves the collector is alive.
+        for r in latest_rows:
+            if r.status != "active":
+                continue
+            if r.end_utc < now_iso or r.start_utc > horizon_iso:
+                continue
+            offline = (
+                round(r.nominal_mw - (r.available_mw or 0.0), 1)
+                if r.nominal_mw is not None else None
+            )
+            running_now = r.start_utc <= now_iso <= r.end_utc
+            if running_now and offline:
+                total_offline += offline
+                if r.business_type == "A54":
+                    forced_offline += offline
+            outages.append({
+                "mrid": r.mrid,
+                # The message's own name if it carries one, else the registry's. Many A77 messages
+                # carry no name at all — which is why the board used to print raw EICs.
+                "unit_name": r.unit_name or unit_names.get(r.unit_eic),
+                "unit_eic": r.unit_eic,
+                "location": r.location,
+                "fuel": PSR_LABELS.get(r.psr_type, r.psr_type),
+                "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
+                "nominal_mw": r.nominal_mw,
+                "available_mw": r.available_mw,
+                "offline_mw": offline,
+                "start_utc": r.start_utc,
+                "end_utc": r.end_utc,
+                "running_now": running_now,
+            })
+        outages.sort(key=lambda o: (not o["running_now"], -(o["offline_mw"] or 0.0)))
+        total_offline = round(total_offline, 1)
+        forced_offline = round(forced_offline, 1)
+
+    transmission: list[dict] = []
+    if want_transmission:
+        for r in transmission_rows:
+            if r.status != "active":
+                continue
+            if r.end_utc < now_iso or r.start_utc > horizon_iso:
+                continue
+            # nominal_mw is always null for a transmission asset (no capacity baseline is
+            # ever published — see entsoe_outages.py), so offline_mw stays null too; the
+            # honest figure to show is the reduced available_mw itself.
+            offline = (
+                round(r.nominal_mw - (r.available_mw or 0.0), 1)
+                if r.nominal_mw is not None else None
+            )
+            running_now = r.start_utc <= now_iso <= r.end_utc
+            # latest_outage_revisions(doc_type="A78") now matches rows where resolved_zone
+            # is EITHER end (zone OR counterparty_zone — review fix), because a border
+            # publishes once per queried direction and the two directions are DISJOINT
+            # messages (live spike: zero mRID overlap). A row filed as zone=FR/
+            # counterparty_zone=DE_LU IS just as much DE_LU's outage, so "the other end"
+            # must be reported RELATIVE to resolved_zone, not read off the row verbatim —
+            # otherwise DE_LU's own panel would show "DE_LU" as its own counterparty.
+            # `reported_by` keeps the row's raw filing zone visible (which direction's
+            # query surfaced this message) — mostly diagnostic today.
+            # Accepted consequence: the SAME physical asset can appear TWICE on one
+            # zone's panel (once per queried direction), and the two rows' available_mw
+            # can legitimately differ (each TSO reports its own side). Display-dedupe by
+            # (asset_eic, start, end) only if this looks noisy in production.
+            other_zone = r.zone if r.counterparty_zone == resolved_zone else r.counterparty_zone
+            transmission.append({
+                "mrid": r.mrid,
+                "asset_name": r.unit_name or r.unit_eic,
+                "asset_eic": r.unit_eic,
+                "counterparty_zone": other_zone,
+                "reported_by": r.zone,
+                "asset_type": ASSET_TYPE_LABELS.get(r.psr_type, r.psr_type),
+                "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
+                "nominal_mw": r.nominal_mw,
+                "available_mw": r.available_mw,
+                "offline_mw": offline,
+                "start_utc": r.start_utc,
+                "end_utc": r.end_utc,
+                "running_now": running_now,
+            })
+        # Most-constrained first: lowest remaining transfer capacity is the one worth
+        # noticing. offline_mw is not a usable sort key here (near-always null).
+        transmission.sort(key=lambda o: (
+            not o["running_now"],
+            o["available_mw"] if o["available_mw"] is not None else float("inf"),
+        ))
+
+    # Freshness = newest message we EVER ingested for the zone (any revision, either doc
+    # type) — a superseded revision still proves the collector is alive.
     newest_msg = (
         db.query(func.max(PowerOutage.created_at))
         .filter(PowerOutage.zone == resolved_zone)
@@ -1863,10 +2178,11 @@ def get_outages(
         "zone": resolved_zone,
         "zones": _ZONE_KEYS,
         "unit": "MW",
-        "total_offline_mw": round(total_offline, 1),
-        "forced_offline_mw": round(forced_offline, 1),
+        "total_offline_mw": total_offline,
+        "forced_offline_mw": forced_offline,
         "horizon_days": horizon_days,
         "outages": outages,
+        "transmission": transmission,
         **_freshness(newest_msg.strftime("%Y-%m-%d") if newest_msg else None,
                      now.date(), 2),
     }

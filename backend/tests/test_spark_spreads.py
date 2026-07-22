@@ -204,6 +204,76 @@ def test_spark_route_computes_per_zone(db_session, monkeypatch):
     assert body["co2_intensity_t_per_mwh"] == pytest.approx(0.404)
 
 
+def test_spark_route_efficiency_override(db_session, monkeypatch):
+    """?efficiency= overrides settings.gas_ccgt_efficiency for THIS request's heat rate;
+    the spread, the break-even carbon price and the carbon intensity all re-derive
+    consistently from it. The default (unspecified) request still echoes the efficiency
+    it actually used."""
+    from datetime import date, timedelta
+
+    from fastapi.testclient import TestClient
+
+    from backend.config import settings as _settings
+    from backend.database import get_db
+    from backend.main import app
+    from backend.power.spark import breakeven_eua, co2_intensity
+
+    monkeypatch.setattr(_settings, "gas_ccgt_efficiency", 0.50)
+    d = (date.today() - timedelta(days=5)).isoformat()
+    _seed(db_session, "POWER_DE", [(d, 90.0)])
+    _seed(db_session, "TTF", [(d, 30.0)])
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        default_body = TestClient(app).get("/api/power/spark-spread?zone=DE_LU&days=120").json()
+        override_body = TestClient(app).get(
+            "/api/power/spark-spread?zone=DE_LU&days=120&efficiency=0.60"
+        ).json()
+    finally:
+        app.dependency_overrides.clear()
+
+    # Default request: echoes the setting it defaulted to.
+    assert default_body["efficiency"] == pytest.approx(0.50)
+    assert default_body["latest"]["heat_rate"] == pytest.approx(2.0)
+
+    # Overridden request: heat rate, spread and breakeven all move together.
+    assert override_body["efficiency"] == pytest.approx(0.60)
+    expected_heat_rate = round(1.0 / 0.60, 4)
+    assert override_body["latest"]["heat_rate"] == pytest.approx(expected_heat_rate)
+    expected_spread = round(90.0 - 30.0 * expected_heat_rate, 4)
+    assert override_body["latest"]["dirty_spark_spread"] == pytest.approx(expected_spread)
+    assert override_body["latest"]["breakeven_eua_eur_t"] == breakeven_eua(
+        expected_spread, expected_heat_rate
+    )
+    assert override_body["co2_intensity_t_per_mwh"] == pytest.approx(
+        co2_intensity(expected_heat_rate), rel=1e-4
+    )
+    # The two requests must actually disagree — proof the override took effect at all.
+    assert override_body["latest"]["dirty_spark_spread"] != default_body["latest"]["dirty_spark_spread"]
+
+    # No raw TTF close leaves the endpoint regardless of which efficiency was used.
+    assert "gas_price" not in override_body["latest"]
+    assert all("gas_price" not in row for row in override_body["data"])
+
+
+def test_spark_route_efficiency_out_of_range_is_422(db_session):
+    """FastAPI's Query(ge=, le=) bounds — 0.30–0.65 — reject silently-wrong efficiencies
+    (e.g. a fraction typo'd as a percentage) rather than compute a nonsense heat rate."""
+    from fastapi.testclient import TestClient
+
+    from backend.database import get_db
+    from backend.main import app
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    try:
+        too_low = TestClient(app).get("/api/power/spark-spread?zone=DE_LU&efficiency=0.20")
+        too_high = TestClient(app).get("/api/power/spark-spread?zone=DE_LU&efficiency=0.90")
+    finally:
+        app.dependency_overrides.clear()
+    assert too_low.status_code == 422
+    assert too_high.status_code == 422
+
+
 def test_spark_route_unavailable_without_overlap(db_session):
     from fastapi.testclient import TestClient
 

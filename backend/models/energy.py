@@ -317,7 +317,7 @@ class ProductionUnit(Base):
 
 
 class PowerOutage(Base):
-    """ENTSO-E unavailability of generation/production units (A77/A78/A80).
+    """ENTSO-E unavailability of generation units (A77) AND transmission infrastructure (A78).
 
     An EVENT, not a time series: one row per (mRID, revision) of an
     Unavailability_MarketDocument. Revision semantics are the core — messages
@@ -329,6 +329,20 @@ class PowerOutage(Base):
     available_mw is the MINIMUM quantity over the Available_Period step
     function (curveType A03) — the worst case, which is what the desk
     headline should count. offline = nominal_mw − available_mw.
+
+    A78 (spiked live 2026-07-21, DE_LU<->FR) describes an ASSET (line, PST,
+    transformer — Asset_RegisteredResource) instead of a production unit:
+    unit_name/unit_eic/location/psr_type are populated from that container instead
+    of production_RegisteredResource.*, and nominal_mw is ALWAYS null — the schema
+    never publishes a capacity baseline for transmission assets, only the reduced
+    available_mw. counterparty_zone is A78-only (null for A77): ENTSO-E requires a
+    DIRECTED zone pair for A78 (in_Domain/out_Domain), so ingest stores one row per
+    queried direction under zone=in_Domain, counterparty_zone=out_Domain — mapped
+    through ZONE_REGISTRY where possible, kept as a raw EIC when unmapped. Because a
+    border publishes as two DISJOINT messages (one per direction — see the live
+    spike in entsoe_outages.py), a zone's transmission outages live under BOTH
+    `zone == that zone` AND `counterparty_zone == that zone` rows; the read side
+    (latest_outage_revisions, doc_type="A78") matches either column, not just `zone`.
     """
 
     __tablename__ = "power_outage"
@@ -336,8 +350,9 @@ class PowerOutage(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     mrid: Mapped[str] = mapped_column(String, nullable=False, index=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
-    doc_type: Mapped[str] = mapped_column(String, nullable=False, default="A77")  # A77/A78/A80
+    doc_type: Mapped[str] = mapped_column(String, nullable=False, default="A77")  # A77 generation / A78 transmission
     zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    counterparty_zone: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # A78 only
     business_type: Mapped[str] = mapped_column(String, nullable=False)  # A53 planned / A54 forced
     psr_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)   # raw B-code
     unit_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)

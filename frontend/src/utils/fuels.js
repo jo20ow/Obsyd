@@ -106,6 +106,15 @@ export function fuelColor(key) {
   return CANONICAL[key] ?? CANONICAL[ALIASES[key]] ?? DEFAULT_FUEL_COLOR
 }
 
+// Friendly display name for a fuel key. Most panels (GenerationMixPanel, CapturePanel)
+// receive an already-canonical label from the backend and never need this — but
+// backend/power/live.py deliberately ships the RAW ENTSO-E code (`gen.<Bxx>` -> "B16")
+// and defers the mapping here, so a raw code is resolved through ALIASES; an
+// already-canonical name (or anything unknown) passes through unchanged.
+export function fuelLabel(key) {
+  return CANONICAL[key] ? key : (ALIASES[key] ?? key)
+}
+
 const ORDER_INDEX = new Map(STACK_ORDER.map((label, i) => [label, i]))
 
 function orderIndex(key) {

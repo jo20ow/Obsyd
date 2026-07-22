@@ -101,7 +101,18 @@ def test_no_value_factor_through_a_zero_baseload():
 def test_negative_generation_share_is_the_technologys_own_output():
     prices = _hours(0, {0: -5.0, 1: 50.0, 2: 50.0, 3: 50.0})
     gen = _hours(0, {0: 300.0, 1: 100.0, 2: 100.0, 3: 100.0})
-    assert capture_metrics(prices, gen)["negative_gen_pct"] == 50.0  # 300 of 600 MWh
+    m = capture_metrics(prices, gen)
+    assert m["negative_gen_pct"] == 50.0  # 300 of 600 MWh
+    assert m["negative_hours"] == 1  # only hour 0 is both negative-price and producing
+
+
+def test_negative_hours_counts_hours_not_generation():
+    """negative_hours is a volume-blind COUNT: an hour of a small plant counts the
+    same as an hour of a large one, unlike negative_gen_pct which is weighted."""
+    prices = _hours(0, {0: -5.0, 1: -1.0, 2: 50.0, 3: -2.0})
+    gen = _hours(0, {0: 1.0, 1: 900.0, 2: 100.0, 3: 0.0})  # hour 3: negative price, ZERO output
+    m = capture_metrics(prices, gen)
+    assert m["negative_hours"] == 2, "hours 0 and 1 — hour 3 had no output despite the negative price"
 
 
 def test_a_technology_that_produced_nothing_has_no_capture_price():
@@ -114,14 +125,21 @@ def test_a_technology_that_produced_nothing_has_no_capture_price():
 # ─── DB-backed ────────────────────────────────────────────────────────────────
 
 
-def _seed(db, zone="DE_LU", days=75, *, solar_days=None):
+def _seed(db, zone="DE_LU", days=75, *, solar_days=None, anchor=None):
     """Solar produces in the cheap half of the day and writes NO row at night — the
     real ENTSO-E shape. Gas runs in the dear half. 75 days back guarantees at least
     one COMPLETE calendar month; capture is a monthly figure.
 
     `solar_days`: if set, solar only appears on that many days — a broken feed.
+    `anchor`: override for "now" (tz-aware UTC); defaults to the real wall clock. A test
+    that jumps `today` FORWARD afterwards (to check staleness) needs an anchor whose
+    CURRENT, still-running month (partial at seed time) stays under MIN_DAYS/
+    MIN_PRICE_HOURS forever — otherwise, on any real day of the month ≥ MIN_DAYS (the
+    20th onward), that partial month already has enough volume to qualify once `today`
+    moves past it, and the `as_of`/`latest_month` the test assumes stays fixed drifts
+    forward too, silently erasing the staleness under test.
     """
-    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    now = (anchor or datetime.now(timezone.utc)).replace(minute=0, second=0, microsecond=0)
     start = now - timedelta(days=days)
     price_pts, solar_pts, gas_pts = [], [], []
     for i in range(days * 24):
@@ -227,9 +245,41 @@ def test_the_running_month_is_not_reported_as_a_month(db_session):
 def test_freshness_is_the_newest_hour_used_not_the_month_label(db_session):
     """The panel convention: as_of is a date, and it is the newest hour the numbers
     were actually built from. A monthly figure is legitimately weeks behind — a month
-    only completes once — so it goes stale on a wider window than any daily panel."""
-    _seed(db_session)
-    out = compute_capture(db_session, "DE_LU", months=3)
+    only completes once — so it goes stale on a wider window than any daily panel.
+
+    Anchored to a FIXED reference date rather than the real wall clock (unlike every
+    other DB-backed test here, which is deliberately allowed to float with real "now").
+    This test simulates `today` jumping forward past STALE_AFTER_DAYS to prove staleness
+    trips — and with the ordinary `_seed()` (anchored to real `now`), that jump used to
+    make the test's own pass/fail outcome depend on which day of the REAL month it
+    happened to run on:
+
+    `_seed()` writes data all the way up to "now", so at seed time the still-running
+    month is only PARTIAL. On the 20th of any real month or later, that partial month
+    already has ≥ MIN_DAYS (20) distinct days and ≥ MIN_PRICE_HOURS (480 = 20×24) hours
+    — enough to pass both thresholds by volume alone, even though it is still incomplete.
+    The only thing keeping it out of the baseline is the SEPARATE `month < running` rule
+    in compute_capture(), which is evaluated against `today`. Jump `today` forward (as
+    this test does, to check staleness) and that same partial month is no longer
+    "running" — so it gets admitted retroactively, becomes the new (much more recent)
+    `latest_month`, and drags `as_of` forward with it, quietly cancelling the very
+    staleness this test exists to prove. Verified against the unpatched version by
+    seeding at several fixed anchor days-of-month and reproducing the exact assertion
+    above: day 1/5/20 stayed green, day 21/28 failed exactly like the original flake
+    (the precise cutover shifts by up to a day with the anchor's hour-of-day, since
+    what actually matters is accumulated HOURS/DAYS crossing MIN_PRICE_HOURS/MIN_DAYS,
+    not the calendar day number itself).
+
+    The fix anchors the seed to a fixed 2024-01-05 — day 5, nowhere near MIN_DAYS — so
+    the run's own partial month (Jan 2024, 5 days/120 hours) can NEVER cross either
+    threshold, no matter how far `today` is later pushed; only the two already-COMPLETE
+    months before it (Nov/Dec 2023) ever qualify, so `as_of`/`latest_month` are pinned for
+    real. (Anchoring at day 21 or 28 instead would reproduce the original bug — this is
+    exactly the failure mode above, just deterministically on those two dates.)
+    """
+    anchor = datetime(2024, 1, 5, tzinfo=timezone.utc)
+    _seed(db_session, anchor=anchor)
+    out = compute_capture(db_session, "DE_LU", months=3, today=anchor.date())
 
     assert date.fromisoformat(out["as_of"]), "an ISO date, not '2026-06'"
     assert out["as_of"].startswith(out["latest_month"])
@@ -251,6 +301,9 @@ def test_route(db_session):
     assert body["available"] is True
     assert body["baseload_price"] == 60.0
     assert body["fuels"][0]["latest"]["capture_price"] is not None
+    # negative_hours travels next to negative_gen_pct in both `latest` and the monthly rows.
+    assert "negative_hours" in body["fuels"][0]["latest"]
+    assert all("negative_hours" in row for f in body["fuels"] for row in f["data"])
 
 
 def _seed_messy(db, zone="DE_LU", days=390):
@@ -313,7 +366,8 @@ def test_the_sql_and_the_definition_agree(db_session):
             # EXACT, not approximate. A rel=1e-3 tolerance is precisely wide enough to hide
             # the drift that actually happened.
             for key in ("capture_price", "baseload_price", "value_factor",
-                        "hours", "days", "generation_gwh", "negative_gen_pct"):
+                        "hours", "days", "generation_gwh", "negative_gen_pct",
+                        "negative_hours"):
                 assert got[key] == want[key], f"{fuel['psr']} {got['month']}.{key}"
             checked += 1
     assert checked >= 20, "too few month-fuel pairs to catch a boundary-crossing rounding"

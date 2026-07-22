@@ -13,6 +13,7 @@ Schedule (UTC):
   - EU gas balance: daily 10:00; gas registry: weekly Mon 03:30
   - Signals (radar): every 5 min; scorecards: weekly Mon 05:00
   - Live prices: every 4h; user alert rules: every 30 min
+  - Balancing-capacity prices (FCR/aFRR/mFRR, DE_LU only): daily 11:30
   - Daily email: PAUSED 2026-07-18 (no product emails; see registration site below)
   - Retention: daily 04:00; collector watchdog: daily 09:00
 """
@@ -169,6 +170,17 @@ async def _run_power_daily():
                 logger.info("power daily imbalance ingest [%s]: %s", zone_key, result)
             except Exception as exc:
                 logger.error("power daily ingest_imbalance [%s] failed: %s", zone_key, exc)
+
+            try:
+                from backend.power.entsoe_balancing import ingest_balancing
+
+                # Full overwrite on BOTH doctypes (unlike the hourly job, which passes
+                # overwrite_volumes=False) — this once-a-day pass is the deliberate REVERIFY
+                # probe for whether A83's structural rejection has ever come back.
+                result = await ingest_balancing(db, days, zone=zone_key, overwrite=True)
+                logger.info("power daily balancing ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("power daily ingest_balancing [%s] failed: %s", zone_key, exc)
 
         # Cross-border physical flows (Energy-Charts CBPF, CC BY 4.0).
         try:
@@ -331,17 +343,32 @@ async def _run_records_nightly():
 
 
 async def _run_outages():
-    """Refresh the rolling generation-unavailability window (ENTSO-E A77) for all
-    enabled zones. Every 6 h: forced outages land intraday, and the desk's whole
-    point is showing them before the price does."""
+    """Refresh the rolling generation-unavailability (ENTSO-E A77) AND transmission-
+    infrastructure-unavailability (A78) windows for all enabled zones/borders. Every
+    6 h: forced outages land intraday, and the desk's whole point is showing them
+    before the price does. The two passes are independent try/excepts — A78 uses a
+    completely different query shape (directed border pairs, see entsoe_outages.py),
+    so a break there must not take down the A77 pass that already worked. They share
+    one Session, so each except calls db.rollback() before moving on: without it, an
+    IntegrityError (or any DB-level error) in the first pass leaves the session in
+    SQLAlchemy's failed-transaction state, and every statement the second pass tries
+    to run raises PendingRollbackError instead of actually attempting anything —
+    which would make the "independent" claim above false exactly when it matters."""
     from backend.power.entsoe_outages import ingest_outages
 
     db = SessionLocal()
     try:
         result = await ingest_outages(db)
-        logger.info("outages: %s", result)
+        logger.info("outages (A77 generation): %s", result)
     except Exception as exc:
-        logger.error("_run_outages failed: %s", exc)
+        db.rollback()
+        logger.error("_run_outages (A77 generation) failed: %s", exc)
+    try:
+        result78 = await ingest_outages(db, doc_type="A78")
+        logger.info("outages (A78 transmission): %s", result78)
+    except Exception as exc:
+        db.rollback()
+        logger.error("_run_outages (A78 transmission) failed: %s", exc)
     finally:
         db.close()
 
@@ -381,6 +408,64 @@ async def _run_outage_snapshot():
         logger.info("outage snapshot: %s", result)
     except Exception as exc:
         logger.error("_run_outage_snapshot failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _run_balancing():
+    """Hourly activated-balancing-energy refresh (ENTSO-E A83 volumes / A84 prices) for all
+    enabled zones — today's window, like the intraday grid/flows jobs: aFRR/mFRR activation
+    is a same-day, near-real-time signal (see backend/power/entsoe_balancing.py's module
+    docstring for the live-spike coverage caveats: DE_LU is TenneT-only, A83 volumes are not
+    currently served by the public API at all).
+
+    `overwrite_volumes=False`: A83's structural rejection is stable and gets cached on the
+    first call (see entsoe_balancing.py's module docstring), so this hourly job would
+    otherwise re-issue that known-futile request for all 37 zones × 24 times a day — ~888
+    guaranteed 400s against ENTSO-E for nothing. Prices (`overwrite=True`) still refresh every
+    run. The nightly `_run_power_daily` pass keeps full overwrite for both, which is the
+    deliberate once-a-day "has A83 come back?" probe.
+    """
+    from backend.power.entsoe_balancing import ingest_balancing
+    from backend.power.zones import POWER_ZONES
+
+    db = SessionLocal()
+    try:
+        days = _intraday_days()
+        for zone_key in POWER_ZONES:
+            try:
+                result = await ingest_balancing(
+                    db, days, zone=zone_key, overwrite=True, overwrite_volumes=False
+                )
+                logger.info("balancing hourly ingest [%s]: %s", zone_key, result)
+            except Exception as exc:
+                logger.error("balancing hourly ingest [%s] failed: %s", zone_key, exc)
+    except Exception as exc:
+        logger.error("_run_balancing outer failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _run_capacity_prices():
+    """Daily German balancing-capacity refresh (ENTSO-E A15: FCR/aFRR/mFRR tenders).
+
+    DE_LU only (see backend/power/entsoe_reserves.py) — no zone loop. A 3-day window with
+    overwrite=True: yesterday's tender is the frontier this desk cares about, and a short
+    rolling overwrite catches any late TSO revision the way the rest of the daily power
+    ingest does for its own zone-day windows.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.entsoe_reserves import ingest_capacity_prices
+
+    today = datetime.now(timezone.utc).date()
+    days = [(today - timedelta(days=i)).isoformat() for i in range(3)][::-1]
+    db = SessionLocal()
+    try:
+        result = await ingest_capacity_prices(db, days, overwrite=True)
+        logger.info("capacity prices daily: %s", result)
+    except Exception as exc:
+        logger.error("_run_capacity_prices failed: %s", exc)
     finally:
         db.close()
 
@@ -437,6 +522,12 @@ def start_scheduler():
     # over, so the only history that will ever exist is the one we write ourselves —
     # at :45, after the 6h ingest has landed. Local read + upsert, no network.
     scheduler.add_job(_run_outage_snapshot, CronTrigger(minute=45), id="outage_snapshot_hourly", **JOB_DEFAULTS)
+    # Activated balancing energy (aFRR/mFRR, A83/A84): hourly, same-day activation signal.
+    scheduler.add_job(_run_balancing, CronTrigger(minute=20), id="balancing_hourly", **JOB_DEFAULTS)
+    # Procured balancing-capacity prices (FCR/aFRR/mFRR, A15): daily 11:30 UTC — comfortably
+    # after all three TSO publication windows (FCR ~08:30, aFRR ~09:30, mFRR ~11:00
+    # Europe/Berlin, i.e. UTC+1/+2 — see docs/findings/2026-07-20-regelleistung-capacity-prices.md).
+    scheduler.add_job(_run_capacity_prices, CronTrigger(hour=11, minute=30), id="capacity_prices_daily", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical

@@ -32,6 +32,12 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 - **Europe map** — bidding-zone choropleth by day-ahead price or grid state
 - **Public data API + Python client** — `GET /api/v1/series` (JSON/CSV/**Parquet** export), catalog, zones, capacity, meta and an honest coverage/status endpoint — see [docs/API.md](docs/API.md); pip-installable client in [clients/python](clients/python)
 - **Interactive series explorer** — query any series/zone/range, **compare two zones** on one chart, download as CSV
+- **Chart-Builder** (`/builder`) — the series explorer as its own full-screen, shareable-URL page
+- **Embeddable widgets + badges** — self-refreshing `/embed/<zone>/<metric>` iframes (price/genmix/load) and `/api/v1/badge` SVG status images for READMEs/dashboards
+- **Activated balancing energy** — aFRR/mFRR activation price (and volume, where ENTSO-E serves it) per zone
+- **German balancing-capacity prices** — FCR/aFRR/mFRR procured-capacity tenders (DE-LU LFC block)
+- **Transmission outages** — cross-border line/PST unavailability (ENTSO-E A78) alongside the generation-outage board (A77)
+- **Live today-view** — near-real-time load, generation mix and day-ahead price for the current day, refreshing intraday
 
 ## Public data API
 
@@ -105,7 +111,7 @@ The power desk runs on the official European record:
 
 | Source | Data | Update Frequency |
 |--------|------|-----------------|
-| [ENTSO-E Transparency](https://transparency.entsoe.eu/) | Day-ahead prices (A44, 15-min since 2025-10), load (A65), generation per fuel (A75), forecasts (A69/A71), imbalance (A85/reBAP), hydro reservoirs (A72), outages (A77), installed capacity (A68) | 30 min – daily per doc type |
+| [ENTSO-E Transparency](https://transparency.entsoe.eu/) | Day-ahead prices (A44, 15-min since 2025-10), load (A65), generation per fuel (A75), forecasts (A69/A71), imbalance (A85/reBAP), hydro reservoirs (A72), outages (A77/A78), installed capacity (A68), balancing energy/capacity (A83/A84/A15) | 30 min – daily per doc type |
 | [Fraunhofer Energy-Charts](https://www.energy-charts.info/) | Cross-border physical flows (CBPF), CC BY 4.0 | 30 min |
 | [GIE AGSI+/ALSI](https://agsi.gie.eu/) | EU gas storage and LNG send-out | Daily |
 | [ENTSOG](https://transparency.entsog.eu/) | Cross-border gas flows | Daily |

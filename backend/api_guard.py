@@ -12,9 +12,12 @@ Two cheap defences, no external dependency:
   scans run at once; the overflow gets an immediate 503 instead of queueing and
   starving the light endpoints (health, situation, meta). It does NOT slow a
   legitimate single bulk pull — it only caps how many run simultaneously.
-- `cached_coverage`: the catalog's coverage window changes only when the hourly
-  ingest writes (hourly), so a short TTL cache turns a 28s cold scan into one
-  scan per hour. A lock collapses a cold-start thundering herd to one scan.
+- `cached_value`: a keyed TTL cache — the catalog's coverage window (and, since
+  P1, its per-(series,zone) coverage table) changes only when the hourly ingest
+  writes (hourly), so caching either for an hour turns a full-table scan into
+  one scan per hour instead of one per request. A lock collapses a cold-start
+  thundering herd to one scan per key. `cached_coverage` is the original global
+  window, kept as a thin wrapper over `cached_value` for existing callers.
 """
 from __future__ import annotations
 
@@ -50,29 +53,44 @@ def heavy_query_guard():
 
 
 _COVERAGE_TTL = 3600.0
-_coverage: dict[str, object] = {"value": None, "expires": 0.0}
-_coverage_lock = threading.Lock()
+_cache: dict[str, dict[str, object]] = {}
+_cache_lock = threading.Lock()
+
+
+def cached_value(key: str, compute: Callable[[], object], *, ttl: float = _COVERAGE_TTL,
+                  now: float | None = None) -> object:
+    """Return the cached value for `key`, recomputing at most once per `ttl` seconds.
+
+    One shared keyed cache rather than one slot per caller: every entry (the global
+    coverage window, the per-(series,zone) coverage table, …) needs the identical
+    "recompute at most once per TTL, one lock so a cold thundering herd does the
+    expensive `compute` once, not N times" semantics, so it lives here once instead
+    of copy-pasted per cache.
+    """
+    t = time.monotonic() if now is None else now
+    slot = _cache.get(key)
+    if slot is not None and t < slot["expires"]:
+        return slot["value"]
+    with _cache_lock:
+        # Re-check inside the lock: another thread may have filled it while we waited.
+        slot = _cache.get(key)
+        if slot is not None and t < slot["expires"]:
+            return slot["value"]
+        value = compute()
+        _cache[key] = {"value": value, "expires": t + ttl}
+        return value
 
 
 def cached_coverage(compute: Callable[[], object], *, now: float | None = None) -> object:
-    """Return the cached coverage window, recomputing at most once per TTL.
+    """The catalog's global coverage window, cached under its own key.
 
-    `compute` is the expensive min/max scan; it runs under a lock so a cold cache
-    hit by N threads does the scan once, not N times.
+    Kept as a thin wrapper so existing callers/tests (which pass no `ttl`) are
+    unaffected by the move to a keyed cache.
     """
-    t = time.monotonic() if now is None else now
-    if _coverage["value"] is not None and t < _coverage["expires"]:
-        return _coverage["value"]
-    with _coverage_lock:
-        # Re-check inside the lock: another thread may have filled it while we waited.
-        if _coverage["value"] is not None and t < _coverage["expires"]:
-            return _coverage["value"]
-        _coverage["value"] = compute()
-        _coverage["expires"] = t + _COVERAGE_TTL
-        return _coverage["value"]
+    return cached_value("coverage", compute, ttl=_COVERAGE_TTL, now=now)
 
 
 def _reset_coverage_cache() -> None:
-    """Test hook."""
-    _coverage["value"] = None
-    _coverage["expires"] = 0.0
+    """Test hook — clears the WHOLE keyed cache, not just 'coverage'. Every cache
+    entry is process-global and would otherwise leak its value across tests."""
+    _cache.clear()

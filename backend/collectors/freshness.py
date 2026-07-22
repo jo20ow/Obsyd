@@ -85,9 +85,23 @@ SPECS += [
                   hourly_series="generation.forecast"),
     FreshnessSpec("hydro_reservoir", PowerPriceDaily, "", timedelta(days=16),
                   hourly_series="hydro.reservoir"),
-    # Outage messages land continuously across 37 zones; a silent day means
-    # the collector is dead, not that Europe stopped breaking.
-    FreshnessSpec("power_outages", PowerOutage, "created_at", timedelta(days=2)),
+    # Outage messages land continuously across 37 zones; a silent day means the
+    # collector is dead, not that Europe stopped breaking. Doc-type masking runs in
+    # BOTH directions on a shared probe: A77's much higher volume could keep it
+    # "fresh" while A78 died silently, and (found in review) the REVERSE is just as
+    # real — A78 traffic alone could keep a doc-type-agnostic probe "fresh" while the
+    # desk-critical A77 pass was dead. _run_outages runs the two as independent
+    # try/excepts specifically so one can fail without the other, so each doc type
+    # gets its OWN scoped probe here too.
+    FreshnessSpec("power_outages", PowerOutage, "created_at", timedelta(days=2),
+                  filter_col="doc_type", filter_val="A77"),
+    # A78 transmission-infrastructure unavailability (Task P12) is real but much
+    # rarer than A77 across the 126 directed border-pair queries — the live spike
+    # found ~1 new document every ~2 days on JUST one border-direction (DE_LU->FR,
+    # 26 docs / 7 weeks), so a global window wider than power_outages' 2 days avoids
+    # false "stale" alarms on quiet weeks while still catching a genuinely dead pass.
+    FreshnessSpec("power_outages_transmission", PowerOutage, "created_at", timedelta(days=7),
+                  filter_col="doc_type", filter_val="A78"),
     # Hourly cross-border flows (Block 2.4). flow.FR is the probe because a
     # French border (DE_LU-FR sorts DE_LU-first) exists in every enabled setup;
     # the daily grain keeps its own power_flows spec above.
@@ -103,12 +117,37 @@ SPECS += [
     # Episodes are DERIVED, not ingested — so the probe asks whether the nightly recompute ran,
     # not whether a feed arrived. A silent episode engine looks exactly like a quiet Europe.
     FreshnessSpec("episodes", PowerEpisode, "updated_at", timedelta(days=2)),
+    # /api/power/live (near-real-time TODAY). The intraday scheduler writes
+    # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
+    # would be the honest window for THIS probe alone — but test_outage_history.py
+    # pins outage_snapshot (below) as the tightest window on the desk on purpose
+    # (it is the one series that cannot be backfilled at all), so this stays
+    # capped at 1 day rather than undercutting that invariant. The live route's
+    # own `lag_minutes` field carries the real-time precision this coarser
+    # health-check window can't.
+    FreshnessSpec("live_load", PowerPriceDaily, "", timedelta(days=1),
+                  hourly_series="load.actual"),
     # The outage snapshot is the ONE series that cannot be backfilled: A77 takes an
     # unavailability down once it is over, so an hour the recorder missed is gone for
     # good. It must therefore be the tightest window on the desk — a day of silence is
     # a day of history destroyed, not a late delivery to catch up on.
     FreshnessSpec("outage_snapshot", PowerPriceDaily, "", timedelta(days=1),
                   hourly_series="outage.offline"),
+    # Activated balancing energy (aFRR/mFRR, A83 volumes/A84 prices — backend/power/
+    # entsoe_balancing.py). aFRR price is the probe — ONE reference series across ALL
+    # zones ("is the collector alive at all"), the same pattern flows_hourly/
+    # scheduled_exchanges/net_position use above, NOT a per-zone coverage claim: the live
+    # spike found aFRR/mFRR coverage varies by zone and even by window (FR's own 3-day
+    # spike window carried mFRR/FCR/RR prices but no aFRR at all). 2 days respects the
+    # pinned invariant that outage_snapshot (1 day, above) stays the tightest hourly spec
+    # on the desk (see test_outage_history.py).
+    FreshnessSpec("balancing_energy", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="balancing.afrr.price.up"),
+    # Procured balancing-CAPACITY prices (FCR/aFRR/mFRR tenders, ENTSO-E A15 — backend/power/
+    # entsoe_reserves.py). DE_LU only (the German LFC block has no per-zone equivalent), daily
+    # tenders publish every day, so 2 days mirrors balancing_energy's window above.
+    FreshnessSpec("capacity_prices", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="capacity.fcr.price"),
 ]
 
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled

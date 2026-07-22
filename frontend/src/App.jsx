@@ -28,13 +28,17 @@ import InsightsStrip from './components/InsightsStrip'
 import NarrativeHero from './components/NarrativeHero'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
+import LiveNowPanel from './components/LiveNowPanel'
 import HydroReservoirPanel from './components/HydroReservoirPanel'
 import OutagePanel from './components/OutagePanel'
 import RecordChip from './components/RecordChip'
 import ImbalancePanel from './components/ImbalancePanel'
+import BalancingPanel from './components/BalancingPanel'
+import CapacityPricePanel from './components/CapacityPricePanel'
 import RecordsPanel from './components/RecordsPanel'
 import EpisodeArchivePanel from './components/EpisodeArchivePanel'
 import CapturePanel from './components/CapturePanel'
+import SparkCalculatorPanel from './components/SparkCalculatorPanel'
 import BordersPanel from './components/BordersPanel'
 import DriversPanel from './components/DriversPanel'
 import ProductsPanel from './components/ProductsPanel'
@@ -43,6 +47,7 @@ import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
 import LegalPage from './components/LegalPage'
 import CommandPalette from './components/CommandPalette'
+import EmbedPage from './components/embed/EmbedPage'
 import { useAuth } from './context/AuthContext'
 import { ViewStateProvider, useViewState } from './context/ViewStateContext'
 
@@ -137,6 +142,42 @@ function scrollToSection(id) {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+// /embed/<ZONE>/<metric> — parsed straight from the pathname, no router lib (matches
+// the rest of this file's convention). Returns nulls for a malformed path; EmbedPage
+// turns those into the explicit "unknown" card rather than guessing a zone.
+function parseEmbedPath(pathname) {
+  const parts = pathname.split('/').filter(Boolean) // "/embed/DE_LU/price" -> ["embed","DE_LU","price"]
+  return { zone: parts[1] || null, metric: parts[2] || null }
+}
+
+// /builder — the Chart-Builder as its own route: a slim shell (wordmark +
+// range picker, no sidebar/tabs/ticker) around the same SeriesExplorer the
+// EXPLORE tab renders, full-width. It needs its own ViewStateProvider (the
+// zone/range spine SeriesExplorer reads via useViewState()) since this route
+// never mounts the Dashboard tree that normally supplies one. No auth gate —
+// like /impressum, it's public.
+function BuilderShell() {
+  return (
+    <ViewStateProvider>
+      <div className="min-h-screen bg-surface">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
+          <a href="/" className="font-mono text-sm font-bold tracking-widest text-cyan-glow">OBSYD</a>
+          <span className="font-mono text-[10px] text-neutral-600 tracking-wider">CHART BUILDER</span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] text-neutral-600 tracking-wider hidden sm:inline">RANGE</span>
+            <RangeSelector />
+          </div>
+        </div>
+        <main className="w-full px-3 py-4">
+          <ErrorBoundary name="chart-builder">
+            <SeriesExplorer />
+          </ErrorBoundary>
+        </main>
+      </div>
+    </ViewStateProvider>
+  )
+}
+
 /**
  * Top-level router. Anonymous visitors hitting `/` see the marketing
  * Landing; signed-in users, the dashboard. Any `/app` path always
@@ -149,8 +190,24 @@ function App() {
   // Read once at module init — no need to react to client-side navigation
   // since neither route mutates the URL after mount.
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+
+  // /embed/<zone>/<metric> — the embeddable iframe widgets (Task P10). Handled
+  // BEFORE and OUTSIDE ViewStateProvider: an embed is one fixed zone+metric, never
+  // a navigable desk, so it must skip ViewStateProvider's URL-query rewriting
+  // (?zone=&range=) and localStorage persistence entirely, not just Dashboard's own
+  // boot fetches. EmbedPage does its own (per-metric) zone validation against each
+  // endpoint's response rather than the silent DE_LU fallback the underlying
+  // /api/power/* routes use.
+  if (pathname.startsWith('/embed/')) {
+    const { zone, metric } = parseEmbedPath(pathname)
+    return <EmbedPage zone={zone} metric={metric} />
+  }
+
   if (pathname === '/impressum' || pathname === '/datenschutz') {
     return <LegalPage page={pathname.slice(1)} />
+  }
+  if (pathname === '/builder') {
+    return <BuilderShell />
   }
   const wantsApp = pathname.startsWith('/app') || pathname.startsWith('/dashboard')
 
@@ -580,6 +637,9 @@ function Dashboard() {
             <ErrorBoundary name="power-situation">
               <PowerSituationHeader zone={energyZone} />
             </ErrorBoundary>
+            <ErrorBoundary name="power-live">
+              <LiveNowPanel zone={energyZone} />
+            </ErrorBoundary>
             <ErrorBoundary name="record-chip">
               <RecordChip zone={energyZone} />
             </ErrorBoundary>
@@ -602,6 +662,12 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="power-imbalance">
                 <ImbalancePanel zone={energyZone} />
+              </ErrorBoundary>
+              <ErrorBoundary name="power-balancing">
+                <BalancingPanel zone={energyZone} />
+              </ErrorBoundary>
+              <ErrorBoundary name="power-capacity-prices">
+                <CapacityPricePanel zone={energyZone} />
               </ErrorBoundary>
               <ErrorBoundary name="power-spark">
                 <SparkSpreadPanel zone={energyZone} />
@@ -693,6 +759,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="power-capture">
                 <CapturePanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="power-spark-calculator">
+                <SparkCalculatorPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
             <div className="mt-3">
