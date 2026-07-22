@@ -20,7 +20,7 @@ function Line({ label, err }) {
 
 /**
  * Quantifies the published TSO day-ahead forecast against what happened —
- * gridstatus' "forecast vs actual" in Posture-B language: we describe ENTSO-E's
+ * A "forecast vs actual" strip in Posture-B language: we describe ENTSO-E's
  * own forecast, we do not make one. bias = mean(actual − forecast); positive =
  * demand surprise / renewables over-delivered.
  */

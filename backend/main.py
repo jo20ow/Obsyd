@@ -125,7 +125,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OBSYD — European electricity data API",
     description=(
-        "The European electricity desk — gridstatus.io for Europe. Day-ahead prices, "
+        "The European electricity desk. Day-ahead prices, "
         "load & residual load, generation mix, cross-border flows, forecasts and the "
         "gas that fuels them, from the official record (ENTSO-E, Energy-Charts, GIE). "
         "Programmatic access: GET /api/v1/series (JSON/CSV). Free, descriptive, AGPL-3.0."

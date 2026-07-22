@@ -1,6 +1,6 @@
 """All-time records per series × zone, recomputed nightly.
 
-The cheapest "wow" from the gridstatus repertoire — "highest DE-LU day-ahead
+The cheapest "wow" record query — "highest DE-LU day-ahead
 hour on record" — derived entirely from power_hourly. Recompute is a plain SQL
 min/max per (series, zone): always correct, no incremental state to corrupt.
 

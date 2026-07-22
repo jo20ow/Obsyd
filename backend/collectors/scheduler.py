@@ -1,8 +1,7 @@
 """
 APScheduler setup for periodic data collection.
 
-REFOCUS 2026-07-03 — Obsyd is the European electricity+gas desk ("gridstatus.io
-for Europe"). Only power/gas + shared (email/alerts/scorecards/retention/watchdog)
+REFOCUS 2026-07-03 — Obsyd is the European electricity+gas desk. Only power/gas + shared (email/alerts/scorecards/retention/watchdog)
 jobs run here. The non-power collectors (AIS/oil, portwatch, gdelt/sentiment, jodi,
 firms, noaa, crack/equities, analytics, metals, atlas, crypto, edgar, news) moved
 to the sibling project and are no longer scheduled.

@@ -9,7 +9,7 @@
   --color-surface-light: #171a21;
   --color-border: #262a33;
   /* The desk switched from a monospace terminal face to a clean system sans
-     (gridstatus-like, more readable). The UI tags text with `font-mono` everywhere,
+     (more readable). The UI tags text with `font-mono` everywhere,
      so this token stays the single lever — pointing it at the sans flips the whole
      app from one place. Numbers stay column-aligned via tabular-nums on body. */
   --font-mono: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -30,12 +30,12 @@
 .text-\[11px\] { font-size: 13px; line-height: 1.5; }
 .text-\[12px\] { font-size: 13px; line-height: 1.5; }
 
-/* Softer, more modern corners app-wide (gridstatus-like); pills keep rounded-full. */
+/* Softer, more modern corners app-wide; pills keep rounded-full. */
 .rounded { border-radius: 0.5rem; }
 
 /* Obsyd identity: crisp monospace + tabular figures for DATA values on the sans UI
    (a clean-UI + terminal-numbers signature that reads more "analyst desk" than
-   gridstatus' all-round-sans). Applied via `.num` to numeric cells/values. */
+   an all-round sans). Applied via `.num` to numeric cells/values. */
 .num { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 
 body {

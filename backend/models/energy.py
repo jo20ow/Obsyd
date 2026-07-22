@@ -207,7 +207,7 @@ class PowerPriceDaily(Base):
 # ─── Canonical hourly time-series store (roadmap Block 0/1) ───────────────────
 #
 # One long table for ALL hourly power series across ALL zones — the backbone for
-# gridstatus-parity range queries + CSV/Parquet export. A new series or zone is a
+# full-history range queries + CSV/Parquet export. A new series or zone is a
 # row in a dim table (config-only); one write path (backend/power/hourly_store.py),
 # one covering index (the PK). The existing daily-mean tables stay and are rolled up
 # from here so current routes/scorecards keep reading unchanged.

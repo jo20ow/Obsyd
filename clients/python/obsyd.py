@@ -1,4 +1,4 @@
-"""Python client for the OBSYD public data API — "gridstatus for Europe".
+"""Python client for the OBSYD public data API — the European power desk.
 
     from obsyd import Obsyd
     ob = Obsyd()                                  # defaults to https://obsyd.dev

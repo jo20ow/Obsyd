@@ -3,7 +3,7 @@ import AuthButton from './AuthButton'
 import SettingsPanel from './SettingsPanel'
 import { useTheme } from '../context/ThemeContext'
 
-// gridstatus-style left rail: brand, section nav, then utilities (⌘K, theme,
+// Left rail: brand, section nav, then utilities (⌘K, theme,
 // settings, auth, collector health). Section keys mirror the TABS array; labels are
 // friendlier here (europe → "Live"). Reuses AuthButton + SettingsPanel + useTheme.
 

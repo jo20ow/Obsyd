@@ -71,7 +71,7 @@ export default function Landing() {
           <span className="text-cyan-glow">every zone, one desk, free.</span>
         </h1>
         <p className="text-sm sm:text-base text-neutral-400 max-w-2xl leading-relaxed mb-8">
-          A free “gridstatus for Europe”: day-ahead prices, load & residual load, generation mix,
+          A free European power desk: day-ahead prices, load & residual load, generation mix,
           wind/solar and cross-border flows across 37 European bidding zones — plus tomorrow’s load & residual
           forecast and the gas that fuels the marginal price — from the official record (ENTSO-E,
           Fraunhofer Energy-Charts, GIE), with a live anomaly radar. Descriptive, auditable, open
@@ -164,7 +164,7 @@ export default function Landing() {
               OBSYD doesn&apos;t match Montel, EPEX or a Bloomberg terminal on intraday or
               settlement-grade data — it can&apos;t, and it doesn&apos;t pretend to. What it does is
               turn the free, official European power record — ENTSO-E, Fraunhofer Energy-Charts, GIE —
-              into one auditable, legible desk (think a free “gridstatus.io for Europe”), and watch it
+              into one auditable, legible desk, and watch it
               for you, so you stop wiring up a dozen ENTSO-E queries by hand.
             </p>
           </div>
