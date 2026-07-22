@@ -1,6 +1,6 @@
 """All-time records per series × zone — descriptive, evidence-linked.
 
-The cheapest "wow" from the gridstatus repertoire: "highest DE-LU day-ahead
+The cheapest "wow" record query: "highest DE-LU day-ahead
 hour since 2015". Recomputed nightly by SQL min/max over the canonical store —
 always correct, no incremental state. A plausibility guard keeps ENTSO-E
 ingest glitches from being celebrated as records.

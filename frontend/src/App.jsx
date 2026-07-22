@@ -99,7 +99,7 @@ const MAP_FALLBACK = (
 const API = '/api'
 
 // Obsyd is the desk for the physical energy system. The front door (`primary`) is
-// REFOCUS 2026-07-03: Obsyd is "gridstatus.io for Europe" — the European
+// REFOCUS 2026-07-03: Obsyd is the European
 // electricity+gas desk. The navigation is only POWER (electrons), GAS (its fuel)
 // and ALERTS. Everything non-power (oil/maritime FLOWS, market, signals, critical,
 // metals, news, atlas, sentiment) is being split into a sibling project; its tabs
@@ -118,7 +118,7 @@ const TABS = [
 // always-on hero + the choropleth map here), not a single-zone desk.
 const DEFAULT_TAB = 'europe'
 
-// Page heading per section (gridstatus-style "Live monitoring" title on the content).
+// Page heading per section ("Live monitoring" title on the content).
 const PAGE_TITLES = { europe: 'Live monitoring', energy: 'Power', analytics: 'Analytics', gas: 'Gas', explore: 'Data explorer', alerts: 'Alerts' }
 
 function Disclaimer() {
@@ -621,7 +621,7 @@ function Dashboard() {
         {activeTab === 'energy' && (
           <div className="space-y-3">
             {/* Sticky sub-nav — jump between the grouped sections instead of one long
-                scroll (gridstatus "Grid Conditions / Trends & Profile" analog). */}
+                scroll. */}
             <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 py-1.5 bg-surface/95 backdrop-blur border-b border-border/60">
               <span className="font-mono text-[12px] font-semibold text-neutral-300">Power · {energyZone}</span>
               <div className="flex items-center gap-1">

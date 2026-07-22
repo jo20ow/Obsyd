@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
-// ThemeContext — light (default, gridstatus-like) vs dark. Applies `class="light"`
+// ThemeContext — light (default) vs dark. Applies `class="light"`
 // on <html>; the light palette + neutral/recharts remaps live in index.css. Persists
 // to localStorage. A pre-paint inline script in index.html sets the class before React
 // mounts to avoid a flash. Follows the ModeContext pattern.

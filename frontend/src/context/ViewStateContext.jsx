@@ -4,7 +4,7 @@ import { RANGE_KEYS, DEFAULT_RANGE } from '../utils/ranges'
 
 // ViewStateContext — the desk's navigation spine. Holds the one selected bidding
 // ZONE and the one date RANGE that every zone-/range-aware surface reads, so the
-// user picks each ONCE (region-first, like gridstatus.io) instead of re-setting it
+// user picks each ONCE (region-first) instead of re-setting it
 // per panel. Mirrors both into the URL query (?zone=&range=) — the tab stays in the
 // #hash (owned by App.jsx) — so a view is shareable/bookmarkable, and persists to
 // localStorage so a return visit restores it. Follows the ModeContext pattern.

@@ -1,7 +1,6 @@
 # OBSYD Public Data API (v1)
 
-A free, versioned HTTP API over the canonical European power record — "gridstatus for
-Europe." All data is from free, official, redistributable sources (ENTSO-E, Fraunhofer
+A free, versioned HTTP API over the canonical European power record. All data is from free, official, redistributable sources (ENTSO-E, Fraunhofer
 Energy-Charts CC BY 4.0, GIE). Descriptive, not a forecast. AGPL-3.0.
 
 **Base URL:** `https://obsyd.dev/api/v1`

@@ -4,7 +4,7 @@ import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../utils/poll'
 
 // Single-glance overview — read all bidding zones at once, colour-first, like
-// Electricity Maps / Grid Status. Colour encodes how far each metric sits from its
+// Electricity Maps. Colour encodes how far each metric sits from its
 // own trailing norm (the window is whatever /overview reports as baseline_days), so the
 // European power picture reads in one second. Click a zone
 // to drill into its detail; click a column header to sort. Descriptive, not a forecast.

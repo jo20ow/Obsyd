@@ -1,4 +1,4 @@
-"""Public data API v1 — the gridstatus-style programmatic layer over power_hourly.
+"""Public data API v1 — the programmatic layer over power_hourly.
 
 A single generic series endpoint (JSON or CSV) plus a catalog and a meta/attribution
 endpoint. Reads the canonical hourly store (backend/power/hourly_store.py). Free, but

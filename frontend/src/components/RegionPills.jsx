@@ -2,7 +2,7 @@ import useZones from '../hooks/useZones'
 import ZoneSelector from './ZoneSelector'
 import { useViewState } from '../context/ViewStateContext'
 
-// gridstatus-style region strip: "Everywhere" (all-zones overview) + a few core
+// Region strip: "Everywhere" (all-zones overview) + a few core
 // zones as pills + the full ZoneSelector as a "more" dropdown, so it stays compact
 // while scaling to all 37 zones. Drives the global ViewState zone.
 const CORE = ['DE_LU', 'FR', 'NL', 'BE', 'ES', 'AT', 'PL']

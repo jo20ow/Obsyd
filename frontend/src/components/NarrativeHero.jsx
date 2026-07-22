@@ -6,7 +6,7 @@ const API = '/api'
 
 // "Europe right now" — an auto-composed, plain-language read of the whole continent's
 // power state from /api/power/overview. Template-based (NO LLM), deterministic. This is
-// Obsyd's core differentiator vs gridstatus: it *reads* the grid, charts are evidence.
+// Obsyd's core stance: it *reads* the grid, charts are evidence.
 const eur = (v) => (v == null ? '—' : `€${Math.round(v)}`)
 const sig = (z) => `${z >= 0 ? '+' : ''}${z.toFixed(1)}σ`
 const list = (zs, n = 3) => zs.slice(0, n).map((z) => z.zone_label || z.zone).join(', ')

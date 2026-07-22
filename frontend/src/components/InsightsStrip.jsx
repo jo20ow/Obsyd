@@ -11,7 +11,7 @@ function timeAgo(iso) {
   } catch { return '' }
 }
 
-// gridstatus-style "insights" strip: the latest anomaly-radar items as compact,
+// An "insights" strip: the latest anomaly-radar items as compact,
 // horizontally-scrolling cards, with a "More →" into the full ALERTS radar.
 export default function InsightsStrip({ onMore }) {
   const { data, error } = useFetchWithError(`${API}/alerts?limit=12`)
