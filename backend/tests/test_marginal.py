@@ -140,8 +140,29 @@ def test_hydro_flex_wins_only_when_it_tops_every_qualifying_thermal_band(db_sess
 
 
 def test_the_price_floor_override_beats_dominant_hydro(db_session):
-    """Precedence is (a) floor, (b) no-qualifier, (c) hydro — in that order."""
+    """The floor rule (a) is still first: at or below zero even a qualifying,
+    dominant hydro band does not claim the hour."""
     _seed_hour(db_session, 2, 0.0, {"B12": 8_000, "B04": 1_000})
+    assert _one(db_session)["tech"] == "must_run_renewables"
+
+
+def test_a_nordic_reservoir_hour_is_attributed_to_hydro_not_must_run(db_session):
+    """95% reservoir, no thermal fleet on at all: the reservoirs genuinely set
+    the price (at whatever level their opportunity cost says), and calling the
+    hour "must-run" would be wrong. Hydro beats the no-thermal fallback when it
+    qualifies on its own share/MW thresholds."""
+    _seed_hour(db_session, 2, 45.0, {"B12": 9_500, "B11": 300, "B19": 200})
+    h = _one(db_session)
+    assert h["tech"] == "hydro_flex"
+    assert h["consistency"] == "ok", "opportunity cost has no expected band"
+
+
+def test_hydro_below_its_own_thresholds_does_not_claim_a_no_thermal_hour(db_session):
+    """hydro_flex needs the same MIN_SHARE_PCT/MIN_MW qualification as a thermal
+    band: a 150 MW trickle of reservoir in a wind-dominated hour is not the
+    price-setter, so the hour falls back to must-run."""
+    _seed_hour(db_session, 2, 35.0, {"B12": 150, "B19": 8_000})
+    assert 150 < MIN_MW
     assert _one(db_session)["tech"] == "must_run_renewables"
 
 

@@ -150,11 +150,16 @@ def attribute_hour(price: float, bands: dict[str, float], total: float) -> dict:
     generation including B20/unknown — shares are measured against the whole
     fleet, so an "Other"-heavy hour honestly dilutes every named band.
 
-    Overrides, in precedence order (each earlier rule wins outright):
-      (a) price <= PRICE_FLOOR_EPS        → must_run_renewables, regardless
-      (b) no dispatchable band qualifies  → must_run_renewables
-      (c) hydro_flex share > EVERY qualifying thermal band's share → hydro_flex
-    Otherwise: the MOST EXPENSIVE qualifying dispatchable band.
+    Attribution, in precedence order (each earlier rule wins outright):
+      (a) price <= PRICE_FLOOR_EPS → must_run_renewables, regardless
+      (b) hydro_flex itself qualifies (same MIN_SHARE_PCT/MIN_MW thresholds as
+          a thermal band) AND its share exceeds EVERY qualifying thermal band's
+          — vacuously so when no thermal band qualifies at all → hydro_flex.
+          The vacuous case is the Nordic one: a 95%-reservoir hour with no
+          thermal fleet on is genuinely priced by the reservoirs, and calling
+          it "must-run" would be wrong.
+      (c) otherwise: the MOST EXPENSIVE qualifying thermal band
+      (d) otherwise (nothing qualifies at all) → must_run_renewables
     """
     def share(band: str) -> float:
         return 100.0 * bands.get(band, 0.0) / total
@@ -164,15 +169,18 @@ def attribute_hour(price: float, bands: dict[str, float], total: float) -> dict:
         if bands.get(b, 0.0) >= MIN_MW and share(b) >= MIN_SHARE_PCT
     ]
     hydro_share = share("hydro_flex")
+    hydro_qualifies = (
+        bands.get("hydro_flex", 0.0) >= MIN_MW and hydro_share >= MIN_SHARE_PCT
+    )
 
     if price <= PRICE_FLOOR_EPS:
         tech = "must_run_renewables"
-    elif not qualifying:
-        tech = "must_run_renewables"
-    elif hydro_share > max(share(b) for b in qualifying):
+    elif hydro_qualifies and all(hydro_share > share(b) for b in qualifying):
         tech = "hydro_flex"
-    else:
+    elif qualifying:
         tech = qualifying[-1]  # most expensive rung still meaningfully on
+    else:
+        tech = "must_run_renewables"
 
     return {
         "tech": tech,
@@ -300,9 +308,10 @@ def compute_marginal(
             "A descriptive attribution heuristic, not a model of the SDAC auction "
             "and not a forecast. A fixed order cannot see coal↔gas fuel switching; "
             "pumped storage and reservoir hydro bid opportunity cost and can set "
-            "the price at any level (hours where flexible hydro out-runs every "
-            "qualifying thermal band are attributed 'hydro_flex', with that "
-            "caveat); imports can set the price with no domestic technology "
+            "the price at any level (hours where flexible hydro meaningfully "
+            "dispatches and out-runs every qualifying thermal band are attributed "
+            "'hydro_flex', with that caveat); imports can set the price with no "
+            "domestic technology "
             "marginal at all. 'tension' hours sit outside the technology's coarse "
             "expected price band and are reported, never reclassified — "
             "consistent_pct is the canary that the static order is off."
