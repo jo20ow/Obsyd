@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import Sidebar from './components/Sidebar'
 import CompactView from './components/CompactView'
 import AlertsPanel from './components/AlertsPanel'
@@ -260,8 +260,10 @@ function Dashboard() {
 
   // Map arc click → border detail: the focus travels as a prop to BordersPanel
   // (opens the row, expands + scrolls the panel). `ts` makes every click a NEW
-  // signal, so re-clicking the same border still scrolls/expands.
+  // signal, so re-clicking the same border still scrolls/expands. Stable
+  // callback — PowerMap's layers memo depends on it.
   const [borderFocus, setBorderFocus] = useState(null)
+  const onBorderSelect = useCallback((a, b) => setBorderFocus({ a, b, ts: Date.now() }), [])
 
   // URL hash sync — keep the default (POWER) tab off the URL so the bare
   // homepage stays clean (`/`); only non-default tabs get a shareable hash.
@@ -814,7 +816,7 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="power-map">
                 <Suspense fallback={MAP_FALLBACK}>
-                  <PowerMap onBorderSelect={(a, b) => setBorderFocus({ a, b, ts: Date.now() })} />
+                  <PowerMap onBorderSelect={onBorderSelect} />
                 </Suspense>
               </ErrorBoundary>
             </div>

@@ -127,6 +127,10 @@ const INITIAL_VIEW = { longitude: 9, latitude: 54, zoom: 3.1, minZoom: 2.5, maxZ
 // 1 px floor so thin borders stay hoverable.
 const FLOW_WIDTH_MAX_MW = 5000
 const ARC_MAX_PX = 8
+// NTC-utilization classing thresholds (%) — single source for the arc colors
+// AND the footer legend, so the two can never drift apart.
+const UTIL_MID = 70
+const UTIL_HIGH = 90
 const arcWidth = (mw) =>
   Math.max(1, ARC_MAX_PX * Math.sqrt(Math.min(Math.abs(mw), FLOW_WIDTH_MAX_MW) / FLOW_WIDTH_MAX_MW))
 const rgbCss = ([r, g, b]) => `rgb(${r},${g},${b})`
@@ -259,8 +263,8 @@ export default function PowerMap({ onBorderSelect }) {
       if (noFlow) rgb = pal.arc.none
       else if (b.capacity_source !== 'ntc') rgb = pal.arc.proxy
       else if (b.util_latest_pct == null) rgb = pal.arc.none
-      else if (b.util_latest_pct < 70) rgb = pal.arc.low
-      else if (b.util_latest_pct < 90) rgb = pal.arc.mid
+      else if (b.util_latest_pct < UTIL_MID) rgb = pal.arc.low
+      else if (b.util_latest_pct < UTIL_HIGH) rgb = pal.arc.mid
       else rgb = pal.arc.high
       out.push({
         ...b,
@@ -367,7 +371,8 @@ export default function PowerMap({ onBorderSelect }) {
   const getTooltip = ({ object }) => {
     if (!object) return null
     if (object.zone_a && object.zone_b) { // a border arc — richer, so {html}
-      const [la, lb] = (object.label || `${object.zone_a}↔${object.zone_b}`).split('↔')
+      const label = object.label || `${object.zone_a}↔${object.zone_b}`
+      const [la, lb] = label.split('↔')
       const mw = object.latest_flow_mw
       const dir = mw == null || mw === 0
         ? 'no current flow reading'
@@ -388,7 +393,7 @@ export default function PowerMap({ onBorderSelect }) {
         ? `coupled ${object.convergence_pct.toFixed(0)}% of hrs` : null
       // Only our own API values are interpolated — no user-controlled strings.
       const html = [
-        `<div style="font-weight:600">${object.label}</div>`,
+        `<div style="font-weight:600">${label}</div>`,
         `<div>${dir}</div>`,
         util && `<div>${util}</div>`,
         now && `<div>${now}</div>`,
@@ -487,15 +492,19 @@ export default function PowerMap({ onBorderSelect }) {
         </div>
       )}
 
-      {/* Flow-arc legend — swatches read straight from pal.arc, so they cannot
-          drift from the layer. Only shown while the arcs themselves are on. */}
+      {/* Flow-arc legend — swatches read straight from pal.arc (they cannot
+          drift from the layer) and thresholds from UTIL_MID/UTIL_HIGH. Only the
+          ■ carries the series color; the label text stays neutral ink (amber-600
+          text at 9px would sit at ~2.9:1 on the light surface). Only shown while
+          the arcs themselves are on. */}
       {showArcs && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-1.5 border-t border-border font-mono text-[9px] text-neutral-600">
           <span>flows: width ∝ GW (√, caps at 5)</span>
-          <span style={{ color: rgbCss(pal.arc.low) }}>■ &lt;70%</span>
-          <span style={{ color: rgbCss(pal.arc.mid) }}>■ 70–90%</span>
-          <span style={{ color: rgbCss(pal.arc.high) }}>■ ≥90% of NTC</span>
-          <span style={{ color: rgbCss(pal.arc.proxy) }}>■ no NTC (p95)</span>
+          <span><span style={{ color: rgbCss(pal.arc.low) }}>■</span> &lt;{UTIL_MID}%</span>
+          <span><span style={{ color: rgbCss(pal.arc.mid) }}>■</span> {UTIL_MID}–{UTIL_HIGH}%</span>
+          <span><span style={{ color: rgbCss(pal.arc.high) }}>■</span> ≥{UTIL_HIGH}% of NTC</span>
+          <span><span style={{ color: rgbCss(pal.arc.proxy) }}>■</span> no NTC (p95)</span>
+          <span><span style={{ color: rgbCss(pal.arc.none) }}>■</span> no reading</span>
           <span>solid end = importer</span>
           {!atLatest && <span className="text-neutral-500">hidden while scrubbing — arcs show latest only</span>}
         </div>
