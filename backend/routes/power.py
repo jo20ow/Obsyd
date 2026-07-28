@@ -1675,7 +1675,7 @@ def get_drivers(
 @router.get("/marginal")
 def get_marginal(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
-    hours: int = Query(168, ge=24, le=720),
+    hours: int = Query(168, ge=24, le=744),  # 744 = a full 31-day month, /v1/snapshot precedent
     db: Session = Depends(get_db),
 ):
     """Hour-by-hour ESTIMATE of the price-setting technology, from a fixed
@@ -1694,6 +1694,10 @@ def get_marginal(
     from backend.power.marginal import compute_marginal
 
     data = compute_marginal(db, _resolve_zone(zone), hours=hours)
+    if not data.get("available"):
+        # Unavailable bodies carry reason only — no freshness triple, matching every
+        # other available:false shape on this router.
+        return data
     as_of = data.get("as_of")
     return {
         **data,

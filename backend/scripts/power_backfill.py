@@ -25,12 +25,14 @@ fast against the shared ENTSO-E token (the lesson every deep multi-source run he
 re-taught). Recommended --start 2025-01-01; deeper history is possible but each extra year
 is another ~240 requests for a per-plant drill-down whose product value is recent.
 
-FIRST DEPLOY of the balancing/capacity collectors: right after the service restart
-that ships them, run `--sources balancing` and `--sources capacity` once each. Not
-a launch blocker if skipped — the 09:00 UTC collector watchdog will email a
-balancing_energy/capacity_prices stale alert until the 11:30 UTC daily job fills the
-series in on its own (self-heals within 24h) — but the backfill closes the gap
-immediately instead of waiting out one noisy watchdog cycle.
+FIRST DEPLOY of the balancing/capacity/ntc/units_gen collectors: right after the
+service restart that ships them, run `--sources balancing`, `--sources capacity`,
+`--sources ntc` and `--sources units_gen --start 2025-01-01` once each. Not a launch
+blocker if skipped — the 09:00 UTC collector watchdog will email a stale alert
+(balancing_energy/capacity_prices/ntc_dayahead; unit_generation can flag once because
+the 09:40 UTC job has not yet had its first run) until the daily jobs fill the series
+in on their own (self-heals within 24h) — but the backfill closes the gap immediately
+instead of waiting out one noisy watchdog cycle.
 """
 
 from __future__ import annotations

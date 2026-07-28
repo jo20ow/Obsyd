@@ -207,7 +207,9 @@ async def _run_power_daily():
 
         # Day-ahead NTC (A61) — the capacity offered to the auction, per directed border.
         # NTC-allocated borders only (23 of 63; flow-based Core + Nordics publish none by
-        # market design). 2 months keeps the daily run light — the backfill covers depth.
+        # market design). recent_months' parameter is DAYS: recent_months(2) returns the
+        # month blob(s) covering the last 2 days (one, or two around a month boundary) —
+        # enough to keep the frontier fresh daily; the backfill covers depth.
         try:
             from backend.power.entsoe_exchange import recent_months
             from backend.power.entsoe_ntc import ingest_ntc

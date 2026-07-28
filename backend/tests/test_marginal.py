@@ -328,11 +328,14 @@ def test_route_carries_the_honesty_strings(db_session):
 def test_route_clamps_hours(db_session):
     client = _client(db_session)
     assert client.get("/api/power/marginal?zone=DE_LU&hours=23").status_code == 422
-    assert client.get("/api/power/marginal?zone=DE_LU&hours=721").status_code == 422
+    assert client.get("/api/power/marginal?zone=DE_LU&hours=745").status_code == 422
     assert client.get("/api/power/marginal?zone=DE_LU&hours=24").status_code == 200
-    assert client.get("/api/power/marginal?zone=DE_LU&hours=720").status_code == 200
+    assert client.get("/api/power/marginal?zone=DE_LU&hours=744").status_code == 200, \
+        "744 = a full 31-day month — the /v1/snapshot precedent /units/history follows"
 
 
 def test_route_unavailable_still_answers_200_with_a_reason(db_session):
     body = _client(db_session).get("/api/power/marginal?zone=DE_LU").json()
     assert body["available"] is False and body["reason"]
+    # No freshness triple on an unavailable body — matching every sibling's shape.
+    assert "as_of" not in body and "age_days" not in body and "stale" not in body

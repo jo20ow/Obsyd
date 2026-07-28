@@ -217,9 +217,9 @@ def test_negative_prices_zero_suppressed(db_session):
 
 
 def _seed_saturation(db, sat_hours: int, util_pct: float, ntc_mw: float = 1000.0,
-                     total_hours: int = 20):
-    """Recent DE_LU→FR hours: `sat_hours` of them at `util_pct`, the rest at 50%.
-    Wall-clock-recent because the detector windows on now() − SAT_WINDOW_HOURS."""
+                     total_hours: int = 20, counterparty: str = "FR"):
+    """Recent DE_LU→<counterparty> hours: `sat_hours` of them at `util_pct`, the rest at
+    50%. Wall-clock-recent because the detector windows on now() − SAT_WINDOW_HOURS."""
     from datetime import timezone
 
     from backend.power.hourly_store import upsert_hourly
@@ -229,8 +229,8 @@ def _seed_saturation(db, sat_hours: int, util_pct: float, ntc_mw: float = 1000.0
     ts = [base - i * 3600 for i in range(total_hours - 1, -1, -1)]
     flows = [(t, ntc_mw * (util_pct if i >= total_hours - sat_hours else 50.0) / 100.0)
              for i, t in enumerate(ts)]
-    upsert_hourly(db, "sched.FR", "DE_LU", flows, unit="MW")
-    upsert_hourly(db, "ntc.FR", "DE_LU", [(t, ntc_mw) for t in ts], unit="MW")
+    upsert_hourly(db, f"sched.{counterparty}", "DE_LU", flows, unit="MW")
+    upsert_hourly(db, f"ntc.{counterparty}", "DE_LU", [(t, ntc_mw) for t in ts], unit="MW")
 
 
 def test_interconnector_saturation_fires_at_threshold(db_session):
@@ -246,6 +246,23 @@ def test_interconnector_saturation_fires_at_threshold(db_session):
 def test_interconnector_saturation_critical_when_pinned_at_the_ntc(db_session):
     _seed_saturation(db_session, sat_hours=9, util_pct=100.0)  # ≥99% for ≥8h
     assert detect_interconnector_saturation(db_session)[0].severity == "critical"
+
+
+def test_interconnector_saturation_aggregates_per_exporting_zone(db_session):
+    """The alert backbone dedups on (rule, zone) within its window — two saturated
+    borders exporting from the SAME zone would overwrite each other in the feed, and
+    a critical on one border would be masked by a warning on another. One result per
+    exporting zone: worst severity wins, the worst border leads the title, every
+    border is named in the detail."""
+    _seed_saturation(db_session, sat_hours=4, util_pct=97.0)                      # →FR warning
+    _seed_saturation(db_session, sat_hours=9, util_pct=100.0, counterparty="NL")  # →NL critical
+
+    results = detect_interconnector_saturation(db_session)
+    assert len(results) == 1, "one result per exporting zone — the backbone's dedup key"
+    r = results[0]
+    assert r.zone == "DE_LU" and r.severity == "critical", "the critical border must win"
+    assert "DE-LU→NL" in r.title and "+1 more" in r.title, "the worst border leads"
+    assert "DE-LU→NL" in r.detail and "DE-LU→FR" in r.detail, "every border named"
 
 
 def test_interconnector_saturation_silent_below_threshold(db_session):

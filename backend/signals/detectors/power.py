@@ -779,11 +779,13 @@ def _ordinal(n: int) -> str:
 
 
 # ── Interconnector saturation — flow at the day-ahead NTC ─────────────────────
-# Only for the 23 NTC-allocated borders (border_registry.NTC_BORDERS): the flow-based
-# Core region and the Nordics publish no NTC by market design, so no threshold can
-# exist for them and none is invented. Day-ahead NTC is the capacity OFFERED to the
-# auction, not a physical limit — utilization legitimately exceeds 100% after intraday
-# trading and countertrading, which is why nothing here clamps it.
+# Gated by what the STORE holds: a border only gets a threshold where an `ntc.*` series
+# exists (in practice the NTC-allocated borders the A61 ingest found — see
+# border_registry.NTC_BORDERS for the swept list). The flow-based Core region and the
+# Nordics publish no NTC by market design, so no series exists for them and no threshold
+# is invented. Day-ahead NTC is the capacity OFFERED to the auction, not a physical
+# limit — utilization legitimately exceeds 100% after intraday trading and
+# countertrading, which is why nothing here clamps it.
 SAT_UTIL_PCT = 95.0
 SAT_MIN_HOURS = 4
 SAT_WINDOW_HOURS = 24
@@ -792,13 +794,19 @@ SAT_CRIT_MIN_HOURS = 8
 
 
 def detect_interconnector_saturation(db) -> list[DetectorResult]:
-    """Border DIRECTIONS whose flow sat at (or beyond) the day-ahead NTC recently.
+    """Border directions whose flow sat at (or beyond) the day-ahead NTC recently.
 
     A saturated interconnector is the border-level stress signal: the auction used
     everything it was offered, and the price spread across it is structural, not
-    incidental. One result per saturated DIRECTION (A→B and B→A are independent
-    capacities), zone = the exporting side. Descriptive: hours counted against a
-    published capacity, no claim about tomorrow.
+    incidental. Directions are MEASURED independently (A→B and B→A are independent
+    capacities) but EMITTED aggregated: one result per EXPORTING zone, because the
+    alert backbone dedups on (rule, zone) within its window (signals/rules.py::
+    _upsert_alert) — two saturated borders exporting from the same zone would
+    overwrite each other in the feed, and a critical on one border could be masked
+    by a warning on another (NL alone has four NTC borders). Worst severity wins,
+    the title leads with the worst border, the detail names every one — the same
+    aggregation shape as detect_record_breaks above. Descriptive: hours counted
+    against a published capacity, no claim about tomorrow.
     """
     from datetime import datetime, timedelta, timezone
 
@@ -825,7 +833,7 @@ def detect_interconnector_saturation(db) -> list[DetectorResult]:
         meta = ZONE_REGISTRY.get(zone)
         return meta["label"] if meta else zone
 
-    results: list[DetectorResult] = []
+    by_zone: dict[str, list[dict]] = {}
     for a, b in sorted({tuple(sorted(pair)) for pair in ntc}):
         # Same grain preference as compute_borders: scheduled is bidding-zone-resolved
         # like the NTC; the physical fallback only ever matches an exact counterparty
@@ -854,30 +862,45 @@ def detect_interconnector_saturation(db) -> list[DetectorResult]:
             if len(saturated) < SAT_MIN_HOURS:
                 continue
             crit_hours = sum(1 for _t, u in saturated if u >= SAT_CRIT_UTIL_PCT)
-            peak = max(u for _t, u in saturated)
-            newest = max(t for t, _u in utils)
-            as_of = datetime.fromtimestamp(newest, tz=timezone.utc).strftime("%Y-%m-%d")
-            results.append(
-                DetectorResult(
-                    rule="interconnector_saturated",
-                    zone=frm,
-                    vertical="power",
-                    severity=(
-                        "critical" if crit_hours >= SAT_CRIT_MIN_HOURS else "warning"
-                    ),
-                    title=(
-                        f"{_label(frm)}→{_label(to)}: flow at {peak:.0f}% of day-ahead "
-                        f"NTC ({len(saturated)} of last {SAT_WINDOW_HOURS}h)"
-                    ),
-                    detail=(
-                        f"{len(saturated)} of the last {SAT_WINDOW_HOURS}h at "
-                        f"≥{SAT_UTIL_PCT:.0f}% of the offered day-ahead capacity in the "
-                        f"{_label(frm)}→{_label(to)} direction (peak {peak:.0f}%). "
-                        f"Day-ahead NTC (A61) is what the auction was offered, not a "
-                        f"physical limit — above 100% means intraday/countertrading "
-                        f"moved the border past its day-ahead allocation. Descriptive."
-                    ),
-                    as_of=as_of,
-                )
+            by_zone.setdefault(frm, []).append({
+                "to": to,
+                "hours": len(saturated),
+                "peak": max(u for _t, u in saturated),
+                "critical": crit_hours >= SAT_CRIT_MIN_HOURS,
+                "newest": max(t for t, _u in utils),
+            })
+
+    results: list[DetectorResult] = []
+    for frm, entries in sorted(by_zone.items()):
+        entries.sort(key=lambda e: (e["critical"], e["peak"]), reverse=True)
+        worst = entries[0]
+        newest = max(e["newest"] for e in entries)
+        as_of = datetime.fromtimestamp(newest, tz=timezone.utc).strftime("%Y-%m-%d")
+        parts = [
+            f"{_label(frm)}→{_label(e['to'])}: {e['hours']} of last "
+            f"{SAT_WINDOW_HOURS}h at ≥{SAT_UTIL_PCT:.0f}% (peak {e['peak']:.0f}%)"
+            for e in entries
+        ]
+        results.append(
+            DetectorResult(
+                rule="interconnector_saturated",
+                zone=frm,
+                vertical="power",
+                severity=(
+                    "critical" if any(e["critical"] for e in entries) else "warning"
+                ),
+                title=(
+                    f"{_label(frm)}→{_label(worst['to'])}: flow at {worst['peak']:.0f}% "
+                    f"of day-ahead NTC ({worst['hours']} of last {SAT_WINDOW_HOURS}h)"
+                    + (f" (+{len(entries) - 1} more)" if len(entries) > 1 else "")
+                ),
+                detail=(
+                    "; ".join(parts) + ". Day-ahead NTC (A61) is what the auction was "
+                    "offered, not a physical limit — above 100% means intraday/"
+                    "countertrading moved the border past its day-ahead allocation. "
+                    "Descriptive."
+                ),
+                as_of=as_of,
             )
+        )
     return results
