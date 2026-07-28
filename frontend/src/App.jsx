@@ -258,6 +258,11 @@ function Dashboard() {
   // downstream consumers stay untouched. SparkSpreadHistory is DE-LU-only in-panel.
   const { zone: energyZone, setZone: setEnergyZone } = useViewState()
 
+  // Map arc click → border detail: the focus travels as a prop to BordersPanel
+  // (opens the row, expands + scrolls the panel). `ts` makes every click a NEW
+  // signal, so re-clicking the same border still scrolls/expands.
+  const [borderFocus, setBorderFocus] = useState(null)
+
   // URL hash sync — keep the default (POWER) tab off the URL so the bare
   // homepage stays clean (`/`); only non-default tabs get a shareable hash.
   useEffect(() => {
@@ -809,7 +814,7 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="power-map">
                 <Suspense fallback={MAP_FALLBACK}>
-                  <PowerMap />
+                  <PowerMap onBorderSelect={(a, b) => setBorderFocus({ a, b, ts: Date.now() })} />
                 </Suspense>
               </ErrorBoundary>
             </div>
@@ -819,7 +824,7 @@ function Dashboard() {
             {/* The border layer: prices × flows. A zone map shows WHERE power is
                 expensive; only the borders show whether the market is coupled. */}
             <ErrorBoundary name="borders">
-              <BordersPanel />
+              <BordersPanel focus={borderFocus} />
             </ErrorBoundary>
             <ErrorBoundary name="hydro">
               <HydroReservoirPanel />
