@@ -253,11 +253,17 @@ def test_the_cache_source_collides_with_nothing():
     from backend.power.entsoe_exchange import NET_POSITION_CACHE_SOURCE
     from backend.power.entsoe_ntc import CACHE_SOURCE as A61_SOURCE
     from backend.power.entsoe_unit_generation import CACHE_SOURCE
+    from backend.power.entsoe_units import CACHE_SOURCE as A71_REGISTRY_SOURCE
 
     assert CACHE_SOURCE == "entsoe_a73"
-    assert CACHE_SOURCE not in (A09_SOURCE, NET_POSITION_CACHE_SOURCE, A61_SOURCE,
-                                "entsoe_genmix", "entsoe_load", "entsoe_hydro",
-                                "entsoe_gen_total_forecast")
+    assert CACHE_SOURCE not in (
+        A09_SOURCE, NET_POSITION_CACHE_SOURCE, A61_SOURCE, A71_REGISTRY_SOURCE,
+        # Inline literals in entsoe_grid.py (A65/A75/A71-forecast) and
+        # entsoe_hydro.py (A72) — no importable constant exists for these, so the
+        # strings are pinned here verbatim; if one grows a constant, import it.
+        "entsoe_genmix", "entsoe_load", "entsoe_hydro",
+        "entsoe_load_forecast", "entsoe_gen_total_forecast",
+    )
 
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
@@ -438,7 +444,9 @@ def test_generation_route_reports_the_honest_lag(db_session):
     body = _client(db_session).get("/api/power/units/generation?zone=DE_LU").json()
 
     latest_dt = datetime.fromtimestamp(latest, tz=timezone.utc)
-    expected = int((datetime.now(timezone.utc) - latest_dt).total_seconds() // 86_400)
+    # CALENDAR days, matching the freshness triple's convention — a whole-24h
+    # floor would disagree with age_days by one just after UTC midnight.
+    expected = (datetime.now(timezone.utc).date() - latest_dt.date()).days
     assert body["lag_days"] == expected == 6
     assert body["latest_hour_utc"] == latest_dt.strftime("%Y-%m-%dT%H:%MZ")
     assert body["as_of"] == latest_dt.strftime("%Y-%m-%d")

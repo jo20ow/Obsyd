@@ -357,11 +357,19 @@ class UnitGeneration(Base):
     unit_eic: Mapped[str] = mapped_column(String, primary_key=True)
     ts_utc: Mapped[int] = mapped_column(Integer, primary_key=True)  # epoch sec, top-of-hour UTC
     mw: Mapped[float] = mapped_column(Float, nullable=False)        # hourly mean of the MTUs
-    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    zone: Mapped[str] = mapped_column(String, nullable=False)
 
     # WITHOUT ROWID: the composite PK becomes the table's clustering key (PowerHourly's
-    # convention — the per-unit range scan is the dominant read).
-    __table_args__ = {"sqlite_with_rowid": False}
+    # convention — the per-unit /units/history range scan rides it directly).
+    # The (zone, ts_utc) composite serves the OTHER access pattern — the board's
+    # three zone+hour-range queries (max ts, latest-day rows, trailing population),
+    # which would otherwise degrade to full-zone scans on a public endpoint. It also
+    # covers plain zone lookups, so `zone` carries no redundant single-column index.
+    # Existing DBs get the index via migrations.py (create_all never retro-fits).
+    __table_args__ = (
+        Index("ix_unit_generation_zone_ts", "zone", "ts_utc"),
+        {"sqlite_with_rowid": False},
+    )
 
 
 class PowerOutage(Base):

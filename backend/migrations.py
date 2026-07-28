@@ -114,6 +114,18 @@ def run_migrations() -> None:
     if _add_column_if_missing("power_outage", "counterparty_zone", "VARCHAR"):
         applied.append("power_outage.counterparty_zone")
 
+    # 2026-07-28: composite index for the per-unit output board (Slice C). All three
+    # /units/generation queries filter zone + ts_utc range and would otherwise walk the
+    # whole zone's rows on a public, unguarded endpoint (~340 ms vs ~4 ms at the
+    # recommended 2025-01-01 backfill depth). New DBs get it from the model's
+    # __table_args__; DBs created by an earlier build get it here (same pattern as
+    # ix_power_outage_zone_mrid_revision above).
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_unit_generation_zone_ts "
+            "ON unit_generation (zone, ts_utc)"
+        ))
+
     # 2026-07-14: name the fuels that had no name. B03/B07/B08/B13 were missing from PSR_LABELS,
     # so the ingest stored the RAW code as psr_type and the mix legend read "gen.B03". Adding the
     # labels fixes new rows; without this, the record would carry the same fuel under two names

@@ -142,11 +142,8 @@ export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
                 ))}
               </tbody>
             </table>
-            {units.length === 0 && (
-              <div className="font-mono text-[10px] text-neutral-600 px-2 py-2">
-                No per-unit output on the latest published day.
-              </div>
-            )}
+            {/* No empty-state branch: available:true implies at least the unit that
+                set the latest hour, so units is never empty here. */}
             {units.length > ROW_CAP && (
               <div className="font-mono text-[9px] text-neutral-600 px-2 pt-1">
                 + {units.length - ROW_CAP} more units

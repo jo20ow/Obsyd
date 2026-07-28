@@ -2446,7 +2446,10 @@ def get_units_generation(
             "generating_mw": round(sum(u["current_mw"] for u in reporting), 1),
         },
         "latest_hour_utc": latest_hour_iso,
-        "lag_days": int((datetime.now(timezone.utc) - latest_hour_dt).total_seconds() // 86_400),
+        # CALENDAR days, deliberately — the freshness triple below counts calendar
+        # days, and a whole-24h floor would disagree with it by one just after UTC
+        # midnight (caption saying "5 days behind" beside an age_days of 6).
+        "lag_days": (datetime.now(timezone.utc).date() - latest_hour_dt.date()).days,
         "note": _UNITS_GENERATION_NOTE,
         **_freshness(latest_hour_dt.strftime("%Y-%m-%d"), now.date(),
                      PANEL_MAX_AGE_DAYS["units_generation"]),
