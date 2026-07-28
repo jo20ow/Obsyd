@@ -2282,10 +2282,12 @@ _UNITS_GENERATION_NOTE = (
     "threshold, dispatchable fuels only (no wind/solar) — i.e. the A71/A33 registry "
     "population, NOT the installed fleet. utilization_pct is output vs nameplate "
     "nominal capacity, not availability (a unit at 0% may simply be out of merit — "
-    "see the outage field for what is actually unavailable). ENTSO-E publishes this "
-    "days behind, per control area at different lags: 'latest published day' is the "
-    "fastest TSO's frontier, and units whose TSO has not published it yet appear "
-    "with current_mw = null (not reporting), never silently dropped. Not live."
+    "see the outage field for what is actually unavailable now; the outage badge is "
+    "joined at the current time, while the output value is the last published "
+    "reading). Per-unit timestamps vary because the four TSOs publish at different "
+    "speeds (up to the regulation's D+5); each row carries its own timestamp. "
+    "latest_readings_mw is the sum of each unit's latest published reading — mixed "
+    "timestamps, not a snapshot. Not live."
 )
 
 
@@ -2312,14 +2314,19 @@ def get_units_generation(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     db: Session = Depends(get_db),
 ):
-    """Per-plant output and utilization for the LATEST PUBLISHED day (ENTSO-E A73).
+    """Per-plant output at each unit's OWN latest published hour (ENTSO-E A73).
 
-    Deliberately NOT called "live": A73 publishes ~6 days behind (probe 2026-07-28
-    — D-1/D-3 answer empty, D-7 delivers), and `lag_days` carries that honestly.
+    Deliberately NOT called "live": A73 publishes days behind, and the four German
+    TSOs publish at different speeds (smoke: TenneT ~D-2, the others ~D-5; the
+    regulation allows up to D+5). Pinning every unit to the zone-wide newest hour
+    showed only the fastest TSO's plants and nulled the rest, so each unit now
+    carries its own latest reading with its own timestamp and lag — which makes
+    latest_readings_mw a mixed-timestamp sum, not a snapshot (the note says so).
     Joins the A71/A33 unit registry for names/fuels/nameplate and the A77 outage
-    feed (highest-revision, withdrawn-hidden semantics) for what is off at the
-    latest hour. DE-LU only so far — the ingest zone list (A73_ZONES) is
-    config-extensible. Descriptive: which plants ran and how hard, not a price call.
+    feed (highest-revision, withdrawn-hidden semantics) for what is off NOW —
+    outage messages are near-real-time, unlike the output readings. DE-LU only so
+    far — the ingest zone list (A73_ZONES) is config-extensible. Descriptive:
+    which plants ran and how hard, not a price call.
     """
     from backend.models.energy import UnitGeneration
     from backend.power.entsoe_unit_generation import A73_ZONES
@@ -2350,54 +2357,69 @@ def get_units_generation(
             "reason": f"No per-unit generation ingested for {POWER_ZONES[resolved_zone]['label']} yet.",
         }
 
-    # The UTC day containing the newest hour — the latest PUBLISHED day.
+    # The POPULATION: every unit with any rows in the trailing 14-day window
+    # (anchored at the UTC day of the zone-wide newest hour — same window as
+    # before). The CTAs publish at different lags (smoke 2026-07-28 — TenneT was
+    # at D-2 while the other three German CTAs stopped at D-5), so instead of
+    # sampling everyone at the fastest TSO's frontier hour (which nulled 74 of 85
+    # units), each unit carries ITS OWN latest published hour. One GROUP BY over
+    # the (zone, ts_utc) index — never 85 single-unit queries.
     day_start = latest_ts - (latest_ts % 86_400)
-    rows = (
-        db.query(UnitGeneration)
+    window_start = day_start - 14 * 86_400
+    latest_by_unit: dict[str, int] = dict(
+        db.query(UnitGeneration.unit_eic, func.max(UnitGeneration.ts_utc))
         .filter(
             UnitGeneration.zone == resolved_zone,
-            UnitGeneration.ts_utc >= day_start,
-            UnitGeneration.ts_utc < day_start + 86_400,
+            UnitGeneration.ts_utc >= window_start,
         )
+        .group_by(UnitGeneration.unit_eic)
         .all()
     )
-    by_unit: dict[str, dict[int, float]] = {}
-    for r in rows:
-        by_unit.setdefault(r.unit_eic, {})[r.ts_utc] = r.mw
 
-    # The POPULATION is wider than the latest day: the CTAs publish at different
-    # lags (smoke 2026-07-28 — TenneT was at D-2 while the other three German CTAs
-    # stopped at D-5), so on the frontier day most units legitimately have no rows
-    # yet. Dropping them would present a 13-unit TenneT board as "DE-LU". Every
-    # unit seen in the trailing window is listed; the not-yet-published ones carry
-    # current_mw/day_avg_mw = null ("not reporting"), which the totals count.
-    population_window = day_start - 14 * 86_400
-    for (eic,) in (
-        db.query(UnitGeneration.unit_eic)
-        .filter(
-            UnitGeneration.zone == resolved_zone,
-            UnitGeneration.ts_utc >= population_window,
-            UnitGeneration.ts_utc < day_start,
-        )
-        .distinct()
-        .all()
-    ):
-        by_unit.setdefault(eic, {})
+    # Rows for current_mw + day_avg_mw: one index-friendly range scan spanning
+    # the units' latest UTC days (typically a 3–4 day band given the D-2…D-5
+    # TSO skew), then filtered per unit in Python to ITS OWN latest day.
+    unit_day_start = {eic: ts - (ts % 86_400) for eic, ts in latest_by_unit.items()}
+    hours_by_unit: dict[str, dict[int, float]] = {}
+    if unit_day_start:
+        span_start = min(unit_day_start.values())
+        span_end = max(unit_day_start.values()) + 86_400
+        for eic, ts, mw in (
+            db.query(UnitGeneration.unit_eic, UnitGeneration.ts_utc, UnitGeneration.mw)
+            .filter(
+                UnitGeneration.zone == resolved_zone,
+                UnitGeneration.ts_utc >= span_start,
+                UnitGeneration.ts_utc < span_end,
+            )
+            .all()
+        ):
+            ds = unit_day_start.get(eic)
+            if ds is not None and ds <= ts < ds + 86_400:
+                hours_by_unit.setdefault(eic, {})[ts] = mw
 
-    registry = _unit_registry_for(db, list(by_unit))
+    registry = _unit_registry_for(db, list(latest_by_unit))
 
-    # Outage status AT the latest hour, per unit. Highest revision per mRID wins and
-    # withdrawn events hide (latest_outage_revisions — the same semantics the outage
-    # board uses); ending_after prunes events that ended before the hour.
-    now = datetime.utcnow()
+    # ONE clock read per request — now_iso, today_utc, lag_days and every
+    # unit_lag_days derive from the same instant, so a request straddling UTC
+    # midnight cannot mix two different "today"s.
+    now = datetime.now(timezone.utc)
+    now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
+    today_utc = now.date()
+
+    # Outage status NOW, per unit — not at the (days-old) data hour: A77 outage
+    # messages are near-real-time, so "in outage now" is honest and more useful
+    # next to a last-published output reading. Highest revision per mRID wins and
+    # withdrawn events hide (latest_outage_revisions — the same semantics the
+    # outage board uses); ending_after prunes events already over. Same
+    # fixed-width UTC-string comparison idiom as before, against now.
     latest_hour_dt = datetime.fromtimestamp(latest_ts, tz=timezone.utc)
     latest_hour_iso = latest_hour_dt.strftime("%Y-%m-%dT%H:%MZ")
     outage_by_eic: dict[str, dict] = {}
     for o in latest_outage_revisions(db, resolved_zone,
-                                     ending_after=latest_hour_iso, doc_type="A77"):
+                                     ending_after=now_iso, doc_type="A77"):
         if o.status != "active" or not o.unit_eic:
             continue
-        if not (o.start_utc <= latest_hour_iso <= o.end_utc):
+        if not (o.start_utc <= now_iso <= o.end_utc):
             continue
         if outage_by_eic.get(o.unit_eic, {}).get("kind") == "forced":
             continue  # a forced outage is the more newsworthy label — keep it
@@ -2410,21 +2432,26 @@ def get_units_generation(
         }
 
     units: list[dict] = []
-    for eic, hours in by_unit.items():
+    for eic, unit_latest_ts in latest_by_unit.items():
         reg = registry.get(eic)
         nominal = reg.nominal_mw if reg else None
         psr = reg.psr_type if reg else None
-        current = hours.get(latest_ts)
+        hours = hours_by_unit.get(eic, {})
+        # The unit's newest row is inside its own latest day by construction, so
+        # `current` is always present — ingest never writes null mw.
+        current = hours.get(unit_latest_ts)
+        unit_latest_dt = datetime.fromtimestamp(unit_latest_ts, tz=timezone.utc)
         units.append({
             "unit_eic": eic,
             "name": reg.name if reg else None,
             "psr_type": psr,
             "fuel": PSR_LABELS.get(psr, psr) if psr else None,
             "nominal_mw": nominal,
-            # null = the unit published nothing for the latest hour (not "0 MW" —
-            # zeros ARE published and mean the unit stood still). With the per-CTA
-            # lag skew this is COMMON at the frontier, not an edge case.
+            "unit_latest_hour_utc": unit_latest_dt.strftime("%Y-%m-%dT%H:%MZ"),
+            # CALENDAR days, same convention as the top-level lag_days below.
+            "unit_lag_days": (today_utc - unit_latest_dt.date()).days,
             "current_mw": round(current, 1) if current is not None else None,
+            # Mean over the UTC day containing the unit's OWN latest hour.
             "day_avg_mw": round(sum(hours.values()) / len(hours), 1) if hours else None,
             "utilization_pct": (
                 round(100.0 * current / nominal, 1)
@@ -2432,9 +2459,11 @@ def get_units_generation(
             ),
             "outage": outage_by_eic.get(eic),
         })
-    units.sort(key=lambda u: (u["current_mw"] is None,
-                              -(u["current_mw"] or 0.0),
-                              -(u["nominal_mw"] or 0.0)))
+    # current_mw is never None here — a unit enters the population by owning at
+    # least one row in the window, and its newest row IS its current reading. The
+    # old "not reporting, nulls last" sort branch is dead; `or 0.0` only guards a
+    # hypothetical null-mw row, it is not a sort tier.
+    units.sort(key=lambda u: (-(u["current_mw"] or 0.0), -(u["nominal_mw"] or 0.0)))
 
     reporting = [u for u in units if u["current_mw"] is not None]
     return {
@@ -2445,17 +2474,21 @@ def get_units_generation(
         "units": units,
         "totals": {
             "units": len(units),
+            # Kept for payload-shape compatibility (always equals `units` unless
+            # a null-mw guard ever triggers).
             "reporting": len(reporting),
             "nominal_mw": round(sum(u["nominal_mw"] or 0.0 for u in units), 1),
-            "generating_mw": round(sum(u["current_mw"] for u in reporting), 1),
+            # Mixed timestamps by design (each unit's own latest reading) — NOT a
+            # same-instant snapshot; the note says so verbatim.
+            "latest_readings_mw": round(sum(u["current_mw"] or 0.0 for u in reporting), 1),
         },
         "latest_hour_utc": latest_hour_iso,
         # CALENDAR days, deliberately — the freshness triple below counts calendar
         # days, and a whole-24h floor would disagree with it by one just after UTC
         # midnight (caption saying "5 days behind" beside an age_days of 6).
-        "lag_days": (datetime.now(timezone.utc).date() - latest_hour_dt.date()).days,
+        "lag_days": (today_utc - latest_hour_dt.date()).days,
         "note": _UNITS_GENERATION_NOTE,
-        **_freshness(latest_hour_dt.strftime("%Y-%m-%d"), now.date(),
+        **_freshness(latest_hour_dt.strftime("%Y-%m-%d"), today_utc,
                      PANEL_MAX_AGE_DAYS["units_generation"]),
     }
 

@@ -333,9 +333,9 @@ class UnitGeneration(Base):
     and simply out of merit; availability is what the A77 outage feed says, not this.
     Publication lags DAYS, and unevenly per control area (probe: D-1/D-3 empty, D-7
     full; smoke: TenneT at D-2 while the other German CTAs sat at D-5) — so the newest
-    hour trails the wall clock by days AND most units trail the newest hour. "Latest
-    published day", never "live"; readers must keep unpublished units visible as
-    "not reporting".
+    hour trails the wall clock by days AND most units trail the newest hour. Never
+    "live"; readers must surface each unit's OWN latest published hour with its own
+    lag (sampling everyone at the zone-wide newest hour nulls most of the board).
 
     DELIBERATELY NOT power_hourly. Per-unit output's natural key is the UNIT, not the
     (series, zone) pair; 85+ EIC-named series keys would pollute the series catalog
@@ -362,7 +362,8 @@ class UnitGeneration(Base):
     # WITHOUT ROWID: the composite PK becomes the table's clustering key (PowerHourly's
     # convention — the per-unit /units/history range scan rides it directly).
     # The (zone, ts_utc) composite serves the OTHER access pattern — the board's
-    # three zone+hour-range queries (max ts, latest-day rows, trailing population),
+    # three zone+hour-range queries (zone max ts, per-unit GROUP-BY latest over the
+    # trailing window, the latest-days span scan),
     # which would otherwise degrade to full-zone scans on a public endpoint. It also
     # covers plain zone lookups, so `zone` carries no redundant single-column index.
     # Existing DBs get the index via migrations.py (create_all never retro-fits).

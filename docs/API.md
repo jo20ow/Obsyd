@@ -68,8 +68,10 @@ is the *published* unit list, not the full installed fleet.
 
 Per-unit hourly *output* (ENTSO-E A73; DE-LU so far) is deliberately **not** a
 `/api/v1/series` key — 85+ EIC-named series would drown the catalog. It lives on
-`GET /api/power/units/generation?zone=` (latest published day, ~6-day publication
-lag stated as `lag_days`) and `GET /api/power/units/history?zone=&unit=<EIC>&hours=`
+`GET /api/power/units/generation?zone=` (each unit's own latest published reading —
+the TSOs publish at different speeds, up to the regulation's D+5, so every row
+carries its own `unit_latest_hour_utc`/`unit_lag_days` and the summed total mixes
+timestamps, not a snapshot) and `GET /api/power/units/history?zone=&unit=<EIC>&hours=`
 (capped at 744 hours per request).
 
 ### `GET /api/v1/series/catalog`

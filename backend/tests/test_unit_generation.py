@@ -18,9 +18,11 @@ The probe/smoke-anchored facts worth pinning (2026-07-28):
 * Multiple TimeSeries cover one unit (68 TS / 35 units at Amprion): per-TS hourly
   means are averaged per unit-hour, so a PT60M and a PT15M series weigh equally
   (mean-of-means, not a raw-point average that weights one series 4:1).
-* Control areas publish at DIFFERENT lags (smoke: TenneT D-2, the rest D-5) — the
-  board must list a unit whose TSO has not reached the frontier yet as
-  "not reporting" (null), never drop it.
+* Control areas publish at DIFFERENT lags (smoke: TenneT D-2, the rest D-5; the
+  regulation allows up to D+5) — the board gives every unit ITS OWN latest
+  published hour, value and lag. Sampling everyone at the zone-wide newest hour
+  nulled 74 of 85 live units; a unit whose TSO trails the frontier must carry its
+  own reading, never a null row, and never be dropped.
 """
 from __future__ import annotations
 
@@ -376,8 +378,8 @@ def _seed_board(db):
     * 11WB GAS-1     — registry WITHOUT nominal → utilization null
     * 11WNOREG       — no registry row at all → name/fuel null
     * 11WLAG COAL-1  — rows only 3 days BEFORE the latest day (its CTA has not
-      published the frontier yet — the smoke's lag-skew case) → listed as
-      "not reporting", null current/day-avg, still in totals.units
+      published the frontier yet — the smoke's lag-skew case) → carries its OWN
+      D-9 reading and lag instead of a null "not reporting" row
     """
     latest = _latest_hour_epoch()
     day_start = latest - (latest % 86_400)
@@ -412,31 +414,104 @@ def test_generation_route_joins_registry_and_computes_utilization(db_session):
     assert a["nominal_mw"] == 800.0
     assert a["current_mw"] == 400.0
     assert a["utilization_pct"] == 50.0
+    latest_dt = datetime.fromtimestamp(latest, tz=timezone.utc)
+    assert a["unit_latest_hour_utc"] == latest_dt.strftime("%Y-%m-%dT%H:%MZ")
+    assert a["unit_lag_days"] == 6
     if prev is not None:
         assert a["day_avg_mw"] == 300.0  # mean over the day's reported hours
 
     assert by_eic["11WB"]["utilization_pct"] is None, "null nominal → no ratio"
     assert by_eic["11WNOREG"]["name"] is None and by_eic["11WNOREG"]["fuel"] is None
 
-    # Sorted by current_mw desc, not-reporting units last.
-    assert [u["unit_eic"] for u in body["units"]] == ["11WA", "11WB", "11WNOREG", "11WLAG"]
-    assert body["totals"] == {"units": 4, "reporting": 3,
-                              "nominal_mw": 1400.0, "generating_mw": 550.0}
+    # Sorted by current_mw desc — every listed unit carries its own reading now.
+    assert [u["unit_eic"] for u in body["units"]] == ["11WLAG", "11WA", "11WB", "11WNOREG"]
+    assert body["totals"] == {"units": 4, "reporting": 4,
+                              "nominal_mw": 1400.0, "latest_readings_mw": 1100.0}
 
 
-def test_generation_route_keeps_lagging_units_visible_as_not_reporting(db_session):
+def test_generation_route_gives_lagging_units_their_own_latest_reading(db_session):
     """The smoke's per-CTA lag skew: TenneT published D-2 while the others sat at
-    D-5 — a unit whose TSO has not reached the frontier day must stay LISTED with
-    null output, or the board silently presents one TSO's plants as the zone."""
-    _seed_board(db_session)
+    D-5 — a unit whose TSO trails the zone frontier now carries ITS OWN latest
+    published value and lag instead of a null "not reporting" row (which was 74
+    of 85 units on the live board when everyone was sampled at the fastest TSO's
+    hour)."""
+    latest, _prev = _seed_board(db_session)
     body = _client(db_session).get("/api/power/units/generation?zone=DE_LU").json()
 
     lag = {u["unit_eic"]: u for u in body["units"]}["11WLAG"]
     assert lag["name"] == "COAL-1", "registry join still applies"
-    assert lag["current_mw"] is None
-    assert lag["day_avg_mw"] is None, "no rows on the latest day — no fabricated mean"
-    assert lag["utilization_pct"] is None
-    assert body["totals"]["units"] == 4 and body["totals"]["reporting"] == 3
+    assert lag["current_mw"] == 550.0
+    assert lag["day_avg_mw"] == 550.0, "mean over ITS OWN latest day"
+    assert lag["utilization_pct"] == 91.7  # 550 / 600 nameplate
+    lag_dt = datetime.fromtimestamp(latest - 3 * 86_400, tz=timezone.utc)
+    assert lag["unit_latest_hour_utc"] == lag_dt.strftime("%Y-%m-%dT%H:%MZ")
+    assert lag["unit_lag_days"] == 9, "the zone frontier's 6 days + its own 3 more"
+    assert body["totals"]["units"] == 4 and body["totals"]["reporting"] == 4
+
+
+def _day_anchor(days_back: int) -> int:
+    """00:00 UTC exactly `days_back` calendar days ago — rows placed inside that
+    day give a deterministic unit_lag_days regardless of the wall-clock hour."""
+    d = datetime.now(timezone.utc).date() - timedelta(days=days_back)
+    return int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
+
+
+def test_generation_route_each_unit_carries_its_own_latest_hour(db_session):
+    """Two units at DIFFERENT lags (D-2 vs D-5 — the smoke's TSO skew): both carry
+    values at their OWN latest published hour with their own lag, day_avg is over
+    each unit's OWN latest day, the top level follows the fresher one, and
+    latest_readings_mw is the mixed-timestamp sum with both units reporting.
+    Guard rows kill three mutants: dropping the own-day filter, or the zone
+    filter on either the GROUP BY or the span scan, each corrupts an assertion."""
+    db_session.add(ProductionUnit(unit_eic="11WF", zone="DE_LU", year=2026,
+                                  name="FRESH-1", psr_type="B04", nominal_mw=500.0))
+    db_session.add(ProductionUnit(unit_eic="11WS", zone="DE_LU", year=2026,
+                                  name="SLOW-1", psr_type="B05", nominal_mw=1000.0))
+    d2, d3, d5, d6 = _day_anchor(2), _day_anchor(3), _day_anchor(5), _day_anchor(6)
+    # Late-in-day hours ON PURPOSE (21–23 h UTC): an implementation flooring
+    # (now − ts) into 24-hour blocks would call D-2 23:00 "1 day behind" for most
+    # of the day — the calendar-day lag assertions below kill that mutant.
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 22 * 3600, mw=300.0, zone="DE_LU"))
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 23 * 3600, mw=500.0, zone="DE_LU"))
+    db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d5 + 21 * 3600, mw=100.0, zone="DE_LU"))
+    db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d5 + 22 * 3600, mw=200.0, zone="DE_LU"))
+    # IN-SPAN own-day guard: a D-3 row for the D-2 unit sits inside the span
+    # scan's SQL range but outside 11WF's own latest day — deleting the
+    # ds <= ts < ds+86400 filter absorbs it into day_avg and fails below.
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d3 + 9 * 3600, mw=900.0, zone="DE_LU"))
+    # OUT-OF-SPAN guard: a D-6 row (before the span's SQL range) must not leak
+    # into 11WS's day_avg either.
+    db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d6 + 9 * 3600, mw=900.0, zone="DE_LU"))
+    # CROSS-ZONE-BLEED guards, both inside the window: a foreign zone's unit must
+    # not enter the population (distinct EIC — kills a zone-filterless GROUP BY),
+    # and a foreign zone's row for a LISTED unit inside its own latest day must
+    # not enter its day_avg (kills a zone-filterless span scan).
+    db_session.add(UnitGeneration(unit_eic="11WXX", ts_utc=d2 + 23 * 3600, mw=999.0, zone="XX"))
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 9 * 3600, mw=999.0, zone="XX"))
+    db_session.commit()
+
+    body = _client(db_session).get("/api/power/units/generation?zone=DE_LU").json()
+    by_eic = {u["unit_eic"]: u for u in body["units"]}
+    assert "11WXX" not in by_eic, "foreign zone's unit must not bleed onto the board"
+
+    fresh, slow = by_eic["11WF"], by_eic["11WS"]
+    assert fresh["current_mw"] == 500.0 and fresh["unit_lag_days"] == 2
+    assert fresh["unit_latest_hour_utc"] == datetime.fromtimestamp(
+        d2 + 23 * 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    assert fresh["day_avg_mw"] == 400.0, \
+        "own latest day, own zone only — neither the D-3 row nor XX's row counts"
+    assert slow["current_mw"] == 200.0 and slow["unit_lag_days"] == 5
+    assert slow["unit_latest_hour_utc"] == datetime.fromtimestamp(
+        d5 + 22 * 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    assert slow["day_avg_mw"] == 150.0, "own latest day only — the D-6 row stays out"
+
+    # Top level follows the FRESHER unit; totals sum the mixed-timestamp readings
+    # (and would flag any cross-zone bleed too).
+    assert body["latest_hour_utc"] == fresh["unit_latest_hour_utc"]
+    assert body["lag_days"] == 2
+    assert body["totals"] == {"units": 2, "reporting": 2,
+                              "nominal_mw": 1500.0, "latest_readings_mw": 700.0}
+    assert [u["unit_eic"] for u in body["units"]] == ["11WF", "11WS"]
 
 
 def test_generation_route_reports_the_honest_lag(db_session):
@@ -452,6 +527,12 @@ def test_generation_route_reports_the_honest_lag(db_session):
     assert body["as_of"] == latest_dt.strftime("%Y-%m-%d")
     assert body["stale"] is False, "6 days behind is A73's NORMAL lag, not staleness"
     assert "Not live" in body["note"] and "NOT the installed fleet" in body["note"]
+    # The honesty strings ARE the spec: the totals sum mixes per-unit timestamps
+    # and the note must say so verbatim, plus why the timestamps differ.
+    assert ("sum of each unit's latest published reading — mixed timestamps, "
+            "not a snapshot") in body["note"]
+    assert "publish at different speeds" in body["note"]
+    assert "D+5" in body["note"]
 
 
 def _seed_outage(db, eic, *, mrid, revision=1, bt="A54", status="active",
@@ -471,15 +552,15 @@ def _seed_outage(db, eic, *, mrid, revision=1, bt="A54", status="active",
 def test_generation_route_attaches_outages_with_revision_semantics(db_session):
     """The outage join must ride the same highest-revision/withdrawn-hidden rules
     as the outage board: a withdrawn latest revision hides the event even though
-    an older active revision exists, and an event overlapping the latest hour
-    attaches {kind, offline_mw}."""
+    an older active revision exists, and an event active NOW attaches
+    {kind, offline_mw}."""
     latest, _prev = _seed_board(db_session)
-    # 11WA: rev1 active AND covering the latest hour, rev2 WITHDRAWN → only the
-    # withdrawal (not the window) may be what hides it.
+    # 11WA: rev1 active AND spanning now, rev2 WITHDRAWN → only the withdrawal
+    # (not the window) may be what hides it.
     _seed_outage(db_session, "11WA", mrid="mA", revision=1, start_off_h=-24 * 8)
     _seed_outage(db_session, "11WA", mrid="mA", revision=2, status="withdrawn",
                  start_off_h=-24 * 8)
-    # 11WB: active forced outage spanning the latest hour (start 8 days ago).
+    # 11WB: active forced outage spanning now (start 8 days ago, end in 2 days).
     _seed_outage(db_session, "11WB", mrid="mB", start_off_h=-24 * 8)
 
     body = _client(db_session).get("/api/power/units/generation?zone=DE_LU").json()
@@ -488,9 +569,33 @@ def test_generation_route_attaches_outages_with_revision_semantics(db_session):
     assert by_eic["11WB"]["outage"] == {"kind": "forced", "offline_mw": 800.0}
 
 
-def test_generation_route_ignores_outages_not_covering_the_latest_hour(db_session):
-    """The board's hour is ~6 days in the past — an outage that starts tomorrow
-    (running_now for the outage panel's wall clock!) must NOT badge it."""
+def test_generation_route_outage_badge_is_joined_at_now_not_the_data_hour(db_session):
+    """A77 messages are near-real-time while the output readings lag days — the
+    badge answers "is this unit in outage NOW". An outage that covers only the
+    wall clock (NOT 11WA's D-6 data hour) must still attach: next to a days-old
+    reading, the current outage state is the honest and useful join."""
+    _seed_board(db_session)  # 11WA's own latest hour is D-6
+    _seed_outage(db_session, "11WA", mrid="mNOW", start_off_h=-24, end_off_h=24)
+
+    body = _client(db_session).get("/api/power/units/generation?zone=DE_LU").json()
+    by_eic = {u["unit_eic"]: u for u in body["units"]}
+    assert by_eic["11WA"]["outage"] == {"kind": "forced", "offline_mw": 800.0}
+
+
+def test_generation_route_outage_that_ended_yesterday_does_not_badge(db_session):
+    """The inverse: an outage that DID cover 11WA's (D-6) data hour but ended
+    yesterday is history — badging it would claim a running outage that is over."""
+    _seed_board(db_session)
+    _seed_outage(db_session, "11WA", mrid="mOLD", start_off_h=-24 * 7, end_off_h=-24)
+
+    body = _client(db_session).get("/api/power/units/generation?zone=DE_LU").json()
+    by_eic = {u["unit_eic"]: u for u in body["units"]}
+    assert by_eic["11WA"]["outage"] is None
+
+
+def test_generation_route_ignores_an_outage_that_starts_tomorrow(db_session):
+    """Upcoming is not "now": an outage starting tomorrow must not badge, even
+    though the outage panel lists it as upcoming."""
     _seed_board(db_session)
     _seed_outage(db_session, "11WA", mrid="mF", start_off_h=24, end_off_h=72)
 
