@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_SLOW_MS } from '../utils/poll'
@@ -36,7 +36,9 @@ function Chip({ kind }) {
 // The full prose definitions live in HOW TO READ; the API keeps its note.
 function BordersLegend({ eps }) {
   const rows = [
-    ['Coupled', `share of hours the two zones cleared at the same price (within €${eps ?? 1}/MWh).`],
+    // Fallback mirrors backend COUPLED_EPS_EUR (0.5) — only shown in the brief
+    // window before /power/borders delivers the real value.
+    ['Coupled', `share of hours the two zones cleared at the same price (within €${eps ?? 0.5}/MWh).`],
     ['Ø spread', 'mean absolute day-ahead spread over the window (€/MWh).'],
     ['Now', 'the latest hour’s spread; the expensive side is named. “coupled” = below the threshold.'],
     ['At rail', 'share of hours the flow sat at or above this border’s own 95th percentile over the last year.'],
@@ -129,14 +131,17 @@ export default function BordersPanel({ focus }) {
   // Map arc click → this panel: open the border's row. Keys match by
   // construction — both sides use the canonically sorted zone pair. State is
   // adjusted during render (React's previous-renders pattern); only the DOM
-  // scroll stays in an effect.
-  const [seenFocus, setSeenFocus] = useState(null)
+  // scroll stays in an effect. Both trackers initialize to the INCOMING focus,
+  // so a remount with an old focus (tab switch and back) neither re-opens the
+  // row nor scrolls — only a focus that changes after mount does.
+  const [seenFocus, setSeenFocus] = useState(focus)
   if (focus && focus !== seenFocus) {
     setSeenFocus(focus)
     if (focus.a && focus.b) setOpen(`${focus.a}|${focus.b}`)
   }
+  const mountFocus = useRef(focus)
   useEffect(() => {
-    if (!focus?.a || !focus?.b) return
+    if (!focus?.a || !focus?.b || focus === mountFocus.current) return
     document.getElementById('panel-power-borders')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [focus])
 

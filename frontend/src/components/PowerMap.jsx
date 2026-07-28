@@ -70,6 +70,9 @@ const PALETTES = {
     labelOutline: [255, 255, 255, 255],
     highlight: [8, 100, 124, 50],
     tooltip: { background: '#ffffff', border: '1px solid #d6dae0', color: '#1f2430' },
+    // low is cyan-600 [8,145,178], NOT cyan-700 [14,116,144]: validated better —
+    // 3.38:1 contrast on #f4f5f7 passes, and deutan ΔE vs the proxy gray is
+    // 15.6 (cyan-700 only manages 11.4).
     // mid is amber-600 [217,119,6], NOT amber-700: the validator showed
     // amber-700 vs orange-700 at deutan ΔE 0.1 / normal 4.1 on #f4f5f7 —
     // indistinguishable. amber-600 lifts the pair to deutan 11.3 / normal
