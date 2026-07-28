@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import DeckGL from '@deck.gl/react'
-import { GeoJsonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
+import { ArcLayer, GeoJsonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
 import { InfoPopover } from './Panel'
 import { useTheme } from '../context/ThemeContext'
 
@@ -48,6 +48,13 @@ const PALETTES = {
     labelOutline: [6, 6, 10, 255],
     highlight: [103, 232, 249, 60],
     tooltip: { background: '#0a0a12', border: '1px solid #2a2a3a', color: '#d4d4d8' },
+    // Flow arcs: an ordinal load ramp (low/mid/high vs NTC) + two deliberate
+    // no-signal grays (proxy = no NTC published, none = no flow reading).
+    // Validator (dataviz skill) vs #06060a: trio contrast all ≥3:1, CVD ΔE 8.2
+    // (≥8 target); amber↔orange normal ΔE 11.2 is adjacent-ordinal-step
+    // territory and is relieved by the worded legend + exact util % in the
+    // tooltip. The grays are MEANT to read gray.
+    arc: { low: [34, 211, 238], mid: [251, 191, 36], high: [251, 146, 60], proxy: [148, 163, 184], none: [100, 116, 139] },
   },
   light: {
     surface: '#f4f5f7',
@@ -63,6 +70,14 @@ const PALETTES = {
     labelOutline: [255, 255, 255, 255],
     highlight: [8, 100, 124, 50],
     tooltip: { background: '#ffffff', border: '1px solid #d6dae0', color: '#1f2430' },
+    // low is cyan-600 [8,145,178], NOT cyan-700 [14,116,144]: validated better —
+    // 3.38:1 contrast on #f4f5f7 passes, and deutan ΔE vs the proxy gray is
+    // 15.6 (cyan-700 only manages 11.4).
+    // mid is amber-600 [217,119,6], NOT amber-700: the validator showed
+    // amber-700 vs orange-700 at deutan ΔE 0.1 / normal 4.1 on #f4f5f7 —
+    // indistinguishable. amber-600 lifts the pair to deutan 11.3 / normal
+    // 12.7 (CVD target met; adjacent ordinal steps, legend + tooltip relieve).
+    arc: { low: [8, 145, 178], mid: [217, 119, 6], high: [194, 65, 12], proxy: [100, 116, 139], none: [148, 163, 184] },
   },
 }
 
@@ -106,6 +121,20 @@ function percentile(sorted, p) {
 
 const INITIAL_VIEW = { longitude: 9, latitude: 54, zoom: 3.1, minZoom: 2.5, maxZoom: 6 }
 
+// ── Cross-border flow arcs ────────────────────────────────────────────────────
+// Width encodes |latest flow|: √ scale (a 4× flow reads 2× wide — GW differences
+// stay legible without 5-GW borders drowning 300-MW ones), capped at 5 GW / 8 px,
+// 1 px floor so thin borders stay hoverable.
+const FLOW_WIDTH_MAX_MW = 5000
+const ARC_MAX_PX = 8
+// NTC-utilization classing thresholds (%) — single source for the arc colors
+// AND the footer legend, so the two can never drift apart.
+const UTIL_MID = 70
+const UTIL_HIGH = 90
+const arcWidth = (mw) =>
+  Math.max(1, ARC_MAX_PX * Math.sqrt(Math.min(Math.abs(mw), FLOW_WIDTH_MAX_MW) / FLOW_WIDTH_MAX_MW))
+const rgbCss = ([r, g, b]) => `rgb(${r},${g},${b})`
+
 const METRICS = [
   { key: 'price', label: 'DAY-AHEAD €/MWh' },
   { key: 'state', label: 'GRID STATE' },
@@ -118,7 +147,7 @@ function fmtTs(iso) {
   })
 }
 
-export default function PowerMap() {
+export default function PowerMap({ onBorderSelect }) {
   const { theme } = useTheme()
   const pal = PALETTES[theme] || PALETTES.dark
   const [geo, setGeo] = useState(null)
@@ -127,6 +156,8 @@ export default function PowerMap() {
   const [view, setView] = useState('zones') // 'zones' choropleth | 'points' per-zone dots
   const [snap, setSnap] = useState(null) // hourly day-ahead price matrix (scrubber)
   const [idx, setIdx] = useState(null)   // selected hour index; null = latest/live
+  const [borders, setBorders] = useState(null) // /power/borders rows → flow arcs
+  const [showArcs, setShowArcs] = useState(true)
 
   useEffect(() => {
     fetch('/geo/eu-zones.geojson').then((r) => r.json()).then(setGeo).catch((e) => console.error('PowerMap geo:', e))
@@ -147,9 +178,23 @@ export default function PowerMap() {
       .catch(() => {})
     return () => { alive = false }
   }, [])
+  useEffect(() => {
+    // Deliberately duplicates BordersPanel's GET (server caches the computation);
+    // one request at mount, no polling — the arcs say "latest", not "live".
+    let alive = true
+    fetch(`${API}/power/borders?days=30`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d?.available) setBorders(d.borders || []) })
+      .catch((e) => console.error('PowerMap borders:', e))
+    return () => { alive = false }
+  }, [])
 
   const ts = snap?.timestamps || []
   const effIdx = idx == null ? ts.length - 1 : idx
+  // Arcs always show the LATEST flow. While the scrubber sits on a past hour the
+  // choropleth shows that hour — latest arcs on top of it would lie, so they hide.
+  // (The scrubber only exists for the price metric; grid state is always live.)
+  const atLatest = metric !== 'price' || ts.length === 0 || effIdx === ts.length - 1
 
   // When scrubbing (price metric + snapshot loaded), override each zone's price with
   // the day-ahead price at the selected hour; otherwise use the live overview.
@@ -197,15 +242,78 @@ export default function PowerMap() {
     return pts
   }, [effRows])
 
-  const zoneFill = (zone) => {
-    const z = byZone.get(zone)
-    if (!z) return pal.contextFill
-    if (metric === 'state') return [...(pal.state[z.state] || pal.mid), 215]
-    return [...priceColor(z.price_close, lo, hi, pal), 235]
-  }
+  // One arc per border, carrying the WHOLE border object (the tooltip reads its
+  // stats). Direction is static: faint end = exporter, solid end = importer.
+  const arcs = useMemo(() => {
+    const out = [];
+    (borders || []).forEach((b, i) => {
+      const ca = ZONE_COORDS[b.zone_a]
+      const cb = ZONE_COORDS[b.zone_b]
+      if (!ca || !cb) {
+        console.warn(`PowerMap arcs: no coordinates for border ${b.zone_a}-${b.zone_b}`)
+        return
+      }
+      const mw = b.latest_flow_mw
+      const noFlow = mw == null || mw === 0
+      // API sign convention: positive = zone_a → zone_b (canonical sorted pair).
+      const flip = !noFlow && mw < 0
+      // Color = how loaded the border is; the grays are states, not magnitudes:
+      // proxy = no NTC published (flow-based Core / Nordics), none = no reading.
+      let rgb
+      if (noFlow) rgb = pal.arc.none
+      else if (b.capacity_source !== 'ntc') rgb = pal.arc.proxy
+      else if (b.util_latest_pct == null) rgb = pal.arc.none
+      else if (b.util_latest_pct < UTIL_MID) rgb = pal.arc.low
+      else if (b.util_latest_pct < UTIL_HIGH) rgb = pal.arc.mid
+      else rgb = pal.arc.high
+      out.push({
+        ...b,
+        source: flip ? cb : ca,
+        target: flip ? ca : cb,
+        width: noFlow ? 1 : arcWidth(mw),
+        // No reading → uniform faint alpha at both ends: a gradient would claim
+        // a direction we do not have. Still pickable/clickable.
+        sourceColor: [...rgb, noFlow ? 90 : 70],
+        targetColor: [...rgb, noFlow ? 90 : 235],
+        // Deterministic ±8° fan so parallel Benelux/Nordic arcs do not stack.
+        tilt: ((i % 3) - 1) * 8,
+      })
+    })
+    return out
+  }, [borders, pal])
 
   const layers = useMemo(() => {
     if (!geo) return []
+    const zoneFill = (zone) => {
+      const z = byZone.get(zone)
+      if (!z) return pal.contextFill
+      if (metric === 'state') return [...(pal.state[z.state] || pal.mid), 215]
+      return [...priceColor(z.price_close, lo, hi, pal), 235]
+    }
+    const arcLayer = showArcs && atLatest && arcs.length > 0
+      ? new ArcLayer({
+        id: 'border-arcs',
+        data: arcs,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: pal.highlight,
+        getSourcePosition: (d) => d.source,
+        getTargetPosition: (d) => d.target,
+        getSourceColor: (d) => d.sourceColor,
+        getTargetColor: (d) => d.targetColor,
+        getWidth: (d) => d.width,
+        widthUnits: 'pixels',
+        widthMinPixels: 1,
+        widthMaxPixels: ARC_MAX_PX,
+        getHeight: 0.4,
+        getTilt: (d) => d.tilt,
+        onClick: ({ object }) => { if (object) onBorderSelect?.(object.zone_a, object.zone_b) },
+        updateTriggers: {
+          getSourceColor: [arcs], getTargetColor: [arcs], getWidth: [arcs],
+          getTilt: [arcs], getSourcePosition: [arcs], getTargetPosition: [arcs],
+        },
+      })
+      : null
     const zonesLayer = new GeoJsonLayer({
       id: 'eu-zones',
       data: geo,
@@ -226,6 +334,7 @@ export default function PowerMap() {
       }
       return [
         zonesLayer.clone({ pickable: false, autoHighlight: false, getFillColor: pal.contextFill, updateTriggers: { getFillColor: [theme] } }),
+        ...(arcLayer ? [arcLayer] : []),
         new ScatterplotLayer({
           id: 'power-points', data: points, pickable: true,
           getPosition: (d) => d.position, getFillColor: pointFill,
@@ -254,12 +363,45 @@ export default function PowerMap() {
       pickable: false,
       updateTriggers: { getText: [effRows], getPosition: [effRows], getColor: [theme] },
     })
-    return metric === 'price' ? [zonesLayer, labels] : [zonesLayer]
-  }, [geo, view, metric, effRows, byZone, lo, hi, points, theme])
+    const base = metric === 'price' ? [zonesLayer, labels] : [zonesLayer]
+    return arcLayer ? [...base, arcLayer] : base
+  }, [geo, view, metric, effRows, byZone, lo, hi, points, theme, arcs, showArcs, atLatest, onBorderSelect, pal])
 
   const TIP_STYLE = { ...pal.tooltip, fontFamily: 'monospace', fontSize: '11px', padding: '6px 8px' }
   const getTooltip = ({ object }) => {
     if (!object) return null
+    if (object.zone_a && object.zone_b) { // a border arc — richer, so {html}
+      const label = object.label || `${object.zone_a}↔${object.zone_b}`
+      const [la, lb] = label.split('↔')
+      const mw = object.latest_flow_mw
+      const dir = mw == null || mw === 0
+        ? 'no current flow reading'
+        : `${mw > 0 ? la : lb} → ${mw > 0 ? lb : la} · ${(Math.abs(mw) / 1000).toFixed(1)} GW`
+      const util = object.capacity_source === 'ntc'
+        ? (object.util_latest_pct != null
+          ? `util ${object.util_latest_pct.toFixed(0)}% of NTC (offered capacity — can exceed 100%)`
+          : null)
+        : (object.at_rail_pct != null
+          ? `at rail ${object.at_rail_pct.toFixed(0)}% (no NTC published — own p95)`
+          : null)
+      const now = object.latest_spread == null
+        ? null
+        : object.expensive_side == null
+          ? 'now: coupled'
+          : `now: €${Math.abs(object.latest_spread).toFixed(0)} · ${object.expensive_side === object.zone_a ? la : lb} dearer`
+      const coupled = object.convergence_pct != null
+        ? `coupled ${object.convergence_pct.toFixed(0)}% of hrs` : null
+      // Only our own API values are interpolated — no user-controlled strings.
+      const html = [
+        `<div style="font-weight:600">${label}</div>`,
+        `<div>${dir}</div>`,
+        util && `<div>${util}</div>`,
+        now && `<div>${now}</div>`,
+        coupled && `<div>${coupled}</div>`,
+        '<div style="opacity:.55">click → border detail</div>',
+      ].filter(Boolean).join('')
+      return { html, style: TIP_STYLE }
+    }
     if (object.position && object.zone) { // a scatter point
       const price = object.price != null ? `${object.price.toFixed(1)} €/MWh` : 'n/a'
       return { text: `${object.label} · ${object.state || ''}\nDay-ahead: ${price}`, style: TIP_STYLE }
@@ -282,7 +424,7 @@ export default function PowerMap() {
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-[12px] font-semibold text-neutral-300">Europe · power map</span>
-          <InfoPopover text="Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by the day-ahead price — or by grid state. IMPORTANT: it shades ONE HOUR at a time (the hour on the slider below), not the whole day — so a zone can read €0 here at 08:00 while the all-zones table shows a positive daily mean. Drag the slider to move through the hours. Fixed colour scale across the shown week: violet = negative prices (a distinct state, not just cheap), brighter cyan = more expensive. Dark shapes = neighbouring countries, no data by design. Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast." />
+          <InfoPopover text="Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by the day-ahead price — or by grid state. IMPORTANT: it shades ONE HOUR at a time (the hour on the slider below), not the whole day — so a zone can read €0 here at 08:00 while the all-zones table shows a positive daily mean. Drag the slider to move through the hours. Fixed colour scale across the shown week: violet = negative prices (a distinct state, not just cheap), brighter cyan = more expensive. Dark shapes = neighbouring countries, no data by design. FLOWS arcs = the latest cross-border flow per border: the faint end exports, the solid end imports; width ∝ GW, colour = how loaded the border is vs its offered day-ahead capacity (grey = no NTC published or no reading); they always show the latest hour and hide while you scrub the past — click one for the border detail below. Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast." />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
@@ -313,6 +455,15 @@ export default function PowerMap() {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setShowArcs(!showArcs)}
+            className={`font-mono text-[9px] px-2 py-0.5 rounded border ${
+              showArcs ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'
+            }`}
+            title="Cross-border flow arcs (latest hour)"
+          >
+            FLOWS
+          </button>
         </div>
       </div>
 
@@ -338,6 +489,24 @@ export default function PowerMap() {
           {effIdx !== ts.length - 1 && (
             <button onClick={() => setIdx(null)} className="font-mono text-[9px] text-neutral-500 hover:text-cyan-glow shrink-0">↺ live</button>
           )}
+        </div>
+      )}
+
+      {/* Flow-arc legend — swatches read straight from pal.arc (they cannot
+          drift from the layer) and thresholds from UTIL_MID/UTIL_HIGH. Only the
+          ■ carries the series color; the label text stays neutral ink (amber-600
+          text at 9px would sit at ~2.9:1 on the light surface). Only shown while
+          the arcs themselves are on. */}
+      {showArcs && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-1.5 border-t border-border font-mono text-[9px] text-neutral-600">
+          <span>flows: width ∝ GW (√, caps at 5)</span>
+          <span><span style={{ color: rgbCss(pal.arc.low) }}>■</span> &lt;{UTIL_MID}%</span>
+          <span><span style={{ color: rgbCss(pal.arc.mid) }}>■</span> {UTIL_MID}–{UTIL_HIGH}%</span>
+          <span><span style={{ color: rgbCss(pal.arc.high) }}>■</span> ≥{UTIL_HIGH}% of NTC</span>
+          <span><span style={{ color: rgbCss(pal.arc.proxy) }}>■</span> no NTC (p95)</span>
+          <span><span style={{ color: rgbCss(pal.arc.none) }}>■</span> no reading</span>
+          <span>solid end = importer</span>
+          {!atLatest && <span className="text-neutral-500">hidden while scrubbing — arcs show latest only</span>}
         </div>
       )}
 

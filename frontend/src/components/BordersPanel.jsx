@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_SLOW_MS } from '../utils/poll'
@@ -18,6 +18,54 @@ function convergenceColor(pct) {
   return 'text-orange-400'
 }
 
+// A small chip in the legend, matching the ones in the Util column.
+function Chip({ kind }) {
+  return (
+    <span
+      className={`text-[8px] px-1 py-px rounded border ${
+        kind === 'ntc' ? 'border-cyan-glow/40 text-cyan-glow/80' : 'border-border text-neutral-600'
+      }`}
+    >
+      {kind === 'ntc' ? 'NTC' : 'P95'}
+    </span>
+  )
+}
+
+// The structured replacement for the raw ~1100-char API note that used to be
+// dumped into a 256-px popover. One row per column, HowToRead's <dl> pattern.
+// The full prose definitions live in HOW TO READ; the API keeps its note.
+function BordersLegend({ eps }) {
+  const rows = [
+    // Fallback mirrors backend COUPLED_EPS_EUR (0.5) — only shown in the brief
+    // window before /power/borders delivers the real value.
+    ['Coupled', `share of hours the two zones cleared at the same price (within €${eps ?? 0.5}/MWh).`],
+    ['Ø spread', 'mean absolute day-ahead spread over the window (€/MWh).'],
+    ['Now', 'the latest hour’s spread; the expensive side is named. “coupled” = below the threshold.'],
+    ['At rail', 'share of hours the flow sat at or above this border’s own 95th percentile over the last year.'],
+    [<span key="util" className="inline-flex items-center gap-1">Util <Chip kind="ntc" /> <Chip kind="p95" /></span>,
+      'latest |flow| ÷ day-ahead NTC in the flow’s direction, where ENTSO-E publishes one (NTC chip) — offered capacity, can exceed 100%. P95 chip = no NTC published (flow-based Core / Nordics, by market design); “At rail” stands in.'],
+    ['Counter', 'share of split hours where power ran from the expensive zone to the cheap one.'],
+    ['Loop', 'physical flow minus scheduled exchange, where both grains exist — transit and loop together, not a claim about this interconnector.'],
+    ['SCHED', 'row read from ENTSO-E’s scheduled exchanges (bidding-zone resolved) instead of the physical country-level flow.'],
+  ]
+  return (
+    <div className="space-y-2">
+      <dl className="space-y-1.5">
+        {rows.map(([term, def], i) => (
+          <div key={i} className="grid grid-cols-[64px_1fr] gap-x-2">
+            <dt className="text-cyan-glow/90">{term}</dt>
+            <dd className="text-neutral-400 leading-snug">{def}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="pt-1 border-t border-border/40 text-neutral-500">
+        Descriptive statistics — a spread is not a claim this border was the binding
+        constraint. Full definitions: HOW TO READ, bottom of this tab.
+      </div>
+    </div>
+  )
+}
+
 function SpreadChart({ a, b }) {
   const { data, loading } = useFetchWithError(
     `${API}/power/spread?a=${a}&b=${b}&days=14`, { deps: [a, b] },
@@ -35,10 +83,12 @@ function SpreadChart({ a, b }) {
   const rows = (data.data ?? []).map((p) => ({
     x: p.ts_utc, spread: p.spread, flow: p.flow_mw != null ? p.flow_mw / 1000 : null,
   }))
+  // Compact caption; the full API note (utilization semantics etc.) rides on hover.
+  const [labelA, labelB] = (data.label ?? '').split('↔')
   return (
     <div className="px-2 pt-3 pb-1 border-t border-border/40">
-      <div className="px-2 pb-1 font-mono text-[9px] text-neutral-600">
-        {data.label} · spread (€/MWh, line) vs physical flow (GW, bars) · {data.note}
+      <div className="px-2 pb-1 font-mono text-[9px] text-neutral-600" title={data.note}>
+        {data.label} · spread = {labelA} − {labelB} (€/MWh, line) · flow &gt; 0 = {labelA} exports (GW, bars)
       </div>
       <ResponsiveContainer width="100%" height={180}>
         <ComposedChart data={rows} margin={{ top: 4, right: 8, bottom: 2, left: 0 }}>
@@ -72,11 +122,28 @@ function SpreadChart({ a, b }) {
  * constraint is a network element inside the grid, not the border itself. The
  * backend caption says so and travels with the data.
  */
-export default function BordersPanel() {
+export default function BordersPanel({ focus }) {
   const [open, setOpen] = useState(null)  // "A|B" of the expanded border
   const { data, loading, error } = useFetchWithError(`${API}/power/borders?days=30`, {
     pollMs: POLL_SLOW_MS,
   })
+
+  // Map arc click → this panel: open the border's row. Keys match by
+  // construction — both sides use the canonically sorted zone pair. State is
+  // adjusted during render (React's previous-renders pattern); only the DOM
+  // scroll stays in an effect. Both trackers initialize to the INCOMING focus,
+  // so a remount with an old focus (tab switch and back) neither re-opens the
+  // row nor scrolls — only a focus that changes after mount does.
+  const [seenFocus, setSeenFocus] = useState(focus)
+  if (focus && focus !== seenFocus) {
+    setSeenFocus(focus)
+    if (focus.a && focus.b) setOpen(`${focus.a}|${focus.b}`)
+  }
+  const mountFocus = useRef(focus)
+  useEffect(() => {
+    if (!focus?.a || !focus?.b || focus === mountFocus.current) return
+    document.getElementById('panel-power-borders')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [focus])
 
   if (error) {
     return (
@@ -103,7 +170,9 @@ export default function BordersPanel() {
     <Panel
       id="power-borders"
       title="BORDERS · PRICE CONVERGENCE & CONGESTION"
-      info={data?.note || 'Prices joined to physical flows, per border.'}
+      info={<BordersLegend eps={data?.coupled_eps_eur} />}
+      infoWide
+      expandSignal={focus?.ts}
       collapsible
       headerRight={
         borders.length > 0 && (
@@ -126,7 +195,7 @@ export default function BordersPanel() {
                   <th className="text-right px-2 py-1" title="Mean absolute day-ahead spread over the window">Ø spread</th>
                   <th className="text-right px-2 py-1" title="Latest spread; the expensive side is named">Now</th>
                   <th className="text-right px-2 py-1" title="Share of hours the flow reached this border's own 95th percentile — the honest proxy where no NTC is published (P95 chip)">At rail</th>
-                  <th className="text-right px-2 py-1" title="Latest |flow| ÷ day-ahead NTC in the flow's direction, where ENTSO-E publishes one (A61, NTC chip). Offered auction capacity, not a physical limit — can exceed 100% after intraday/countertrading. P95 chip = no NTC exists for this border (flow-based Core / Nordics), by market design.">Util</th>
+                  <th className="text-right px-2 py-1" title="Latest |flow| ÷ day-ahead NTC where one is published — offered capacity, can exceed 100% (chips: NTC = real denominator, P95 = own history stands in).">Util</th>
                   <th className="text-right px-2 py-1" title="Share of split hours where power ran from the expensive zone to the cheap one">Counter</th>
                   <th className="text-right px-2 py-1" title="Physical flow minus scheduled exchange, where both grains exist. Transit and loop flow together — not a claim about this interconnector.">Loop</th>
                 </tr>

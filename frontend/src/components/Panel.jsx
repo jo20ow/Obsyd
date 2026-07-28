@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 
 import FreshnessCaption from './FreshnessCaption'
 
-export function InfoPopover({ text }) {
+export function InfoPopover({ text, wide = false }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -25,7 +25,7 @@ export function InfoPopover({ text }) {
         i
       </button>
       {open && (
-        <div className="absolute top-5 left-0 z-50 w-64 max-w-[calc(100vw-2rem)] border border-border bg-surface rounded px-3 py-2.5 font-mono text-[10px] text-neutral-400 leading-relaxed shadow-xl shadow-black/20">
+        <div className={`absolute top-5 left-0 z-50 ${wide ? 'w-96' : 'w-64'} max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto border border-border bg-surface rounded px-3 py-2.5 font-mono text-[10px] text-neutral-400 leading-relaxed shadow-xl shadow-black/20`}>
           {text}
         </div>
       )}
@@ -33,7 +33,7 @@ export function InfoPopover({ text }) {
   )
 }
 
-export default function Panel({ id, title, info, collapsible = false, defaultCollapsed = false, headerRight, downloadUrl, freshness, children }) {
+export default function Panel({ id, title, info, infoWide = false, collapsible = false, defaultCollapsed = false, expandSignal, headerRight, downloadUrl, freshness, children }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (!collapsible) return false
     try {
@@ -52,6 +52,16 @@ export default function Panel({ id, title, info, collapsible = false, defaultCol
     } catch { /* localStorage unavailable */ }
   }, [collapsed, id, collapsible])
 
+  // External expand signal (e.g. a map click focusing this panel): any NEW
+  // non-null value un-collapses. It only ever expands — never re-collapses.
+  // Adjusted during render (React's "storing information from previous renders"
+  // pattern) instead of an effect, so the panel never paints collapsed first.
+  const [seenSignal, setSeenSignal] = useState(expandSignal)
+  if (expandSignal !== seenSignal) {
+    setSeenSignal(expandSignal)
+    if (expandSignal != null && collapsed) setCollapsed(false)
+  }
+
   return (
     <div id={id ? `panel-${id}` : undefined} className="border border-border bg-surface rounded overflow-hidden shadow-sm">
       <div
@@ -63,7 +73,7 @@ export default function Panel({ id, title, info, collapsible = false, defaultCol
           <span className="font-mono text-[11px] font-semibold text-neutral-300 truncate">
             {title}
           </span>
-          {info && <InfoPopover text={info} />}
+          {info && <InfoPopover text={info} wide={infoWide} />}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {freshness && <FreshnessCaption meta={freshness} />}

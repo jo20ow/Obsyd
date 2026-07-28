@@ -251,8 +251,8 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
               xFormatter={fmtTs}
             />
           ))}
-          <div className="px-4 py-2 font-mono text-[9px] text-neutral-700">
-            hourly mean MW · last {data?.hours}h · {data?.note}
+          <div className="px-4 py-2 font-mono text-[9px] text-neutral-700" title={data?.note}>
+            hourly mean MW · last {data?.hours}h · net &gt; 0 = export
           </div>
         </>
       )}
