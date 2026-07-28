@@ -756,6 +756,7 @@ PANEL_MAX_AGE_DAYS = {
     "day_ahead": 2,
     "grid": 3,
     "generation_mix": 3,
+    "marginal": 3,  # rides the same A75 gen.* ingest as grid/generation_mix
     "flows": 3,
     "flows_hourly": 3,  # mirrors SPECS "flows_hourly"
     "imbalance": 4,     # mirrors SPECS "imbalance_qh" — reBAP settles late
@@ -1661,6 +1662,39 @@ def get_drivers(
     from backend.power.drivers import compute_drivers
 
     return compute_drivers(db, _resolve_zone(zone))
+
+
+# ─── Marginal: which technology is (estimated to be) setting the price ────────
+
+
+@router.get("/marginal")
+def get_marginal(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    hours: int = Query(168, ge=24, le=720),
+    db: Session = Depends(get_db),
+):
+    """Hour-by-hour ESTIMATE of the price-setting technology, from a fixed
+    conventional merit order over the zone's own generation mix and day-ahead
+    price. An estimate by construction: no fuel, CO2 or efficiency inputs exist
+    in this repo, so the ORDER is assumed, never computed — the response's
+    `method`/`note` say so, and per-hour `consistency` flags the hours that
+    disagree with the assumption. Descriptive (Posture B), not a model of the
+    SDAC auction. See backend/power/marginal.py.
+
+    Freshness rides the same A75 `gen.*` ingest as the grid/generation-mix
+    panels (no collector of its own); the triple's `as_of` is the DATE of the
+    newest attributed hour, per the panel convention — the hour itself is the
+    last `hourly` row's ts_utc.
+    """
+    from backend.power.marginal import compute_marginal
+
+    data = compute_marginal(db, _resolve_zone(zone), hours=hours)
+    as_of = data.get("as_of")
+    return {
+        **data,
+        **_freshness(as_of[:10] if as_of else None, datetime.utcnow().date(),
+                     PANEL_MAX_AGE_DAYS["marginal"]),
+    }
 
 
 # ─── Borders: where the price series and the flow series finally meet ─────────

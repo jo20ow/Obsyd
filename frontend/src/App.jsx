@@ -6,6 +6,7 @@ import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
 import DurationCurvePanel from './components/DurationCurvePanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
+import MarginalTechPanel from './components/MarginalTechPanel'
 import GenMixHistoryPanel from './components/GenMixHistoryPanel'
 import TrendsPanel from './components/TrendsPanel'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -754,6 +755,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="merit-order">
                 <MeritOrderScatter zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="marginal-tech">
+                <MarginalTechPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
             <div className="mt-3">
