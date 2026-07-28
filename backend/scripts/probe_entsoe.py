@@ -13,7 +13,9 @@ fetched under exploratory parameters.
     python -m backend.scripts.probe_entsoe --doctype a09 --dry-run
     python -m backend.scripts.probe_entsoe --doctype a09     # the border discovery sweep
     python -m backend.scripts.probe_entsoe --doctype a25
+    python -m backend.scripts.probe_entsoe --doctype a61     # day-ahead NTC per border
     python -m backend.scripts.probe_entsoe --doctype a71
+    python -m backend.scripts.probe_entsoe --doctype a73     # generation per unit (DE-LU)
 
 WHY A09 SWEEPS EVERY PAIR INSTEAD OF A GEOGRAPHIC GUESS
 -------------------------------------------------------
@@ -28,9 +30,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import sys
 import xml.etree.ElementTree as ET
+import zipfile
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -52,6 +57,21 @@ NET_POSITION_DOCTYPE = "A25"
 NET_POSITION_BUSINESS_TYPE = "B09"  # NOT the psrType B09 (= "Geothermal")
 UNIT_REGISTRY_DOCTYPE = "A71"
 UNIT_REGISTRY_PROCESS_TYPE = "A33"
+NTC_DOCTYPE = "A61"
+NTC_CONTRACT_DAYAHEAD = "A01"  # contract_MarketAgreement.Type, not the curveType A01
+UNIT_GENERATION_DOCTYPE = "A73"
+UNIT_GENERATION_PROCESS_TYPE = "A16"
+
+#: DE-LU for the A73 probe: the bidding zone plus its four control areas. ENTSO-E documents
+#: per-unit generation at control-area granularity; the BZN row exists to prove or disprove
+#: that the API accepts the bidding zone directly (which would spare us 4 requests/day).
+A73_PROBE_DOMAINS = [
+    ("BZN DE-LU", "10Y1001A1001A82H"),
+    ("CTA 50Hertz", "10YDE-VE-------2"),
+    ("CTA Amprion", "10YDE-RWENET---I"),
+    ("CTA TenneT-DE", "10YDE-EON------1"),
+    ("CTA TransnetBW", "10YDE-ENBW-----N"),
+]
 
 
 async def _get(client: httpx.AsyncClient, params: dict) -> tuple[int, str]:
@@ -73,6 +93,32 @@ def _has_data(xml_text: str) -> bool:
 
 def _points(xml_text: str) -> int:
     return sum(1 for e in ET.fromstring(xml_text).iter() if _localname(e.tag) == "Point")
+
+
+async def _get_bytes(client: httpx.AsyncClient, params: dict) -> tuple[int, bytes]:
+    resp = await client.get(ENTSOE_BASE, params={"securityToken": _token(), **params})
+    return resp.status_code, resp.content
+
+
+def _documents(blob: bytes) -> list[str]:
+    """A multi-document answer arrives as a zip (the A77 lesson); a single one as bare XML."""
+    if blob[:2] == b"PK":
+        zf = zipfile.ZipFile(io.BytesIO(blob))
+        return [zf.read(name).decode("utf-8", "replace") for name in zf.namelist()]
+    return [blob.decode("utf-8", "replace")]
+
+
+def _reason(xml_text: str) -> str:
+    """The Reason/text of an Acknowledgement — the exact phrase matters, because the
+    ingest may cache 'genuine emptiness' only for known structural phrases."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return xml_text[:200].replace("\n", " ")
+    for e in root.iter():
+        if _localname(e.tag) == "text" and e.text:
+            return e.text.strip()[:200]
+    return _root_name(xml_text)
 
 
 # ── A09: the border discovery sweep ───────────────────────────────────────────────────
@@ -211,7 +257,197 @@ async def probe_a71(dry_run: bool) -> int:
     return 0
 
 
-PROBES = {"a09": probe_a09, "a25": probe_a25, "a71": probe_a71}
+# ── A61: day-ahead NTC — which borders publish a transfer capacity at all ─────────────
+
+
+async def probe_a61(dry_run: bool) -> int:
+    from backend.power.border_registry import SCHEDULED_BORDERS, directed_pairs
+
+    pairs = directed_pairs()
+    print(f"# A61 day-ahead NTC — probing {len(pairs)} directed border pairs "
+          f"({len(pairs) * THROTTLE_SECONDS / 60:.1f}+ min at {THROTTLE_SECONDS}s each)")
+    if dry_run:
+        print(f"# dry run: would probe {pairs[0]} … {pairs[-1]}")
+        return 0
+
+    answered: dict[tuple[str, str], int] = {}
+    curve_types: Counter = Counter()
+    resolutions: Counter = Counter()
+    async with httpx.AsyncClient(timeout=90) as client:
+        for i, (frm, to) in enumerate(pairs):
+            try:
+                status, xml = await _get(client, {
+                    "documentType": NTC_DOCTYPE,
+                    "contract_MarketAgreement.Type": NTC_CONTRACT_DAYAHEAD,
+                    "out_Domain": ZONE_REGISTRY[frm]["eic"],
+                    "in_Domain": ZONE_REGISTRY[to]["eic"],
+                    "periodStart": PROBE_START, "periodEnd": PROBE_END,
+                })
+            except httpx.HTTPError as exc:
+                print(f"  !! {frm}->{to}: {exc}", file=sys.stderr)
+                continue
+            if status == 200 and _has_data(xml):
+                root = ET.fromstring(xml)
+                curve_types.update(e.text for e in root.iter()
+                                   if _localname(e.tag) == "curveType" and e.text)
+                resolutions.update(e.text for e in root.iter()
+                                   if _localname(e.tag) == "resolution" and e.text)
+                answered[(frm, to)] = _points(xml)
+                print(f"  ✓ {frm}->{to}  ({answered[(frm, to)]} points)")
+            elif status != 200:
+                print(f"  !! {frm}->{to}: HTTP {status}: {_reason(xml)}", file=sys.stderr)
+            await asyncio.sleep(THROTTLE_SECONDS)
+            if (i + 1) % 50 == 0:
+                print(f"  … {i + 1}/{len(pairs)} probed, {len(answered)} directions so far",
+                      file=sys.stderr)
+
+    canonical = sorted({(min(a, b), max(a, b)) for a, b in answered})
+    print(f"\n# {len(answered)} directions on {len(canonical)} borders answered.")
+    print(f"# curveType seen: {dict(curve_types)}   resolution seen: {dict(resolutions)}")
+    print("\n# Paste into backend/power/border_registry.py:\n")
+    print("NTC_BORDERS: list[tuple[str, str]] = [")
+    for a, b in canonical:
+        print(f'    ("{a}", "{b}"),')
+    print("]")
+    one_way = [(a, b) for a, b in canonical
+               if ((a, b) in answered) != ((b, a) in answered)]
+    if one_way:
+        print("\n# ONE-WAY publication (only one direction answered):")
+        for a, b in one_way:
+            direction = f"{a}->{b}" if (a, b) in answered else f"{b}->{a}"
+            print(f"#   {direction}")
+    silent = [p for p in SCHEDULED_BORDERS if p not in set(canonical)]
+    print(f"\n# {len(silent)} scheduled borders with NO A61 "
+          f"(expected: flow-based Core + Nordics publish none):")
+    for a, b in silent:
+        print(f"#   {a}-{b}")
+    return 0
+
+
+# ── A73: actual generation per generation unit ────────────────────────────────────────
+
+
+def _a73_stats(docs: list[str]) -> dict:
+    ts_count, points = 0, 0
+    units: set[str] = set()
+    psrs: Counter = Counter()
+    resolutions: Counter = Counter()
+    ends: list[str] = []
+    for doc in docs:
+        try:
+            root = ET.fromstring(doc)
+        except ET.ParseError:
+            continue
+        for e in root.iter():
+            name = _localname(e.tag)
+            if name == "TimeSeries":
+                ts_count += 1
+            elif name == "Point":
+                points += 1
+            elif name == "registeredResource.mRID" and e.text:
+                units.add(e.text)
+            elif name == "psrType" and e.text:
+                psrs[e.text] += 1
+            elif name == "resolution" and e.text:
+                resolutions[e.text] += 1
+            elif name == "end" and e.text:
+                ends.append(e.text)
+    return {"ts_count": ts_count, "points": points, "units": units,
+            "psrs": psrs, "resolutions": resolutions,
+            "latest_end": max(ends) if ends else None}
+
+
+def _print_a73_result(label: str, status: int, blob: bytes) -> dict | None:
+    kind = "zip" if blob[:2] == b"PK" else "xml"
+    if status != 200:
+        print(f"  – {label:16s} HTTP {status}: {_reason(blob.decode('utf-8', 'replace'))}")
+        return None
+    docs = _documents(blob)
+    stats = _a73_stats(docs)
+    if not stats["ts_count"]:
+        print(f"  – {label:16s} 200 but no TimeSeries ({_root_name(docs[0])}: "
+              f"{_reason(docs[0])})")
+        return None
+    print(f"  ✓ {label:16s} {kind}, {len(docs)} doc(s), {stats['ts_count']} TimeSeries, "
+          f"{len(stats['units'])} units, {stats['points']} points, "
+          f"res={dict(stats['resolutions'])}, latest end={stats['latest_end']}, "
+          f"{len(blob):,} bytes")
+    print(f"      psr={dict(stats['psrs'])}")
+    return stats
+
+
+async def probe_a73(dry_run: bool) -> int:
+    now = datetime.now(timezone.utc)
+    day = lambda d: (now + timedelta(days=d)).strftime("%Y%m%d0000")  # noqa: E731
+    print(f"# A73/A16 generation per unit — probing {len(A73_PROBE_DOMAINS)} DE-LU domains")
+    if dry_run:
+        return 0
+
+    def base(eic: str) -> dict:
+        return {"documentType": UNIT_GENERATION_DOCTYPE,
+                "processType": UNIT_GENERATION_PROCESS_TYPE, "in_Domain": eic}
+
+    async with httpx.AsyncClient(timeout=180) as client:
+        # German per-unit data is known to lag days, so "yesterday is empty" proves
+        # nothing. Walk backwards on one CTA until a day answers — that lag IS a finding.
+        scan_label, scan_eic = A73_PROBE_DOMAINS[1]  # 50Hertz
+        window: tuple[str, str] | None = None
+        print(f"# 1. publication-lag scan on {scan_label}:")
+        for lag in (1, 3, 7, 30):
+            status, blob = await _get_bytes(
+                client, {**base(scan_eic), "periodStart": day(-lag),
+                         "periodEnd": day(-lag + 1)})
+            if _print_a73_result(f"D-{lag}", status, blob):
+                window = (day(-lag), day(-lag + 1))
+                break
+            await asyncio.sleep(THROTTLE_SECONDS)
+
+        if window is None:
+            print("\n# NO window up to D-30 answered on the scan CTA — Slice C is a NO-GO"
+                  " (or the domain choice is wrong; try other CTAs manually).")
+            return 0
+
+        start, end = window
+        print(f"\n# 2. all domains at the first answering window {start}->{end}:")
+        best: tuple[str, str] | None = None
+        for label, eic in A73_PROBE_DOMAINS:
+            try:
+                status, blob = await _get_bytes(
+                    client, {**base(eic), "periodStart": start, "periodEnd": end})
+            except httpx.HTTPError as exc:
+                print(f"  !! {label}: {exc}", file=sys.stderr)
+                continue
+            if _print_a73_result(label, status, blob) and best is None:
+                best = (label, eic)
+            await asyncio.sleep(THROTTLE_SECONDS)
+
+        if best is None:
+            return 0
+        label, eic = best
+        print(f"\n# Follow-ups on {label} ({eic}):")
+
+        print("# 3. explicit offset — pagination semantics (offset=0 must not change the answer):")
+        for offset in (0, 100):
+            status, blob = await _get_bytes(
+                client, {**base(eic), "periodStart": start, "periodEnd": end,
+                         "offset": str(offset)})
+            _print_a73_result(f"offset={offset}", status, blob)
+            await asyncio.sleep(THROTTLE_SECONDS)
+
+        print("# 4. window limit — 8-day window ending at the answering day "
+              "(docs say 1 day; record the exact phrase):")
+        status, blob = await _get_bytes(
+            client, {**base(eic),
+                     "periodStart": (datetime.strptime(start, "%Y%m%d%H%M")
+                                     - timedelta(days=7)).strftime("%Y%m%d%H%M"),
+                     "periodEnd": end})
+        _print_a73_result("8-day window", status, blob)
+        print(f"# now = {now.isoformat(timespec='minutes')}; lag = see scan above.")
+    return 0
+
+
+PROBES = {"a09": probe_a09, "a25": probe_a25, "a61": probe_a61,
+          "a71": probe_a71, "a73": probe_a73}
 
 
 def main(argv: list[str]) -> int:
