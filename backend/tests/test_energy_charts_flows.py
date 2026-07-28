@@ -678,3 +678,36 @@ def test_flows_hourly_subzone_without_series_is_honest(db_session):
     body = _make_client(db_session).get("/api/power/flows/hourly?zone=NL").json()
     assert body["available"] is False
     assert "country-level" in body["reason"]
+
+
+def test_flows_hourly_import_divides_by_the_reverse_ntc(db_session):
+    """The direction rule of `_neighbor_ntc`, pinned on an IMPORT with an ASYMMETRIC
+    border. The seeded CH border is a 2 GW import from DE-LU's perspective, so the
+    denominator must be the CH→DE-LU capacity (`ntc.DE_LU` under CH). The DE-LU→CH
+    capacity is seeded DELIBERATELY DIFFERENT: a swapped frm/to would divide by it and
+    read 166.7% instead of 80% — plausible, well-formed, and wrong."""
+    import time as _time
+
+    from backend.power.hourly_store import upsert_hourly
+
+    _seed_hourly_flows(db_session)
+    now = (int(_time.time()) // 3600) * 3600
+    ts = [(now - i * 3600) for i in range(24, 0, -1)]
+    # CH→DE_LU — the direction the seeded import actually runs: 2500 MW offered.
+    upsert_hourly(db_session, "ntc.DE_LU", "CH", [(t, 2500.0) for t in ts], unit="MW")
+    # DE_LU→CH — the OTHER direction's capacity, the one the bug would divide by.
+    upsert_hourly(db_session, "ntc.CH", "DE_LU", [(t, 1200.0) for t in ts], unit="MW")
+
+    body = _make_client(db_session).get("/api/power/flows/hourly?zone=DE_LU&hours=48").json()
+    by_neighbor = {b["neighbor"]: b for b in body["borders"]}
+
+    ch = by_neighbor["CH"]
+    assert ch["capacity_source"] == "ntc"
+    assert ch["ntc_mw"] == 2500.0, "the REVERSE (CH→DE-LU) capacity — the import's own direction"
+    assert ch["utilization_pct"] == 80.0, "2000 of 2500 — not 166.7% of the forward NTC"
+
+    # No NTC seeded for the FR border (and DE_LU-FR is not an NTC-published border):
+    # the proxy is stated, never faked.
+    fr = by_neighbor["FR"]
+    assert fr["capacity_source"] == "p95_proxy"
+    assert fr["ntc_mw"] is None and fr["utilization_pct"] is None

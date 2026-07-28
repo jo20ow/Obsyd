@@ -12,12 +12,27 @@ upsert and every raw payload is disk-cached (raw_cache), so a crashed run resume
 from cache for free. Meant to run in the ingest process (never the API worker) —
 a mass backfill is a throttled, multi-day marathon against ENTSO-E's rate limit.
 
-FIRST DEPLOY of the balancing/capacity collectors: right after the service restart
-that ships them, run `--sources balancing` and `--sources capacity` once each. Not
-a launch blocker if skipped — the 09:00 UTC collector watchdog will email a
-balancing_energy/capacity_prices stale alert until the 11:30 UTC daily job fills the
-series in on its own (self-heals within 24h) — but the backfill closes the gap
-immediately instead of waiting out one noisy watchdog cycle.
+Border-level sources (zone-independent, run AFTER the zone loop): "flows" (Energy-Charts
+/cbpf), "scheduled" (A09), "netpos" (A25), "capacity" (A15) and "ntc" (A61 day-ahead NTC —
+NTC-allocated borders only, both directions per pair; the flow-based Core region and the
+Nordics publish none, so a full-history run stays cheap).
+
+"units_gen" (A73 per-unit generation) also runs after the zone loop — it iterates its own
+A73_ZONES config (currently DE_LU = 4 German control areas), not the enabled zones. It is
+deliberately NOT in ALL_SOURCES: run it EXPLICITLY (`--sources units_gen --start 2025-01-01`)
+and never bundle it into an unfiltered full-history run — 4 CTAs × ~5 chunks/month adds up
+fast against the shared ENTSO-E token (the lesson every deep multi-source run here has
+re-taught). Recommended --start 2025-01-01; deeper history is possible but each extra year
+is another ~240 requests for a per-plant drill-down whose product value is recent.
+
+FIRST DEPLOY of the balancing/capacity/ntc/units_gen collectors: right after the
+service restart that ships them, run `--sources balancing`, `--sources capacity`,
+`--sources ntc` and `--sources units_gen --start 2025-01-01` once each. Not a launch
+blocker if skipped — the 09:00 UTC collector watchdog will email a stale alert
+(balancing_energy/capacity_prices/ntc_dayahead; unit_generation can flag once because
+the 09:40 UTC job has not yet had its first run) until the daily jobs fill the series
+in on their own (self-heals within 24h) — but the backfill closes the gap immediately
+instead of waiting out one noisy watchdog cycle.
 """
 
 from __future__ import annotations
@@ -43,7 +58,7 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "capacity")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "capacity", "ntc")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -196,6 +211,26 @@ async def run_backfill(
             logger.info("power_backfill: netpos %s done (%d/%d)",
                         f"{m_start:%Y-%m}", netpos_months, len(windows))
 
+    # Day-ahead NTC (A61) iterates the NTC_BORDERS register — border-level like "scheduled"
+    # above, so it belongs after the zone loop for the same reason. 23 borders × 2
+    # directions per month; non-publishing months answer a clean ACK that is cached, so a
+    # re-run costs nothing.
+    ntc_months = 0
+    if "ntc" in sources:
+        from backend.power.entsoe_ntc import ingest_ntc
+
+        for m_start, _m_end in windows:
+            if dry_run:
+                ntc_months += 1
+                continue
+            await _with_retry(
+                lambda m=m_start: ingest_ntc(db, [m], overwrite=overwrite),
+                f"ntc {m_start:%Y-%m}",
+            )
+            ntc_months += 1
+            logger.info("power_backfill: ntc %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", ntc_months, len(windows))
+
     # Balancing-capacity prices (FCR/aFRR/mFRR, A15) are DE_LU-only and zone-independent —
     # one sweep per month covers the whole German market, like flows/scheduled/netpos above.
     # NOTE: each day fetches 3 processTypes, each individually offset-paginated (see
@@ -219,9 +254,32 @@ async def run_backfill(
             logger.info("power_backfill: capacity %s done (%d/%d)",
                         f"{m_start:%Y-%m}", capacity_months, len(windows))
 
+    # Per-unit generation (A73) iterates its own A73_ZONES config, not the enabled
+    # zones — so it belongs after the zone loop like the border-level sources. Not
+    # in ALL_SOURCES (see module docstring): explicit opt-in only, month windows
+    # split into the probe-proven 7-day chunks by the ingest itself.
+    units_gen_months = 0
+    if "units_gen" in sources:
+        from backend.power.entsoe_unit_generation import ingest_unit_generation_window
+
+        for m_start, m_end in windows:
+            if dry_run:
+                units_gen_months += 1
+                continue
+            await _with_retry(
+                lambda s=m_start, e=m_end: ingest_unit_generation_window(
+                    db, s, e + timedelta(days=1), overwrite=overwrite),
+                f"units_gen {m_start:%Y-%m}",
+            )
+            units_gen_months += 1
+            logger.info("power_backfill: units_gen %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", units_gen_months, len(windows))
+
     return {"zone_months": done, "zones": zones, "months": len(windows),
             "flow_months": flow_months, "scheduled_months": sched_months,
-            "netpos_months": netpos_months, "capacity_months": capacity_months, "dry_run": dry_run}
+            "netpos_months": netpos_months, "ntc_months": ntc_months,
+            "capacity_months": capacity_months,
+            "units_gen_months": units_gen_months, "dry_run": dry_run}
 
 
 def _weeks_in(m_start, m_end) -> list:

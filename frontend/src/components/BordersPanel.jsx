@@ -125,7 +125,8 @@ export default function BordersPanel() {
                   <th className="text-right px-2 py-1" title="Share of hours the two zones cleared at the same price">Coupled</th>
                   <th className="text-right px-2 py-1" title="Mean absolute day-ahead spread over the window">Ø spread</th>
                   <th className="text-right px-2 py-1" title="Latest spread; the expensive side is named">Now</th>
-                  <th className="text-right px-2 py-1" title="Share of hours the physical flow reached this border's own 95th percentile">At rail</th>
+                  <th className="text-right px-2 py-1" title="Share of hours the flow reached this border's own 95th percentile — the honest proxy where no NTC is published (P95 chip)">At rail</th>
+                  <th className="text-right px-2 py-1" title="Latest |flow| ÷ day-ahead NTC in the flow's direction, where ENTSO-E publishes one (A61, NTC chip). Offered auction capacity, not a physical limit — can exceed 100% after intraday/countertrading. P95 chip = no NTC exists for this border (flow-based Core / Nordics), by market design.">Util</th>
                   <th className="text-right px-2 py-1" title="Share of split hours where power ran from the expensive zone to the cheap one">Counter</th>
                   <th className="text-right px-2 py-1" title="Physical flow minus scheduled exchange, where both grains exist. Transit and loop flow together — not a claim about this interconnector.">Loop</th>
                 </tr>
@@ -161,6 +162,23 @@ export default function BordersPanel() {
                       </td>
                       <td className="px-2 py-1.5 text-right text-neutral-400">
                         {b.at_rail_pct != null ? `${b.at_rail_pct.toFixed(0)}%` : '—'}
+                      </td>
+                      {/* The chip is ALWAYS rendered — the NTC/P95 distinction is the honesty:
+                          a real published denominator vs the border's own history standing in. */}
+                      <td className="px-2 py-1.5 text-right text-neutral-400 whitespace-nowrap">
+                        {b.util_latest_pct != null ? `${b.util_latest_pct.toFixed(0)}%` : '—'}
+                        <span
+                          className={`ml-1.5 text-[8px] px-1 py-px rounded border ${
+                            b.capacity_source === 'ntc'
+                              ? 'border-cyan-glow/40 text-cyan-glow/80'
+                              : 'border-border text-neutral-600'
+                          }`}
+                          title={b.capacity_source === 'ntc'
+                            ? 'Denominator: day-ahead NTC (ENTSO-E A61) — the capacity offered to the auction, not a physical limit. Utilization can exceed 100% after intraday/countertrading.'
+                            : "No day-ahead NTC is published for this border (flow-based Core region / Nordics — a market-design fact, not missing data). 'At rail' uses the border's own 95th percentile instead."}
+                        >
+                          {b.capacity_source === 'ntc' ? 'NTC' : 'P95'}
+                        </span>
                       </td>
                       <td className={`px-2 py-1.5 text-right ${b.counter_price_pct > 10 ? 'text-orange-400' : 'text-neutral-500'}`}>
                         {b.counter_price_pct != null ? `${b.counter_price_pct.toFixed(0)}%` : '—'}

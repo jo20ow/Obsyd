@@ -6,6 +6,7 @@ import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
 import DurationCurvePanel from './components/DurationCurvePanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
+import MarginalTechPanel from './components/MarginalTechPanel'
 import GenMixHistoryPanel from './components/GenMixHistoryPanel'
 import TrendsPanel from './components/TrendsPanel'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -31,6 +32,7 @@ import PowerSituationHeader from './components/PowerSituationHeader'
 import LiveNowPanel from './components/LiveNowPanel'
 import HydroReservoirPanel from './components/HydroReservoirPanel'
 import OutagePanel from './components/OutagePanel'
+import UnitGenerationPanel from './components/UnitGenerationPanel'
 import RecordChip from './components/RecordChip'
 import ImbalancePanel from './components/ImbalancePanel'
 import BalancingPanel from './components/BalancingPanel'
@@ -680,6 +682,12 @@ function Dashboard() {
               <ErrorBoundary name="power-outages">
                 <OutagePanel zone={energyZone} />
               </ErrorBoundary>
+              {/* Per-plant output (A73) — which named plants ran, vs nameplate.
+                  "Latest published day": the source lags ~6 days, and the caption
+                  says so instead of pretending to be live. */}
+              <ErrorBoundary name="unit-generation">
+                <UnitGenerationPanel zone={energyZone} />
+              </ErrorBoundary>
               <ErrorBoundary name="power-grid">
                 <PowerGridPanel zone={energyZone} />
               </ErrorBoundary>
@@ -754,6 +762,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="merit-order">
                 <MeritOrderScatter zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="marginal-tech">
+                <MarginalTechPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
             <div className="mt-3">

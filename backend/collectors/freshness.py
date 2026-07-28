@@ -27,6 +27,7 @@ from backend.models.energy import (
     PowerOutage,
     PowerPriceDaily,
     SeriesDim,
+    UnitGeneration,
 )
 from backend.models.gas import GasBalance, GasStorageCountry
 from backend.models.prices import EIAPrice, FREDSeries
@@ -48,6 +49,10 @@ class FreshnessSpec:
     #: series key across ALL zones ("is the collector alive at all"), instead
     #: of a model column. model/column are ignored then.
     hourly_series: str | None = None
+    #: Set for tables that carry their own integer-epoch timestamp column (e.g.
+    #: unit_generation.ts_utc): probe max(<epoch column>) on `model` and convert
+    #: exactly like the hourly_series branch. `column` is ignored then.
+    epoch_column: str | None = None
 
 
 # Windows are matched to each source's publication cadence (day-ahead is daily but
@@ -114,6 +119,12 @@ SPECS += [
     # Day-ahead market net position (A25). One probe across all zones: "is the collector alive".
     FreshnessSpec("net_position", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="netpos.dayahead"),
+    # Day-ahead NTC (A61). ntc.CH is the probe — it exists under DE_LU, AT, FR and IT_NORD
+    # (four of Switzerland's borders publish), so one dead pair can't fake a dead collector.
+    # 3 days respects the pinned invariant that outage_snapshot (1 day, below) stays the
+    # strictly tightest hourly spec on the desk (test_outage_history.py).
+    FreshnessSpec("ntc_dayahead", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="ntc.CH"),
     # Episodes are DERIVED, not ingested — so the probe asks whether the nightly recompute ran,
     # not whether a feed arrived. A silent episode engine looks exactly like a quiet Europe.
     FreshnessSpec("episodes", PowerEpisode, "updated_at", timedelta(days=2)),
@@ -148,6 +159,15 @@ SPECS += [
     # tenders publish every day, so 2 days mirrors balancing_energy's window above.
     FreshnessSpec("capacity_prices", PowerPriceDaily, "", timedelta(days=2),
                   hourly_series="capacity.fcr.price"),
+    # Per-unit generation (A73 — backend/power/entsoe_unit_generation.py). Lives in its
+    # own unit_generation table, deliberately NOT power_hourly (see the model docstring),
+    # so it probes its own epoch column rather than a series key. 10 days: the source
+    # itself publishes ~6 days behind (probe 2026-07-28), plus weekend/holiday slack —
+    # a tighter window would flag ENTSO-E's normal lag as a dead collector. Being an
+    # epoch_column spec (not hourly_series), it cannot disturb the pinned invariant
+    # that outage_snapshot stays the tightest hourly spec (test_outage_history.py).
+    FreshnessSpec("unit_generation", UnitGeneration, "", timedelta(days=10),
+                  epoch_column="ts_utc"),
 ]
 
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled
@@ -184,6 +204,10 @@ def _spec_max(db, spec: FreshnessSpec):
             .filter(PowerHourly.series_id == sid)
             .scalar()
         )
+    if spec.epoch_column is not None:
+        # An integer-epoch column on the model itself (e.g. unit_generation.ts_utc) —
+        # same probe as hourly_series, minus the series-dim indirection.
+        return db.query(func.max(getattr(spec.model, spec.epoch_column))).scalar()
     q = db.query(func.max(getattr(spec.model, spec.column)))
     if spec.filter_col is not None:
         q = q.filter(getattr(spec.model, spec.filter_col) == spec.filter_val)
@@ -205,8 +229,8 @@ def evaluate_freshness(db, *, now: datetime | None = None) -> dict[str, dict]:
         fresh = False
         last_seen = None
         if latest is not None:
-            if spec.hourly_series is not None:
-                # epoch seconds from power_hourly
+            if spec.hourly_series is not None or spec.epoch_column is not None:
+                # epoch seconds (power_hourly.ts_utc, or the model's own epoch column)
                 latest_dt = datetime.fromtimestamp(latest, tz=timezone.utc)
                 last_seen = latest_dt.isoformat()
                 fresh = (now - latest_dt) <= spec.max_age

@@ -205,6 +205,20 @@ async def _run_power_daily():
         except Exception as exc:
             logger.error("power daily ingest_scheduled_exchanges failed: %s", exc)
 
+        # Day-ahead NTC (A61) — the capacity offered to the auction, per directed border.
+        # NTC-allocated borders only (23 of 63; flow-based Core + Nordics publish none by
+        # market design). recent_months' parameter is DAYS: recent_months(2) returns the
+        # month blob(s) covering the last 2 days (one, or two around a month boundary) —
+        # enough to keep the frontier fresh daily; the backfill covers depth.
+        try:
+            from backend.power.entsoe_exchange import recent_months
+            from backend.power.entsoe_ntc import ingest_ntc
+
+            result = await ingest_ntc(db, recent_months(2), overwrite=True)
+            logger.info("power daily day-ahead NTC (A61): %s", result)
+        except Exception as exc:
+            logger.error("power daily ingest_ntc failed: %s", exc)
+
         # Day-ahead market net position (A25/B09) — the SDAC allocation, from the auction
         # rather than summed off the borders. 34 of 37 zones; GR/IE_SEM/CH publish none.
         try:
@@ -469,6 +483,27 @@ async def _run_capacity_prices():
         db.close()
 
 
+async def _run_unit_generation():
+    """Daily per-unit generation refresh (ENTSO-E A73 — backend/power/
+    entsoe_unit_generation.py). days_back=12 with overwrite=True: the source
+    publishes ~6 days behind (probe 2026-07-28 — D-1/D-3 answer a clean 200-ACK,
+    D-7 delivers), so the rolling window re-asks the still-filling frontier until
+    each day lands; without overwrite the write-once raw cache would freeze the
+    first (empty) answer forever. Daily, NOT hourly: an hourly cadence would spend
+    the shared ENTSO-E token re-asking a source that moves once a day at most."""
+    from backend.power.entsoe_unit_generation import ingest_unit_generation
+
+    db = SessionLocal()
+    try:
+        result = await ingest_unit_generation(db, days_back=12, overwrite=True)
+        logger.info("unit generation daily: %s", result)
+    except Exception as exc:
+        db.rollback()
+        logger.error("_run_unit_generation failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_hydro_weekly():
     """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
     Current year with overwrite=True — the raw cache is write-once and would
@@ -527,6 +562,10 @@ def start_scheduler():
     # after all three TSO publication windows (FCR ~08:30, aFRR ~09:30, mFRR ~11:00
     # Europe/Berlin, i.e. UTC+1/+2 — see docs/findings/2026-07-20-regelleistung-capacity-prices.md).
     scheduler.add_job(_run_capacity_prices, CronTrigger(hour=11, minute=30), id="capacity_prices_daily", **JOB_DEFAULTS)
+    # Per-unit generation (A73): daily 09:40 UTC — after the morning publication
+    # updates, offset from the 09:00 watchdog and the 10:00 gas job. Daily on
+    # purpose: the source lags ~6 days, hourly polling would waste the shared token.
+    scheduler.add_job(_run_unit_generation, CronTrigger(hour=9, minute=40), id="unit_generation_daily", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical

@@ -38,7 +38,7 @@ function zoneLabel(zone) {
 
 // Each border = one sparkline + headline bar. Grain-agnostic: `spark` is
 // [{x, net_mw}] with x either a date string (daily) or an ISO timestamp (hourly).
-function BorderRow({ label, netMw, direction, spark, xFormatter }) {
+function BorderRow({ label, netMw, direction, spark, xFormatter, utilPct = null }) {
   const absGW = netMw != null ? Math.abs(netMw / 1000).toFixed(2) : '—'
   const color = borderColor(netMw)
 
@@ -61,6 +61,16 @@ function BorderRow({ label, netMw, direction, spark, xFormatter }) {
           <span className="font-mono text-[9px] text-neutral-600">
             {direction}
           </span>
+          {/* Only exact bidding-zone NTC borders carry a utilization; country aggregates
+              and non-NTC (flow-based) borders render nothing — that absence is coverage. */}
+          {utilPct != null && (
+            <span
+              className="font-mono text-[9px] text-neutral-500"
+              title="Latest |flow| ÷ day-ahead NTC (ENTSO-E A61) in the flow's direction — offered auction capacity, not a physical limit; can exceed 100% after intraday/countertrading."
+            >
+              · {utilPct.toFixed(0)}% of NTC
+            </span>
+          )}
         </div>
       </div>
 
@@ -236,6 +246,7 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
               label={`${zl}↔${b.neighbor_label}`}
               netMw={b.latest_mw}
               direction={b.direction}
+              utilPct={b.utilization_pct}
               spark={(b.data ?? []).map((p) => ({ x: p.ts_utc, net_mw: p.net_mw }))}
               xFormatter={fmtTs}
             />

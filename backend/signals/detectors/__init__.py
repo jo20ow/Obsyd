@@ -31,6 +31,7 @@ from backend.signals.detectors.power import (
     detect_forced_outages,
     detect_hydro_deviations,
     detect_imbalance_extremes,
+    detect_interconnector_saturation,
     detect_negative_prices,
     detect_price_spikes,
     detect_record_breaks,
@@ -45,6 +46,8 @@ logger = logging.getLogger(__name__)
 # sibling project in Phase 2. The radar now surfaces only power/gas anomalies.
 # Extended 2026-07-12 with the depth-roadmap data: imbalance peaks, day-ahead
 # spikes (both tails), hydro vs seasonal band, fresh all-time records.
+# Extended 2026-07-28 with interconnector saturation (flow at the day-ahead NTC,
+# A61 — NTC-allocated borders only).
 DETECTORS = [
     detect_gas_balance,
     detect_negative_prices,
@@ -55,6 +58,7 @@ DETECTORS = [
     detect_hydro_deviations,
     detect_record_breaks,
     detect_episode_rank,
+    detect_interconnector_saturation,
 ]
 
 

@@ -66,6 +66,12 @@ Named production units (EIC, name, fuel, nominal MW) for one zone from the
 ENTSO-E A71/A33 registry. Read the `note` in the response before summing — this
 is the *published* unit list, not the full installed fleet.
 
+Per-unit hourly *output* (ENTSO-E A73; DE-LU so far) is deliberately **not** a
+`/api/v1/series` key — 85+ EIC-named series would drown the catalog. It lives on
+`GET /api/power/units/generation?zone=` (latest published day, ~6-day publication
+lag stated as `lag_days`) and `GET /api/power/units/history?zone=&unit=<EIC>&hours=`
+(capped at 744 hours per request).
+
 ### `GET /api/v1/series/catalog`
 Every queryable series (key + unit), the enabled zones, and the overall coverage window.
 
@@ -92,6 +98,7 @@ delivery date), and an overall `healthy` flag. "Here is exactly what is fresh an
 | `consumption.<PSR>` | Consumption of consumption-type PSRs (e.g. pumped-storage pumping) | MW |
 | `flow.<ZONE>` | Cross-border physical flow to `<ZONE>`, stored under the FROM zone; positive = FROM exports | MW |
 | `sched.<ZONE>` | Scheduled (day-ahead auction) commercial exchange to `<ZONE>`, stored under the FROM zone on the same sorted-pair/net-sign convention as `flow.<ZONE>` — `flow − sched` is loop flow | MW |
+| `ntc.<ZONE>` | Day-ahead NTC offered to the auction toward `<ZONE>` (ENTSO-E A61), stored under the FROM zone — DIRECTED, one series per direction, never netted (A→B and B→A are independent capacities). NTC-allocated borders only (23 of 63); the flow-based Core region and Nordics publish none by market design. Feeds the utilization fields on `/api/power/borders` (`capacity_source: "ntc"` \| `"p95_proxy"`, `util_latest_pct`, `util_p95_pct`, `hours_ge_90_pct`) and `/api/power/flows/hourly` (`ntc_mw`, `utilization_pct` — exact bidding-zone borders only). Offered capacity, not a physical limit: utilization can exceed 100% after intraday/countertrading | MW |
 | `hydro.reservoir` | Weekly reservoir filling (A72; hydro zones only) | MWh |
 | `netpos.dayahead` | Signed day-ahead market net position (A25); positive = zone is a net exporter | MW |
 | `outage.offline` / `outage.forced` | Generation capacity offline right now — all published unavailability / the A54 forced-outage subset (A77; today-only snapshot series, not backfillable — see `backend/power/outage_history.py`) | MW |

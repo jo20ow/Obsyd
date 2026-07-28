@@ -115,3 +115,9 @@ def test_panel_thresholds_match_health_specs():
     assert PANEL_MAX_AGE_DAYS["flows_hourly"] == by_key["flows_hourly"]
     assert PANEL_MAX_AGE_DAYS["imbalance"] == by_key["imbalance_qh"]
     assert PANEL_MAX_AGE_DAYS["spark"] == by_key["ttf"]
+    # marginal is compute-on-read over the A75 gen.* ingest — no collector of its
+    # own, so it shares the grid window (same rule as generation_mix).
+    assert PANEL_MAX_AGE_DAYS["marginal"] == by_key["power_grid"]
+    # units_generation rides the A73 epoch_column spec — the ~6-day publication
+    # lag plus slack lives in ONE place (SPECS) and the panel caption mirrors it.
+    assert PANEL_MAX_AGE_DAYS["units_generation"] == by_key["unit_generation"]
