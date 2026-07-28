@@ -117,6 +117,71 @@ def test_an_empty_ack_direction_writes_nothing_and_stops_nothing(db_session, ing
     assert f"{SERIES_PREFIX}ES" not in keys, "the silent direction leaves no ghost series"
 
 
+@pytest.fixture
+def http_400(monkeypatch, tmp_path):
+    """A token, an isolated raw-cache root, and a stub transport answering 400 with a
+    caller-chosen body — the level where ACK-vs-malformed discrimination lives."""
+    import httpx
+    from pydantic import SecretStr
+
+    from backend.gas import raw_cache
+    from backend.power import entsoe_ntc as ntc
+
+    monkeypatch.setattr(raw_cache, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(ntc.settings, "entsoe_api_token", SecretStr("test-token"))
+
+    def _install(body: str):
+        response = httpx.Response(400, text=body,
+                                  request=httpx.Request("GET", "http://test"))
+
+        class _Client:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get(self, url, params=None):
+                return response
+
+        monkeypatch.setattr(ntc.httpx, "AsyncClient", _Client)
+        return ntc
+
+    return _install
+
+
+def test_a_400_with_an_acknowledgement_body_is_cached_emptiness(http_400):
+    """The probe-verified no-data shape: 400 carrying an Acknowledgement document.
+    That IS data — it must come back as "" and be cached so we never ask again."""
+    from backend.gas import raw_cache
+
+    ntc = http_400("<Acknowledgement_MarketDocument>No matching data found"
+                   "</Acknowledgement_MarketDocument>")
+    xml = asyncio.run(ntc._fetch_ntc_month("ES", "FR", date(2026, 7, 1)))
+
+    assert xml == ""
+    assert raw_cache.read_cached("entsoe_a61", "ES_FR_2026-07", date(2026, 7, 1)) \
+        == {"xml": ""}, "genuine emptiness is cached"
+
+
+def test_a_400_without_an_acknowledgement_body_raises_and_never_caches(http_400):
+    """A 400 for a MALFORMED REQUEST is not a fact about the border. Trusting every 400
+    as a clean ACK would cache a parameter bug as permanent emptiness — silently, for
+    every border-month it touched. It must raise, and nothing may be written."""
+    import httpx
+
+    from backend.gas import raw_cache
+
+    ntc = http_400("<html>Bad Request — unknown parameter</html>")
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(ntc._fetch_ntc_month("ES", "FR", date(2026, 7, 1)))
+
+    assert raw_cache.read_cached("entsoe_a61", "ES_FR_2026-07", date(2026, 7, 1)) is None
+
+
 def test_the_cache_source_collides_with_nothing(db_session):
     """entsoe_scheduled_exchange is A09, entsoe_netpos is A25, entsoe_gen_total_forecast
     is A71 — sharing any of them would serve the wrong document back from disk, and it

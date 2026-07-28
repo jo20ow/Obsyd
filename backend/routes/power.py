@@ -1560,11 +1560,11 @@ def _neighbor_ntc(db: Session, zone: str, neighbor: str, latest_ts: int,
     flow's direction — series `ntc.<TO>` under `<FROM>` (directed, never netted, see
     backend/power/entsoe_ntc.py) — read at the latest flow hour.
     """
-    from backend.power.border_registry import NTC_BORDERS
+    from backend.power.border_registry import NTC_BORDER_SET
     from backend.power.hourly_store import read_hourly
 
     none = {"capacity_source": "p95_proxy", "ntc_mw": None, "utilization_pct": None}
-    if tuple(sorted((zone, neighbor))) not in set(NTC_BORDERS):
+    if tuple(sorted((zone, neighbor))) not in NTC_BORDER_SET:
         return none
     frm, to = (zone, neighbor) if latest_mw >= 0 else (neighbor, zone)
     points = read_hourly(db, f"ntc.{to}", frm, start_ts=latest_ts, end_ts=latest_ts + 3600)

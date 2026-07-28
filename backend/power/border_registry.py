@@ -130,6 +130,10 @@ NTC_BORDERS: list[tuple[str, str]] = [
     ("NL", "NO2"),
 ]
 
+#: Membership form of NTC_BORDERS for per-request checks (routes/power.py::_neighbor_ntc
+#: asks once per neighbour per request) — built once here, not per call.
+NTC_BORDER_SET: frozenset[tuple[str, str]] = frozenset(NTC_BORDERS)
+
 
 #: The one zone ENTSO-E publishes no scheduled exchange for. Named, not silently absent —
 #: a zone that simply fails to appear looks like a bug; a zone that is listed here as

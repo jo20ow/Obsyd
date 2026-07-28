@@ -87,13 +87,15 @@ async def _fetch_ntc_month(
         }
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.get(ENTSOE_BASE, params=params)
-            if resp.status_code == 400:
+            if resp.status_code == 400 and "Acknowledgement" in resp.text:
                 # A border-month with no NTC answers 400 with a clean Acknowledgement
-                # (probe-verified). That is data, not an error: cache the emptiness so
-                # we never ask again.
+                # DOCUMENT (probe-verified) — the body check matters: a 400 for a
+                # malformed request is not a fact about the border, and caching it
+                # would make the emptiness permanent. That is data, not an error:
+                # cache it so we never ask again.
                 return {"xml": ""}
-            # Anything else non-2xx (5xx, 429 …) is transient — raise so nothing is
-            # cached and the next run asks again.
+            # Anything else non-2xx (a non-ACK 400, 5xx, 429 …) — raise so nothing
+            # is cached and the next run asks again.
             resp.raise_for_status()
             return {"xml": resp.text}
 
