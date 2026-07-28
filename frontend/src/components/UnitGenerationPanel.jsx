@@ -18,15 +18,27 @@ function fmtDay(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+// Compact per-row age stamp: "today" for lag 0, else "D-2" — the full UTC
+// timestamp rides in the title tooltip next to it.
+function lagStamp(days) {
+  if (days == null) return null
+  return days === 0 ? 'today' : `D-${days}`
+}
+
 /**
- * Per-plant output for the LATEST PUBLISHED day (ENTSO-E A73) — which named
- * plants ran, how hard against nameplate, and whether an outage explains a gap.
+ * Per-plant output at each unit's OWN latest published hour (ENTSO-E A73) —
+ * which named plants ran, how hard against nameplate, and whether an outage
+ * explains a gap.
  *
- * The honesty IS the feature: A73 publishes ~6 days behind, so the caption says
- * "published <day> · N days behind" instead of pretending to be live; the bar
- * is output vs NAMEPLATE (utilization, not availability); and the population is
- * only the published >=100 MW dispatchable units, not the fleet (the API note
- * carries the full caveat into the info popover).
+ * The honesty IS the feature: the four TSOs publish at different speeds (up to
+ * the regulation's D+5), so every row carries its own quiet age stamp, the
+ * caption shows the actual lag range instead of pretending one shared hour
+ * exists, and the totals line says "mixed timestamps, not a snapshot". The bar
+ * is output vs NAMEPLATE (utilization, not availability); the outage badge is
+ * joined at the CURRENT time (near-real-time A77) while the output value is the
+ * last published reading; and the population is only the published >=100 MW
+ * dispatchable units, not the fleet (the API note carries the full caveat into
+ * the info popover).
  */
 export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
   const { data, loading, error } = useFetchWithError(`${API}/power/units/generation?zone=${zone}`, { deps: [zone], pollMs: POLL_SLOW_MS })
@@ -53,18 +65,28 @@ export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
   const shown = units.slice(0, ROW_CAP)
   const totals = data?.totals
 
+  // The caption's lag range is DERIVED from the payload, not hardcoded — the
+  // TSOs' actual skew (e.g. D-2…D-5) is the honest thing to show.
+  const lags = units.map((u) => u.unit_lag_days).filter((d) => d != null)
+  const minLag = lags.length ? Math.min(...lags) : null
+  const maxLag = lags.length ? Math.max(...lags) : null
+
   return (
     <Panel
       id="unit-generation"
-      title="PLANT OUTPUT · LATEST PUBLISHED DAY"
+      title="PLANT OUTPUT · LATEST PUBLISHED READINGS"
       freshness={data}
       info={data?.note}
       collapsible
       headerRight={
         data?.latest_hour_utc && (
           <span className="font-mono text-[10px] text-neutral-500">
-            published {fmtDay(data.latest_hour_utc)}
-            {data.lag_days != null ? ` · ${data.lag_days} day${data.lag_days === 1 ? '' : 's'} behind` : ''}
+            freshest {fmtDay(data.latest_hour_utc)}
+            {minLag != null && (
+              maxLag > minLag
+                ? ` · per-plant timestamps vary (${lagStamp(minLag)}…${lagStamp(maxLag)} — TSOs publish at different speeds)`
+                : ` · all plants ${lagStamp(minLag)}`
+            )}
           </span>
         )
       }
@@ -76,8 +98,8 @@ export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
           <div className="px-4 py-3 border-b border-border/30">
             <PanelTakeaway tone="info">
               {totals
-                ? `${totals.reporting} of ${totals.units} published units reporting at the latest hour — ${fmtMw(totals.generating_mw)} generating against ${fmtMw(totals.nominal_mw)} of nameplate.`
-                : 'Per-unit output for the latest published day.'}
+                ? `${totals.reporting} of ${totals.units} published units with readings — ${fmtMw(totals.latest_readings_mw)} summed from each plant's latest published reading (mixed timestamps, not a snapshot) against ${fmtMw(totals.nominal_mw)} of nameplate.`
+                : "Per-unit output at each plant's latest published hour."}
               {' '}Published units only (≥100 MW, dispatchable fuels) — not the fleet.
             </PanelTakeaway>
           </div>
@@ -88,9 +110,9 @@ export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
                   <th className="text-left px-2 py-1">Unit</th>
                   <th className="text-left px-2 py-1">Fuel</th>
                   <th className="text-right px-2 py-1">Nominal</th>
-                  <th className="text-right px-2 py-1">Now</th>
+                  <th className="text-right px-2 py-1">Last</th>
                   <th className="text-left px-2 py-1 min-w-[110px]">Utilization</th>
-                  <th className="text-left px-2 py-1">Outage</th>
+                  <th className="text-left px-2 py-1">Outage now</th>
                 </tr>
               </thead>
               <tbody>
@@ -109,7 +131,16 @@ export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
                       ) : '—'}
                     </td>
                     <td className="px-2 py-1.5 text-right text-neutral-500">{fmtMw(u.nominal_mw)}</td>
-                    <td className="px-2 py-1.5 text-right font-bold text-neutral-200">{fmtMw(u.current_mw)}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      <span className="font-bold text-neutral-200">{fmtMw(u.current_mw)}</span>
+                      {/* Quiet per-unit age stamp — the TSOs publish at different
+                          speeds, so each reading carries its own timestamp. */}
+                      {u.unit_lag_days != null && (
+                        <div className="text-[9px] text-neutral-600 leading-tight" title={u.unit_latest_hour_utc}>
+                          {lagStamp(u.unit_lag_days)}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-2 py-1.5">
                       {u.utilization_pct != null ? (
                         <div className="flex items-center gap-1.5">
@@ -124,16 +155,22 @@ export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
                           <span className="text-[9px] text-neutral-500 w-9 text-right shrink-0">{u.utilization_pct}%</span>
                         </div>
                       ) : (
-                        <span className="text-[9px] text-neutral-600">{u.current_mw == null ? 'not reporting' : '—'}</span>
+                        // current_mw is never null anymore (every listed unit
+                        // carries its own latest reading) — a dash here means
+                        // the registry has no nameplate to divide by.
+                        <span className="text-[9px] text-neutral-600">—</span>
                       )}
                     </td>
                     <td className="px-2 py-1.5">
                       {u.outage ? (
-                        <span className={`text-[9px] tracking-wide border rounded px-1.5 py-0.5 ${
-                          u.outage.kind === 'forced'
-                            ? 'text-orange-400 border-orange-500/30'
-                            : 'text-neutral-500 border-border'
-                        }`}>
+                        <span
+                          className={`text-[9px] tracking-wide border rounded px-1.5 py-0.5 ${
+                            u.outage.kind === 'forced'
+                              ? 'text-orange-400 border-orange-500/30'
+                              : 'text-neutral-500 border-border'
+                          }`}
+                          title={`${u.outage.kind === 'forced' ? 'Forced' : 'Planned'} outage active NOW (near-real-time A77) — the output value is the plant's last published reading${u.outage.offline_mw != null ? ` · ~${Math.round(u.outage.offline_mw)} MW offline` : ''}`}
+                        >
                           {u.outage.kind === 'forced' ? 'FORCED' : 'PLANNED'}
                         </span>
                       ) : ''}

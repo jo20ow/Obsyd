@@ -484,19 +484,23 @@ async def _run_capacity_prices():
 
 
 async def _run_unit_generation():
-    """Daily per-unit generation refresh (ENTSO-E A73 — backend/power/
-    entsoe_unit_generation.py). days_back=12 with overwrite=True: the source
-    publishes ~6 days behind (probe 2026-07-28 — D-1/D-3 answer a clean 200-ACK,
-    D-7 delivers), so the rolling window re-asks the still-filling frontier until
-    each day lands; without overwrite the write-once raw cache would freeze the
-    first (empty) answer forever. Daily, NOT hourly: an hourly cadence would spend
-    the shared ENTSO-E token re-asking a source that moves once a day at most."""
+    """Per-unit generation refresh (ENTSO-E A73 — backend/power/
+    entsoe_unit_generation.py), four times a day. days_back=12 with overwrite=True:
+    the source publishes days behind (probe 2026-07-28 — D-1/D-3 answer a clean
+    200-ACK, D-7 delivers), so the rolling window re-asks the still-filling
+    frontier until each day lands; without overwrite the write-once raw cache
+    would freeze the first (empty) answer forever. Every 6 h, NOT hourly: each of
+    the four German TSOs publishes on its own once-a-day rhythm (smoke: TenneT
+    ~D-2, the others ~D-5), so a 6-hour cadence catches each TSO's publication
+    moment within ~6 h instead of up to 24 h late — at 4 runs/day x ~8 ENTSO-E
+    requests that is trivial, while hourly would spend the shared token re-asking
+    a source that moves a few times a day at most."""
     from backend.power.entsoe_unit_generation import ingest_unit_generation
 
     db = SessionLocal()
     try:
         result = await ingest_unit_generation(db, days_back=12, overwrite=True)
-        logger.info("unit generation daily: %s", result)
+        logger.info("unit generation 6h: %s", result)
     except Exception as exc:
         db.rollback()
         logger.error("_run_unit_generation failed: %s", exc)
@@ -562,10 +566,12 @@ def start_scheduler():
     # after all three TSO publication windows (FCR ~08:30, aFRR ~09:30, mFRR ~11:00
     # Europe/Berlin, i.e. UTC+1/+2 — see docs/findings/2026-07-20-regelleistung-capacity-prices.md).
     scheduler.add_job(_run_capacity_prices, CronTrigger(hour=11, minute=30), id="capacity_prices_daily", **JOB_DEFAULTS)
-    # Per-unit generation (A73): daily 09:40 UTC — after the morning publication
-    # updates, offset from the 09:00 watchdog and the 10:00 gas job. Daily on
-    # purpose: the source lags ~6 days, hourly polling would waste the shared token.
-    scheduler.add_job(_run_unit_generation, CronTrigger(hour=9, minute=40), id="unit_generation_daily", **JOB_DEFAULTS)
+    # Per-unit generation (A73): every 6 h at 03/09/15/21:40 UTC — the four German
+    # TSOs each publish once a day at different moments (TenneT ~D-2, the others
+    # ~D-5), so this catches each TSO's publication within ~6 h instead of up to
+    # 24 h late. minute=40 stays clear of the :20 balancing and :45 outage-snapshot
+    # jobs; 4 runs/day x ~8 ENTSO-E requests is trivial on the shared token.
+    scheduler.add_job(_run_unit_generation, CronTrigger(hour="3,9,15,21", minute=40), id="unit_generation_6h", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical
