@@ -12,6 +12,11 @@ upsert and every raw payload is disk-cached (raw_cache), so a crashed run resume
 from cache for free. Meant to run in the ingest process (never the API worker) —
 a mass backfill is a throttled, multi-day marathon against ENTSO-E's rate limit.
 
+Border-level sources (zone-independent, run AFTER the zone loop): "flows" (Energy-Charts
+/cbpf), "scheduled" (A09), "netpos" (A25), "capacity" (A15) and "ntc" (A61 day-ahead NTC —
+NTC-allocated borders only, both directions per pair; the flow-based Core region and the
+Nordics publish none, so a full-history run stays cheap).
+
 FIRST DEPLOY of the balancing/capacity collectors: right after the service restart
 that ships them, run `--sources balancing` and `--sources capacity` once each. Not
 a launch blocker if skipped — the 09:00 UTC collector watchdog will email a
@@ -43,7 +48,7 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "capacity")
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "capacity", "ntc")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -196,6 +201,26 @@ async def run_backfill(
             logger.info("power_backfill: netpos %s done (%d/%d)",
                         f"{m_start:%Y-%m}", netpos_months, len(windows))
 
+    # Day-ahead NTC (A61) iterates the NTC_BORDERS register — border-level like "scheduled"
+    # above, so it belongs after the zone loop for the same reason. 23 borders × 2
+    # directions per month; non-publishing months answer a clean ACK that is cached, so a
+    # re-run costs nothing.
+    ntc_months = 0
+    if "ntc" in sources:
+        from backend.power.entsoe_ntc import ingest_ntc
+
+        for m_start, _m_end in windows:
+            if dry_run:
+                ntc_months += 1
+                continue
+            await _with_retry(
+                lambda m=m_start: ingest_ntc(db, [m], overwrite=overwrite),
+                f"ntc {m_start:%Y-%m}",
+            )
+            ntc_months += 1
+            logger.info("power_backfill: ntc %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", ntc_months, len(windows))
+
     # Balancing-capacity prices (FCR/aFRR/mFRR, A15) are DE_LU-only and zone-independent —
     # one sweep per month covers the whole German market, like flows/scheduled/netpos above.
     # NOTE: each day fetches 3 processTypes, each individually offset-paginated (see
@@ -221,7 +246,8 @@ async def run_backfill(
 
     return {"zone_months": done, "zones": zones, "months": len(windows),
             "flow_months": flow_months, "scheduled_months": sched_months,
-            "netpos_months": netpos_months, "capacity_months": capacity_months, "dry_run": dry_run}
+            "netpos_months": netpos_months, "ntc_months": ntc_months,
+            "capacity_months": capacity_months, "dry_run": dry_run}
 
 
 def _weeks_in(m_start, m_end) -> list:

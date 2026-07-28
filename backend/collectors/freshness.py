@@ -114,6 +114,12 @@ SPECS += [
     # Day-ahead market net position (A25). One probe across all zones: "is the collector alive".
     FreshnessSpec("net_position", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="netpos.dayahead"),
+    # Day-ahead NTC (A61). ntc.CH is the probe — it exists under DE_LU, AT, FR and IT_NORD
+    # (four of Switzerland's borders publish), so one dead pair can't fake a dead collector.
+    # 3 days respects the pinned invariant that outage_snapshot (1 day, below) stays the
+    # strictly tightest hourly spec on the desk (test_outage_history.py).
+    FreshnessSpec("ntc_dayahead", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="ntc.CH"),
     # Episodes are DERIVED, not ingested — so the probe asks whether the nightly recompute ran,
     # not whether a feed arrived. A silent episode engine looks exactly like a quiet Europe.
     FreshnessSpec("episodes", PowerEpisode, "updated_at", timedelta(days=2)),

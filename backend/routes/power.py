@@ -1514,12 +1514,13 @@ def get_flows_hourly(
     as_of = _dt.fromtimestamp(newest_ts, tz=timezone.utc).strftime("%Y-%m-%d")
     out = []
     for neighbor, pts in borders.items():
-        latest_mw = pts[-1][1]
+        latest_ts, latest_mw = pts[-1]
         out.append({
             "neighbor": neighbor,
             "neighbor_label": _zone_label(neighbor),
             "latest_mw": round(latest_mw, 1),
             "direction": "export" if latest_mw >= 0 else "import",
+            **_neighbor_ntc(db, resolved_zone, neighbor, latest_ts, latest_mw),
             "data": [
                 {"ts_utc": _dt.fromtimestamp(t, tz=timezone.utc).isoformat(), "net_mw": round(v, 1)}
                 for t, v in pts
@@ -1532,10 +1533,49 @@ def get_flows_hourly(
         "zones": _ZONE_KEYS,
         "unit": "MW",
         "hours": hours,
-        "note": f"net_mw > 0 = {POWER_ZONES[resolved_zone]['label']} exports to the neighbour; hourly means",
+        "note": (
+            f"net_mw > 0 = {POWER_ZONES[resolved_zone]['label']} exports to the neighbour; "
+            "hourly means. Where the neighbour is the EXACT bidding zone of an "
+            "NTC-published border (ENTSO-E A61), ntc_mw/utilization_pct carry the "
+            "day-ahead offered capacity in the latest flow's direction (capacity_source "
+            "'ntc'); country-aggregate neighbours (DK, NO, SE, IT …) and borders without "
+            "a published NTC (flow-based Core, Nordics) carry none (capacity_source "
+            "'p95_proxy') — that asymmetry is coverage, not a bug. NTC is offered auction "
+            "capacity, not a physical limit; utilization can exceed 100% after "
+            "intraday/countertrading."
+        ),
         "source": ATTRIBUTION,
         "borders": out,
         **_freshness(as_of, datetime.utcnow().date(), PANEL_MAX_AGE_DAYS["flows_hourly"]),
+    }
+
+
+def _neighbor_ntc(db: Session, zone: str, neighbor: str, latest_ts: int,
+                  latest_mw: float) -> dict:
+    """capacity_source/ntc_mw/utilization_pct for one neighbour row of /flows/hourly.
+
+    Only an EXACT bidding-zone key match gets a denominator: the physical feed's
+    country aggregates (`flow.DK` — Denmark, not DK1/DK2) must never be divided by a
+    single sub-zone border's NTC. The denominator is the day-ahead NTC in the LATEST
+    flow's direction — series `ntc.<TO>` under `<FROM>` (directed, never netted, see
+    backend/power/entsoe_ntc.py) — read at the latest flow hour.
+    """
+    from backend.power.border_registry import NTC_BORDERS
+    from backend.power.hourly_store import read_hourly
+
+    none = {"capacity_source": "p95_proxy", "ntc_mw": None, "utilization_pct": None}
+    if tuple(sorted((zone, neighbor))) not in set(NTC_BORDERS):
+        return none
+    frm, to = (zone, neighbor) if latest_mw >= 0 else (neighbor, zone)
+    points = read_hourly(db, f"ntc.{to}", frm, start_ts=latest_ts, end_ts=latest_ts + 3600)
+    if not points or points[0][1] <= 0:
+        return none
+    ntc_mw = points[0][1]
+    return {
+        "capacity_source": "ntc",
+        "ntc_mw": round(ntc_mw, 1),
+        # NOT clamped: >100% after intraday/countertrading is real, and saying 100 would lie.
+        "utilization_pct": round(100.0 * abs(latest_mw) / ntc_mw, 1),
     }
 
 

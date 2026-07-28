@@ -33,7 +33,11 @@ from backend.signals.detectors.oil import (
     detect_rerouting,
     detect_supply_demand_divergence,
 )
-from backend.signals.detectors.power import detect_dunkelflaute, detect_negative_prices
+from backend.signals.detectors.power import (
+    detect_dunkelflaute,
+    detect_interconnector_saturation,
+    detect_negative_prices,
+)
 from backend.signals.detectors.sentiment import detect_sentiment_risk
 from backend.signals.rules import check_flow_anomaly
 
@@ -209,6 +213,65 @@ def test_negative_prices_zero_suppressed(db_session):
     assert detect_negative_prices(db_session) == []
 
 
+# ─── Interconnector saturation (day-ahead NTC, A61) ───────────────────────────
+
+
+def _seed_saturation(db, sat_hours: int, util_pct: float, ntc_mw: float = 1000.0,
+                     total_hours: int = 20):
+    """Recent DE_LU→FR hours: `sat_hours` of them at `util_pct`, the rest at 50%.
+    Wall-clock-recent because the detector windows on now() − SAT_WINDOW_HOURS."""
+    from datetime import timezone
+
+    from backend.power.hourly_store import upsert_hourly
+
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    base = int(now.timestamp())
+    ts = [base - i * 3600 for i in range(total_hours - 1, -1, -1)]
+    flows = [(t, ntc_mw * (util_pct if i >= total_hours - sat_hours else 50.0) / 100.0)
+             for i, t in enumerate(ts)]
+    upsert_hourly(db, "sched.FR", "DE_LU", flows, unit="MW")
+    upsert_hourly(db, "ntc.FR", "DE_LU", [(t, ntc_mw) for t in ts], unit="MW")
+
+
+def test_interconnector_saturation_fires_at_threshold(db_session):
+    _seed_saturation(db_session, sat_hours=4, util_pct=97.0)   # exactly SAT_MIN_HOURS
+    r = detect_interconnector_saturation(db_session)[0]
+    assert r.rule == "interconnector_saturated"
+    assert r.zone == "DE_LU", "the EXPORTING zone owns the alert"
+    assert r.vertical == "power" and r.severity == "warning"
+    assert "97%" in r.title and "of last 24h" in r.title
+    assert "not a physical limit" in r.detail, "the Posture-B caveat travels"
+
+
+def test_interconnector_saturation_critical_when_pinned_at_the_ntc(db_session):
+    _seed_saturation(db_session, sat_hours=9, util_pct=100.0)  # ≥99% for ≥8h
+    assert detect_interconnector_saturation(db_session)[0].severity == "critical"
+
+
+def test_interconnector_saturation_silent_below_threshold(db_session):
+    _seed_saturation(db_session, sat_hours=3, util_pct=97.0)   # one hour short
+    assert detect_interconnector_saturation(db_session) == []
+    _seed_saturation(db_session, sat_hours=6, util_pct=90.0)   # busy, not saturated
+    assert detect_interconnector_saturation(db_session) == []
+
+
+def test_interconnector_saturation_silent_without_ntc(db_session):
+    """A flow-based border has no NTC and therefore no threshold — silence, never a
+    number invented against the p95 proxy."""
+    from datetime import timezone
+
+    from backend.power.hourly_store import upsert_hourly
+
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    ts = [int(now.timestamp()) - i * 3600 for i in range(10)]
+    upsert_hourly(db_session, "sched.FR", "DE_LU", [(t, 5000.0) for t in ts], unit="MW")
+    assert detect_interconnector_saturation(db_session) == []
+
+
+def test_interconnector_saturation_is_registered(db_session):
+    assert detect_interconnector_saturation in DETECTORS
+
+
 # ─── Sentiment ──────────────────────────────────────────────────────────────
 
 
@@ -269,8 +332,9 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
 
 
 def test_detector_registry_count(db_session):
-    assert len(DETECTORS) == 9  # gas/negative_prices/dunkelflaute/forced_outages
+    assert len(DETECTORS) == 10  # gas/negative_prices/dunkelflaute/forced_outages
     # + imbalance_extreme/price_spike/hydro_deviation/record_break/episode_rank
+    # + interconnector_saturated (day-ahead NTC, A61)
 
 
 # ─── flow_anomaly (legacy maritime check) — baseline + onset cure ─────────────

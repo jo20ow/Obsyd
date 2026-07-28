@@ -95,6 +95,42 @@ SCHEDULED_BORDERS: list[tuple[str, str]] = [
 ]
 
 
+#: The borders that publish a day-ahead NTC (ENTSO-E A61, contract A01) — SWEPT, not
+#: authored, like SCHEDULED_BORDERS above: every one of the 126 directed scheduled-border
+#: pairs was asked on 2026-07-28 (`backend/scripts/probe_entsoe.py --doctype a61`; re-run
+#: it whenever a zone is added), and 23 borders answered, in BOTH directions each. The 40
+#: silent borders are the flow-based Core region plus the Nordics — they allocate capacity
+#: flow-based and publish no per-border NTC BY MARKET DESIGN, which is why the p95 proxy
+#: in borders.py stays the honest "at the rail" reference there. Pairs are canonical
+#: (sorted); the SERIES are directed — `ntc.<TO>` under `<FROM>`, one per direction, never
+#: netted (see backend/power/entsoe_ntc.py).
+NTC_BORDERS: list[tuple[str, str]] = [
+    ("AT", "CH"),
+    ("AT", "IT_NORD"),
+    ("BE", "NL"),
+    ("BG", "GR"),
+    ("BG", "RO"),
+    ("CH", "DE_LU"),
+    ("CH", "FR"),
+    ("CH", "IT_NORD"),
+    ("DE_LU", "DK1"),
+    ("DE_LU", "NL"),
+    ("DK1", "NL"),
+    ("ES", "FR"),
+    ("ES", "PT"),
+    ("FR", "IT_NORD"),
+    ("GR", "IT_SUD"),
+    ("IT_CALABRIA", "IT_SICILIA"),
+    ("IT_CALABRIA", "IT_SUD"),
+    ("IT_CENTRO_NORD", "IT_CENTRO_SUD"),
+    ("IT_CENTRO_NORD", "IT_NORD"),
+    ("IT_CENTRO_SUD", "IT_SARDEGNA"),
+    ("IT_CENTRO_SUD", "IT_SUD"),
+    ("IT_NORD", "SI"),
+    ("NL", "NO2"),
+]
+
+
 #: The one zone ENTSO-E publishes no scheduled exchange for. Named, not silently absent —
 #: a zone that simply fails to appear looks like a bug; a zone that is listed here as
 #: unbordered is a fact about the data.
@@ -118,6 +154,6 @@ def counterparties(zone: str) -> list[str]:
 
 # A pseudo-zone in this list is how `flow.DK` / `flow.NO` / `flow.GB` happened: series that
 # exist in the store with no price, no zone, and nothing to join to. Fail at import.
-_unknown = {z for pair in SCHEDULED_BORDERS for z in pair} - set(ZONE_REGISTRY)
+_unknown = {z for pair in (*SCHEDULED_BORDERS, *NTC_BORDERS) for z in pair} - set(ZONE_REGISTRY)
 if _unknown:  # pragma: no cover - a broken registry must not start the app
     raise RuntimeError(f"border registry references non-zones: {sorted(_unknown)}")

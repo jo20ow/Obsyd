@@ -51,7 +51,7 @@ _RESERVE_PRODUCT_LABELS: dict[str, str] = {"fcr": "FCR", "afrr": "aFRR", "mfrr":
 # (a future series prefix) sorts after these, keyed by its own group key.
 GROUP_ORDER: list[str] = [
     "price", "imbalance", "load", "residual", "generation", "wind", "solar",
-    "gen", "consumption", "flow", "sched", "hydro",
+    "gen", "consumption", "flow", "sched", "ntc", "hydro",
     "balancing", "capacity", "outage", "netpos",
 ]
 GROUP_LABELS: dict[str, str] = {
@@ -66,6 +66,7 @@ GROUP_LABELS: dict[str, str] = {
     "consumption": "Consumption (pumped storage)",
     "flow": "Cross-border flows (hourly)",
     "sched": "Scheduled commercial exchange (hourly)",
+    "ntc": "Day-ahead NTC (offered capacity)",
     "hydro": "Hydro",
     "balancing": "Balancing energy",
     "capacity": "Balancing capacity",
@@ -87,7 +88,7 @@ def series_label(key: str) -> str:
     Static keys (the desk's own canonical series) resolve from SERIES_LABELS.
     Dynamic keys are pattern-matched by their dot-prefix:
       gen.<Bxx> / consumption.<Bxx>  → PSR_LABELS (ENTSO-E production-type codes)
-      flow.<ZONEKEY> / sched.<ZONEKEY> → the zone registry's label
+      flow.<ZONEKEY> / sched.<ZONEKEY> / ntc.<ZONEKEY> → the zone registry's label
       balancing.<product>.<price|vol>.<up|down> → activated balancing ENERGY (A83/A84)
       capacity.<fcr.price | <product>.price.<pos|neg>> → procured balancing CAPACITY (A15)
     The "Balancing capacity ·" prefix on the latter is deliberate: this is NOT the same
@@ -101,6 +102,10 @@ def series_label(key: str) -> str:
         return f"Flow ↔ {_zone_label(key[len('flow.'):])}"
     if key.startswith("sched."):
         return f"Scheduled ↔ {_zone_label(key[len('sched.'):])}"
+    if key.startswith("ntc."):
+        # DIRECTED arrow, unlike flow./sched. above: ntc.<TO> under <FROM> is one
+        # direction's offered capacity, never netted (see entsoe_ntc.py).
+        return f"Day-ahead NTC → {_zone_label(key[len('ntc.'):])}"
     if key.startswith("gen."):
         code = key[len("gen."):]
         return f"Generation · {PSR_LABELS.get(code, code)}"

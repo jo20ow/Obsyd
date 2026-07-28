@@ -330,6 +330,115 @@ def test_the_two_grains_never_share_a_rail_threshold(db_session):
     assert sched[("DE_LU", "FR")] == 300.0
 
 
+# ─── day-ahead NTC utilization (A61) ──────────────────────────────────────────
+
+
+def test_utilization_switches_denominator_at_the_flow_sign():
+    """An export hour divides by the FORWARD NTC, an import hour by the REVERSE — the two
+    are independent offered capacities, frequently asymmetric, which is the whole reason
+    the ntc series are stored directed and never netted."""
+    from backend.power.borders import ntc_utilization
+
+    ts = _hours(2)
+    flow = {ts[0]: 800.0, ts[1]: -450.0}
+    fwd = {ts[0]: 1000.0, ts[1]: 1000.0}
+    rev = {ts[0]: 500.0, ts[1]: 500.0}
+    u = ntc_utilization(flow, fwd, rev)
+    assert u["util_hours"] == 2
+    assert u["util_latest_pct"] == 90.0, "-450 against the 500 MW REVERSE capacity"
+    assert u["util_p95_pct"] == 90.0
+
+
+def test_utilization_skips_hours_whose_needed_direction_is_missing():
+    """No denominator for the direction the power actually ran → no number, not a division
+    by the other direction's capacity (which would be a different border)."""
+    from backend.power.borders import ntc_utilization
+
+    ts = _hours(2)
+    flow = {ts[0]: -600.0, ts[1]: 700.0}    # import hour first, export hour second
+    fwd = {ts[0]: 1000.0, ts[1]: 1000.0}    # forward NTC only — the import hour has none
+    u = ntc_utilization(flow, fwd, {})
+    assert u["util_hours"] == 1, "the import hour is skipped, not invented"
+    assert u["util_latest_pct"] == 70.0
+
+
+def test_utilization_is_none_when_nothing_overlaps():
+    from backend.power.borders import ntc_utilization
+
+    ts = _hours(2)
+    assert ntc_utilization({ts[0]: 500.0}, {ts[1]: 1000.0}, {}) is None
+    assert ntc_utilization({}, {ts[0]: 1000.0}, {ts[0]: 800.0}) is None
+
+
+def test_utilization_above_100_is_reported_not_clamped():
+    """Day-ahead NTC is what the AUCTION was offered; intraday trading and countertrading
+    legitimately push the realised border past it. Clamping to 100 would lie about
+    exactly the hours this metric exists for."""
+    from backend.power.borders import ntc_utilization
+
+    ts = _hours(1)
+    u = ntc_utilization({ts[0]: 1200.0}, {ts[0]: 1000.0}, {})
+    assert u["util_latest_pct"] == 120.0
+    assert u["hours_ge_90_pct"] == 1
+
+
+def _seed_ntc(db, zone_a, zone_b, hours=48, fwd_mw=1000.0, rev_mw=600.0):
+    """Directed, both ways: ntc.<TO> under <FROM> — the entsoe_ntc.py convention."""
+    ts = _hours(hours)
+    upsert_hourly(db, f"ntc.{zone_b}", zone_a, [(t, fwd_mw) for t in ts], unit="MW")
+    upsert_hourly(db, f"ntc.{zone_a}", zone_b, [(t, rev_mw) for t in ts], unit="MW")
+
+
+def test_compute_borders_uses_the_real_ntc_where_one_is_published(db_session):
+    ts = _hours(24)
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(t, 90.0) for t in ts], unit="EUR/MWh")
+    upsert_hourly(db_session, "price.dayahead", "FR", [(t, 45.0) for t in ts], unit="EUR/MWh")
+    upsert_hourly(db_session, "sched.FR", "DE_LU", [(t, 800.0) for t in ts], unit="MW")
+    _seed_ntc(db_session, "DE_LU", "FR", fwd_mw=1000.0)
+
+    out = compute_borders(db_session, days=7, now=_NOW)
+    row = next(r for r in out["borders"] if (r["zone_a"], r["zone_b"]) == ("DE_LU", "FR"))
+
+    assert row["capacity_source"] == "ntc"
+    assert row["util_latest_pct"] == 80.0, "800 MW scheduled against the 1000 MW forward NTC"
+    assert row["util_hours"] == 24
+    assert "ntc" in out["note"] and "p95_proxy" in out["note"], "the scoping travels"
+
+
+def test_compute_borders_without_ntc_stays_on_the_p95_proxy(db_session):
+    """The flow-based Core and the Nordics publish no NTC by market design — those rows
+    must SAY they are on the proxy, with null utilization, not fake a denominator."""
+    _seed_border(db_session)  # DE_LU-FR, physical grain, no ntc series at all
+
+    out = compute_borders(db_session, days=7, now=_NOW)
+    row = next(r for r in out["borders"] if (r["zone_a"], r["zone_b"]) == ("DE_LU", "FR"))
+
+    assert row["capacity_source"] == "p95_proxy"
+    assert row["util_latest_pct"] is None and row["util_hours"] is None
+
+
+def test_an_ntc_without_a_flow_creates_no_border_row(db_session):
+    """NTC is a denominator, never a border of its own: offered capacity with no flow
+    series behind it must not conjure a row out of nothing."""
+    _seed_border(db_session)                      # DE_LU-FR is the only real border
+    ts = _hours(24)
+    upsert_hourly(db_session, "price.dayahead", "NL", [(t, 70.0) for t in ts], unit="EUR/MWh")
+    _seed_ntc(db_session, "DE_LU", "NL")          # capacity, but no flow/sched series
+
+    out = compute_borders(db_session, days=7, now=_NOW)
+    assert all((r["zone_a"], r["zone_b"]) != ("DE_LU", "NL") for r in out["borders"])
+
+
+def test_compute_spread_carries_the_same_utilization_block(db_session):
+    _seed_border(db_session, flow_mw=900.0)       # physical flow, DE_LU exports 900
+    _seed_ntc(db_session, "DE_LU", "FR", fwd_mw=1000.0)
+
+    out = compute_spread(db_session, "DE_LU", "FR", days=7, now=_NOW)
+    assert out["capacity_source"] == "ntc"
+    assert out["util_latest_pct"] == 90.0
+    assert "not a physical limit" in out["note"]
+
+
 def test_a_country_aggregate_is_SUPERSEDED_not_uncoverable(db_session, sub_zones):
     """After A09, "DE_LU-DK is uncoverable" is a lie.
 

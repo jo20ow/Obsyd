@@ -205,6 +205,18 @@ async def _run_power_daily():
         except Exception as exc:
             logger.error("power daily ingest_scheduled_exchanges failed: %s", exc)
 
+        # Day-ahead NTC (A61) — the capacity offered to the auction, per directed border.
+        # NTC-allocated borders only (23 of 63; flow-based Core + Nordics publish none by
+        # market design). 2 months keeps the daily run light — the backfill covers depth.
+        try:
+            from backend.power.entsoe_exchange import recent_months
+            from backend.power.entsoe_ntc import ingest_ntc
+
+            result = await ingest_ntc(db, recent_months(2), overwrite=True)
+            logger.info("power daily day-ahead NTC (A61): %s", result)
+        except Exception as exc:
+            logger.error("power daily ingest_ntc failed: %s", exc)
+
         # Day-ahead market net position (A25/B09) — the SDAC allocation, from the auction
         # rather than summed off the borders. 34 of 37 zones; GR/IE_SEM/CH publish none.
         try:

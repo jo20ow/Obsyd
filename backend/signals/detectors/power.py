@@ -776,3 +776,108 @@ def _ordinal(n: int) -> str:
         return f"{n}th"
     suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suffix}"
+
+
+# ── Interconnector saturation — flow at the day-ahead NTC ─────────────────────
+# Only for the 23 NTC-allocated borders (border_registry.NTC_BORDERS): the flow-based
+# Core region and the Nordics publish no NTC by market design, so no threshold can
+# exist for them and none is invented. Day-ahead NTC is the capacity OFFERED to the
+# auction, not a physical limit — utilization legitimately exceeds 100% after intraday
+# trading and countertrading, which is why nothing here clamps it.
+SAT_UTIL_PCT = 95.0
+SAT_MIN_HOURS = 4
+SAT_WINDOW_HOURS = 24
+SAT_CRIT_UTIL_PCT = 99.0
+SAT_CRIT_MIN_HOURS = 8
+
+
+def detect_interconnector_saturation(db) -> list[DetectorResult]:
+    """Border DIRECTIONS whose flow sat at (or beyond) the day-ahead NTC recently.
+
+    A saturated interconnector is the border-level stress signal: the auction used
+    everything it was offered, and the price spread across it is structural, not
+    incidental. One result per saturated DIRECTION (A→B and B→A are independent
+    capacities), zone = the exporting side. Descriptive: hours counted against a
+    published capacity, no claim about tomorrow.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.borders import (
+        NTC_PREFIX,
+        PHYSICAL_PREFIX,
+        SCHEDULED_PREFIX,
+        _flow_rows,
+    )
+    from backend.power.zones import ZONE_REGISTRY
+
+    start_ts = int(
+        (datetime.now(timezone.utc) - timedelta(hours=SAT_WINDOW_HOURS)).timestamp()
+    )
+    # _flow_rows resolves series ids first and seeks power_hourly by id — the id-first
+    # rule every read in this file follows (LIKE only over the tiny series_dim).
+    ntc = _flow_rows(db, start_ts, NTC_PREFIX)
+    if not ntc:
+        return []
+    scheduled = _flow_rows(db, start_ts, SCHEDULED_PREFIX)
+    physical = _flow_rows(db, start_ts, PHYSICAL_PREFIX)
+
+    def _label(zone: str) -> str:
+        meta = ZONE_REGISTRY.get(zone)
+        return meta["label"] if meta else zone
+
+    results: list[DetectorResult] = []
+    for a, b in sorted({tuple(sorted(pair)) for pair in ntc}):
+        # Same grain preference as compute_borders: scheduled is bidding-zone-resolved
+        # like the NTC; the physical fallback only ever matches an exact counterparty
+        # key, so a country aggregate can never be divided by a sub-zone border's NTC.
+        flow = scheduled.get((a, b)) or physical.get((a, b))
+        if not flow:
+            continue
+        ntc_fwd = ntc.get((a, b), {})
+        ntc_rev = ntc.get((b, a), {})
+        # Per-direction utilization: an export hour (flow > 0) measures a→b against the
+        # forward NTC, an import hour b→a against the reverse. Magnitudes, never netted.
+        per_dir: dict[tuple[str, str], list[tuple[int, float]]] = {}
+        for t in sorted(flow):
+            if flow[t] > 0:
+                cap, direction = ntc_fwd.get(t), (a, b)
+            elif flow[t] < 0:
+                cap, direction = ntc_rev.get(t), (b, a)
+            else:
+                continue
+            if cap is None or cap <= 0:
+                continue
+            per_dir.setdefault(direction, []).append((t, 100.0 * abs(flow[t]) / cap))
+
+        for (frm, to), utils in per_dir.items():
+            saturated = [(t, u) for t, u in utils if u >= SAT_UTIL_PCT]
+            if len(saturated) < SAT_MIN_HOURS:
+                continue
+            crit_hours = sum(1 for _t, u in saturated if u >= SAT_CRIT_UTIL_PCT)
+            peak = max(u for _t, u in saturated)
+            newest = max(t for t, _u in utils)
+            as_of = datetime.fromtimestamp(newest, tz=timezone.utc).strftime("%Y-%m-%d")
+            results.append(
+                DetectorResult(
+                    rule="interconnector_saturated",
+                    zone=frm,
+                    vertical="power",
+                    severity=(
+                        "critical" if crit_hours >= SAT_CRIT_MIN_HOURS else "warning"
+                    ),
+                    title=(
+                        f"{_label(frm)}→{_label(to)}: flow at {peak:.0f}% of day-ahead "
+                        f"NTC ({len(saturated)} of last {SAT_WINDOW_HOURS}h)"
+                    ),
+                    detail=(
+                        f"{len(saturated)} of the last {SAT_WINDOW_HOURS}h at "
+                        f"≥{SAT_UTIL_PCT:.0f}% of the offered day-ahead capacity in the "
+                        f"{_label(frm)}→{_label(to)} direction (peak {peak:.0f}%). "
+                        f"Day-ahead NTC (A61) is what the auction was offered, not a "
+                        f"physical limit — above 100% means intraday/countertrading "
+                        f"moved the border past its day-ahead allocation. Descriptive."
+                    ),
+                    as_of=as_of,
+                )
+            )
+    return results

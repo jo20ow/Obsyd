@@ -84,6 +84,19 @@ def test_hourly_series_without_data_is_not_fresh(db_session):
     assert result["imbalance_qh"]["fresh"] is False
 
 
+def test_ntc_collector_is_watched(db_session):
+    # ntc.CH is the probe series (exists under DE_LU, AT, FR and IT_NORD — one dead
+    # pair can't fake a dead collector). Cross-zone probe: "is the collector alive".
+    _add_hourly(db_session, "ntc.CH", days_ago=1)
+    db_session.commit()
+    result = evaluate_freshness(db_session)
+    assert result["ntc_dayahead"]["fresh"] is True
+
+
+def test_ntc_without_data_is_not_fresh(db_session):
+    assert evaluate_freshness(db_session)["ntc_dayahead"]["fresh"] is False
+
+
 def test_outage_collector_is_watched(db_session):
     from backend.models.energy import PowerOutage
 

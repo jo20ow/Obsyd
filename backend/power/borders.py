@@ -155,8 +155,15 @@ def border_metrics(
 #: Their difference is loop flow. Merging them into one namespace would make that difference
 #: uncomputable and every existing number ambiguous, so they stay apart and the response says
 #: which grain each border was read from.
+#:
+#: `ntc.*` is a THIRD register, not a third flow grain: the day-ahead NTC (ENTSO-E A61) — the
+#: capacity OFFERED to the auction, stored DIRECTED (`ntc.<TO>` under `<FROM>`, one series per
+#: direction, never netted; see entsoe_ntc.py). Where it exists, |flow| ÷ NTC replaces the p95
+#: proxy as the denominator of "how loaded is this border". It exists only for NTC-allocated
+#: borders (23 of 63) — the flow-based Core region and Nordics publish none by market design.
 PHYSICAL_PREFIX = "flow."
 SCHEDULED_PREFIX = "sched."
+NTC_PREFIX = "ntc."
 
 
 def _flow_dims(db: Session, prefix: str = PHYSICAL_PREFIX) -> tuple[dict[int, str], dict[int, str]]:
@@ -329,6 +336,51 @@ def loop_flow(physical: dict[int, float], scheduled: dict[int, float]) -> dict |
     }
 
 
+def ntc_utilization(flow: dict[int, float], ntc_fwd: dict[int, float],
+                    ntc_rev: dict[int, float]) -> dict | None:
+    """|flow| ÷ day-ahead NTC in the flow's own direction, per hour. Pure.
+
+    `flow` is keyed canonically (net > 0 = zone A exports to B); `ntc_fwd` is the A→B
+    offered capacity, `ntc_rev` the B→A one. An export hour divides by the forward NTC,
+    an import hour by the reverse — the two are independent capacities, frequently
+    asymmetric, which is why the ntc series are never netted. Hours where the needed
+    direction's NTC is missing or non-positive are skipped, not invented.
+
+    NOT clamped at 100%: day-ahead NTC is what the auction was offered, and intraday
+    trading plus countertrading legitimately push the realised border past it. A value
+    above 100 is a fact about the market design, not an error.
+
+    Returns None when no hour overlaps at all — an absent block beats a fabricated one.
+    """
+    utils: list[tuple[int, float]] = []
+    for t in sorted(flow):
+        # A zero flow uses zero of the offered export capacity — the forward direction
+        # is the natural denominator for it.
+        cap = ntc_fwd.get(t) if flow[t] >= 0 else ntc_rev.get(t)
+        if cap is None or cap <= 0:
+            continue
+        utils.append((t, 100.0 * abs(flow[t]) / cap))
+    if not utils:
+        return None
+    latest_t, latest = utils[-1]
+    values = [u for _t, u in utils]
+    return {
+        "util_hours": len(utils),
+        "util_latest_pct": round(latest, 1),
+        "util_latest_ts": datetime.fromtimestamp(latest_t, tz=timezone.utc).isoformat(),
+        "util_p95_pct": round(percentile(values, 0.95), 1),
+        "hours_ge_90_pct": sum(1 for u in values if u >= 90.0),
+    }
+
+
+#: The utilization fields every border row carries — null under the p95 proxy, so the
+#: schema is stable and an absent number is visibly absent rather than missing.
+_NO_UTILIZATION = {
+    "util_hours": None, "util_latest_pct": None, "util_latest_ts": None,
+    "util_p95_pct": None, "hours_ge_90_pct": None,
+}
+
+
 def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None) -> dict:
     """Every border with a price on both sides, ranked by how far apart it clears.
 
@@ -345,6 +397,10 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
     if not physical and not scheduled:
         return {"available": False,
                 "reason": "No cross-border flow series yet — check back shortly."}
+
+    # Day-ahead NTC, keyed DIRECTED: (frm, to) → offered capacity. A denominator only —
+    # an NTC without a flow never creates a border row of its own.
+    ntc = _flow_rows(db, window_start, NTC_PREFIX)
 
     rails_phys, rails_at = rail_thresholds_cached(db, rail_start, now=now,
                                                   prefix=PHYSICAL_PREFIX)
@@ -387,9 +443,19 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
         if not m["hours"]:
             continue
 
+        # Utilization is measured against the SAME grain the row is read from (`series`):
+        # the scheduled grain is bidding-zone-resolved like the NTC itself, and the
+        # physical fallback only ever matches on an exact counterparty key — a country
+        # aggregate like `flow.DK` has no NTC series and finds none here.
+        util = ntc_utilization(series, ntc.get((a, b), {}), ntc.get((b, a), {}))
+
         loops = loop_flow(phys, sched) if (phys and sched) else None
         out.append({
             "zone_a": a, "zone_b": b,
+            # "ntc" = a real published denominator exists; "p95_proxy" = the border's own
+            # 95th percentile stands in (flow-based Core + Nordics publish no NTC).
+            "capacity_source": "ntc" if util else "p95_proxy",
+            **(util or _NO_UTILIZATION),
             "label": f"{POWER_ZONES[a]['label']}↔{POWER_ZONES[b]['label']}",
             "flow_source": source,
             "expensive_side": (
@@ -425,14 +491,19 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
         "note": (
             "Convergence = share of hours the two zones cleared within "
             f"{COUPLED_EPS_EUR} EUR/MWh. 'At the rail' = flow at or above this border's own "
-            "95th percentile over the last year (we hold no NTC, and flow-based regions "
-            "publish none). Counter-price = power ran from the expensive zone to the cheap "
-            "one. `flow_source` says which grain the border was read from: 'scheduled' is "
-            "ENTSO-E's bidding-zone schedule, 'physical' is the country-level metered flow. "
-            "Loop flow = physical minus scheduled where both exist — transit and loop "
-            "together, NOT a claim about any single interconnector. Descriptive statistics "
-            "on published records; a spread is not a claim that this border was the binding "
-            "constraint."
+            "95th percentile over the last year. Where ENTSO-E publishes a day-ahead NTC "
+            "(A61), utilization = |flow| ÷ NTC in the flow's direction "
+            "(capacity_source 'ntc'); elsewhere — the flow-based Core region and the "
+            "Nordics publish none, by market design — 'at the rail' remains the border's "
+            "own p95 (capacity_source 'p95_proxy'). Day-ahead NTC is the capacity offered "
+            "to the auction, not a physical limit, so utilization can exceed 100% after "
+            "intraday trading and countertrading. Counter-price = power ran from the "
+            "expensive zone to the cheap one. `flow_source` says which grain the border "
+            "was read from: 'scheduled' is ENTSO-E's bidding-zone schedule, 'physical' is "
+            "the country-level metered flow. Loop flow = physical minus scheduled where "
+            "both exist — transit and loop together, NOT a claim about any single "
+            "interconnector. Descriptive statistics on published records; a spread is not "
+            "a claim that this border was the binding constraint."
         ),
     }
 
@@ -470,6 +541,12 @@ def compute_spread(db: Session, a: str, b: str, days: int = 30,
             "reason": "No overlapping price hours for this border in the window.",
         }
 
+    # Same denominator rule as compute_borders: |flow| ÷ day-ahead NTC in the flow's
+    # direction where A61 publishes one; the p95 proxy stands elsewhere.
+    ntc = _flow_rows(db, window_start, NTC_PREFIX)
+    util = ntc_utilization(flow_window, ntc.get((zone_a, zone_b), {}),
+                           ntc.get((zone_b, zone_a), {}))
+
     pa, pb = prices.get(zone_a, {}), prices.get(zone_b, {})
     series = [
         {
@@ -487,9 +564,20 @@ def compute_spread(db: Session, a: str, b: str, days: int = 30,
         "label": f"{POWER_ZONES[zone_a]['label']}↔{POWER_ZONES[zone_b]['label']}",
         "unit": "EUR/MWh",
         "days": days,
+        "capacity_source": "ntc" if util else "p95_proxy",
+        **(util or _NO_UTILIZATION),
         "note": (
             f"spread = {POWER_ZONES[zone_a]['label']} − {POWER_ZONES[zone_b]['label']}; "
             f"flow > 0 = {POWER_ZONES[zone_a]['label']} exports. Descriptive."
+            + (
+                " Utilization = |flow| ÷ day-ahead NTC (A61) in the flow's direction — "
+                "offered auction capacity, not a physical limit; can exceed 100% after "
+                "intraday/countertrading."
+                if util else
+                " No day-ahead NTC is published for this border (flow-based Core and "
+                "Nordic borders have none by market design) — 'at the rail' is the "
+                "border's own p95."
+            )
         ),
         "data": series,
         **m,
