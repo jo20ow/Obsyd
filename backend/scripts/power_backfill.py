@@ -17,6 +17,14 @@ Border-level sources (zone-independent, run AFTER the zone loop): "flows" (Energ
 NTC-allocated borders only, both directions per pair; the flow-based Core region and the
 Nordics publish none, so a full-history run stays cheap).
 
+"units_gen" (A73 per-unit generation) also runs after the zone loop — it iterates its own
+A73_ZONES config (currently DE_LU = 4 German control areas), not the enabled zones. It is
+deliberately NOT in ALL_SOURCES: run it EXPLICITLY (`--sources units_gen --start 2025-01-01`)
+and never bundle it into an unfiltered full-history run — 4 CTAs × ~5 chunks/month adds up
+fast against the shared ENTSO-E token (the lesson every deep multi-source run here has
+re-taught). Recommended --start 2025-01-01; deeper history is possible but each extra year
+is another ~240 requests for a per-plant drill-down whose product value is recent.
+
 FIRST DEPLOY of the balancing/capacity collectors: right after the service restart
 that ships them, run `--sources balancing` and `--sources capacity` once each. Not
 a launch blocker if skipped — the 09:00 UTC collector watchdog will email a
@@ -244,10 +252,32 @@ async def run_backfill(
             logger.info("power_backfill: capacity %s done (%d/%d)",
                         f"{m_start:%Y-%m}", capacity_months, len(windows))
 
+    # Per-unit generation (A73) iterates its own A73_ZONES config, not the enabled
+    # zones — so it belongs after the zone loop like the border-level sources. Not
+    # in ALL_SOURCES (see module docstring): explicit opt-in only, month windows
+    # split into the probe-proven 7-day chunks by the ingest itself.
+    units_gen_months = 0
+    if "units_gen" in sources:
+        from backend.power.entsoe_unit_generation import ingest_unit_generation_window
+
+        for m_start, m_end in windows:
+            if dry_run:
+                units_gen_months += 1
+                continue
+            await _with_retry(
+                lambda s=m_start, e=m_end: ingest_unit_generation_window(
+                    db, s, e + timedelta(days=1), overwrite=overwrite),
+                f"units_gen {m_start:%Y-%m}",
+            )
+            units_gen_months += 1
+            logger.info("power_backfill: units_gen %s done (%d/%d)",
+                        f"{m_start:%Y-%m}", units_gen_months, len(windows))
+
     return {"zone_months": done, "zones": zones, "months": len(windows),
             "flow_months": flow_months, "scheduled_months": sched_months,
             "netpos_months": netpos_months, "ntc_months": ntc_months,
-            "capacity_months": capacity_months, "dry_run": dry_run}
+            "capacity_months": capacity_months,
+            "units_gen_months": units_gen_months, "dry_run": dry_run}
 
 
 def _weeks_in(m_start, m_end) -> list:

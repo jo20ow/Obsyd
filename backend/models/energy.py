@@ -316,6 +316,54 @@ class ProductionUnit(Base):
     )
 
 
+class UnitGeneration(Base):
+    """Hourly per-plant output (ENTSO-E A73, actual generation per generation unit).
+
+    One row per (unit_eic, hour-UTC): `mw` is the hourly MEAN of the published MTUs
+    (PT60M value, or the mean of the four PT15M quarters), generation TimeSeries only —
+    a pumped-storage unit's consumption TimeSeries is excluded at parse time, or pumping
+    would count as generation.
+
+    POPULATION HONESTY (same register as ProductionUnit above). A73 covers only the
+    PUBLISHED units — ENTSO-E's ~100 MW threshold, dispatchable fuels only (probe
+    2026-07-28, DE control areas: B02/B03/B04/B05/B06/B10/B11/B12/B17 — no wind, no
+    solar, no nuclear). That is the production_unit registry's population, NOT the
+    fleet, and even of that registry only 85 of DE-LU's 133 units answered.
+    mw / nominal_mw is OUTPUT VS NAMEPLATE — a unit at 0% may be perfectly available
+    and simply out of merit; availability is what the A77 outage feed says, not this.
+    Publication lags DAYS, and unevenly per control area (probe: D-1/D-3 empty, D-7
+    full; smoke: TenneT at D-2 while the other German CTAs sat at D-5) — so the newest
+    hour trails the wall clock by days AND most units trail the newest hour. "Latest
+    published day", never "live"; readers must keep unpublished units visible as
+    "not reporting".
+
+    DELIBERATELY NOT power_hourly. Per-unit output's natural key is the UNIT, not the
+    (series, zone) pair; 85+ EIC-named series keys would pollute the series catalog
+    (which lists every key by doctrine, so the Explorer would drown in EICs); and the
+    hot 28.5M-row canonical table should not absorb a foreign access pattern.
+    Trade-off accepted: per-unit series are not exportable via /api/v1/series — the
+    capped /api/power/units/history endpoint covers that need.
+
+    `zone` is the INGEST-CONFIG zone (e.g. "DE_LU" spanning the four German control
+    areas — see entsoe_unit_generation.A73_ZONES), indexed for the per-zone board read.
+    Composite-PK + WITHOUT ROWID like PowerHourly: (unit_eic, ts_utc) is the clustering
+    key for the dominant per-unit range scan. Auto-created by Base.metadata.create_all
+    on startup, like every sibling table here (no migration machinery needed for new
+    tables — migrations.py exists only for retro-fitting indexes/columns).
+    """
+
+    __tablename__ = "unit_generation"
+
+    unit_eic: Mapped[str] = mapped_column(String, primary_key=True)
+    ts_utc: Mapped[int] = mapped_column(Integer, primary_key=True)  # epoch sec, top-of-hour UTC
+    mw: Mapped[float] = mapped_column(Float, nullable=False)        # hourly mean of the MTUs
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    # WITHOUT ROWID: the composite PK becomes the table's clustering key (PowerHourly's
+    # convention — the per-unit range scan is the dominant read).
+    __table_args__ = {"sqlite_with_rowid": False}
+
+
 class PowerOutage(Base):
     """ENTSO-E unavailability of generation units (A77) AND transmission infrastructure (A78).
 

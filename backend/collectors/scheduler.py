@@ -481,6 +481,27 @@ async def _run_capacity_prices():
         db.close()
 
 
+async def _run_unit_generation():
+    """Daily per-unit generation refresh (ENTSO-E A73 — backend/power/
+    entsoe_unit_generation.py). days_back=12 with overwrite=True: the source
+    publishes ~6 days behind (probe 2026-07-28 — D-1/D-3 answer a clean 200-ACK,
+    D-7 delivers), so the rolling window re-asks the still-filling frontier until
+    each day lands; without overwrite the write-once raw cache would freeze the
+    first (empty) answer forever. Daily, NOT hourly: an hourly cadence would spend
+    the shared ENTSO-E token re-asking a source that moves once a day at most."""
+    from backend.power.entsoe_unit_generation import ingest_unit_generation
+
+    db = SessionLocal()
+    try:
+        result = await ingest_unit_generation(db, days_back=12, overwrite=True)
+        logger.info("unit generation daily: %s", result)
+    except Exception as exc:
+        db.rollback()
+        logger.error("_run_unit_generation failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_hydro_weekly():
     """Refresh weekly reservoir filling (ENTSO-E A72) for the hydro zones.
     Current year with overwrite=True — the raw cache is write-once and would
@@ -539,6 +560,10 @@ def start_scheduler():
     # after all three TSO publication windows (FCR ~08:30, aFRR ~09:30, mFRR ~11:00
     # Europe/Berlin, i.e. UTC+1/+2 — see docs/findings/2026-07-20-regelleistung-capacity-prices.md).
     scheduler.add_job(_run_capacity_prices, CronTrigger(hour=11, minute=30), id="capacity_prices_daily", **JOB_DEFAULTS)
+    # Per-unit generation (A73): daily 09:40 UTC — after the morning publication
+    # updates, offset from the 09:00 watchdog and the 10:00 gas job. Daily on
+    # purpose: the source lags ~6 days, hourly polling would waste the shared token.
+    scheduler.add_job(_run_unit_generation, CronTrigger(hour=9, minute=40), id="unit_generation_daily", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical

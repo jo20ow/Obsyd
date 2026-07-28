@@ -118,3 +118,6 @@ def test_panel_thresholds_match_health_specs():
     # marginal is compute-on-read over the A75 gen.* ingest — no collector of its
     # own, so it shares the grid window (same rule as generation_mix).
     assert PANEL_MAX_AGE_DAYS["marginal"] == by_key["power_grid"]
+    # units_generation rides the A73 epoch_column spec — the ~6-day publication
+    # lag plus slack lives in ONE place (SPECS) and the panel caption mirrors it.
+    assert PANEL_MAX_AGE_DAYS["units_generation"] == by_key["unit_generation"]

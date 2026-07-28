@@ -66,6 +66,12 @@ Named production units (EIC, name, fuel, nominal MW) for one zone from the
 ENTSO-E A71/A33 registry. Read the `note` in the response before summing — this
 is the *published* unit list, not the full installed fleet.
 
+Per-unit hourly *output* (ENTSO-E A73; DE-LU so far) is deliberately **not** a
+`/api/v1/series` key — 85+ EIC-named series would drown the catalog. It lives on
+`GET /api/power/units/generation?zone=` (latest published day, ~6-day publication
+lag stated as `lag_days`) and `GET /api/power/units/history?zone=&unit=<EIC>&hours=`
+(capped at 744 hours per request).
+
 ### `GET /api/v1/series/catalog`
 Every queryable series (key + unit), the enabled zones, and the overall coverage window.
 

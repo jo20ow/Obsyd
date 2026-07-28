@@ -35,6 +35,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.api_guard import heavy_query_guard
 from backend.config import settings
 from backend.database import get_db
 from backend.models.energy import (
@@ -764,6 +765,10 @@ PANEL_MAX_AGE_DAYS = {
     "load_forecast": 2,
     "balancing": 2,  # mirrors SPECS "balancing_energy"
     "capacity_prices": 2,  # mirrors SPECS "capacity_prices"
+    # mirrors SPECS "unit_generation" — A73 publishes ~6 days behind (probe
+    # 2026-07-28), plus weekend/holiday slack. The panel says "published <day> ·
+    # N days behind" for the honest lag; `stale` only flags a DEAD collector.
+    "units_generation": 10,
 }
 
 #: /api/power/live's own freshness threshold — day granularity like every
@@ -2259,6 +2264,268 @@ def get_outages(
         "transmission": transmission,
         **_freshness(newest_msg.strftime("%Y-%m-%d") if newest_msg else None,
                      now.date(), 2),
+    }
+
+
+# ─── Per-unit generation (free) ───────────────────────────────────────────────
+
+#: The honest wording everywhere this data appears. A73's population is the
+#: PUBLISHED units (~100 MW threshold, dispatchable fuels only — no wind/solar),
+#: NOT the installed fleet; output ÷ nameplate is utilization, not availability;
+#: and publication lags ~6 days, so this is the latest PUBLISHED day, never live.
+_UNITS_GENERATION_NOTE = (
+    "Per-unit output (ENTSO-E A73) covers only the PUBLISHED units — the ~100 MW "
+    "threshold, dispatchable fuels only (no wind/solar) — i.e. the A71/A33 registry "
+    "population, NOT the installed fleet. utilization_pct is output vs nameplate "
+    "nominal capacity, not availability (a unit at 0% may simply be out of merit — "
+    "see the outage field for what is actually unavailable). ENTSO-E publishes this "
+    "days behind, per control area at different lags: 'latest published day' is the "
+    "fastest TSO's frontier, and units whose TSO has not published it yet appear "
+    "with current_mw = null (not reporting), never silently dropped. Not live."
+)
+
+
+def _unit_registry_for(db: Session, eics: list[str]) -> dict:
+    """{unit_eic: newest-year ProductionUnit row} for the units on this board.
+
+    One query, newest year wins — same rule as _unit_names_for above (a renamed
+    or re-rated plant should show its current registry entry)."""
+    from backend.models.energy import ProductionUnit
+
+    if not eics:
+        return {}
+    rows = (
+        db.query(ProductionUnit)
+        .filter(ProductionUnit.unit_eic.in_(set(eics)))
+        .order_by(ProductionUnit.year.asc())
+        .all()
+    )
+    return {r.unit_eic: r for r in rows}  # later years overwrite earlier ones
+
+
+@router.get("/units/generation")
+def get_units_generation(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    db: Session = Depends(get_db),
+):
+    """Per-plant output and utilization for the LATEST PUBLISHED day (ENTSO-E A73).
+
+    Deliberately NOT called "live": A73 publishes ~6 days behind (probe 2026-07-28
+    — D-1/D-3 answer empty, D-7 delivers), and `lag_days` carries that honestly.
+    Joins the A71/A33 unit registry for names/fuels/nameplate and the A77 outage
+    feed (highest-revision, withdrawn-hidden semantics) for what is off at the
+    latest hour. DE-LU only so far — the ingest zone list (A73_ZONES) is
+    config-extensible. Descriptive: which plants ran and how hard, not a price call.
+    """
+    from backend.models.energy import UnitGeneration
+    from backend.power.entsoe_unit_generation import A73_ZONES
+    from backend.signals.detectors.power import latest_outage_revisions
+
+    resolved_zone = _resolve_zone(zone)
+    if resolved_zone not in A73_ZONES:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": (
+                "Per-unit generation (ENTSO-E A73) is ingested for DE-LU only so far "
+                "— the zone list is config-extensible."
+            ),
+        }
+
+    latest_ts = (
+        db.query(func.max(UnitGeneration.ts_utc))
+        .filter(UnitGeneration.zone == resolved_zone)
+        .scalar()
+    )
+    if latest_ts is None:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "zones": _ZONE_KEYS,
+            "reason": f"No per-unit generation ingested for {POWER_ZONES[resolved_zone]['label']} yet.",
+        }
+
+    # The UTC day containing the newest hour — the latest PUBLISHED day.
+    day_start = latest_ts - (latest_ts % 86_400)
+    rows = (
+        db.query(UnitGeneration)
+        .filter(
+            UnitGeneration.zone == resolved_zone,
+            UnitGeneration.ts_utc >= day_start,
+            UnitGeneration.ts_utc < day_start + 86_400,
+        )
+        .all()
+    )
+    by_unit: dict[str, dict[int, float]] = {}
+    for r in rows:
+        by_unit.setdefault(r.unit_eic, {})[r.ts_utc] = r.mw
+
+    # The POPULATION is wider than the latest day: the CTAs publish at different
+    # lags (smoke 2026-07-28 — TenneT was at D-2 while the other three German CTAs
+    # stopped at D-5), so on the frontier day most units legitimately have no rows
+    # yet. Dropping them would present a 13-unit TenneT board as "DE-LU". Every
+    # unit seen in the trailing window is listed; the not-yet-published ones carry
+    # current_mw/day_avg_mw = null ("not reporting"), which the totals count.
+    population_window = day_start - 14 * 86_400
+    for (eic,) in (
+        db.query(UnitGeneration.unit_eic)
+        .filter(
+            UnitGeneration.zone == resolved_zone,
+            UnitGeneration.ts_utc >= population_window,
+            UnitGeneration.ts_utc < day_start,
+        )
+        .distinct()
+        .all()
+    ):
+        by_unit.setdefault(eic, {})
+
+    registry = _unit_registry_for(db, list(by_unit))
+
+    # Outage status AT the latest hour, per unit. Highest revision per mRID wins and
+    # withdrawn events hide (latest_outage_revisions — the same semantics the outage
+    # board uses); ending_after prunes events that ended before the hour.
+    now = datetime.utcnow()
+    latest_hour_dt = datetime.fromtimestamp(latest_ts, tz=timezone.utc)
+    latest_hour_iso = latest_hour_dt.strftime("%Y-%m-%dT%H:%MZ")
+    outage_by_eic: dict[str, dict] = {}
+    for o in latest_outage_revisions(db, resolved_zone,
+                                     ending_after=latest_hour_iso, doc_type="A77"):
+        if o.status != "active" or not o.unit_eic:
+            continue
+        if not (o.start_utc <= latest_hour_iso <= o.end_utc):
+            continue
+        if outage_by_eic.get(o.unit_eic, {}).get("kind") == "forced":
+            continue  # a forced outage is the more newsworthy label — keep it
+        outage_by_eic[o.unit_eic] = {
+            "kind": _OUTAGE_KIND.get(o.business_type, o.business_type),
+            "offline_mw": (
+                round(o.nominal_mw - (o.available_mw or 0.0), 1)
+                if o.nominal_mw is not None else None
+            ),
+        }
+
+    units: list[dict] = []
+    for eic, hours in by_unit.items():
+        reg = registry.get(eic)
+        nominal = reg.nominal_mw if reg else None
+        psr = reg.psr_type if reg else None
+        current = hours.get(latest_ts)
+        units.append({
+            "unit_eic": eic,
+            "name": reg.name if reg else None,
+            "psr_type": psr,
+            "fuel": PSR_LABELS.get(psr, psr) if psr else None,
+            "nominal_mw": nominal,
+            # null = the unit published nothing for the latest hour (not "0 MW" —
+            # zeros ARE published and mean the unit stood still). With the per-CTA
+            # lag skew this is COMMON at the frontier, not an edge case.
+            "current_mw": round(current, 1) if current is not None else None,
+            "day_avg_mw": round(sum(hours.values()) / len(hours), 1) if hours else None,
+            "utilization_pct": (
+                round(100.0 * current / nominal, 1)
+                if current is not None and nominal else None
+            ),
+            "outage": outage_by_eic.get(eic),
+        })
+    units.sort(key=lambda u: (u["current_mw"] is None,
+                              -(u["current_mw"] or 0.0),
+                              -(u["nominal_mw"] or 0.0)))
+
+    reporting = [u for u in units if u["current_mw"] is not None]
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "zones": _ZONE_KEYS,
+        "unit": "MW",
+        "units": units,
+        "totals": {
+            "units": len(units),
+            "reporting": len(reporting),
+            "nominal_mw": round(sum(u["nominal_mw"] or 0.0 for u in units), 1),
+            "generating_mw": round(sum(u["current_mw"] for u in reporting), 1),
+        },
+        "latest_hour_utc": latest_hour_iso,
+        "lag_days": int((datetime.now(timezone.utc) - latest_hour_dt).total_seconds() // 86_400),
+        "note": _UNITS_GENERATION_NOTE,
+        **_freshness(latest_hour_dt.strftime("%Y-%m-%d"), now.date(),
+                     PANEL_MAX_AGE_DAYS["units_generation"]),
+    }
+
+
+@router.get("/units/history")
+def get_unit_history(
+    zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
+    unit: str = Query(..., description="Unit EIC — see /api/power/units/generation"),
+    hours: int = Query(168, ge=24, le=744,
+                       description="Window size in hours, anchored at the unit's "
+                                   "latest published hour (744 = the /v1/snapshot cap)"),
+    db: Session = Depends(get_db),
+    _guard: None = Depends(heavy_query_guard),
+):
+    """Hourly output history for ONE unit — the drill-down behind the board above.
+
+    `hours` is anchored at the unit's latest PUBLISHED hour, not the wall clock:
+    with A73's ~6-day lag, a now-anchored week would be mostly empty. Capped at 744
+    (the /v1/snapshot precedent) and guarded by heavy_query_guard — the first use
+    on /api/power, deliberately: per-unit series are not exportable via /api/v1/series
+    (see the UnitGeneration model docstring), so this endpoint IS the bulk-pull
+    surface for the table and gets the same concurrency cap as the v1 exports.
+    """
+    from backend.models.energy import ProductionUnit, UnitGeneration
+
+    resolved_zone = _resolve_zone(zone)
+    latest_ts = (
+        db.query(func.max(UnitGeneration.ts_utc))
+        .filter(UnitGeneration.zone == resolved_zone, UnitGeneration.unit_eic == unit)
+        .scalar()
+    )
+    if latest_ts is None:
+        return {
+            "available": False,
+            "zone": resolved_zone,
+            "unit_eic": unit,
+            "reason": (
+                f"No per-unit generation for unit {unit} in {resolved_zone} — "
+                "see /api/power/units/generation for the covered units."
+            ),
+        }
+
+    start_ts = latest_ts - (hours - 1) * 3600
+    rows = (
+        db.query(UnitGeneration.ts_utc, UnitGeneration.mw)
+        .filter(
+            UnitGeneration.zone == resolved_zone,
+            UnitGeneration.unit_eic == unit,
+            UnitGeneration.ts_utc >= start_ts,
+        )
+        .order_by(UnitGeneration.ts_utc.asc())
+        .all()
+    )
+    reg = (
+        db.query(ProductionUnit)
+        .filter(ProductionUnit.unit_eic == unit)
+        .order_by(ProductionUnit.year.desc())
+        .first()
+    )
+    psr = reg.psr_type if reg else None
+    latest_dt = datetime.fromtimestamp(latest_ts, tz=timezone.utc)
+    return {
+        "available": True,
+        "zone": resolved_zone,
+        "unit_eic": unit,
+        "name": reg.name if reg else None,
+        "psr_type": psr,
+        "fuel": PSR_LABELS.get(psr, psr) if psr else None,
+        "nominal_mw": reg.nominal_mw if reg else None,
+        # No "unit": "MW" key here — the request's own `unit` param is the EIC, and
+        # overloading the word in one payload invites exactly the wrong parse.
+        "mw_unit": "MW",
+        "hours": hours,
+        "data": [{"ts_utc": int(t), "mw": float(v)} for t, v in rows],
+        "note": _UNITS_GENERATION_NOTE,
+        **_freshness(latest_dt.strftime("%Y-%m-%d"), datetime.utcnow().date(),
+                     PANEL_MAX_AGE_DAYS["units_generation"]),
     }
 
 
