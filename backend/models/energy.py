@@ -362,7 +362,8 @@ class UnitGeneration(Base):
     # WITHOUT ROWID: the composite PK becomes the table's clustering key (PowerHourly's
     # convention — the per-unit /units/history range scan rides it directly).
     # The (zone, ts_utc) composite serves the OTHER access pattern — the board's
-    # three zone+hour-range queries (max ts, latest-day rows, trailing population),
+    # three zone+hour-range queries (zone max ts, per-unit GROUP-BY latest over the
+    # trailing window, the latest-days span scan),
     # which would otherwise degrade to full-zone scans on a public endpoint. It also
     # covers plain zone lookups, so `zone` carries no redundant single-column index.
     # Existing DBs get the index via migrations.py (create_all never retro-fits).

@@ -2399,14 +2399,19 @@ def get_units_generation(
 
     registry = _unit_registry_for(db, list(latest_by_unit))
 
+    # ONE clock read per request — now_iso, today_utc, lag_days and every
+    # unit_lag_days derive from the same instant, so a request straddling UTC
+    # midnight cannot mix two different "today"s.
+    now = datetime.now(timezone.utc)
+    now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
+    today_utc = now.date()
+
     # Outage status NOW, per unit — not at the (days-old) data hour: A77 outage
     # messages are near-real-time, so "in outage now" is honest and more useful
     # next to a last-published output reading. Highest revision per mRID wins and
     # withdrawn events hide (latest_outage_revisions — the same semantics the
     # outage board uses); ending_after prunes events already over. Same
     # fixed-width UTC-string comparison idiom as before, against now.
-    now = datetime.utcnow()
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     latest_hour_dt = datetime.fromtimestamp(latest_ts, tz=timezone.utc)
     latest_hour_iso = latest_hour_dt.strftime("%Y-%m-%dT%H:%MZ")
     outage_by_eic: dict[str, dict] = {}
@@ -2426,7 +2431,6 @@ def get_units_generation(
             ),
         }
 
-    today_utc = datetime.now(timezone.utc).date()
     units: list[dict] = []
     for eic, unit_latest_ts in latest_by_unit.items():
         reg = registry.get(eic)
@@ -2470,8 +2474,8 @@ def get_units_generation(
         "units": units,
         "totals": {
             "units": len(units),
-            # Units with any rows in the window — now usually equal to `units`;
-            # kept because it still distinguishes registry silence.
+            # Kept for payload-shape compatibility (always equals `units` unless
+            # a null-mw guard ever triggers).
             "reporting": len(reporting),
             "nominal_mw": round(sum(u["nominal_mw"] or 0.0 for u in units), 1),
             # Mixed timestamps by design (each unit's own latest reading) — NOT a
@@ -2482,9 +2486,9 @@ def get_units_generation(
         # CALENDAR days, deliberately — the freshness triple below counts calendar
         # days, and a whole-24h floor would disagree with it by one just after UTC
         # midnight (caption saying "5 days behind" beside an age_days of 6).
-        "lag_days": (datetime.now(timezone.utc).date() - latest_hour_dt.date()).days,
+        "lag_days": (today_utc - latest_hour_dt.date()).days,
         "note": _UNITS_GENERATION_NOTE,
-        **_freshness(latest_hour_dt.strftime("%Y-%m-%d"), now.date(),
+        **_freshness(latest_hour_dt.strftime("%Y-%m-%d"), today_utc,
                      PANEL_MAX_AGE_DAYS["units_generation"]),
     }
 

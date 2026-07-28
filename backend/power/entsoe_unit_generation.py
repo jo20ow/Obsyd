@@ -49,9 +49,11 @@ published data end (e.g. Thursday 14:00 mid-window), so the expansion never
 fabricates beyond publication.
 
 PER-CTA LAG SKEW (same smoke): TenneT published to D-2 while 50Hertz/Amprion/
-TransnetBW stopped at D-5 — the zone's "latest published hour" is therefore the
-FASTEST CTA's frontier, and most units legitimately have no data there. The read
-side must carry the not-yet-published units as "not reporting", never drop them.
+TransnetBW stopped at D-5 (the regulation allows up to D+5) — the zone's "latest
+published hour" is therefore the FASTEST CTA's frontier, and most units
+legitimately have no data there. The read side must surface each unit at ITS OWN
+latest published hour with its own lag (per-unit freshness) — sampling everyone
+at the zone frontier nulls most of the board — and never drop a trailing unit.
 
 CONSUMPTION TimeSeries (outBiddingZone_Domain — pumped-storage pumping) are
 EXCLUDED, mirroring the A75 discrimination in backend/gas/entsoe.py::

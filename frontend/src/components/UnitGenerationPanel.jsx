@@ -19,10 +19,11 @@ function fmtDay(iso) {
 }
 
 // Compact per-row age stamp: "today" for lag 0, else "D-2" — the full UTC
-// timestamp rides in the title tooltip next to it.
+// timestamp rides in the title tooltip next to it. <= 0, not === 0: a
+// future-dated row from a corrupt document must not render "D--1".
 function lagStamp(days) {
   if (days == null) return null
-  return days === 0 ? 'today' : `D-${days}`
+  return days <= 0 ? 'today' : `D-${days}`
 }
 
 /**

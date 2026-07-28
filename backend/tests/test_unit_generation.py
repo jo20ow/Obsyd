@@ -460,35 +460,53 @@ def test_generation_route_each_unit_carries_its_own_latest_hour(db_session):
     """Two units at DIFFERENT lags (D-2 vs D-5 — the smoke's TSO skew): both carry
     values at their OWN latest published hour with their own lag, day_avg is over
     each unit's OWN latest day, the top level follows the fresher one, and
-    latest_readings_mw is the mixed-timestamp sum with both units reporting."""
+    latest_readings_mw is the mixed-timestamp sum with both units reporting.
+    Guard rows kill three mutants: dropping the own-day filter, or the zone
+    filter on either the GROUP BY or the span scan, each corrupts an assertion."""
     db_session.add(ProductionUnit(unit_eic="11WF", zone="DE_LU", year=2026,
                                   name="FRESH-1", psr_type="B04", nominal_mw=500.0))
     db_session.add(ProductionUnit(unit_eic="11WS", zone="DE_LU", year=2026,
                                   name="SLOW-1", psr_type="B05", nominal_mw=1000.0))
-    d2, d5, d6 = _day_anchor(2), _day_anchor(5), _day_anchor(6)
-    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 10 * 3600, mw=300.0, zone="DE_LU"))
-    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 11 * 3600, mw=500.0, zone="DE_LU"))
-    db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d5 + 8 * 3600, mw=100.0, zone="DE_LU"))
-    db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d5 + 9 * 3600, mw=200.0, zone="DE_LU"))
-    # A D-6 row must NOT leak into 11WS's day_avg — the mean is over the unit's
-    # OWN latest day, not over everything it published in the window.
+    d2, d3, d5, d6 = _day_anchor(2), _day_anchor(3), _day_anchor(5), _day_anchor(6)
+    # Late-in-day hours ON PURPOSE (21–23 h UTC): an implementation flooring
+    # (now − ts) into 24-hour blocks would call D-2 23:00 "1 day behind" for most
+    # of the day — the calendar-day lag assertions below kill that mutant.
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 22 * 3600, mw=300.0, zone="DE_LU"))
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 23 * 3600, mw=500.0, zone="DE_LU"))
+    db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d5 + 21 * 3600, mw=100.0, zone="DE_LU"))
+    db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d5 + 22 * 3600, mw=200.0, zone="DE_LU"))
+    # IN-SPAN own-day guard: a D-3 row for the D-2 unit sits inside the span
+    # scan's SQL range but outside 11WF's own latest day — deleting the
+    # ds <= ts < ds+86400 filter absorbs it into day_avg and fails below.
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d3 + 9 * 3600, mw=900.0, zone="DE_LU"))
+    # OUT-OF-SPAN guard: a D-6 row (before the span's SQL range) must not leak
+    # into 11WS's day_avg either.
     db_session.add(UnitGeneration(unit_eic="11WS", ts_utc=d6 + 9 * 3600, mw=900.0, zone="DE_LU"))
+    # CROSS-ZONE-BLEED guards, both inside the window: a foreign zone's unit must
+    # not enter the population (distinct EIC — kills a zone-filterless GROUP BY),
+    # and a foreign zone's row for a LISTED unit inside its own latest day must
+    # not enter its day_avg (kills a zone-filterless span scan).
+    db_session.add(UnitGeneration(unit_eic="11WXX", ts_utc=d2 + 23 * 3600, mw=999.0, zone="XX"))
+    db_session.add(UnitGeneration(unit_eic="11WF", ts_utc=d2 + 9 * 3600, mw=999.0, zone="XX"))
     db_session.commit()
 
     body = _client(db_session).get("/api/power/units/generation?zone=DE_LU").json()
     by_eic = {u["unit_eic"]: u for u in body["units"]}
+    assert "11WXX" not in by_eic, "foreign zone's unit must not bleed onto the board"
 
     fresh, slow = by_eic["11WF"], by_eic["11WS"]
     assert fresh["current_mw"] == 500.0 and fresh["unit_lag_days"] == 2
     assert fresh["unit_latest_hour_utc"] == datetime.fromtimestamp(
-        d2 + 11 * 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
-    assert fresh["day_avg_mw"] == 400.0
+        d2 + 23 * 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    assert fresh["day_avg_mw"] == 400.0, \
+        "own latest day, own zone only — neither the D-3 row nor XX's row counts"
     assert slow["current_mw"] == 200.0 and slow["unit_lag_days"] == 5
     assert slow["unit_latest_hour_utc"] == datetime.fromtimestamp(
-        d5 + 9 * 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+        d5 + 22 * 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     assert slow["day_avg_mw"] == 150.0, "own latest day only — the D-6 row stays out"
 
-    # Top level follows the FRESHER unit; totals sum the mixed-timestamp readings.
+    # Top level follows the FRESHER unit; totals sum the mixed-timestamp readings
+    # (and would flag any cross-zone bleed too).
     assert body["latest_hour_utc"] == fresh["unit_latest_hour_utc"]
     assert body["lag_days"] == 2
     assert body["totals"] == {"units": 2, "reporting": 2,
