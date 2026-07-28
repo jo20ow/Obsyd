@@ -149,6 +149,8 @@ def attribute_hour(price: float, bands: dict[str, float], total: float) -> dict:
     `bands` holds MW per band name (incl. "hydro_flex"); `total` is ALL
     generation including B20/unknown — shares are measured against the whole
     fleet, so an "Other"-heavy hour honestly dilutes every named band.
+    Precondition: `total` > 0 — the caller guards it (an hour of zero reported
+    generation is skipped, never attributed).
 
     Attribution, in precedence order (each earlier rule wins outright):
       (a) price <= PRICE_FLOOR_EPS → must_run_renewables, regardless
@@ -217,8 +219,19 @@ def compute_marginal(
     now = now or datetime.now(timezone.utc)
     label = POWER_ZONES[zone]["label"]
     start_ts = int((now - timedelta(hours=hours)).timestamp())
+    # A closed window, like the live desk's reads (backend/power/live.py): the
+    # day-ahead auction publishes into tomorrow, and an open-ended price read
+    # would pull those hours only for the gen∩price intersection to discard
+    # them. End at the next top-of-hour so the in-progress hour still counts.
+    # The row cap matches the window exactly — these series are hourly-canonical,
+    # so more rows than hours is a store bug worth hearing about (read_hourly
+    # raises on the cap instead of truncating).
+    end_ts = (int(now.timestamp()) // 3600 + 1) * 3600
+    max_rows = hours + 1
 
-    prices = dict(read_hourly(db, PRICE_SERIES, zone, start_ts))
+    prices = dict(
+        read_hourly(db, PRICE_SERIES, zone, start_ts, end_ts, max_rows=max_rows)
+    )
 
     # MW per band and the ALL-codes total, per hour. B20/unknown feed the total
     # only (never `bands`) — present in the denominator, impossible to attribute.
@@ -226,7 +239,7 @@ def compute_marginal(
     total_by_hour: dict[int, float] = {}
     for key in _gen_series_keys(db):
         band = _BAND_OF.get(key.removeprefix("gen."))
-        for ts, mw in read_hourly(db, key, zone, start_ts):
+        for ts, mw in read_hourly(db, key, zone, start_ts, end_ts, max_rows=max_rows):
             total_by_hour[ts] = total_by_hour.get(ts, 0.0) + mw
             if band is not None:
                 per = bands_by_hour.setdefault(ts, {})

@@ -68,7 +68,14 @@ export default function MarginalTechPanel({ zone = 'DE_LU' }) {
   }
 
   const hourly = data?.hourly ?? []
-  const daily = (data?.daily ?? []).slice(-14)
+  const daily = data?.daily ?? []
+  // Attributed hours per UTC day, from the hourly rows — so a partial edge day
+  // (one attributed hour rendering as a 100% bar) says how thin it really is.
+  const hoursByDay = {}
+  for (const h of hourly) {
+    const day = h.ts_utc.slice(0, 10)
+    hoursByDay[day] = (hoursByDay[day] || 0) + 1
+  }
   const summary = data?.summary
   const shares = summary?.share_of_hours ?? {}
   const techsPresent = TECH_ORDER.filter((t) => shares[t] != null)
@@ -138,7 +145,7 @@ export default function MarginalTechPanel({ zone = 'DE_LU' }) {
             ))}
           </div>
 
-          {/* Daily share-of-hours stacked bars, last ~14 days of the window */}
+          {/* Daily share-of-hours stacked bars over the window */}
           {daily.length > 0 && (
             <div className="px-4 pt-3 pb-3 space-y-1">
               <div className="font-mono text-[9px] text-neutral-600 uppercase tracking-wider">Share of attributed hours per day</div>
@@ -150,7 +157,7 @@ export default function MarginalTechPanel({ zone = 'DE_LU' }) {
                       <div
                         key={t}
                         style={{ width: `${d.shares[t]}%`, backgroundColor: fuelColor(TECH_PSR[t]) }}
-                        title={`${d.date} · ${TECH_SHORT[t]}: ${d.shares[t]}% of attributed hours`}
+                        title={`${d.date} (${hoursByDay[d.date] ?? 0}h attributed) · ${TECH_SHORT[t]}: ${d.shares[t]}% of attributed hours`}
                       />
                     ))}
                   </div>

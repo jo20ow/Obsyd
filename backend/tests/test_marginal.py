@@ -16,11 +16,14 @@ from fastapi.testclient import TestClient
 
 from backend.power.hourly_store import upsert_hourly
 from backend.power.marginal import (
+    CONSISTENCY_BANDS,
     DISPATCHABLE_ORDER,
     HYDRO_FLEX,
     MERIT_BANDS,
     MIN_MW,
     MIN_SHARE_PCT,
+    _consistency,
+    attribute_hour,
     compute_marginal,
 )
 
@@ -77,6 +80,51 @@ def test_hydro_flex_is_never_a_rung_of_the_cost_ladder():
     band_codes = {code for _name, codes in MERIT_BANDS for code in codes}
     assert not (set(HYDRO_FLEX) & band_codes)
     assert "B20" not in band_codes, "a price attributed to 'Other' is an invented claim"
+
+
+# ─── threshold boundaries (pure, DB-free) ─────────────────────────────────────
+#
+# The thresholds are inclusive and the hydro tie-break is strict. These exact-
+# boundary cases exist because a >= that quietly becomes a > (or vice versa)
+# survives every seeded scenario above — the seeds all sit comfortably off the
+# boundaries. The float values are chosen so the shares compute EXACTLY.
+
+
+def test_a_thermal_band_at_exactly_both_thresholds_qualifies():
+    # Gas at exactly MIN_MW and exactly MIN_SHARE_PCT of the hour:
+    # 100.0 * 200.0 / (200.0 / 0.015) == 1.5 exactly in float.
+    total = MIN_MW / (MIN_SHARE_PCT / 100.0)
+    att = attribute_hour(70.0, {"gas": MIN_MW, "must_run_renewables": total - MIN_MW}, total)
+    assert att["tech"] == "gas"
+    assert att["share_pct"] == MIN_SHARE_PCT
+    assert att["mw"] == MIN_MW
+
+
+def test_hydro_at_exactly_both_thresholds_qualifies():
+    total = MIN_MW / (MIN_SHARE_PCT / 100.0)
+    att = attribute_hour(45.0, {"hydro_flex": MIN_MW, "must_run_renewables": total - MIN_MW}, total)
+    assert att["tech"] == "hydro_flex"
+
+
+def test_an_exact_share_tie_goes_to_the_thermal_band():
+    """"Exceeds" is strict: hydro must OUT-run the ladder, not match it — at an
+    exact tie the qualifying thermal band keeps the hour."""
+    att = attribute_hour(
+        60.0,
+        {"gas": 4_000.0, "hydro_flex": 4_000.0, "must_run_renewables": 2_000.0},
+        10_000.0,
+    )
+    assert att["tech"] == "gas"
+
+
+def test_consistency_band_bounds_are_inclusive():
+    """A price exactly ON a band bound sits inside it; a cent past is tension."""
+    gas_hi = CONSISTENCY_BANDS["gas"][1]
+    lignite_lo = CONSISTENCY_BANDS["lignite"][0]
+    assert _consistency("gas", gas_hi) == "ok"
+    assert _consistency("gas", gas_hi + 0.01) == "tension"
+    assert _consistency("lignite", lignite_lo) == "ok"
+    assert _consistency("lignite", lignite_lo - 0.01) == "tension"
 
 
 # ─── per-hour attribution ─────────────────────────────────────────────────────
