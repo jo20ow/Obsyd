@@ -25,7 +25,8 @@
 # First deploy of the balancing/capacity collectors (activated balancing energy +
 # procured balancing-capacity prices): right after step [4/7]'s `systemctl restart
 # obsyd`, manually run `python -m backend.scripts.power_backfill --sources balancing`
-# and `python -m backend.scripts.power_backfill --sources capacity` once. Skipping
+# and — last and alone, A15 paginates extremely heavily — `python -m
+# backend.scripts.power_backfill --sources capacity --start 2024-01-01` once. Skipping
 # this is not a launch blocker — the 09:00 UTC collector watchdog will email a
 # capacity_prices/balancing_energy stale alert until the 11:30 UTC daily job fills the
 # series in on its own (self-heals within 24h) — but running the backfill closes the

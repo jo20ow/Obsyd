@@ -113,3 +113,94 @@ async def test_flows_dry_run_counts_without_fetching(monkeypatch):
         overwrite=False, dry_run=True, throttle=0,
     )
     assert res["flow_months"] == 3
+
+
+# ─── source registry: what a default (unfiltered) run may and may not pull ─────
+
+
+def test_all_sources_membership():
+    """"balancing" IS a default source: 2 requests per zone-month (one A84 + one A83,
+    with empty months cached by the collector) — the same order as the 1 request per
+    zone-month of price/grid/forecast/imbalance. "capacity" (A15, ~200+ paginated
+    requests per DAY) and "units_gen" (A73, per-CTA drill-down) are explicit opt-ins
+    and must never ride along in an unfiltered run — see the module docstring."""
+    assert "balancing" in pb.ALL_SOURCES
+    assert "capacity" not in pb.ALL_SOURCES
+    assert "units_gen" not in pb.ALL_SOURCES
+
+
+def test_sources_cli_default_round_trips():
+    """main() joins ALL_SOURCES into the --sources default and splits it back on commas —
+    every token must survive that round trip (no commas/blanks inside a token)."""
+    tokens = {s.strip() for s in ",".join(pb.ALL_SOURCES).split(",") if s.strip()}
+    assert tokens == set(pb.ALL_SOURCES)
+
+
+# ─── balancing: per-zone, but its own post-zone-loop sweep ──────────────────────
+
+
+async def test_balancing_dispatches_per_zone_month_outside_zone_loop(monkeypatch):
+    """balancing runs AFTER the main zone loop with its own counter: a balancing-only
+    run must not walk the price/grid/forecast/imbalance machinery, and each call gets
+    the month's day list plus the zone (ingest_balancing groups the days into
+    control-area month fetches itself)."""
+    calls = []
+
+    async def _balancing(db, days, **kwargs):
+        calls.append((days[0], days[-1], kwargs))
+
+    async def _boom(*a, **k):
+        raise AssertionError("zone-loop source called during a balancing-only run")
+
+    monkeypatch.setattr(pb, "ingest_balancing", _balancing)
+    monkeypatch.setattr(pb, "ingest_day_ahead", _boom)
+    monkeypatch.setattr(pb, "ingest_grid", _boom)
+
+    res = await pb.run_backfill(
+        db=None, start=date(2026, 1, 1), end=date(2026, 2, 28),
+        zones=["DE_LU", "FR"], sources={"balancing"},
+        overwrite=True, dry_run=False, throttle=0,
+    )
+    assert res["balancing_months"] == 4  # 2 zones × 2 months
+    assert res["zone_months"] == 0       # the main zone loop must not have run
+    assert [(c[0], c[1]) for c in calls] == [
+        ("2026-01-01", "2026-01-31"), ("2026-02-01", "2026-02-28"),
+        ("2026-01-01", "2026-01-31"), ("2026-02-01", "2026-02-28"),
+    ]
+    assert [c[2]["zone"] for c in calls] == ["DE_LU", "DE_LU", "FR", "FR"]
+    assert all(c[2]["overwrite"] is True for c in calls)
+
+
+async def test_balancing_dry_run_counts_zone_months_without_fetching(monkeypatch):
+    async def _boom(*a, **k):
+        raise AssertionError("ingest called during dry run")
+
+    monkeypatch.setattr(pb, "ingest_balancing", _boom)
+    res = await pb.run_backfill(
+        db=None, start=date(2026, 1, 1), end=date(2026, 3, 31),
+        zones=["DE_LU", "FR"], sources={"balancing"},
+        overwrite=False, dry_run=True, throttle=0,
+    )
+    assert res["balancing_months"] == 6  # 2 zones × 3 months
+
+
+# ─── capacity: opt-in only, dry-run still plans it ──────────────────────────────
+
+
+async def test_capacity_dry_run_counts_months_without_fetching(monkeypatch):
+    """The dedicated block still dispatches when asked for explicitly — and a dry run
+    plans its months without touching the network. Patched on the SOURCE module because
+    run_backfill imports ingest_capacity_prices locally (see test_capacity_prices.py's
+    dispatch test for the same reason)."""
+    from backend.power import entsoe_reserves as cap
+
+    async def _boom(*a, **k):
+        raise AssertionError("ingest called during dry run")
+
+    monkeypatch.setattr(cap, "ingest_capacity_prices", _boom)
+    res = await pb.run_backfill(
+        db=None, start=date(2026, 1, 1), end=date(2026, 3, 31),
+        zones=["DE_LU"], sources={"capacity"},
+        overwrite=False, dry_run=True, throttle=0,
+    )
+    assert res["capacity_months"] == 3
