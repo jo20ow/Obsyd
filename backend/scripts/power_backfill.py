@@ -13,9 +13,20 @@ from cache for free. Meant to run in the ingest process (never the API worker) �
 a mass backfill is a throttled, multi-day marathon against ENTSO-E's rate limit.
 
 Border-level sources (zone-independent, run AFTER the zone loop): "flows" (Energy-Charts
-/cbpf), "scheduled" (A09), "netpos" (A25), "capacity" (A15) and "ntc" (A61 day-ahead NTC —
-NTC-allocated borders only, both directions per pair; the flow-based Core region and the
-Nordics publish none, so a full-history run stays cheap).
+/cbpf), "scheduled" (A09), "netpos" (A25) and "ntc" (A61 day-ahead NTC — NTC-allocated
+borders only, both directions per pair; the flow-based Core region and the Nordics publish
+none, so a full-history run stays cheap).
+
+"balancing" (activated balancing energy, A83/A84) ALSO runs after the zone loop, but it is
+per-zone: ingest_balancing fetches whole control-area MONTHS (one A84 + one A83 request per
+zone-month, raw-cached), so it gets its own zone×month sweep with its own counter instead of
+piggybacking on the per-day sibling sources above. It stays in ALL_SOURCES because that
+volume — 2 requests per zone-month — is the same order as the siblings' 1, unlike the two
+opt-outs below. Pre-availability years (2019–2020 answer empty for many zones) and zones
+without a balancing publication return ENTSO-E's two documented "genuinely nothing here"
+400 phrases, which the collector caches as emptiness (entsoe_balancing.py — ONLY those
+phrases; a 401/429/5xx raises and is never cached), so a deep run pays for each empty
+zone-month exactly once.
 
 "units_gen" (A73 per-unit generation) also runs after the zone loop — it iterates its own
 A73_ZONES config (currently DE_LU = 4 German control areas), not the enabled zones. It is
@@ -25,9 +36,19 @@ fast against the shared ENTSO-E token (the lesson every deep multi-source run he
 re-taught). Recommended --start 2025-01-01; deeper history is possible but each extra year
 is another ~240 requests for a per-plant drill-down whose product value is recent.
 
+"capacity" (procured balancing-capacity prices, A15, DE-LU LFC block only) is likewise
+deliberately NOT in ALL_SOURCES — it is BY FAR the heaviest source per calendar day: 3
+processTypes/day, each offset-paginated in steps of 100 TimeSeries (~69 pages observed for
+a single busy aFRR day → ~200+ requests/day, i.e. thousands of times a sibling source's
+volume), all against the shared ENTSO-E token. Run it EXPLICITLY, LAST and ALONE
+(`--sources capacity --start 2024-01-01`), NEVER bundled with other sources. The German
+daily-tender history barely predates ~2018/2019 and the product value is recent —
+--start 2024-01-01 is the recommended floor; every extra year is ~70k more requests.
+
 FIRST DEPLOY of the balancing/capacity/ntc/units_gen collectors: right after the
-service restart that ships them, run `--sources balancing`, `--sources capacity`,
-`--sources ntc` and `--sources units_gen --start 2025-01-01` once each. Not a launch
+service restart that ships them, run `--sources balancing`, `--sources ntc`,
+`--sources units_gen --start 2025-01-01` and — last and alone, per the warning above —
+`--sources capacity --start 2024-01-01` once each. Not a launch
 blocker if skipped — the 09:00 UTC collector watchdog will email a stale alert
 (balancing_energy/capacity_prices/ntc_dayahead; unit_generation can flag once because
 the 09:40 UTC job has not yet had its first run) until the daily jobs fill the series
@@ -58,7 +79,10 @@ BACKFILL_START = date(2015, 1, 1)  # ENTSO-E Transparency era; override with --s
 # "flows" is zone-independent (one /cbpf sweep covers every border) and runs once
 # per month after the zone loop. Moderate history is the point (--start 2024-01-01
 # per roadmap Block 2.4) — deep flow history adds little over the daily means.
-ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "capacity", "ntc")
+# "capacity" and "units_gen" are deliberately NOT here (see module docstring): both are
+# explicit-opt-in sources whose request volume per default run is far beyond the siblings'
+# (~200+ paginated requests per DAY for A15 vs. 1–2 per zone-MONTH for everything below).
+ALL_SOURCES = ("price", "grid", "forecast", "imbalance", "balancing", "flows", "scheduled", "netpos", "ntc")
 # Small pause between zone-months to stay under ENTSO-E's ~400 req/min token limit.
 THROTTLE_SECONDS = 1.0
 
@@ -129,7 +153,7 @@ async def run_backfill(
     done = 0
     # A flows-only run must not walk the zone×month loop — it would do nothing
     # but sleep through the throttle (37 zones × months × 1 s on prod).
-    zone_sources = sources & {"price", "grid", "forecast", "imbalance", "balancing"}
+    zone_sources = sources & {"price", "grid", "forecast", "imbalance"}
     for zone in zones if zone_sources else []:
         cfg = POWER_ZONES[zone]
         eic = cfg["eic"]
@@ -150,12 +174,43 @@ async def run_backfill(
                 await _with_retry(lambda d=days: ingest_load_forecast(db, d, eic=eic, zone=zone, overwrite=overwrite), f"forecast {tag}")
             if "imbalance" in sources:
                 await _with_retry(lambda d=days: ingest_imbalance(db, d, zone=zone, overwrite=overwrite), f"imbalance {tag}")
-            if "balancing" in sources:
-                await _with_retry(lambda d=days: ingest_balancing(db, d, zone=zone, overwrite=overwrite), f"balancing {tag}")
             done += 1
             logger.info("power_backfill: %s done (%d/%d)", tag, done, plan)
             if throttle:
                 await asyncio.sleep(throttle)
+
+    # Activated balancing energy (A83/A84) is per-zone but runs AFTER the main zone loop:
+    # ingest_balancing fetches whole control-area MONTHS (one A84 + one A83 request per
+    # zone-month, raw-cached), so it gets its own zone×month sweep and counter instead of
+    # piggybacking on the per-day sibling sources above — and a balancing-only run does not
+    # drag the price/grid/forecast/imbalance machinery through the throttle for nothing.
+    # Pre-availability years (2019–2020 answer empty for many zones) are absorbed by the
+    # collector: ENTSO-E's two documented "genuinely nothing here" 400 phrases are cached as
+    # emptiness, ONLY those — so each empty zone-month costs one request, once. A 401/429/5xx
+    # is never cached, but note it is also never retried HERE: ingest_balancing swallows
+    # httpx.HTTPError internally (log-and-skip per month, the sibling per-step-isolation
+    # convention), so the _with_retry wrapper below effectively guards the SQLite-lock/
+    # OSError cases only; an HTTP-failed month simply stays uncached and is re-fetched by
+    # the next run. See the module docstring for why this — at 2 requests per zone-month —
+    # stays in ALL_SOURCES while capacity/units_gen do not.
+    balancing_months = 0
+    if "balancing" in sources:
+        balancing_plan = len(zones) * len(windows)
+        for zone in zones:
+            for m_start, m_end in windows:
+                if dry_run:
+                    balancing_months += 1
+                    continue
+                days = _daterange(m_start, m_end)
+                await _with_retry(
+                    lambda d=days, z=zone: ingest_balancing(db, d, zone=z, overwrite=overwrite),
+                    f"balancing {zone} {m_start:%Y-%m}",
+                )
+                balancing_months += 1
+                logger.info("power_backfill: balancing %s %s done (%d/%d)",
+                            zone, f"{m_start:%Y-%m}", balancing_months, balancing_plan)
+                if throttle:
+                    await asyncio.sleep(throttle)
 
     # Cross-border flows are zone-independent — one month-chunked, raw-cached
     # /cbpf sweep per month covers every enabled border (daily + hourly grain).
@@ -231,12 +286,18 @@ async def run_backfill(
             logger.info("power_backfill: ntc %s done (%d/%d)",
                         f"{m_start:%Y-%m}", ntc_months, len(windows))
 
-    # Balancing-capacity prices (FCR/aFRR/mFRR, A15) are DE_LU-only and zone-independent —
-    # one sweep per month covers the whole German market, like flows/scheduled/netpos above.
-    # NOTE: each day fetches 3 processTypes, each individually offset-paginated (see
-    # backend/power/entsoe_reserves.py) — a deep multi-year --start on this source alone is a
-    # much heavier pull than the other zone-independent sources; pass a narrower --start
-    # (the market's daily-tender history only goes back to ~2018/2019) when backfilling it.
+    # Balancing-capacity prices (FCR/aFRR/mFRR, A15) are DE_LU-only (AREA_DOMAIN in
+    # backend/power/entsoe_reserves.py — the DE-LU LFC block, the one domain that answers)
+    # and zone-independent — one sweep per month covers the whole German market.
+    # ⚠ NOT in ALL_SOURCES, and that must never change casually: each day fetches 3
+    # processTypes, each individually offset-paginated in steps of 100 TimeSeries (~69 pages
+    # observed for one busy aFRR day → ~200+ requests/day against the shared ENTSO-E token —
+    # thousands of times a sibling source's per-day volume). Run it EXPLICITLY, LAST and
+    # ALONE, never bundled with other sources, and with a tight --start (recommended
+    # `--sources capacity --start 2024-01-01`; the daily-tender history barely predates
+    # ~2018/2019 anyway). The month-window calls below are only the retry/log granularity:
+    # the ingest itself fetches DAY by DAY per processType with a per-day raw_cache entry,
+    # so the actual ENTSO-E windows are single days and a crashed month resumes from cache.
     capacity_months = 0
     if "capacity" in sources:
         from backend.power.entsoe_reserves import ingest_capacity_prices
@@ -276,6 +337,7 @@ async def run_backfill(
                         f"{m_start:%Y-%m}", units_gen_months, len(windows))
 
     return {"zone_months": done, "zones": zones, "months": len(windows),
+            "balancing_months": balancing_months,
             "flow_months": flow_months, "scheduled_months": sched_months,
             "netpos_months": netpos_months, "ntc_months": ntc_months,
             "capacity_months": capacity_months,
@@ -300,7 +362,9 @@ def main(argv: list[str]) -> int:
     p.add_argument("--start", default=BACKFILL_START.isoformat())
     p.add_argument("--end", default=date.today().isoformat())
     p.add_argument("--zones", default=None, help="comma list of zone keys (default: all enabled)")
-    p.add_argument("--sources", default=",".join(ALL_SOURCES), help="comma list: price,grid,forecast")
+    p.add_argument("--sources", default=",".join(ALL_SOURCES),
+                   help="comma list (default: every standard source; 'capacity' and "
+                        "'units_gen' are explicit opt-ins — see module docstring)")
     p.add_argument("--overwrite", action="store_true", help="re-fetch cached months")
     p.add_argument("--dry-run", action="store_true", help="print the plan without fetching")
     p.add_argument("--throttle", type=float, default=THROTTLE_SECONDS, help="seconds between zone-months")
@@ -310,6 +374,14 @@ def main(argv: list[str]) -> int:
     end = datetime.strptime(args.end, "%Y-%m-%d").date()
     zones = _resolve_zones(args.zones)
     sources = {s.strip() for s in args.sources.split(",") if s.strip()}
+    # Unknown tokens must be a hard error, not a silent no-op: run_backfill simply
+    # skips sources it doesn't recognise, so a typo like "balancin" would otherwise
+    # sleep through the plan, exit 0 and log "complete" while fetching nothing.
+    known = set(ALL_SOURCES) | {"capacity", "units_gen"}  # opt-ins are valid, just not defaults
+    unknown = sources - known
+    if unknown:
+        logger.error("unknown --sources token(s) %s (valid: %s)", sorted(unknown), sorted(known))
+        return 2
     if not zones:
         logger.error("no valid zones resolved from %r (enabled: %s)", args.zones, list(POWER_ZONES))
         return 2

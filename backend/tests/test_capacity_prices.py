@@ -566,10 +566,16 @@ def test_panel_max_age_mirrors_freshness_spec():
 # ─── backfill registration ──────────────────────────────────────────────────────
 
 
-def test_backfill_source_registered():
+def test_backfill_source_is_explicit_opt_in_only():
+    """"capacity" must stay OUT of ALL_SOURCES (like units_gen): 3 processTypes per day,
+    each offset-paginated in 100-TimeSeries steps (~69 pages observed for one busy aFRR
+    day → ~200+ requests/day against the shared ENTSO-E token). Bundling it into an
+    unfiltered run would multiply the default backfill's request volume by orders of
+    magnitude. Explicit opt-in only: `--sources capacity --start 2024-01-01`, run last
+    and alone — see power_backfill's module docstring."""
     from backend.scripts import power_backfill as pb
 
-    assert "capacity" in pb.ALL_SOURCES
+    assert "capacity" not in pb.ALL_SOURCES
 
 
 async def test_backfill_capacity_runs_once_per_month_not_per_zone(monkeypatch):
