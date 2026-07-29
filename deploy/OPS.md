@@ -12,8 +12,10 @@ documented in each script's header).
 10 4 * * * /home/obsyd/obsyd/deploy/backup-obsyd.sh >> /home/obsyd/obsyd/logs/backup-obsyd.log 2>&1
 
 # Liveness dead-man ping every 10 minutes (probes https://obsyd.dev/api/v1/meta,
-# pings healthchecks ONLY on HTTP 2xx — so one check catches VPS death AND service death):
-*/10 * * * * /home/obsyd/obsyd/deploy/heartbeat.sh
+# pings healthchecks ONLY on HTTP 2xx — so one check catches VPS death AND service
+# death). Success is silent, so the log only grows on failures — and without the
+# redirect those diagnostics would die in cron's mail on this MTA-less VPS:
+*/10 * * * * /home/obsyd/obsyd/deploy/heartbeat.sh >> /home/obsyd/obsyd/logs/heartbeat.log 2>&1
 ```
 
 Both lines are safe to install BEFORE the healthchecks.io account exists: an unset
@@ -46,10 +48,12 @@ supersedes it (sqlite3.backup() API instead of the sqlite3 CLI, plus rotation).
 scp <admin>@<vps>:/home/obsyd/backups/obsyd-YYYYMMDD.db.gz .
 gunzip -k obsyd-YYYYMMDD.db.gz     # keep the .gz; inspect the .db locally if in doubt
 
-# VPS: stop, swap, start
+# VPS: stop, swap, start. NOTE the sh -c: a bare `sudo -u obsyd gunzip … > file`
+# runs the REDIRECT in the invoking shell (EACCES as the admin user; a
+# root-owned obsyd.db as root — the service then breaks on its first write
+# after an apparently successful restore).
 sudo systemctl stop obsyd
-sudo -u obsyd gunzip -kc /home/obsyd/backups/obsyd-YYYYMMDD.db.gz \
-    > /home/obsyd/obsyd/obsyd.db.restored
+sudo -u obsyd sh -c 'gunzip -kc /home/obsyd/backups/obsyd-YYYYMMDD.db.gz > /home/obsyd/obsyd/obsyd.db.restored'
 sudo -u obsyd mv /home/obsyd/obsyd/obsyd.db.restored /home/obsyd/obsyd/obsyd.db
 sudo -u obsyd rm -f /home/obsyd/obsyd/obsyd.db-wal /home/obsyd/obsyd/obsyd.db-shm
 sudo systemctl start obsyd
@@ -90,13 +94,18 @@ nohup .venv/bin/python -m backend.scripts.power_backfill --sources capacity --st
 Notes:
 
 * Order rationale: cheap zone-independent sweeps first (`flows`, `scheduled`,
-  `netpos`, `ntc`), then the bounded per-CTA drill-down (`units_gen`, ~240
-  requests/extra year — acceptable sequentially for the uniform 2019 line, which
-  is why this runbook overrides the module docstring's 2025 floor), then the
+  `netpos`, `ntc`), then the bounded per-CTA drill-down (`units_gen`), then the
   per-zone month sweeps (`imbalance`, `balancing`). `balancing` absorbs
   pre-availability years cheaply: the collector caches ENTSO-E's documented
   "genuinely nothing here" 400 phrases as emptiness, so each empty zone-month
   costs one request, once.
+* This runbook DELIBERATELY overrides the in-code start guidance for two
+  sources, both for the sake of the uniform 2019 line: `flows` (the in-code
+  comment recommends `--start 2024-01-01` per roadmap Block 2.4 — but one
+  cached /cbpf sweep per extra month is cheap, ~60 extra requests for the five
+  extra years) and `units_gen` (module-docstring floor is 2025; ~240 requests
+  per extra year — acceptable run sequentially). `capacity`'s 2024 floor is NOT
+  overridden — see below.
 * `--sources capacity --start 2024-01-01` is a hard recommendation, not a
   default: it is deliberately NOT in `ALL_SOURCES` (see
   `backend/scripts/power_backfill.py`'s module docstring), and every extra year

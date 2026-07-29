@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # OBSYD liveness heartbeat — a dead-man ping to healthchecks.io every 10 minutes.
 #
-# Install (obsyd user's crontab):
+# Install (obsyd user's crontab — the redirect matters: success is silent, but
+# failure diagnostics would otherwise die in cron's mail on this MTA-less VPS):
 #
-#   */10 * * * * /home/obsyd/obsyd/deploy/heartbeat.sh
+#   */10 * * * * /home/obsyd/obsyd/deploy/heartbeat.sh >> /home/obsyd/obsyd/logs/heartbeat.log 2>&1
 #
 # Design: probe the PUBLIC site first, and ping healthchecks ONLY when the probe
 # returns HTTP 2xx. That ping-only-on-200 rule is what makes one check catch BOTH

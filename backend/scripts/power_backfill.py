@@ -374,6 +374,14 @@ def main(argv: list[str]) -> int:
     end = datetime.strptime(args.end, "%Y-%m-%d").date()
     zones = _resolve_zones(args.zones)
     sources = {s.strip() for s in args.sources.split(",") if s.strip()}
+    # Unknown tokens must be a hard error, not a silent no-op: run_backfill simply
+    # skips sources it doesn't recognise, so a typo like "balancin" would otherwise
+    # sleep through the plan, exit 0 and log "complete" while fetching nothing.
+    known = set(ALL_SOURCES) | {"capacity", "units_gen"}  # opt-ins are valid, just not defaults
+    unknown = sources - known
+    if unknown:
+        logger.error("unknown --sources token(s) %s (valid: %s)", sorted(unknown), sorted(known))
+        return 2
     if not zones:
         logger.error("no valid zones resolved from %r (enabled: %s)", args.zones, list(POWER_ZONES))
         return 2

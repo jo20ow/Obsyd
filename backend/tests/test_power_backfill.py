@@ -136,6 +136,29 @@ def test_sources_cli_default_round_trips():
     assert tokens == set(pb.ALL_SOURCES)
 
 
+def test_main_rejects_unknown_source_tokens(monkeypatch):
+    """A typo like "balancin" must exit 2 BEFORE touching the DB — run_backfill skips
+    unrecognised sources, so without the guard a typo'd run sleeps through the plan,
+    exits 0 and logs "complete" while fetching nothing."""
+    def _boom():
+        raise AssertionError("DB opened despite an invalid --sources token")
+
+    monkeypatch.setattr(pb, "SessionLocal", _boom)
+    assert pb.main(["power_backfill", "--sources", "balancin", "--dry-run"]) == 2
+    assert pb.main(["power_backfill", "--sources", "price,balancin", "--dry-run"]) == 2
+
+
+def test_main_accepts_opt_in_source_tokens(monkeypatch):
+    """"capacity" and "units_gen" are valid tokens (explicit opt-ins), just not defaults —
+    the unknown-token guard must not reject them."""
+    class _Session:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(pb, "SessionLocal", lambda: _Session())
+    assert pb.main(["power_backfill", "--sources", "capacity,units_gen", "--dry-run"]) == 0
+
+
 # ─── balancing: per-zone, but its own post-zone-loop sweep ──────────────────────
 
 

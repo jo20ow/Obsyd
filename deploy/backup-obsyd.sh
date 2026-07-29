@@ -12,7 +12,11 @@
 #      API (safe mid-write, no `sqlite3` CLI required — unlike deploy/backup-db.sh,
 #      which this script supersedes for the power-only desk; do NOT cron both, they
 #      would double the disk footprint) + PRAGMA quick_check on the copy.
-#   2. gzip + gzip -t verification.
+#   2. gzip + gzip -t verification — all on a scratch `.part` name, then one atomic
+#      mv into the real obsyd-YYYYMMDD.db.gz. Today's published snapshot is never
+#      pre-cleaned and never deleted by a later failure: a failed same-day re-run
+#      only ever touches its own .part scratch, so it cannot clobber the morning's
+#      good artifact, and a verified snapshot survives any later cosmetic failure.
 #   3. Copy .env alongside as env-YYYYMMDD (chmod 600) — the API tokens are as
 #      unrecoverable as the data in a disaster.
 #   4. Rotation: keep the last 7 dailies (+ their env copies) and the last 4
@@ -25,11 +29,12 @@
 #
 # RESTORE (offsite copy → workstation → VPS; see deploy/OPS.md for the full runbook):
 #   scp <admin>@<vps>:/home/obsyd/backups/obsyd-YYYYMMDD.db.gz .   # pick a date
-#   gunzip obsyd-YYYYMMDD.db.gz                                    # sanity-check locally
-#   # on the VPS:
+#   gunzip -k obsyd-YYYYMMDD.db.gz                                 # sanity-check locally
+#   # on the VPS — NOTE the sh -c: a bare `sudo -u obsyd gunzip … > file` runs the
+#   # REDIRECT in the invoking shell (EACCES as the admin user; a root-owned
+#   # obsyd.db as root, breaking the service on its first write):
 #   sudo systemctl stop obsyd
-#   sudo -u obsyd gunzip -kc /home/obsyd/backups/obsyd-YYYYMMDD.db.gz \
-#       > /home/obsyd/obsyd/obsyd.db.restored
+#   sudo -u obsyd sh -c 'gunzip -kc /home/obsyd/backups/obsyd-YYYYMMDD.db.gz > /home/obsyd/obsyd/obsyd.db.restored'
 #   sudo -u obsyd mv /home/obsyd/obsyd/obsyd.db.restored /home/obsyd/obsyd/obsyd.db
 #   sudo -u obsyd rm -f /home/obsyd/obsyd/obsyd.db-wal /home/obsyd/obsyd/obsyd.db-shm
 #   sudo systemctl start obsyd
@@ -51,7 +56,8 @@ KEEP_SUNDAY="${OBSYD_BACKUP_KEEP_SUNDAY:-4}"
 
 STAMP=$(date -u +%Y%m%d)
 DOW=$(date -u +%u)  # 7 = Sunday
-OUT="$BACKUP_DIR/obsyd-$STAMP.db"
+OUT="$BACKUP_DIR/obsyd-$STAMP.db"  # published artifact is $OUT.gz — written ONLY by the atomic mv below
+PART="$OUT.part"                   # this run's scratch names ($PART, $PART.gz) — all it may pre-clean
 
 # Every file THIS run creates is appended here right before it is created, and
 # fail() removes ONLY these. A fixed cleanup list keyed on today's datestamp
@@ -75,9 +81,12 @@ trap 'fail "unexpected error on line $LINENO"' ERR
 mkdir -p "$BACKUP_DIR"
 
 # ── 1. online-consistent snapshot + integrity check (sqlite3.backup API) ──────
-rm -f "$OUT" "$OUT.gz"  # a re-run REPLACES today's snapshot — deliberate, past the guards above
-CREATED+=("$OUT" "$OUT-journal" "$OUT-wal" "$OUT-shm")
-"$VENV_PY" - "$DB_PATH" "$OUT" <<'PY' || fail "sqlite3.backup() snapshot failed"
+# Scratch-only pre-clean: stale .part leftovers from any crashed run (kill -9
+# never reaches the ERR trap) are unpublished by definition and safe to drop —
+# today's REAL $OUT.gz is deliberately not touched here.
+rm -f "$BACKUP_DIR"/obsyd-*.db.part "$BACKUP_DIR"/obsyd-*.db.part.gz
+CREATED+=("$PART" "$PART-journal" "$PART-wal" "$PART-shm")
+"$VENV_PY" - "$DB_PATH" "$PART" <<'PY' || fail "sqlite3.backup() snapshot failed"
 import sqlite3, sys
 
 src = sqlite3.connect(sys.argv[1])
@@ -92,13 +101,17 @@ finally:
     dst.close()
     src.close()
 PY
-rm -f "$OUT-journal" "$OUT-wal" "$OUT-shm"  # sidecars materialised by the check
-[ -s "$OUT" ] || fail "snapshot is empty"
+rm -f "$PART-journal" "$PART-wal" "$PART-shm"  # sidecars materialised by the check
+[ -s "$PART" ] || fail "snapshot is empty"
 
-# ── 2. compress + verify ──────────────────────────────────────────────────────
-CREATED+=("$OUT.gz")
-gzip -f "$OUT" || fail "gzip failed"
-gzip -t "$OUT.gz" || fail "gzip verification failed"
+# ── 2. compress + verify on the scratch name, then publish ATOMICALLY ─────────
+CREATED+=("$PART.gz")
+gzip -f "$PART" || fail "gzip failed"          # $PART → $PART.gz
+gzip -t "$PART.gz" || fail "gzip verification failed"
+# Verified good — publish with one same-filesystem rename. $OUT.gz is NOT added
+# to CREATED: from here on the daily snapshot is immune to any later failure
+# (fail() removes only this run's scratch + its own Sunday/env copies).
+mv -f "$PART.gz" "$OUT.gz" || fail "atomic publish (mv) failed"
 
 # ── 3. Sunday copy (kept on a longer leash by the rotation below) ─────────────
 if [ "$DOW" = "7" ]; then
