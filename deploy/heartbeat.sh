@@ -11,8 +11,9 @@
 #   * VPS death / cron death / network partition → this script never runs → no
 #     ping → healthchecks fires after its grace period.
 #   * Service death with the VPS alive (uvicorn crashed, Caddy/TLS/DNS broken,
-#     Docker ate the bridge again) → the probe fails (`curl -f`) → the script
-#     exits non-zero WITHOUT pinging → healthchecks fires just the same.
+#     Docker ate the bridge again) → the probe's status code is not 2xx (or the
+#     request itself fails) → the script exits non-zero WITHOUT pinging →
+#     healthchecks fires just the same.
 # A design that pinged unconditionally would only ever catch the first mode.
 #
 # The probe goes through https://obsyd.dev (public URL, not localhost:8000) on
@@ -37,8 +38,18 @@ if [ -z "${HEALTHCHECKS_LIVE_URL:-}" ] && [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE"
 fi
 [ -n "${HEALTHCHECKS_LIVE_URL:-}" ] || exit 0  # no check configured yet — do nothing
 
-# Probe first: any non-2xx / timeout / TLS error makes curl -f fail, set -e ends
-# the script here with a non-zero exit, and the ping below never happens.
-curl -fsS -m 10 -o /dev/null "$PROBE_URL"
+# Probe first, gating STRICTLY on 2xx. Deliberately no `curl -f` here: -f only
+# fails at >=400, so a 3xx (misconfigured Caddy redirect, parked domain) would
+# count as "alive". Instead capture the status code (no redirect following) and
+# accept 2xx only; a timeout/TLS/connect failure yields curl's "000", which the
+# same check rejects. The ping below never happens unless this passes.
+status=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$PROBE_URL" || true)
+case "$status" in
+    2??) ;;  # genuinely alive — fall through to the healthchecks ping
+    *)
+        echo "[heartbeat] probe failed: HTTP $status from $PROBE_URL" >&2
+        exit 1
+        ;;
+esac
 
 curl -fsS -m 10 --retry 3 -o /dev/null "$HEALTHCHECKS_LIVE_URL"

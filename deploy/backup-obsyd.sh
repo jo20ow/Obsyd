@@ -53,12 +53,19 @@ STAMP=$(date -u +%Y%m%d)
 DOW=$(date -u +%u)  # 7 = Sunday
 OUT="$BACKUP_DIR/obsyd-$STAMP.db"
 
+# Every file THIS run creates is appended here right before it is created, and
+# fail() removes ONLY these. A fixed cleanup list keyed on today's datestamp
+# would let a failed MANUAL re-run later the same day delete the morning's GOOD
+# snapshot/env/Sunday copy — files that run never touched.
+CREATED=()
+
 fail() {
     echo "[backup-obsyd] FAIL: $1" >&2
-    # never leave today's partial artifacts behind (an uncompressed .db once
+    # never leave THIS run's partial artifacts behind (an uncompressed .db once
     # filled the disk and took the site down — see backup-db.sh's war story)
-    rm -f "$OUT" "$OUT-journal" "$OUT-wal" "$OUT-shm" "$OUT.gz" \
-        "$BACKUP_DIR/sunday-obsyd-$STAMP.db.gz" "$BACKUP_DIR/env-$STAMP"
+    if [ "${#CREATED[@]}" -gt 0 ]; then
+        rm -f -- "${CREATED[@]}"
+    fi
     exit 1
 }
 trap 'fail "unexpected error on line $LINENO"' ERR
@@ -68,7 +75,8 @@ trap 'fail "unexpected error on line $LINENO"' ERR
 mkdir -p "$BACKUP_DIR"
 
 # ── 1. online-consistent snapshot + integrity check (sqlite3.backup API) ──────
-rm -f "$OUT" "$OUT.gz"
+rm -f "$OUT" "$OUT.gz"  # a re-run REPLACES today's snapshot — deliberate, past the guards above
+CREATED+=("$OUT" "$OUT-journal" "$OUT-wal" "$OUT-shm")
 "$VENV_PY" - "$DB_PATH" "$OUT" <<'PY' || fail "sqlite3.backup() snapshot failed"
 import sqlite3, sys
 
@@ -88,17 +96,20 @@ rm -f "$OUT-journal" "$OUT-wal" "$OUT-shm"  # sidecars materialised by the check
 [ -s "$OUT" ] || fail "snapshot is empty"
 
 # ── 2. compress + verify ──────────────────────────────────────────────────────
+CREATED+=("$OUT.gz")
 gzip -f "$OUT" || fail "gzip failed"
 gzip -t "$OUT.gz" || fail "gzip verification failed"
 
 # ── 3. Sunday copy (kept on a longer leash by the rotation below) ─────────────
 if [ "$DOW" = "7" ]; then
+    CREATED+=("$BACKUP_DIR/sunday-obsyd-$STAMP.db.gz")
     cp "$OUT.gz" "$BACKUP_DIR/sunday-obsyd-$STAMP.db.gz" || fail "sunday copy failed"
 fi
 
 # ── 4. secrets copy — set OBSYD_ENV_FILE="" to opt out explicitly ─────────────
 if [ -n "$ENV_FILE" ]; then
     [ -f "$ENV_FILE" ] || fail ".env not found: $ENV_FILE (set OBSYD_ENV_FILE=\"\" to skip)"
+    CREATED+=("$BACKUP_DIR/env-$STAMP")
     install -m 600 "$ENV_FILE" "$BACKUP_DIR/env-$STAMP" || fail "env copy failed"
 fi
 

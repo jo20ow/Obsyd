@@ -186,9 +186,13 @@ async def run_backfill(
     # drag the price/grid/forecast/imbalance machinery through the throttle for nothing.
     # Pre-availability years (2019–2020 answer empty for many zones) are absorbed by the
     # collector: ENTSO-E's two documented "genuinely nothing here" 400 phrases are cached as
-    # emptiness, ONLY those (a 401/429/5xx raises → retried here, never cached), so each
-    # empty zone-month costs one request, once. See the module docstring for why this — at
-    # 2 requests per zone-month — stays in ALL_SOURCES while capacity/units_gen do not.
+    # emptiness, ONLY those — so each empty zone-month costs one request, once. A 401/429/5xx
+    # is never cached, but note it is also never retried HERE: ingest_balancing swallows
+    # httpx.HTTPError internally (log-and-skip per month, the sibling per-step-isolation
+    # convention), so the _with_retry wrapper below effectively guards the SQLite-lock/
+    # OSError cases only; an HTTP-failed month simply stays uncached and is re-fetched by
+    # the next run. See the module docstring for why this — at 2 requests per zone-month —
+    # stays in ALL_SOURCES while capacity/units_gen do not.
     balancing_months = 0
     if "balancing" in sources:
         balancing_plan = len(zones) * len(windows)
