@@ -308,6 +308,10 @@ def sum_component_load_hourly(
     Since 2025-10-23T11:00Z the NIE leg is dead entirely (see
     A65_COMPONENT_EICS), so this same rule is what keeps post-cutoff IE_SEM
     load an honest gap instead of a Republic-only number.
+    The intersection is at HOUR level: parse_load_hourly has already averaged
+    each leg's sub-hourly slots into an hourly MEAN (not a sum), so a leg with
+    only one of its two half-hour slots still yields a valid hour — only hours
+    a leg missed entirely are dropped.
     A single-part list passes through unchanged (the normal one-EIC case).
     """
     if not parts:

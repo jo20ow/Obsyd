@@ -7,12 +7,24 @@ export default function SettingsPanel({ open, onClose }) {
   const [saving, setSaving] = useState(false)
   const [primary, setPrimary] = useState('')
   const [fallback, setFallback] = useState('')
+  // GET /api/settings is owner-only (require_pro) since the 2026-07 audit. A
+  // 401/403 must render an explicit notice — an empty panel would show "○ NOT
+  // SET" for keys that ARE set, a lying public state.
+  const [ownerOnly, setOwnerOnly] = useState(false)
 
   useEffect(() => {
     if (!open) return
     fetch(`${API}/settings`)
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (r.status === 401 || r.status === 403) {
+          setOwnerOnly(true)
+          return null
+        }
+        setOwnerOnly(false)
+        return r.ok ? r.json() : null
+      })
       .then((s) => {
+        if (!s) return
         setSettings(s)
         setPrimary(s?.price_provider || '')
         setFallback(s?.price_fallback || '')
@@ -21,6 +33,28 @@ export default function SettingsPanel({ open, onClose }) {
   }, [open])
 
   if (!open) return null
+
+  if (ownerOnly) {
+    return (
+      <>
+        <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
+        <div className="fixed top-0 right-0 h-full w-80 bg-[#0a0a0f] border-l border-border z-50 overflow-y-auto">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+            <span className="font-mono text-sm text-neutral-300">SETTINGS</span>
+            <button
+              onClick={onClose}
+              className="font-mono text-neutral-600 hover:text-neutral-300 text-lg"
+            >
+              ×
+            </button>
+          </div>
+          <div className="px-5 py-4 font-mono text-xs text-neutral-400">
+            Owner-only — provider settings require the owner login.
+          </div>
+        </div>
+      </>
+    )
+  }
 
   const providers = settings?.available_providers || []
   const credits = settings?.twelvedata_credits || {}

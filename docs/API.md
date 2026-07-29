@@ -119,8 +119,9 @@ Call `/api/v1/meta` for the live list. Values are hourly-canonical UTC; actuals 
 Recent windows are deliberately re-fetched with overwrite every night (the daily
 reverify), so recently served values can be restated when ENTSO-E revises its own
 publication. Responses reflect the store at request time — there is no
-historical-snapshot pinning. If you need bit-identical reproducibility, record your
-pull date or self-host a frozen copy (see "Known Limitations" in the README).
+historical-snapshot pinning. If you need bit-identical reproducibility, archive
+what you pulled (and record the pull date), or self-host a frozen copy (see
+"Known Limitations" in the README).
 
 ## Python client
 

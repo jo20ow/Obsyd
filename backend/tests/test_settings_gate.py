@@ -46,7 +46,10 @@ def test_owner_with_active_subscription_can_read(client, db_session):
 
     resp = client.get("/api/settings", cookies=cookies)
     assert resp.status_code == 200
-    assert "primary" in resp.json() or isinstance(resp.json(), dict)
+    body = resp.json()
+    # The real provider-config payload (backend/providers/price_provider.get_settings).
+    assert "price_provider" in body
+    assert "available_providers" in body
 
     resp = client.get("/api/settings/credits", cookies=cookies)
     assert resp.status_code == 200
