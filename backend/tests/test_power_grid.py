@@ -406,11 +406,16 @@ async def test_a_fuel_that_is_only_published_by_day_is_averaged_over_the_whole_d
     assert row.gen_hours == 24, "wind reports through the night — the day has no hole in it"
 
 
-# ── IE_SEM: A65 died on the BZ EIC — load is the sum of two control areas ─────
+# ── IE_SEM: A65 history is the sum of two control areas; dead since 2025-10-23 ─
 # ENTSO-E stopped publishing actual load for the SEM bidding zone
-# (10Y1001A1001A59C) on 2025-10-23 (recent windows return an Acknowledgement)
-# while the EirGrid + NIE control areas kept publishing; their sum equals the
-# historical BZ series point-wise (probe 2026-07-29: 3191.69 + 597.00 = 3788.69).
+# (10Y1001A1001A59C) AND for the NIE control area at the same instant —
+# 2025-10-23T11:00Z (probed 2026-07-29). Only EirGrid still publishes, and it is
+# Republic-only, ~1 GW short of the island total (cutoff seam: zone 5501.92 MW
+# vs EirGrid 4467.92 at 10:30Z, no step in EirGrid after) — it must never be
+# served as the zone's load. The CTA sum equals the historical BZ series
+# point-wise (2025-10-20 00:00Z: EirGrid 3191.69 + NIE 597.00 = 3788.69);
+# post-cutoff the both-legs rule produces an honest gap and the zone's load
+# shows stale on /api/v1/status.
 
 
 def test_sum_component_load_hourly_single_part_passes_through():
@@ -433,13 +438,13 @@ def test_sum_component_load_hourly_dead_component_yields_nothing():
     assert grid_mod.sum_component_load_hourly([]) == {}
 
 
-async def test_ingest_grid_ie_sem_sums_control_areas(db_session, monkeypatch):
-    """IE_SEM load is fetched per component CTA EIC and summed — the BZ EIC
-    (dead for A65) must not be queried for load at all."""
+async def test_ingest_grid_ie_sem_sums_control_areas_for_history(db_session, monkeypatch):
+    """Pre-cutoff IE_SEM load is fetched per component CTA EIC and summed — the
+    BZ EIC (dead for A65) must not be queried for load at all."""
     from pydantic import SecretStr
 
-    ie_xml = _a65(_load_ts("2026-04-01T00:00Z", 3200.0))
-    ni_xml = _a65(_load_ts("2026-04-01T00:00Z", 600.0))
+    ie_xml = _a65(_load_ts("2025-04-01T00:00Z", 3200.0))  # pre-cutoff: both legs live
+    ni_xml = _a65(_load_ts("2025-04-01T00:00Z", 600.0))
     a65_eics: list[str] = []
 
     async def fake_fetch(eic, month_start, doctype, extra_params, *, overwrite=False):
@@ -454,11 +459,41 @@ async def test_ingest_grid_ie_sem_sums_control_areas(db_session, monkeypatch):
     monkeypatch.setattr(grid_mod.settings, "entsoe_api_token", SecretStr("test-token"))
 
     result = await grid_mod.ingest_grid(
-        db_session, ["2026-04-01"], eic="10Y1001A1001A59C", zone="IE_SEM"
+        db_session, ["2025-04-01"], eic="10Y1001A1001A59C", zone="IE_SEM"
     )
     assert result["written"] == 1
     assert a65_eics == ["10YIE-1001A00010", "10Y1001A1001A016"]
 
-    row = db_session.query(PowerGrid).filter_by(date="2026-04-01", zone="IE_SEM").first()
+    row = db_session.query(PowerGrid).filter_by(date="2025-04-01", zone="IE_SEM").first()
     assert row is not None
     assert row.load_mw == 3800.0  # 3200 (EirGrid) + 600 (NIE)
+
+
+async def test_ingest_grid_ie_sem_post_cutoff_is_a_gap_not_roi_only(db_session, monkeypatch):
+    """After 2025-10-23T11:00Z the NIE leg is dead: the zone must have NO load
+    (honest gap → the load-aware freshness probe reports stale) rather than
+    EirGrid's Republic-only number dressed up as the all-island total."""
+    from pydantic import SecretStr
+
+    ie_xml = _a65(_load_ts("2025-11-05T00:00Z", 4400.0))  # EirGrid still publishes
+    gen_xml = _a75_gen(_gen_ts("B19", "2025-11-05T00:00Z", 1_500.0))  # wind still on BZ EIC
+
+    async def fake_fetch(eic, month_start, doctype, extra_params, *, overwrite=False):
+        if doctype == "A65":
+            # NIE (and the BZ EIC, were it queried) return an Acknowledgement → ""
+            return ie_xml if eic == "10YIE-1001A00010" else ""
+        if doctype == "A75":
+            return gen_xml
+        return ""
+
+    monkeypatch.setattr(grid_mod, "_fetch_zone_month", fake_fetch)
+    monkeypatch.setattr(grid_mod.settings, "entsoe_api_token", SecretStr("test-token"))
+
+    await grid_mod.ingest_grid(
+        db_session, ["2025-11-05"], eic="10Y1001A1001A59C", zone="IE_SEM"
+    )
+
+    row = db_session.query(PowerGrid).filter_by(date="2025-11-05", zone="IE_SEM").first()
+    assert row is not None            # A75 still writes the generation side
+    assert row.load_mw is None        # but load is a GAP — not 4400 (RoI-only)
+    assert row.wind_mw == 1_500.0

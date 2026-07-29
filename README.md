@@ -140,7 +140,7 @@ The React frontend renders the bidding-zone map with deck.gl (real zone geometry
 - **Energy-Charts flows are country-level** — Nordic/Italian sub-zones have no per-sub-zone border series.
 - **yfinance is unofficial** — the TTF leg of the spark spread may lag or temporarily fail.
 - **SQLite single-writer** — sufficient for moderate traffic; not suitable for high-concurrency deployments.
-- **IE_SEM actual load is stitched from two control areas** — ENTSO-E stopped publishing actual load for the SEM bidding zone on 2025-10-23. OBSYD sums the EirGrid and Northern Ireland control-area series instead (verified point-wise identical to the historical zone series); an hour missing from either leg is served as a gap, not a guess.
+- **IE_SEM actual load ends 2025-10-23 (source-side)** — ENTSO-E stopped publishing actual load for the SEM bidding zone *and* for the Northern Ireland control area at the same instant (2025-10-23 11:00 UTC); only the Republic-only EirGrid series continues, which is ~1 GW short of the island total. OBSYD serves the all-island history up to the cutoff (stitched from the two control-area series, verified point-wise identical to the zone series) and shows the zone's load as honestly stale since — no Republic-only substitute, no guess.
 - **Data revisions** — recent windows are deliberately re-fetched with overwrite (the nightly reverify), so recently served values can be restated when ENTSO-E revises its own publication. Series responses reflect the store at request time; there is no historical-snapshot pinning. If you need bit-identical reproducibility, record your pull date or self-host a frozen copy.
 
 ## Citing OBSYD
