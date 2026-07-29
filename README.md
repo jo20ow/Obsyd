@@ -1,6 +1,6 @@
 # OBSYD — the European electricity desk
 
-**One desk for the European power grid: day-ahead prices at the market's real 15-minute resolution, load & residual load, generation mix, a live generation-outage board, cross-border flows and reservoir levels across 37 bidding zones — plus forecasts and the gas that fuels the marginal price — from the official record (ENTSO-E, Fraunhofer Energy-Charts, GIE).**
+**One desk for the European power grid: day-ahead prices, load & residual load and generation mix across 37 bidding zones — hourly everywhere, 15-minute day-ahead where SDAC trades it (35 of 37 zones; CH and IE-SEM are hourly-only) — plus a live generation-outage board (where zones publish outages), country-level cross-border flows, reservoir levels for the 15 hydro zones, forecasts and the gas that fuels the marginal price — from the official record (ENTSO-E, Fraunhofer Energy-Charts, GIE).**
 
 [Live Demo](https://obsyd.dev) · [Free & open source](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
@@ -19,8 +19,8 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 
 ## Features
 
-- **~37 European bidding zones** — all 27 EU zones plus non-EU neighbours CH, NO1–5, SE1–4 (config-only via `ENABLED_ZONES`)
-- **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load, forecasts and imbalance prices, per zone
+- **37 European bidding zones** — 27 EU bidding zones + 10 more (CH, NO1–5, SE1–4); the Baltic zones (EE/LV/LT) are not yet enabled (config-only via `ENABLED_ZONES`)
+- **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load and forecasts per zone; imbalance prices for 35 of 37 zones (history depth varies by zone — the deepest imbalance series start in 2021)
 - **Imbalance prices** — 15-min settlement prices → hourly, per zone (DE-LU included: the combined reBAP is served under the country EIC)
 - **Installed capacity** — generation capacity by fuel per zone (ENTSO-E A68), annual context
 - **Near-real-time** — actual load/generation/flows refresh every 30 min; today fills in hour by hour (the honest ~1h ceiling of free ENTSO-E data)
@@ -34,7 +34,7 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 - **Interactive series explorer** — query any series/zone/range, **compare two zones** on one chart, download as CSV
 - **Chart-Builder** (`/builder`) — the series explorer as its own full-screen, shareable-URL page
 - **Embeddable widgets + badges** — self-refreshing `/embed/<zone>/<metric>` iframes (price/genmix/load) and `/api/v1/badge` SVG status images for READMEs/dashboards
-- **Activated balancing energy** — aFRR/mFRR activation price (and volume, where ENTSO-E serves it) per zone
+- **Activated balancing energy** — aFRR/mFRR activation prices per zone; volumes are not served by ENTSO-E's API (A83 fails structurally for every zone tried) — prices only
 - **German balancing-capacity prices** — FCR/aFRR/mFRR procured-capacity tenders (DE-LU LFC block)
 - **Transmission outages** — cross-border line/PST unavailability (ENTSO-E A78) alongside the generation-outage board (A77)
 - **Live today-view** — near-real-time load, generation mix and day-ahead price for the current day, refreshing intraday
@@ -77,10 +77,11 @@ cp .env.example .env    # Fill in API keys (see table below)
 # Frontend
 cd frontend && npm install && npm run build && cd ..
 
-# Run
+# Run the backend — API + interactive docs at http://localhost:8000/api/docs
 uvicorn backend.main:app
-# Open http://localhost:8000
 ```
+
+`uvicorn` serves the **API only** on :8000 (Swagger UI at `/api/docs`). For the UI, either run the Vite dev server — `cd frontend && npm run dev`, which serves the app at http://localhost:5173 and proxies `/api` to :8000 — or serve the built `frontend/dist` behind a reverse proxy (what the `deploy/` scripts set up).
 
 ## API Keys
 
@@ -128,7 +129,7 @@ AISStream / AISHub (vessel AIS), IMF PortWatch (chokepoints), EIA (US oil), FRED
 
 ## Architecture
 
-FastAPI backend with APScheduler running the collection jobs (nightly deep ingest, 30-min intraday refresh for load/generation/flows, 2h outage refresh, 5-min anomaly evaluation). Everything lands in a canonical hourly store (`power_hourly`, SQLite WAL, single writer) plus per-domain tables; every raw API payload is disk-cached so recalibrations never re-hit the sources. The anomaly radar runs pure, descriptive detectors against persisted state every 5 minutes.
+FastAPI backend with APScheduler running the collection jobs (nightly deep ingest, 30-min intraday refresh for load/generation/flows, 6h outage refresh plus an hourly offline-capacity snapshot, 5-min anomaly evaluation). Everything lands in a canonical hourly store (`power_hourly`, SQLite WAL, single writer) plus per-domain tables; every raw API payload is disk-cached so recalibrations never re-hit the sources. The anomaly radar runs pure, descriptive detectors against persisted state every 5 minutes.
 
 The React frontend renders the bidding-zone map with deck.gl (real zone geometry, © Electricity Maps contributors), time series with Recharts, and follows a monospace terminal aesthetic. Dormant non-power modules (AIS map, chokepoints, metals, sentiment) remain in the tree for extraction into a sibling project and are lazy-loaded out of the main bundle.
 
@@ -139,6 +140,23 @@ The React frontend renders the bidding-zone map with deck.gl (real zone geometry
 - **Energy-Charts flows are country-level** — Nordic/Italian sub-zones have no per-sub-zone border series.
 - **yfinance is unofficial** — the TTF leg of the spark spread may lag or temporarily fail.
 - **SQLite single-writer** — sufficient for moderate traffic; not suitable for high-concurrency deployments.
+- **IE_SEM actual load is stitched from two control areas** — ENTSO-E stopped publishing actual load for the SEM bidding zone on 2025-10-23. OBSYD sums the EirGrid and Northern Ireland control-area series instead (verified point-wise identical to the historical zone series); an hour missing from either leg is served as a gap, not a guess.
+- **Data revisions** — recent windows are deliberately re-fetched with overwrite (the nightly reverify), so recently served values can be restated when ENTSO-E revises its own publication. Series responses reflect the store at request time; there is no historical-snapshot pinning. If you need bit-identical reproducibility, record your pull date or self-host a frozen copy.
+
+## Citing OBSYD
+
+If OBSYD's data or code feeds into published work, cite the archived Zenodo release once it is available — the DOI will be added to [CITATION.cff](CITATION.cff) after the first archived release. Until then:
+
+```bibtex
+@software{weisser_obsyd_2026,
+  author  = {Weisser, Johannes},
+  title   = {OBSYD --- European Power Desk},
+  year    = {2026},
+  url     = {https://obsyd.dev},
+  version = {1.0.0},
+  note    = {Source: https://github.com/jo20ow/Obsyd. DOI via Zenodo forthcoming.}
+}
+```
 
 ## License
 

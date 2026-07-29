@@ -39,14 +39,24 @@
 
     <!--
       Plausible Analytics — privacy-friendly, no cookies, GDPR-ready.
-      Account-specific snippet (new "pa-" script format) from the obsyd.dev
-      dashboard; extensions like outbound links are configured there.
-      If you don't want analytics at all, just delete these two script tags.
+      Loaded ONLY on the hosted obsyd.dev domain: a self-hosted build must not
+      phone home to plausible.io (or anywhere else). Account-specific snippet
+      (new "pa-" script format) from the obsyd.dev dashboard; extensions like
+      outbound links are configured there. Delete this block to drop analytics
+      from the hosted build too.
     -->
-    <script async src="https://plausible.io/js/pa-8zzBoFwIXHS4Y5B2bDFaV.js"></script>
     <script>
-      window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-      plausible.init()
+      (function () {
+        var h = location.hostname;
+        if (h !== 'obsyd.dev' && h !== 'www.obsyd.dev') return;
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://plausible.io/js/pa-8zzBoFwIXHS4Y5B2bDFaV.js';
+        document.head.appendChild(s);
+        window.plausible = window.plausible || function () { (plausible.q = plausible.q || []).push(arguments) };
+        plausible.init = plausible.init || function (i) { plausible.o = i || {} };
+        plausible.init();
+      })();
     </script>
   </head>
   <body>

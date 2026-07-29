@@ -45,6 +45,12 @@ class FreshnessSpec:
     is_date_string: bool = False # True → column is "YYYY-MM-DD" delivery-date string
     filter_col: str | None = None
     filter_val: str | None = None
+    #: Require this column to be non-NULL for a row to count as fresh. The grid
+    #: probe uses it: a PowerGrid row is written even when only A75 generation
+    #: arrived (load_mw NULL), so a row-existence probe kept IE_SEM "fresh" for
+    #: nine months after its A65 load feed died (2025-10-23 — the wind-only-rows
+    #: incident). Freshness must follow the data the probe claims to monitor.
+    not_null_col: str | None = None
     #: Set for canonical-store series: probe max(power_hourly.ts_utc) for this
     #: series key across ALL zones ("is the collector alive at all"), instead
     #: of a model column. model/column are ignored then.
@@ -175,8 +181,14 @@ SPECS += [
 for _z in POWER_ZONES:
     SPECS.append(FreshnessSpec(f"power_dayahead:{_z}", PowerPriceDaily, "date", timedelta(days=2),
                                is_date_string=True, filter_col="zone", filter_val=_z))
+    # not_null_col="load_mw": the grid probe follows LOAD, not row existence.
+    # ingest_grid writes a row whenever A75 generation arrives, so wind-only rows
+    # kept /api/v1/status green for IE_SEM while its A65 load feed had been dead
+    # since 2025-10-23. last_seen is therefore the last day WITH load — the honest
+    # frontier of the series the desk actually leads with (residual derives from it).
     SPECS.append(FreshnessSpec(f"power_grid:{_z}", PowerGrid, "date", timedelta(days=3),
-                               is_date_string=True, filter_col="zone", filter_val=_z))
+                               is_date_string=True, filter_col="zone", filter_val=_z,
+                               not_null_col="load_mw"))
 
 
 def freshness_meta(as_of: str | None, today: _date | None, max_age_days: int) -> dict:
@@ -211,6 +223,8 @@ def _spec_max(db, spec: FreshnessSpec):
     q = db.query(func.max(getattr(spec.model, spec.column)))
     if spec.filter_col is not None:
         q = q.filter(getattr(spec.model, spec.filter_col) == spec.filter_val)
+    if spec.not_null_col is not None:
+        q = q.filter(getattr(spec.model, spec.not_null_col).isnot(None))
     return q.scalar()
 
 

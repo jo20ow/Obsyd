@@ -19,11 +19,15 @@ One time series for one bidding zone over a date range — the core endpoint.
 | `start` | 30 days ago | `YYYY-MM-DD` or ISO 8601 |
 | `end` | *open* | no ceiling — everything on record (deliberately NOT "now": late-arriving hours must not be cut off) |
 | `resolution` | `hourly` | `hourly` (raw store resolution — `.qh` series return 15-min steps) or `daily` (daily mean; rows carry `hours`, 24 = a settled day) |
-| `format` | `json` | `json` (>100k points returns HTTP 200 with `available:false` + a reason — use csv/parquet), `csv` (streamed, unbounded), or `parquet` (unbounded; HTTP 501 if the server lacks pyarrow) |
+| `format` | `json` | `json` (>100k points returns HTTP 200 with `available:false` + a reason — use csv/parquet), `csv` (streamed), or `parquet` (HTTP 501 if the server lacks pyarrow). Every format shares a per-request scan cap of 1,500,000 rows — a wider range returns `available:false` with a reason to narrow `start`/`end` |
 
-Rate limit: ~120 req/min/IP applies to `/series`, `/genmix`, `/snapshot` and the
-`/badge/*.svg` widgets below; the reference endpoints (`/meta`, `/zones`,
-`/status`, `/capacity`, `/units`, `/series/catalog`) are not rate-limited.
+Rate limit: the ~120 req/min/IP budget applies to **every** `/api/v1` endpoint —
+data (`/series`, `/genmix`, `/snapshot`), reference (`/meta`, `/zones`, `/status`,
+`/capacity`, `/units`, `/series/catalog`) and the `/badge/*.svg` widgets alike.
+On top of that, the heavier scans — `/series`, `/genmix`, `/snapshot`,
+`/series/catalog`, `/status` and `/api/power/units/history` — share a concurrency
+guard: at most 8 heavy queries run at once server-wide; an excess request gets an
+immediate HTTP 503 with a retry message rather than queueing.
 "Nothing found" (unknown series, empty window) is HTTP 200 with
 `available:false` + `reason`, not a 4xx.
 
@@ -109,6 +113,14 @@ delivery date), and an overall `healthy` flag. "Here is exactly what is fresh an
 
 Call `/api/v1/meta` for the live list. Values are hourly-canonical UTC; actuals carry a
 ~1 hour publication lag (the honest ceiling of free ENTSO-E data).
+
+## Data revisions & reproducibility
+
+Recent windows are deliberately re-fetched with overwrite every night (the daily
+reverify), so recently served values can be restated when ENTSO-E revises its own
+publication. Responses reflect the store at request time — there is no
+historical-snapshot pinning. If you need bit-identical reproducibility, record your
+pull date or self-host a frozen copy (see "Known Limitations" in the README).
 
 ## Python client
 
