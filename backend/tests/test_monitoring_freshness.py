@@ -44,6 +44,27 @@ def test_source_with_no_data_is_not_fresh(db_session):
     assert result["gas_balance"]["fresh"] is False
 
 
+def test_grid_freshness_requires_load_not_just_any_row(db_session):
+    """Wind-only PowerGrid rows are NOT fresh load. The IE_SEM 2025-10 incident:
+    A65 load died while A75 kept writing (wind-only) rows, and the row-existence
+    probe reported the zone green for nine months. The grid probe must follow
+    load_mw, and last_seen must be the last day WITH load."""
+    from backend.models.energy import PowerGrid
+
+    now = datetime(2026, 7, 2, 12, 0, tzinfo=timezone.utc)
+    db_session.add(PowerGrid(date="2026-07-01", zone="DE_LU", load_mw=None, wind_mw=4_000.0))
+    db_session.commit()
+    result = evaluate_freshness(db_session, now=now)
+    assert result["power_grid:DE_LU"]["fresh"] is False
+    assert result["power_grid:DE_LU"]["last_seen"] is None
+
+    db_session.add(PowerGrid(date="2026-06-30", zone="DE_LU", load_mw=50_000.0))
+    db_session.commit()
+    result = evaluate_freshness(db_session, now=now)
+    assert result["power_grid:DE_LU"]["fresh"] is True
+    assert result["power_grid:DE_LU"]["last_seen"] == "2026-06-30"  # not the wind-only 07-01
+
+
 def test_spec_covers_product_critical_sources(db_session):
     now = datetime(2026, 7, 2, 12, 0, tzinfo=timezone.utc)
     result = evaluate_freshness(db_session, now=now)

@@ -17,8 +17,9 @@ class ProviderUpdate(BaseModel):
 
 
 @router.get("")
-def get_settings():
-    """Get current provider configuration."""
+def get_settings(_user: dict = Depends(require_pro)):
+    """Get current provider configuration. Owner-only (require_pro) like the POST
+    below — provider wiring is server internals, not public data."""
     return price_provider.get_settings()
 
 
@@ -34,8 +35,9 @@ def set_provider(body: ProviderUpdate, _user: dict = Depends(require_pro)):
 
 
 @router.get("/credits")
-def get_credits():
-    """Get Twelve Data credit usage for today."""
+def get_credits(_user: dict = Depends(require_pro)):
+    """Get Twelve Data credit usage for today. Owner-only (require_pro) — quota
+    counters are operational internals."""
     from backend.providers.twelvedata_provider import get_credits_used
 
     return get_credits_used()

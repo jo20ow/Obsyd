@@ -39,6 +39,29 @@ logger = logging.getLogger(__name__)
 # German-Luxembourg bidding zone EIC code (same as entsoe_prices.py)
 DE_LU_EIC = "10Y1001A1001A82H"
 
+#: Bidding zones whose A65 ACTUAL LOAD must be fetched from component control
+#: areas and summed. ENTSO-E stopped publishing actual load for the SEM bidding
+#: zone (10Y1001A1001A59C) at 2025-10-23T11:00Z — and for the NIE control area
+#: at the SAME instant (probed 2026-07-29: NIE's last published period also ends
+#: 2025-10-23T11:00Z). Only the EirGrid CTA still publishes, and it is
+#: Republic-only, NOT the all-island total: right before the cutoff the zone
+#: read 5501.92 MW vs EirGrid's 4467.92 (Δ = 1034 MW of NI load), EirGrid shows
+#: no step at the cutoff (10:30Z 4467.92 → 11:00Z 4397.23), and its 2026-01-15
+#: winter evening peak (5536 MW) is RoI-scale, not the all-island ~6.5-7 GW.
+#: So: summing the CTAs serves the HISTORY exactly (verified point-wise,
+#: 2025-10-20 00:00Z: EirGrid 3191.69 + NIE 597.00 = 3788.69 = the BZ value);
+#: from the cutoff on, sum_component_load_hourly's both-legs rule yields no
+#: load and the zone shows HONESTLY STALE (the freshness probe follows load_mw)
+#: rather than silently null or an RoI-only number passed off as the island.
+#: A75 generation is unaffected and stays on the BZ EIC. Keyed by BZ EIC so
+#: every caller (nightly, intraday, backfill) is covered without touching
+#: call sites.
+A65_COMPONENT_EICS: dict[str, list[str]] = {
+    # IE_SEM = EirGrid CTA (Republic of Ireland) + NIE CTA (Northern Ireland).
+    # Both the BZ series and the NIE leg end 2025-10-23T11:00Z (source-side).
+    "10Y1001A1001A59C": ["10YIE-1001A00010", "10Y1001A1001A016"],
+}
+
 # psrType codes for renewable generation (A75)
 PSR_SOLAR = "B16"
 PSR_WIND_OFFSHORE = "B18"
@@ -272,6 +295,37 @@ def parse_load_hourly(xml_text: str) -> dict[str, dict[int, float]]:
         day: {h: sum(v) / len(v) for h, v in hours.items() if v}
         for day, hours in by_day_hour.items()
     }
+
+
+def sum_component_load_hourly(
+    parts: list[dict[str, dict[int, float]]],
+) -> dict[str, dict[int, float]]:
+    """Sum per-hour load maps from component control areas into one zone map.
+
+    An hour is kept only when EVERY component published it: with IE_SEM's split
+    (~3.2 GW EirGrid + ~0.9 GW NIE), a missing NIE hour summed as-is would
+    fabricate a ~900 MW island-wide load drop — an honest gap beats a wrong sum.
+    Since 2025-10-23T11:00Z the NIE leg is dead entirely (see
+    A65_COMPONENT_EICS), so this same rule is what keeps post-cutoff IE_SEM
+    load an honest gap instead of a Republic-only number.
+    The intersection is at HOUR level: parse_load_hourly has already averaged
+    each leg's sub-hourly slots into an hourly MEAN (not a sum), so a leg with
+    only one of its two half-hour slots still yields a valid hour — only hours
+    a leg missed entirely are dropped.
+    A single-part list passes through unchanged (the normal one-EIC case).
+    """
+    if not parts:
+        return {}
+    if len(parts) == 1:
+        return parts[0]
+    out: dict[str, dict[int, float]] = {}
+    common_days = set(parts[0]).intersection(*(set(p) for p in parts[1:]))
+    for day in sorted(common_days):
+        common_hours = set(parts[0][day]).intersection(*(set(p[day]) for p in parts[1:]))
+        merged = {h: sum(p[day][h] for p in parts) for h in sorted(common_hours)}
+        if merged:
+            out[day] = merged
+    return out
 
 
 def parse_generation_hourly(xml_text: str) -> dict[str, dict[str, dict[int, float]]]:
@@ -624,36 +678,42 @@ async def ingest_grid(
     )
 
     # Accumulate per-day values across month fetches
-    load_by_day: dict[str, float] = {}
     gen_by_day: dict[str, dict[str, float]] = {}  # date → {psr: mean_mw}
     # Hourly shape → power_hourly (the new canonical store; roadmap Block 1)
     load_hourly_by_day: dict[str, dict[int, float]] = {}
     gen_hourly_by_day: dict[str, dict[str, dict[int, float]]] = {}  # date → {psr: {hour: mw}}
 
+    # Zones whose BZ EIC stopped serving A65 fetch their component control areas
+    # instead and sum them per hour. For IE_SEM that serves the pre-2025-10-23
+    # history exactly; after the cutoff the NIE leg is dead too, so the sum rule
+    # leaves an honest gap (see A65_COMPONENT_EICS).
+    load_eics = A65_COMPONENT_EICS.get(eic, [eic])
+
     for month_start in months:
         # ── A65 Total Load ──────────────────────────────────────────────────
-        try:
-            load_xml = await _fetch_zone_month(
-                eic,
-                month_start,
-                "A65",
-                {
-                    "processType": "A16",
-                    "outBiddingZone_Domain": eic,
-                },
-                overwrite=overwrite,
-            )
-        except httpx.HTTPError as exc:
-            logger.warning("entsoe_grid: A65 %s fetch failed: %s", month_start, exc)
-            load_xml = ""
+        component_hourly: list[dict[str, dict[int, float]]] = []
+        for load_eic in load_eics:
+            try:
+                load_xml = await _fetch_zone_month(
+                    load_eic,
+                    month_start,
+                    "A65",
+                    {
+                        "processType": "A16",
+                        "outBiddingZone_Domain": load_eic,
+                    },
+                    overwrite=overwrite,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "entsoe_grid: A65 %s (%s) fetch failed: %s", month_start, load_eic, exc
+                )
+                load_xml = ""
+            component_hourly.append(parse_load_hourly(load_xml) if load_xml else {})
 
-        if load_xml:
-            for day, mean_mw in parse_load(load_xml).items():
-                if day in wanted:
-                    load_by_day[day] = mean_mw
-            for day, hours in parse_load_hourly(load_xml).items():
-                if day in wanted:
-                    load_hourly_by_day[day] = hours
+        for day, hours in sum_component_load_hourly(component_hourly).items():
+            if day in wanted:
+                load_hourly_by_day[day] = hours
 
         # ── A75 Generation Mix ──────────────────────────────────────────────
         try:

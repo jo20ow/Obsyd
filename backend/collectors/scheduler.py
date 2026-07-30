@@ -7,7 +7,7 @@ firms, noaa, crack/equities, analytics, metals, atlas, crypto, edgar, news) move
 to the sibling project and are no longer scheduled.
 
 Schedule (UTC):
-  - Power day-ahead + spark: daily 22:30
+  - Power day-ahead + spark: daily 22:30 (price top-ups: 12:00 midday + 15:10 afternoon)
   - Energy prices (TTF/…): daily 22:15
   - EU gas balance: daily 10:00; gas registry: weekly Mon 03:30
   - Signals (radar): every 5 min; scorecards: weekly Mon 05:00
@@ -305,6 +305,38 @@ async def _run_power_prices_midday():
         db.close()
 
 
+async def _run_power_prices_afternoon():
+    """Afternoon day-ahead price top-up (15:10 UTC), same shape as the midday job.
+
+    At 12:00 UTC the Italian and Dutch next-day results are often not on ENTSO-E
+    yet — and the midday run's raw-cache month blob then satisfies every later
+    read, so tomorrow's prices for those zones stayed missing until the 22:30
+    nightly overwrite (~7.5-11.5 h after SDAC publication). One more overwrite
+    pass over the current window for all enabled zones is cheap (37 requests)
+    and closes that gap."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.entsoe_prices import ingest_day_ahead
+    from backend.power.zones import POWER_ZONES
+
+    today = datetime.now(timezone.utc).date()
+    days = [today.isoformat(), (today + timedelta(days=1)).isoformat()]
+    db = SessionLocal()
+    try:
+        for zone_key, zone_cfg in POWER_ZONES.items():
+            try:
+                await ingest_day_ahead(
+                    db, days, eic=zone_cfg["eic"],
+                    symbol=zone_cfg["price_symbol"], zone=zone_key, overwrite=True,
+                )
+            except Exception as exc:
+                logger.error("power afternoon price [%s] failed: %s", zone_key, exc)
+    except Exception as exc:
+        logger.error("_run_power_prices_afternoon outer failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_capacity_monthly():
     """Refresh installed generation capacity (ENTSO-E A68) for the current year across
     all enabled zones — monthly (capacity changes ~yearly). Feeds /api/v1/capacity."""
@@ -547,6 +579,10 @@ def start_scheduler():
     # Midday day-ahead price refresh: 12:00 UTC (after the ~12:45 CET auction) so
     # tomorrow's prices appear hours before the nightly run.
     scheduler.add_job(_run_power_prices_midday, CronTrigger(hour=12, minute=0), id="power_prices_midday", **JOB_DEFAULTS)
+    # Afternoon top-up: 15:10 UTC — IT (all 7 zones) and NL publish their next-day
+    # results after the midday pass, and the midday month blob otherwise pins the
+    # raw cache until 22:30 (see _run_power_prices_afternoon).
+    scheduler.add_job(_run_power_prices_afternoon, CronTrigger(hour=15, minute=10), id="power_prices_afternoon", **JOB_DEFAULTS)
     # Installed capacity (A68): monthly, 2nd @ 03:00 UTC — annual data, cheap to refresh.
     scheduler.add_job(_run_capacity_monthly, CronTrigger(day=2, hour=3, minute=0), id="capacity_monthly", **JOB_DEFAULTS)
     # Reservoir filling (A72): weekly data, refreshed twice a week (publication day

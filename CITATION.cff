@@ -1,0 +1,23 @@
+# Citation metadata for OBSYD (https://citation-file-format.github.io/).
+# GitHub renders this as a "Cite this repository" button.
+cff-version: 1.2.0
+message: "If you use OBSYD's data or code in your work, please cite it as below."
+title: "OBSYD — European Power Desk"
+type: software
+authors:
+  - family-names: "Weisser"
+    given-names: "Johannes"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"  # placeholder — add when registered
+repository-code: "https://github.com/jo20ow/Obsyd"
+url: "https://obsyd.dev"
+license: AGPL-3.0
+version: 1.0.0
+date-released: 2026-07-29
+# doi: 10.5281/zenodo.XXXXXXX  # Zenodo DOI — added after the first archived release
+keywords:
+  - electricity
+  - energy
+  - power-grid
+  - entso-e
+  - open-data
+  - europe
