@@ -11,9 +11,10 @@ authors:
 repository-code: "https://github.com/jo20ow/Obsyd"
 url: "https://obsyd.dev"
 license: AGPL-3.0
-version: 1.0.0
-date-released: 2026-07-29
-# doi: 10.5281/zenodo.XXXXXXX  # Zenodo DOI — added after the first archived release
+version: 1.0.1
+date-released: 2026-07-30
+# Concept DOI (resolves to the latest archived version; version DOIs listed on Zenodo).
+doi: 10.5281/zenodo.21699869
 keywords:
   - electricity
   - energy

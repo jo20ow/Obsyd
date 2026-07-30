@@ -145,16 +145,17 @@ The React frontend renders the bidding-zone map with deck.gl (real zone geometry
 
 ## Citing OBSYD
 
-If OBSYD's data or code feeds into published work, cite the archived Zenodo release once it is available — the DOI will be added to [CITATION.cff](CITATION.cff) after the first archived release. Until then:
+If OBSYD's data or code feeds into published work, cite the archived Zenodo release ([DOI 10.5281/zenodo.21699869](https://doi.org/10.5281/zenodo.21699869) — the concept DOI, resolving to the latest archived version; GitHub's "Cite this repository" button uses [CITATION.cff](CITATION.cff)):
 
 ```bibtex
 @software{weisser_obsyd_2026,
   author  = {Weisser, Johannes},
   title   = {OBSYD --- European Power Desk},
   year    = {2026},
+  doi     = {10.5281/zenodo.21699869},
   url     = {https://obsyd.dev},
-  version = {1.0.0},
-  note    = {Source: https://github.com/jo20ow/Obsyd. DOI via Zenodo forthcoming.}
+  version = {1.0.1},
+  note    = {Source code: https://github.com/jo20ow/Obsyd}
 }
 ```
 
