@@ -96,6 +96,7 @@ over.
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import xml.etree.ElementTree as ET
@@ -149,6 +150,13 @@ _PAGE_SIZE = 100
 #: Runaway-loop safety valve, NOT an expected truncation point — see module docstring's
 #: pagination finding (real aFRR volume on the spiked day: 6893, comfortably under this).
 _MAX_OFFSET = 20_000
+
+#: ENTSO-E's ceiling is ~400 requests/minute; 0.35s pacing keeps a deep A15 backfill
+#: (per day × processType × pages) well under it. Applied only on real network requests
+#: inside `_fetch_capacity_day._do` — cache hits never sleep.
+REQUEST_THROTTLE_SECONDS = 0.35
+_RATE_LIMIT_ATTEMPTS = 4
+_RATE_LIMIT_BACKOFF_SECONDS = 30.0
 
 
 def aggregate_bids(bids: list[tuple[float, float]]) -> dict[str, float | None]:
@@ -329,7 +337,23 @@ async def _fetch_capacity_day(process_type: str, day: date, *, overwrite: bool =
                     "periodEnd": f"{nxt:%Y%m%d}0000",
                     "offset": offset,
                 }
-                resp = await client.get(ENTSOE_BASE, params=params)
+                # Pace every REAL network request (cache hits never reach _do). The A15
+                # path fires per day × processType plus pagination, so an unthrottled deep
+                # backfill is a machine gun: the 2026-07-30 2019-run hit ENTSO-E at ~8 req/s,
+                # drew a 429 storm from 2024-11-16 on, and skipped ~1.5 years in 5 minutes.
+                # On 429, back off and retry like energy_charts_flows does; retries
+                # exhausted → raise_for_status() below fails the day loudly and UNCACHED.
+                for attempt in range(_RATE_LIMIT_ATTEMPTS):
+                    await asyncio.sleep(REQUEST_THROTTLE_SECONDS)
+                    resp = await client.get(ENTSOE_BASE, params=params)
+                    if resp.status_code != 429:
+                        break
+                    wait = _RATE_LIMIT_BACKOFF_SECONDS * (attempt + 1)
+                    logger.warning(
+                        "A15 %s %s: 429 rate-limited — backing off %.0fs (attempt %d/%d)",
+                        process_type, day, wait, attempt + 1, _RATE_LIMIT_ATTEMPTS,
+                    )
+                    await asyncio.sleep(wait)
                 # Every no-data case for A15 is a clean HTTP 200 empty Acknowledgement (see
                 # module docstring) — there is no "structural 400 = empty" text to match
                 # here, unlike A83/A84. Any 4xx/5xx is therefore a genuine failure.
