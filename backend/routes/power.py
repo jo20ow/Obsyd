@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.api_guard import heavy_query_guard
+from backend.api_guard import cached_value, heavy_query_guard
 from backend.config import settings
 from backend.database import get_db
 from backend.models.energy import (
@@ -1703,6 +1703,44 @@ def get_marginal(
         **data,
         **_freshness(as_of[:10] if as_of else None, datetime.utcnow().date(),
                      PANEL_MAX_AGE_DAYS["marginal"]),
+    }
+
+
+# No shadowing risk from /marginal above: it takes no path parameter, so
+# Starlette full-path matching keeps both routes reachable in either order.
+@router.get("/marginal/overview")
+def get_marginal_overview(
+    db: Session = Depends(get_db),
+    _guard: None = Depends(heavy_query_guard),
+):
+    """Latest price-setting technology for EVERY enabled zone — the map fill.
+
+    One compute walks all zones (~1-3 s cold across 37 zones in prod), so the
+    payload is cached for 30 minutes and the cold compute sits behind
+    heavy_query_guard. Freshness is derived per REQUEST, outside the cache —
+    a warm cache must not freeze age_days — and the cached dict is never
+    mutated: the response is rebuilt around it.
+    """
+    from backend.power.marginal import compute_marginal_overview
+
+    data = cached_value(
+        "marginal_overview", lambda: compute_marginal_overview(db), ttl=1800.0
+    )
+    if not data.get("available"):
+        # No freshness triple on an unavailable body, matching /marginal.
+        # Copied, so no caller can ever mutate the cached dict.
+        return {**data}
+    today = datetime.utcnow().date()
+    zones = [
+        {**z, "stale": _freshness(z["ts_utc"][:10], today,
+                                  PANEL_MAX_AGE_DAYS["marginal"])["stale"]}
+        for z in data["zones"]
+    ]
+    newest = max(z["ts_utc"] for z in data["zones"])
+    return {
+        **data,
+        "zones": zones,
+        **_freshness(newest[:10], today, PANEL_MAX_AGE_DAYS["marginal"]),
     }
 
 
