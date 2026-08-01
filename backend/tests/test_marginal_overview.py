@@ -3,11 +3,12 @@
 /api/power/marginal/overview returns the LATEST price-setting attribution per
 enabled zone for a map fill. These tests pin the honesty rules the map
 inherits from the single-zone endpoint: a zone with no attributable hour is
-`missing` (no-data), never painted with an invented value; a "tension" hour
-crosses into the bulk payload unreclassified; the method/note strings are the
-SAME objects both endpoints serve (no drift); and the 30-minute payload cache
-never freezes freshness (derived per request) and is never mutated by the
-per-request stale stamping.
+`missing` (no-data), never painted with an invented value; a zone whose
+compute FAILS lands in `errors`, visibly distinct from no-data and never
+silently dropped; a "tension" hour crosses into the bulk payload
+unreclassified; the method/note strings are the SAME objects both endpoints
+serve (no drift); and the 30-minute payload cache never freezes freshness
+(derived per request) and is never mutated by the per-request stale stamping.
 """
 from __future__ import annotations
 
@@ -91,6 +92,7 @@ def test_empty_db_route_answers_available_false_with_all_zones_missing(db_sessio
     assert body["available"] is False
     assert body["zones"] == []
     assert body["missing"] == list(POWER_ZONES)
+    assert body["errors"] == []
     # No freshness triple on an unavailable body — matching /marginal's shape.
     assert "as_of" not in body and "age_days" not in body and "stale" not in body
 
@@ -109,7 +111,11 @@ def test_one_entry_per_seeded_zone_and_the_latest_hour_wins(db_session, monkeypa
 
     out = compute_marginal_overview(db_session, now=_NOW)
     assert out["available"] is True
-    assert out["hours"] == 72
+    assert out["hours"] == 168, (
+        "compute_marginal's own default window: anything shorter than 4 days "
+        "would age a zone into `missing` before `stale` (threshold 3d) could "
+        "ever fire — painted-but-stale must be representable"
+    )
     by_zone = {z["zone"]: z for z in out["zones"]}
     assert set(by_zone) == {"DE_LU", "NO2"}
     de = by_zone["DE_LU"]
@@ -124,6 +130,7 @@ def test_one_entry_per_seeded_zone_and_the_latest_hour_wins(db_session, monkeypa
     assert no2["tech"] == "hydro_flex"
     assert no2["zone_label"] == "NO2"
     assert out["missing"] == ["FR", "NL"]
+    assert out["errors"] == []
 
 
 def test_tension_crosses_into_the_bulk_payload_unreclassified(db_session):
@@ -134,6 +141,27 @@ def test_tension_crosses_into_the_bulk_payload_unreclassified(db_session):
     (entry,) = out["zones"]
     assert entry["tech"] == "lignite"
     assert entry["consistency"] == "tension"
+
+
+def test_a_zone_compute_failure_is_isolated_and_visible(db_session, monkeypatch):
+    """One zone blowing up must not blank the whole map — and must not vanish
+    silently either: compute-failure (`errors`) is not no-data (`missing`)."""
+    real = compute_marginal
+
+    def failing(db, zone, **kw):
+        if zone == "FR":
+            raise RuntimeError("boom")
+        return real(db, zone, **kw)
+
+    monkeypatch.setattr(marginal_mod, "compute_marginal", failing)
+    _seed_days_ago(db_session, 0)
+    r = _client(db_session).get("/api/power/marginal/overview")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] is True
+    assert [z["zone"] for z in body["zones"]] == ["DE_LU"]
+    assert body["errors"] == ["FR"]
+    assert body["missing"] == ["NL"]
 
 
 def test_method_and_note_are_shared_with_the_single_zone_compute(db_session):
@@ -150,14 +178,11 @@ def test_method_and_note_are_shared_with_the_single_zone_compute(db_session):
 # ─── route: freshness outside the cache, cache never mutated ──────────────────
 
 
-def test_stale_seed_flags_zone_and_top_level(db_session, monkeypatch):
-    # A 5-day-old hour sits OUTSIDE the default 72 h compute window, so widen
-    # the window the route computes with: present-but-old (`stale`), not
-    # absent (`missing`), is what this test pins. Threshold is
-    # PANEL_MAX_AGE_DAYS["marginal"] = 3.
-    real = compute_marginal_overview
-    monkeypatch.setattr(marginal_mod, "compute_marginal_overview",
-                        lambda db, **kw: real(db, hours=240, **kw))
+def test_stale_seed_flags_zone_and_top_level(db_session):
+    # A 5-day-old hour sits INSIDE the 168 h compute window but past the 3-day
+    # threshold (PANEL_MAX_AGE_DAYS["marginal"]): painted-but-stale, the state
+    # the map must distinguish from `missing` — no window tricks, this is the
+    # route's real production behavior.
     _seed_days_ago(db_session, 5)
     body = _client(db_session).get("/api/power/marginal/overview").json()
     assert body["available"] is True
@@ -208,3 +233,19 @@ def test_response_is_built_around_the_cache_never_from_it(db_session):
     assert "as_of" not in cached and "age_days" not in cached and "stale" not in cached
     assert all("stale" not in z for z in cached["zones"])
     assert all(z["stale"] is False for z in body["zones"])
+
+
+def test_route_is_behind_the_heavy_query_guard(db_session):
+    """Cold, this compute walks every zone — it must hold a heavy slot, so a
+    drained semaphore means fail-fast 503, never a queued threadpool thread."""
+    import backend.api_guard as guard
+
+    c = _client(db_session)
+    acquired = [guard._heavy_sem.acquire(blocking=False)
+                for _ in range(guard.HEAVY_QUERY_SLOTS)]
+    try:
+        assert all(acquired)
+        assert c.get("/api/power/marginal/overview").status_code == 503
+    finally:
+        for _ in acquired:
+            guard._heavy_sem.release()

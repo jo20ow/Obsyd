@@ -1728,7 +1728,10 @@ def get_marginal_overview(
     )
     if not data.get("available"):
         # No freshness triple on an unavailable body, matching /marginal.
-        # Copied, so no caller can ever mutate the cached dict.
+        # Top-level copy only; the nested lists stay shared but are never
+        # mutated. (An unavailable body is cached for the full TTL too —
+        # accepted: 30 min of no-data on a cold deploy beats a herd of
+        # all-zone recomputes.)
         return {**data}
     today = datetime.utcnow().date()
     zones = [
@@ -1736,6 +1739,8 @@ def get_marginal_overview(
                                   PANEL_MAX_AGE_DAYS["marginal"])["stale"]}
         for z in data["zones"]
     ]
+    # Best-of across zones is honest here: every zone rides the same A75
+    # ingest, and the per-zone `stale` above carries each zone's own signal.
     newest = max(z["ts_utc"] for z in data["zones"])
     return {
         **data,
