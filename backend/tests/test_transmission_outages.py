@@ -784,6 +784,65 @@ def test_europe_route_no_identity_means_no_dedupe(db_session):
     assert body["count"] == 2
 
 
+def test_europe_route_merge_tie_keeps_smaller_mrid(db_session):
+    """Equal available_mw on both directions (the common case — both TSOs report
+    the same figure): the kept row must be deterministic across requests and
+    databases, because PR 7 keys the map arcs on mrid. Smaller mrid wins.
+    The smaller mrid sits on the LATER-sorting zone (FR): the ranked query
+    happens to return rows in zone-partition order, so first-encountered-wins
+    would keep tb2 and cannot fake a pass here."""
+    _seed_transmission(db_session, mrid="tb2", zone="DE_LU", counterparty_zone="FR",
+                       available_mw=1000.0)
+    _seed_transmission(db_session, mrid="tb1", zone="FR", counterparty_zone="DE_LU",
+                       available_mw=1000.0)
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["count"] == 1
+    assert body["events"][0]["mrid"] == "tb1"
+
+
+def test_europe_route_none_counterparty_included_not_drawn(db_session):
+    """counterparty_zone can be null (message without an out_Domain we could
+    read). Same contract as a raw EIC: still listed, real zone in zone_a,
+    counterparty_mapped false so the frontend skips the coordinate lookup."""
+    _seed_transmission(db_session, mrid="nc1", zone="DE_LU", counterparty_zone=None)
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["count"] == 1
+    ev = body["events"][0]
+    assert ev["zone_a"] == "DE_LU"
+    assert ev["zone_b"] is None
+    assert ev["counterparty_mapped"] is False
+
+
+def test_europe_route_historical_only_table_is_available_but_empty(db_session):
+    """A table holding ONLY fully-past A78 events is a live feed with nothing
+    current — available:True with an empty list, NOT the 'nothing ingested yet'
+    unavailable body. Guards the ending_after SQL prune: an empty ranked set no
+    longer proves the table is empty."""
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    _seed_transmission(db_session, mrid="hist",
+                       start_utc=(now - timedelta(days=30)).strftime(fmt),
+                       end_utc=(now - timedelta(days=20)).strftime(fmt))
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["available"] is True
+    assert body["events"] == []
+    assert body["count"] == 0
+    assert body["as_of"] is not None  # freshness still reports the ingest
+
+
+def test_europe_route_fresh_a77_does_not_mask_stale_a78(db_session):
+    """The freshness triple is scoped to doc_type A78: a fresh A77 (generation)
+    message must never keep the map feed looking alive while the A78 collector
+    is dead. (get_outages deliberately differs — its per-zone triple spans both
+    doc types.)"""
+    _seed_generation(db_session)  # created_at defaults to now — fresh
+    _seed_transmission(db_session, created_at=datetime.utcnow() - timedelta(days=5))
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["available"] is True
+    assert body["age_days"] == 5
+    assert body["stale"] is True
+
+
 def test_europe_route_empty_table_is_unavailable(db_session):
     # An A77-only table must not count — the feed is scoped to doc_type A78.
     _seed_generation(db_session)

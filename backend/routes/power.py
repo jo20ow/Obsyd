@@ -2332,8 +2332,8 @@ def get_transmission_outages_europe(
     spike 2026-07-21). Here the directions collapse into ONE event keyed on
     (asset_eic, start_utc, end_utc) — falling back to asset_name when the EIC
     is missing, and to the mRID (no dedupe) when both are — keeping the LOWEST
-    available_mw (most-constrained side, matching the per-zone sort convention)
-    and the union of filing zones in `reported_by`.
+    available_mw (most-constrained side, matching the per-zone sort convention;
+    ties keep the smaller mrid) and the union of filing zones in `reported_by`.
 
     `zone_a`/`zone_b` = sorted canonical pair (the /borders convention). When
     the counterparty EIC is outside ZONE_REGISTRY the event is STILL included
@@ -2343,7 +2343,7 @@ def get_transmission_outages_europe(
 
     Withdrawn latest revisions hide the event (ranking before filtering — see
     latest_outage_revisions). Events sort deterministically: running_now first,
-    then available_mw ascending nulls-last, then start_utc. nominal_mw/
+    then available_mw ascending nulls-last, then start_utc, then mrid. nominal_mw/
     offline_mw are deliberately OMITTED — always null for A78, no capacity
     baseline is ever published (see the PowerOutage docstring). No cache and no
     heavy_query_guard: the A78 population is small (hundreds of rows);
@@ -2358,8 +2358,23 @@ def get_transmission_outages_europe(
     now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
     horizon_iso = (now + timedelta(days=horizon_days)).strftime("%Y-%m-%dT%H:%MZ")
 
-    rows = latest_outage_revisions(db, zone=None, doc_type="A78")
-    if not rows:
+    # ending_after prunes already-ended events in SQL instead of hydrating every
+    # A78 mRID ever ingested (the Python-side window filter below still applies:
+    # the prune is per-mRID, the winning revision can still end in the past).
+    rows = latest_outage_revisions(db, zone=None, doc_type="A78",
+                                   ending_after=now_iso)
+
+    # Freshness probe doubles as the table-level availability check: with the
+    # SQL prune, an empty `rows` no longer distinguishes "nothing ever
+    # ingested" from "history only, nothing current" — the latter must stay
+    # available:True with an empty feed. Newest A78 message EVER (any revision,
+    # any zone): a superseded revision still proves the collector is alive.
+    newest_msg = (
+        db.query(func.max(PowerOutage.created_at))
+        .filter(PowerOutage.doc_type == "A78")
+        .scalar()
+    )
+    if newest_msg is None:
         return {
             "available": False,
             "reason": "No transmission outage messages ingested yet — check back shortly.",
@@ -2406,7 +2421,10 @@ def get_transmission_outages_europe(
             continue
         # Same physical event, other direction: keep the most-constrained row
         # (lowest available_mw; a null figure loses to a real one), remember
-        # every filing zone.
+        # every filing zone. Ties — equal figures or both null — go to the
+        # smaller mrid, so the surfaced mrid is stable across requests and
+        # databases (row order from the ranked query is not guaranteed, and
+        # PR 7 keys the map arcs on mrid).
         reported_by = sorted(set(existing["reported_by"]) | {r.zone})
         keep = existing
         if event["available_mw"] is not None and (
@@ -2414,23 +2432,22 @@ def get_transmission_outages_europe(
             or event["available_mw"] < existing["available_mw"]
         ):
             keep = event
+        elif (event["available_mw"] == existing["available_mw"]
+              and event["mrid"] < existing["mrid"]):
+            keep = event
         keep["reported_by"] = reported_by
         merged[key] = keep
 
+    # mrid as the final key makes the order fully deterministic even between
+    # events with identical constraint and start.
     events = sorted(
         merged.values(),
         key=lambda e: (
             not e["running_now"],
             e["available_mw"] if e["available_mw"] is not None else float("inf"),
             e["start_utc"],
+            e["mrid"],
         ),
-    )
-    # Freshness = newest A78 message we EVER ingested (any revision, any zone) —
-    # a superseded revision still proves the collector is alive.
-    newest_msg = (
-        db.query(func.max(PowerOutage.created_at))
-        .filter(PowerOutage.doc_type == "A78")
-        .scalar()
     )
     return {
         "available": True,
