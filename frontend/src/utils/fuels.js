@@ -37,6 +37,7 @@ export const STACK_ORDER = [
   'Hydro Reservoir',
   'Hydro Run-of-river',
   'Hydro Pumped Storage',
+  'Energy Storage',
   'Other Renewable',
   'Wind Offshore',
   'Wind Onshore',
@@ -59,7 +60,11 @@ const CANONICAL = {
   'Marine': '#2dd4bf',
   'Hydro Reservoir': '#2563eb',
   'Hydro Run-of-river': '#60a5fa',
+  // Battery discharge (B25) joins pumped storage in the indigo family — same hue,
+  // big lightness step; both new adjacencies clear the palette's CVD worst-pair on
+  // lightness alone (L* 74 vs 50 indigo, vs 58 green).
   'Hydro Pumped Storage': '#6366f1',
+  'Energy Storage': '#a5b4fc',
   'Other Renewable': '#16a34a',
   'Wind Offshore': '#0891b2',
   'Wind Onshore': '#67e8f9',
@@ -90,6 +95,7 @@ const ALIASES = {
   B18: 'Wind Offshore',
   B19: 'Wind Onshore',
   B20: 'Other',
+  B25: 'Energy Storage',
   'Fossil Brown coal/Lignite': 'Lignite',
   'Fossil Hard coal': 'Hard Coal',
   'Fossil Oil': 'Oil',

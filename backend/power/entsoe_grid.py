@@ -73,7 +73,8 @@ PSR_LABELS: dict[str, str] = {
     "B02": "Lignite",
     # B03/B07/B08/B13 were missing, so the mix legend read "gen.B03" — the raw code, between
     # "Fossil Gas" and "Hard Coal". B03 is coal-derived gas and DE-LU burns it. Every generation
-    # code in the ENTSO-E list (B01-B20) belongs here; B21-B24 are network elements, not fuels.
+    # code in the ENTSO-E list (B01-B20, plus the later-added B25) belongs here; B21-B24 are
+    # network elements, not fuels.
     "B03": "Fossil Coal-derived gas",
     "B04": "Fossil Gas",
     "B05": "Hard Coal",
@@ -92,6 +93,9 @@ PSR_LABELS: dict[str, str] = {
     "B18": "Wind Offshore",
     "B19": "Wind Onshore",
     "B20": "Other",
+    # B25 = "Energy storage" in the ENTSO-E codelist: battery discharge. BE reports ~100 MW
+    # under it; without the label the BE mix drew a raw "B25" slice.
+    "B25": "Energy Storage",
 }
 
 _RESOLUTION_HOURS = {"PT60M": 1.0, "PT30M": 0.5, "PT15M": 0.25}
