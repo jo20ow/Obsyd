@@ -668,6 +668,139 @@ def test_route_transmission_a77_generation_list_unaffected_by_reversed_direction
     assert body["total_offline_mw"] == pytest.approx(1000.0)
 
 
+# ─── route: /api/power/outages/transmission (Europe-wide map feed) ───────────
+#
+# One request returns every current/upcoming A78 event Europe-wide with a
+# CANONICAL zone pair, so the map can draw dashed zone-to-zone connections.
+# Unlike the per-zone panel (which keeps both directions, see
+# test_route_transmission_both_directions_of_a_border_both_appear), the map
+# feed dedupes the two directions of one physical event on
+# (asset_eic, start, end) — name-based when the EIC is missing, mRID (no
+# dedupe) when both are.
+
+
+def test_europe_route_dedupes_two_directions_into_one_event(db_session):
+    """Two directions = disjoint mRIDs, same physical asset. The map feed must
+    collapse them into ONE event: lowest available_mw (most-constrained side),
+    sorted canonical pair, union of filing zones in reported_by."""
+    _seed_transmission(db_session, mrid="d1", zone="DE_LU", counterparty_zone="FR",
+                       available_mw=1150.0)
+    _seed_transmission(db_session, mrid="d2", zone="FR", counterparty_zone="DE_LU",
+                       available_mw=900.0)
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["available"] is True
+    assert body["unit"] == "MW"
+    assert body["horizon_days"] == 30
+    assert body["count"] == 1
+    assert len(body["events"]) == 1
+    ev = body["events"][0]
+    assert ev["zone_a"] == "DE_LU"
+    assert ev["zone_b"] == "FR"
+    assert ev["counterparty_mapped"] is True
+    assert ev["available_mw"] == 900.0  # most-constrained direction wins
+    assert ev["reported_by"] == ["DE_LU", "FR"]
+    assert ev["asset_eic"] == "10T-DE-FR-00003E"
+    assert ev["asset_name"] == "Eichstetten-Vogelgrun"
+    assert ev["asset_type"] == "AC Line"
+    assert ev["kind"] == "planned"
+    assert ev["running_now"] is True
+    # nominal_mw/offline_mw deliberately omitted — always null for A78.
+    assert "nominal_mw" not in ev
+    assert "offline_mw" not in ev
+
+
+def test_europe_route_withdrawn_latest_revision_hides_event(db_session):
+    """Ranking before filtering, Europe-wide: the older ACTIVE revision must not
+    resurrect an event whose latest revision is withdrawn."""
+    _seed_transmission(db_session, mrid="w1", revision=1)
+    _seed_transmission(db_session, mrid="w1", revision=3, status="withdrawn")
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["available"] is True  # rows exist — the FEED is alive, just quiet
+    assert body["events"] == []
+    assert body["count"] == 0
+
+
+def test_europe_route_raw_eic_counterparty_included_not_drawn(db_session):
+    """An unmapped counterparty EIC must not vanish silently. The real zone must
+    stay in zone_a — naive sorted() would push it to zone_b ('1' < 'D')."""
+    _seed_transmission(db_session, mrid="raw1", zone="DE_LU",
+                       counterparty_zone="10Y-UNMAPPED-EIC-X")
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["count"] == 1
+    ev = body["events"][0]
+    assert ev["counterparty_mapped"] is False
+    assert ev["zone_a"] == "DE_LU"
+    assert ev["zone_b"] == "10Y-UNMAPPED-EIC-X"
+
+
+def test_europe_route_window_and_running_now(db_session):
+    now = datetime.now(timezone.utc)
+    fmt = "%Y-%m-%dT%H:%MZ"
+    _seed_transmission(db_session, mrid="past", unit_eic="E-PAST",
+                       start_utc=(now - timedelta(days=10)).strftime(fmt),
+                       end_utc=(now - timedelta(days=2)).strftime(fmt))
+    _seed_transmission(db_session, mrid="far", unit_eic="E-FAR",
+                       start_utc=(now + timedelta(days=40)).strftime(fmt),
+                       end_utc=(now + timedelta(days=50)).strftime(fmt))
+    _seed_transmission(db_session, mrid="soon", unit_eic="E-SOON",
+                       start_utc=(now + timedelta(days=3)).strftime(fmt),
+                       end_utc=(now + timedelta(days=6)).strftime(fmt))
+    _seed_transmission(db_session, mrid="run", unit_eic="E-RUN")
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    by_mrid = {e["mrid"]: e for e in body["events"]}
+    assert set(by_mrid) == {"soon", "run"}  # fully-past + beyond-horizon excluded
+    assert by_mrid["soon"]["running_now"] is False
+    assert by_mrid["run"]["running_now"] is True
+    # Deterministic order: running events first.
+    assert body["events"][0]["mrid"] == "run"
+    # A wider horizon admits the far-future event.
+    wide = _client(db_session).get(
+        "/api/power/outages/transmission?horizon_days=60").json()
+    assert "far" in {e["mrid"] for e in wide["events"]}
+
+
+def test_europe_route_null_eic_falls_back_to_name_dedupe(db_session):
+    _seed_transmission(db_session, mrid="n1", zone="DE_LU", counterparty_zone="FR",
+                       unit_eic=None, unit_name="Line X", available_mw=800.0)
+    _seed_transmission(db_session, mrid="n2", zone="FR", counterparty_zone="DE_LU",
+                       unit_eic=None, unit_name="Line X", available_mw=500.0)
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["count"] == 1
+    ev = body["events"][0]
+    assert ev["asset_eic"] is None
+    assert ev["asset_name"] == "Line X"
+    assert ev["available_mw"] == 500.0
+    assert ev["reported_by"] == ["DE_LU", "FR"]
+
+
+def test_europe_route_no_identity_means_no_dedupe(db_session):
+    """Both asset_eic AND asset_name null → mRID key: nothing to merge on, so
+    both rows stay visible rather than being guessed together."""
+    _seed_transmission(db_session, mrid="x1", zone="DE_LU", counterparty_zone="FR",
+                       unit_eic=None, unit_name=None)
+    _seed_transmission(db_session, mrid="x2", zone="FR", counterparty_zone="DE_LU",
+                       unit_eic=None, unit_name=None)
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["count"] == 2
+
+
+def test_europe_route_empty_table_is_unavailable(db_session):
+    # An A77-only table must not count — the feed is scoped to doc_type A78.
+    _seed_generation(db_session)
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["available"] is False
+    assert body.get("reason")
+
+
+def test_europe_route_carries_freshness_triple(db_session):
+    _seed_transmission(db_session)
+    body = _client(db_session).get("/api/power/outages/transmission").json()
+    assert body["available"] is True
+    assert body["as_of"] is not None
+    assert body["age_days"] == 0
+    assert body["stale"] is False
+
+
 # ─── review fix #2: the shared scheduler session must survive a mid-pass error ──
 
 

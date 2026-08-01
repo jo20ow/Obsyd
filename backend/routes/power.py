@@ -2314,6 +2314,135 @@ def get_outages(
     }
 
 
+# No shadowing risk from /outages above: it takes no path parameter (zone is a
+# QUERY param), so Starlette full-path matching keeps both routes reachable in
+# either order — same situation as /marginal vs /marginal/overview.
+@router.get("/outages/transmission")
+def get_transmission_outages_europe(
+    horizon_days: int = Query(30, ge=1, le=400,
+                              description="Include outages starting up to this many days out"),
+    db: Session = Depends(get_db),
+):
+    """All current/upcoming transmission-infrastructure outages (ENTSO-E A78)
+    Europe-wide, deduped to one event per physical asset — the map overlay's
+    "which lines are gone" feed. Free tier.
+
+    One request instead of one per zone: /outages?kind=transmission keeps the
+    same physical event once per queried direction (two DISJOINT mRIDs — live
+    spike 2026-07-21). Here the directions collapse into ONE event keyed on
+    (asset_eic, start_utc, end_utc) — falling back to asset_name when the EIC
+    is missing, and to the mRID (no dedupe) when both are — keeping the LOWEST
+    available_mw (most-constrained side, matching the per-zone sort convention)
+    and the union of filing zones in `reported_by`.
+
+    `zone_a`/`zone_b` = sorted canonical pair (the /borders convention). When
+    the counterparty EIC is outside ZONE_REGISTRY the event is STILL included
+    (never vanish silently): the real zone stays in `zone_a`, the raw EIC rides
+    in `zone_b`, and `counterparty_mapped: false` tells the frontend to skip
+    the coordinate lookup for it.
+
+    Withdrawn latest revisions hide the event (ranking before filtering — see
+    latest_outage_revisions). Events sort deterministically: running_now first,
+    then available_mw ascending nulls-last, then start_utc. nominal_mw/
+    offline_mw are deliberately OMITTED — always null for A78, no capacity
+    baseline is ever published (see the PowerOutage docstring). No cache and no
+    heavy_query_guard: the A78 population is small (hundreds of rows);
+    `cached_value` with ttl=300 is the follow-up if prod latency ever says so.
+    """
+    from backend.models.energy import PowerOutage
+    from backend.power.entsoe_outages import ASSET_TYPE_LABELS
+    from backend.power.zones import ZONE_REGISTRY
+    from backend.signals.detectors.power import latest_outage_revisions
+
+    now = datetime.utcnow()
+    now_iso = now.strftime("%Y-%m-%dT%H:%MZ")
+    horizon_iso = (now + timedelta(days=horizon_days)).strftime("%Y-%m-%dT%H:%MZ")
+
+    rows = latest_outage_revisions(db, zone=None, doc_type="A78")
+    if not rows:
+        return {
+            "available": False,
+            "reason": "No transmission outage messages ingested yet — check back shortly.",
+        }
+
+    merged: dict[tuple, dict] = {}
+    for r in rows:
+        if r.status != "active":
+            continue
+        if r.end_utc < now_iso or r.start_utc > horizon_iso:
+            continue
+        mapped = r.counterparty_zone in ZONE_REGISTRY
+        if mapped:
+            zone_a, zone_b = sorted([r.zone, r.counterparty_zone])
+        else:
+            # Raw-EIC (or missing) counterparty: keep the real zone in zone_a —
+            # naive sorted() would push it to zone_b ("1..." < "DE_LU") and
+            # break the frontend's mapped-side coordinate lookup.
+            zone_a, zone_b = r.zone, r.counterparty_zone
+        if r.unit_eic:
+            key = ("eic", r.unit_eic, r.start_utc, r.end_utc)
+        elif r.unit_name:
+            key = ("name", r.unit_name, r.start_utc, r.end_utc)
+        else:
+            key = ("mrid", r.mrid)  # no asset identity at all → nothing to dedupe on
+        event = {
+            "mrid": r.mrid,
+            "asset_name": r.unit_name or r.unit_eic,
+            "asset_eic": r.unit_eic,
+            "zone_a": zone_a,
+            "zone_b": zone_b,
+            "counterparty_mapped": mapped,
+            "reported_by": [r.zone],
+            "asset_type": ASSET_TYPE_LABELS.get(r.psr_type, r.psr_type),
+            "kind": _OUTAGE_KIND.get(r.business_type, r.business_type),
+            "available_mw": r.available_mw,
+            "start_utc": r.start_utc,
+            "end_utc": r.end_utc,
+            "running_now": r.start_utc <= now_iso <= r.end_utc,
+        }
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = event
+            continue
+        # Same physical event, other direction: keep the most-constrained row
+        # (lowest available_mw; a null figure loses to a real one), remember
+        # every filing zone.
+        reported_by = sorted(set(existing["reported_by"]) | {r.zone})
+        keep = existing
+        if event["available_mw"] is not None and (
+            existing["available_mw"] is None
+            or event["available_mw"] < existing["available_mw"]
+        ):
+            keep = event
+        keep["reported_by"] = reported_by
+        merged[key] = keep
+
+    events = sorted(
+        merged.values(),
+        key=lambda e: (
+            not e["running_now"],
+            e["available_mw"] if e["available_mw"] is not None else float("inf"),
+            e["start_utc"],
+        ),
+    )
+    # Freshness = newest A78 message we EVER ingested (any revision, any zone) —
+    # a superseded revision still proves the collector is alive.
+    newest_msg = (
+        db.query(func.max(PowerOutage.created_at))
+        .filter(PowerOutage.doc_type == "A78")
+        .scalar()
+    )
+    return {
+        "available": True,
+        "unit": "MW",
+        "horizon_days": horizon_days,
+        "events": events,
+        "count": len(events),
+        **_freshness(newest_msg.strftime("%Y-%m-%d") if newest_msg else None,
+                     now.date(), 2),
+    }
+
+
 # ─── Per-unit generation (free) ───────────────────────────────────────────────
 
 #: The honest wording everywhere this data appears. A73's population is the
