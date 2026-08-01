@@ -296,8 +296,9 @@ class ProductionUnit(Base):
     psr_type stores the RAW B-CODE, deliberately. This table exists to join PowerOutage.unit_eic,
     and PowerOutage.psr_type is a raw code (labelled at read time), while InstalledCapacity and
     PowerGenMix store the readable LABEL. Choosing the label here would mean joining a labelled
-    table to a coded one — and PSR_LABELS has real gaps (A71/A33 returns B03; the store already
-    holds gen.B25), so PSR_LABELS.get(code, code) is not injective in the way a join needs.
+    table to a coded one — and PSR_LABELS grows gaps whenever ENTSO-E extends the codelist (B03
+    was missing until 2026-07, B25 until 2026-08), so PSR_LABELS.get(code, code) is not
+    injective in the way a join needs.
     """
 
     __tablename__ = "production_unit"

@@ -91,7 +91,7 @@ def parse_production_units(xml_text: str) -> list[dict]:
             "unit_eic": eic,
             "name": next((e.text for e in ts.iter()
                           if _localname(e.tag) == "registeredResource.name"), None),
-            # RAW code. B03 is real and is NOT in PSR_LABELS — label at read time, never here.
+            # RAW code, deliberately — label at read time, never here (ProductionUnit docstring).
             "psr_type": next((e.text for e in ts.iter()
                               if _localname(e.tag) == "psrType"), None),
             "nominal_mw": _float(nominal),

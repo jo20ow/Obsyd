@@ -9,8 +9,9 @@ from __future__ import annotations
 from backend.power.entsoe_grid import PSR_LABELS
 
 # The generation types in the ENTSO-E codelist (A75/A68/A71 report these). B21-B24 are network
-# elements (AC/DC link, substation, transformer) — never generation, never in a mix.
-GENERATION_CODES = [f"B{i:02d}" for i in range(1, 21)]
+# elements (AC/DC link, substation, transformer) — never generation, never in a mix. B25 (Energy
+# storage, added to the codelist later) IS generation: BE reports its batteries under it.
+GENERATION_CODES = [f"B{i:02d}" for i in range(1, 21)] + ["B25"]
 
 
 def test_every_generation_psr_code_has_a_label():
@@ -20,6 +21,27 @@ def test_every_generation_psr_code_has_a_label():
 
 def test_the_coal_derived_gas_that_leaked_is_named():
     assert PSR_LABELS["B03"] == "Fossil Coal-derived gas"
+
+
+def test_the_battery_storage_that_leaked_is_named():
+    """BE's mix showed a raw "B25" slice (~100 MW of batteries) next to named fuels."""
+    assert PSR_LABELS["B25"] == "Energy Storage"
+
+
+def test_the_migration_renames_stored_b25_rows(db_session, monkeypatch):
+    import backend.migrations as migrations
+    from backend.models.energy import PowerGenMix
+
+    db_session.add(PowerGenMix(date="2026-07-31", zone="BE", psr_type="B25", gen_mw=102.8))
+    db_session.commit()
+
+    monkeypatch.setattr(migrations, "engine", db_session.get_bind())
+    applied: list[str] = []
+    migrations._relabel_raw_psr_codes(applied)
+    db_session.expire_all()
+
+    types = {r.psr_type for r in db_session.query(PowerGenMix).all()}
+    assert types == {"Energy Storage"}
 
 
 def test_the_migration_renames_rows_stored_under_the_raw_code(db_session, monkeypatch):
