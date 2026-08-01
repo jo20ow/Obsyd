@@ -51,6 +51,7 @@ the number is there to let them do.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
@@ -58,6 +59,8 @@ from sqlalchemy.orm import Session
 from backend.models.energy import SeriesDim
 from backend.power.hourly_store import read_hourly
 from backend.power.zones import POWER_ZONES
+
+logger = logging.getLogger(__name__)
 
 PRICE_SERIES = "price.dayahead"
 
@@ -127,6 +130,31 @@ TECH_LABELS = {
     "oil": "Oil",
     "hydro_flex": "Flexible hydro (opportunity cost)",
 }
+
+#: The honesty strings, shared verbatim by compute_marginal and
+#: compute_marginal_overview — module constants so the two responses can never
+#: drift apart.
+METHOD = (
+    "Technology-level estimate from a FIXED conventional merit order "
+    "(must-run renewables → nuclear → lignite → hard coal → gas → oil): "
+    "per hour, the most expensive band that meaningfully dispatches "
+    f"(≥{MIN_SHARE_PCT}% of generation and ≥{MIN_MW:.0f} MW) is taken to "
+    "have set the price. The order is assumed, not computed — no fuel, CO2 "
+    "or per-plant efficiency data exists here "
+    "(docs/findings/2026-06-24-eua-coal-data-source.md)."
+)
+NOTE = (
+    "A descriptive attribution heuristic, not a model of the SDAC auction "
+    "and not a forecast. A fixed order cannot see coal↔gas fuel switching; "
+    "pumped storage and reservoir hydro bid opportunity cost and can set "
+    "the price at any level (hours where flexible hydro meaningfully "
+    "dispatches and out-runs every qualifying thermal band are attributed "
+    "'hydro_flex', with that caveat); imports can set the price with no "
+    "domestic technology "
+    "marginal at all. 'tension' hours sit outside the technology's coarse "
+    "expected price band and are reported, never reclassified — "
+    "consistent_pct is the canary that the static order is off."
+)
 
 
 def _consistency(tech: str, price: float) -> str:
@@ -308,25 +336,58 @@ def compute_marginal(
             "attributed_hours": n,
         },
         "as_of": hourly[-1]["ts_utc"],
-        "method": (
-            "Technology-level estimate from a FIXED conventional merit order "
-            "(must-run renewables → nuclear → lignite → hard coal → gas → oil): "
-            "per hour, the most expensive band that meaningfully dispatches "
-            f"(≥{MIN_SHARE_PCT}% of generation and ≥{MIN_MW:.0f} MW) is taken to "
-            "have set the price. The order is assumed, not computed — no fuel, CO2 "
-            "or per-plant efficiency data exists here "
-            "(docs/findings/2026-06-24-eua-coal-data-source.md)."
-        ),
-        "note": (
-            "A descriptive attribution heuristic, not a model of the SDAC auction "
-            "and not a forecast. A fixed order cannot see coal↔gas fuel switching; "
-            "pumped storage and reservoir hydro bid opportunity cost and can set "
-            "the price at any level (hours where flexible hydro meaningfully "
-            "dispatches and out-runs every qualifying thermal band are attributed "
-            "'hydro_flex', with that caveat); imports can set the price with no "
-            "domestic technology "
-            "marginal at all. 'tension' hours sit outside the technology's coarse "
-            "expected price band and are reported, never reclassified — "
-            "consistent_pct is the canary that the static order is off."
-        ),
+        "method": METHOD,
+        "note": NOTE,
+    }
+
+
+def compute_marginal_overview(
+    db: Session, hours: int = 168, *, now: datetime | None = None
+) -> dict:
+    """Latest price-setting attribution for EVERY enabled zone — one map read.
+
+    Compute-on-read like compute_marginal, which it calls per zone and reduces
+    to each zone's newest attributed hour (`hourly[-1]`). A zone with no
+    attributable hour in the window goes into `missing` — shown as no-data,
+    never painted with an invented value — and a zone whose compute RAISES
+    goes into `errors`, kept apart from `missing` so a failure can never pass
+    itself off as an honest data gap. The 168 h default is compute_marginal's
+    own, and deliberately wider than the 3-day stale threshold: a shorter
+    window would age a zone into `missing` before `stale` could ever fire,
+    making painted-but-stale unrepresentable.
+    """
+    zones: list[dict] = []
+    missing: list[str] = []
+    errors: list[str] = []
+    for zone in POWER_ZONES:
+        try:
+            result = compute_marginal(db, zone, hours=hours, now=now)
+        except Exception:
+            logger.exception("marginal overview: compute failed for zone %s", zone)
+            errors.append(zone)
+            continue
+        hourly = result.get("hourly") if result.get("available") else None
+        if not hourly:
+            missing.append(zone)
+            continue
+        latest = hourly[-1]
+        zones.append({
+            "zone": zone,
+            "zone_label": POWER_ZONES[zone]["label"],
+            "tech": latest["tech"],
+            "tech_label": latest["tech_label"],
+            "share_pct": latest["share_pct"],
+            "mw": latest["mw"],
+            "consistency": latest["consistency"],
+            "price": latest["price"],
+            "ts_utc": latest["ts_utc"],
+        })
+    return {
+        "available": bool(zones),
+        "hours": hours,
+        "zones": zones,
+        "missing": missing,
+        "errors": errors,
+        "method": METHOD,
+        "note": NOTE,
     }
