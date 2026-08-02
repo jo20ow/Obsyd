@@ -18,10 +18,14 @@ export const INITIAL_VIEW = { longitude: 9, latitude: 54, zoom: 3.1, minZoom: 2.
 
 // ── Cross-border flow arcs ────────────────────────────────────────────────────
 // Width encodes |latest flow|: √ scale (a 4× flow reads 2× wide — GW differences
-// stay legible without 5-GW borders drowning 300-MW ones), capped at 5 GW / 8 px,
+// stay legible without 5-GW borders drowning 300-MW ones), capped at 5 GW / 6 px,
 // 1 px floor so thin borders stay hoverable.
 export const FLOW_WIDTH_MAX_MW = 5000
-export const ARC_MAX_PX = 8
+export const ARC_MAX_PX = 6
+// Gray context arcs (no NTC / no reading) cap here instead: they carry no load
+// signal, so they must not out-shout the informative NTC-colored arcs — see
+// buildArcs in layers/flowArcsLayer.js.
+export const ARC_CONTEXT_MAX_PX = 2
 // NTC-utilization classing thresholds (%) — single source for the arc colors
 // AND the footer legend, so the two can never drift apart.
 export const UTIL_MID = 70
