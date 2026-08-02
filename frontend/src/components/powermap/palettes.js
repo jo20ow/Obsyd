@@ -20,6 +20,17 @@ export const PALETTES = {
     zoneLine: [6, 6, 10, 220],
     state: { CALM: [74, 222, 128], ELEVATED: [250, 204, 21], STRESSED: [248, 113, 113] },
     stateLegend: { CALM: '#4ade80', ELEVATED: '#facc15', STRESSED: '#f87171' },
+    // IN-SCOPE zone with no value (categorical fills) — a slate-700 that is
+    // NOT pal.mid: mid is the diverging price scale's MIDPOINT, never a
+    // validated no-data colour, and pressed into that job it collapses into
+    // the context countries (on the LIGHT surface to within ΔE 1) — an enabled
+    // bidding zone missing its value then looked exactly like a neighbour that
+    // has none by design. Validated (dataviz validator) at the
+    // fill's own alpha 215 over #06060a — worst normal-vision pair 15.8 vs
+    // Oil, ~15 vs the context countries, ≥21 vs every other fuel; CVD ≥15.5
+    // throughout. The 1.7:1 surface contrast is deliberate (no-data must stay
+    // recessive) and relieved by the zone label + tooltip + legend count.
+    noData: [51, 65, 85],
     label: [235, 240, 245, 230],
     labelOutline: [6, 6, 10, 255],
     highlight: [103, 232, 249, 60],
@@ -42,6 +53,14 @@ export const PALETTES = {
     zoneLine: [255, 255, 255, 235],
     state: { CALM: [22, 163, 74], ELEVATED: [202, 138, 4], STRESSED: [220, 38, 38] },
     stateLegend: { CALM: '#16a34a', ELEVATED: '#ca8a04', STRESSED: '#dc2626' },
+    // No-data on the light surface has to go DARK, not pale: the context
+    // countries are already a light gray, and the two fuels it could hide
+    // behind (Oil's slate, Hard Coal's warm gray) sit at L* 57 and 72 — the
+    // gap above them is too narrow to clear the separation floor. slate-800
+    // at alpha 215 over #f4f5f7 reads as a hole in the data: worst
+    // normal-vision pair 22.0 vs Oil, 52.5 vs the context countries, ≥25 vs
+    // every other fuel; CVD ≥19.8 throughout (dataviz validator).
+    noData: [30, 41, 59],
     label: [24, 30, 40, 235],
     labelOutline: [255, 255, 255, 255],
     highlight: [8, 100, 124, 50],

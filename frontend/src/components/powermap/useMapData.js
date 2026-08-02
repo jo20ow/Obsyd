@@ -7,13 +7,16 @@ const API = '/api'
 // identity on every render and defeat the downstream memos (effRows, arcs).
 const EMPTY = []
 
-// Per-fill extra data feeds — see `extra` below. Deliberately empty: neither
-// current fill brings its own feed. PR 6's marginal-tech fill registers its
-// lazy overview fetch here (fetched only while that fill is selected) — new
+// Per-fill extra data feeds — fill key -> url, see `extra` below. Fetched
+// ONLY while that fill is selected: the price and state fills must not pay for
+// the marginal-tech estimate (a compute-on-read endpoint), and new
 // fill-specific data goes through this seam, not into another component.
-const EXTRA_BY_FILL = {}
+const EXTRA_BY_FILL = {
+  tech: `${API}/power/marginal/overview`,
+}
 
-// The four data feeds behind the map. The API GETs go through useFetchWithError:
+// The four shared data feeds behind the map, plus the active fill's own one
+// (`extra`, EXTRA_BY_FILL). The API GETs go through useFetchWithError:
 // its module-level SWR cache + in-flight dedupe are keyed by URL, so
 // /power/overview is physically SHARED with PowerOverviewMatrix/NarrativeHero
 // (concurrent mounts collapse into one GET). Like those consumers we pass NO
@@ -59,10 +62,22 @@ export default function useMapData(fill) {
   useEffect(() => { if (overviewError) console.error('PowerMap overview:', overviewError) }, [overviewError])
   useEffect(() => { if (bordersError) console.error('PowerMap borders:', bordersError) }, [bordersError])
 
-  const extra = EXTRA_BY_FILL[fill] ?? null
+  // The active fill's own feed. Hooks cannot be called conditionally, and the
+  // fetch hook keys its SWR cache, its in-flight dedupe AND its effect deps on
+  // the url — an `enabled` flag would have duplicated that url state in a
+  // second place. So the hook learned the cheaper contract instead: a NULL url
+  // = idle, no request (inert for its ~90 other callers, all of which pass a
+  // real url). One unconditional call here, url only while the owning fill is
+  // selected; after ONE COMPLETED fetch, switching fills back repaints
+  // instantly from the url-keyed SWR cache while it revalidates behind the
+  // scenes (switching away MID-FLIGHT aborts before the cache write, so that
+  // return trip still loads cold). Passed on RAW (no `available` gate like snap/
+  // borders): the fill needs the coverage metadata to count its own gaps.
+  const { data: extra, error: extraError } = useFetchWithError(EXTRA_BY_FILL[fill] ?? null)
+  useEffect(() => { if (extraError) console.error(`PowerMap ${fill} feed:`, extraError) }, [extraError, fill])
 
   return {
     geo, rows, snap, borders, extra,
-    errors: { geo: geoError, overview: overviewError, snapshot: snapError, borders: bordersError },
+    errors: { geo: geoError, overview: overviewError, snapshot: snapError, borders: bordersError, extra: extraError },
   }
 }

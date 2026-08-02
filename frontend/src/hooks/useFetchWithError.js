@@ -78,6 +78,21 @@ function dedupedFetchRawJson(url, { headers, signal }) {
  * `opts.deps` extends the dependency list so callers can refetch
  * when their own state changes.
  *
+ * A FALSY `url` means "nothing to fetch yet": the hook stays idle
+ * ({data: null, error: null, loading: false}) and touches no network;
+ * `refetch()` is a no-op while idle and no polling interval is armed.
+ * Lets a caller keep the hook call unconditional — hooks cannot be —
+ * while the request itself is conditional (PowerMap's per-fill feeds:
+ * an endpoint is only requested while its fill is selected).
+ * NOTE: going idle CLEARS `data`, exactly as switching to an uncached
+ * url does — the hook never keeps rendering a payload for a url it is
+ * no longer pointed at. A caller that wants the last payload to stay
+ * on screen across the flip (`ready ? url : null`) must hold it itself.
+ * `null` / `''` are the deliberate idle signals; `undefined` is almost
+ * always an accident (a template variable that never resolved), so it
+ * warns in dev — this hook exists to stop failures from hiding, and a
+ * silent idle on a typo'd url would be one.
+ *
  * `opts.pollMs` re-fetches on an interval so today-views keep filling in
  * without a reload (the ingest runs every 30 min; panels poll slower).
  * Polling pauses while the tab is hidden and resumes — with an immediate
@@ -87,12 +102,27 @@ export default function useFetchWithError(url, opts = {}) {
   const { transform, deps = [], headers, signalRef, pollMs } = opts
   const [data, setData] = useState(() => (swrCache.has(url) ? swrCache.get(url) : null))
   const [error, setError] = useState(null)
-  const [loading, setLoading] = useState(() => !swrCache.has(url))
+  const [loading, setLoading] = useState(() => Boolean(url) && !swrCache.has(url))
   const reqRef = useRef(0)
 
   const run = useCallback(
     async (controller) => {
       const myReq = ++reqRef.current
+      // No url = idle by design (see the docblock). Bumping reqRef first
+      // retires any in-flight response for the PREVIOUS url, then the state
+      // resets to the idle shape — no fetch, no request for "/undefined".
+      // Inert for every other caller in the app: they all pass a real url
+      // (two even build fallback urls to work around the absence of this
+      // branch), so nothing about their behavior changes.
+      if (!url) {
+        if (import.meta.env.DEV && url === undefined) {
+          console.warn('useFetchWithError: url is undefined — idling and fetching nothing. Pass null or "" to idle on purpose.')
+        }
+        setData(null)
+        setError(null)
+        setLoading(false)
+        return
+      }
       // Serve stale data immediately while revalidating — but ONLY data that
       // belongs to THIS url. When the url changes (zone/range switch) and the
       // new url has no cache yet, `data` must drop to null: keeping the old
@@ -142,7 +172,9 @@ export default function useFetchWithError(url, opts = {}) {
   }, [run, signalRef])
 
   useEffect(() => {
-    if (!pollMs) return
+    // An idle hook arms nothing: no interval, no visibilitychange listener
+    // (`run` would bail anyway — this just stops paying for the ticks).
+    if (!pollMs || !url) return
     let controller = null
     const tick = () => {
       if (document.hidden) return // don't burn requests for a backgrounded tab
@@ -158,7 +190,7 @@ export default function useFetchWithError(url, opts = {}) {
       document.removeEventListener('visibilitychange', onVisible)
       controller?.abort()
     }
-  }, [run, pollMs])
+  }, [run, pollMs, url])
 
   return { data, loading, error, refetch }
 }
