@@ -29,12 +29,22 @@ export function FlowArcLegend({ pal, atLatest }) {
 // observed min/max (no clamp — ranks are outlier-robust by construction). The
 // zero marker sits at 0 €'s share of the population.
 export function PriceScaleLegend({ scale }) {
-  const stops = scale.stops(12)
-  const gradient = `linear-gradient(90deg, ${stops
-    .map((c, i) => `${rgbCss(c)} ${(i / (stops.length - 1)) * 100}%`)
+  // Stops carry their own CDF position (the doubled stop at the zero share
+  // renders as a CSS hard edge — see makeQuantileScale.stops).
+  const gradient = `linear-gradient(90deg, ${scale
+    .stops(12)
+    .map(({ pos, rgb }) => `${rgbCss(rgb)} ${(pos * 100).toFixed(2)}%`)
     .join(', ')})`
   const q = scale.quantiles
-  const ticks = q ? [[10, q.p10], [25, q.p25], [50, q.p50], [75, q.p75], [90, q.p90]] : []
+  // Flat weeks collapse neighbouring quantiles onto the same rounded label —
+  // render each label once (first position wins) instead of stacking "82 82".
+  const ticks = []
+  if (q) {
+    for (const [p, v] of [[10, q.p10], [25, q.p25], [50, q.p50], [75, q.p75], [90, q.p90]]) {
+      const label = v.toFixed(0)
+      if (!ticks.length || ticks[ticks.length - 1].label !== label) ticks.push({ p, label })
+    }
+  }
   return (
     <span
       className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5"
@@ -42,8 +52,8 @@ export function PriceScaleLegend({ scale }) {
     >
       <span className="text-neutral-500">{scale.lo.toFixed(0)}</span>
       <span className="flex flex-col gap-px">
-        <span className="relative block h-2 w-36 rounded overflow-hidden" style={{ background: gradient }}>
-          {scale.hasNegatives && (
+        <span className="relative block h-2 w-40 rounded overflow-hidden" style={{ background: gradient }}>
+          {scale.negShare > 0 && (
             <span
               className="absolute top-0 h-2 w-px bg-neutral-400"
               style={{ left: `${scale.negShare * 100}%` }}
@@ -52,10 +62,10 @@ export function PriceScaleLegend({ scale }) {
           )}
         </span>
         {ticks.length > 0 && (
-          <span className="relative block h-2.5 w-36 text-[8px] leading-none text-neutral-500">
-            {ticks.map(([p, v]) => (
+          <span className="relative block h-2.5 w-40 text-[8px] leading-none text-neutral-500">
+            {ticks.map(({ p, label }) => (
               <span key={p} className="absolute -translate-x-1/2" style={{ left: `${p}%` }} title={`p${p}`}>
-                {v.toFixed(0)}
+                {label}
               </span>
             ))}
           </span>
@@ -63,7 +73,7 @@ export function PriceScaleLegend({ scale }) {
       </span>
       <span className="text-neutral-500">{scale.hi.toFixed(0)} €/MWh</span>
       <span className="text-neutral-600">equal-frequency scale · week&apos;s all-zone hours</span>
-      {scale.hasNegatives && <span className="text-violet-300/70">violet = negative</span>}
+      {scale.negShare > 0 && <span className="text-violet-300">violet = negative</span>}
     </span>
   )
 }

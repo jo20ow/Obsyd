@@ -70,7 +70,8 @@ export function makeQuantileScale(vals, pal) {
   let split = 0 // size of the negative slice
   while (split < n && sorted[split] < 0) split++
   const neg = sorted.slice(0, split)
-  const pos = sorted.slice(split)
+  const nonNeg = sorted.slice(split)
+  const negShare = n ? split / n : 0
 
   const color = (v) => {
     if (v == null || n === 0) return pal.mid
@@ -80,18 +81,33 @@ export function makeQuantileScale(vals, pal) {
       // anything seen, never "cheap".
       return lerp(pal.mid, pal.negPole, neg.length ? 1 - cdfRank(neg, v) : 1)
     }
-    return lerp(pal.mid, pal.posPole, pos.length ? cdfRank(pos, v) : 0)
+    return lerp(pal.mid, pal.posPole, nonNeg.length ? cdfRank(nonNeg, v) : 0)
   }
 
   return {
     color,
-    // Legend samples on the CDF axis: stop i sits at population fraction
-    // i/nStops and is colored by the price found there — equal bar length =
-    // equal share of the week's hours, and because every stop goes through
-    // color() the legend cannot drift from the map.
+    // Legend stops, POSITIONED on the CDF axis: [{pos, rgb}] with pos in
+    // [0, 1]. The two sides of 0 are sampled SEPARATELY, with a doubled stop
+    // at pos = negShare (violet side, then cyan side) pinning the handoff as
+    // a hard edge — uniform sampling would smooth the violet→mid pinch away
+    // whenever negatives are sparse (negShare < 1/nStops, the common live
+    // case) and let prices just above zero render violet-ish. Every stop
+    // still goes through color(), so the legend cannot drift from the map.
     stops(nStops) {
+      if (n === 0) return [{ pos: 0, rgb: pal.mid }, { pos: 1, rgb: pal.mid }]
       const out = []
-      for (let i = 0; i <= nStops; i++) out.push(color(n ? percentile(sorted, i / nStops) : null))
+      if (neg.length) {
+        const k = Math.max(2, Math.round(nStops * negShare))
+        for (let i = 0; i <= k; i++) {
+          out.push({ pos: (i / k) * negShare, rgb: color(percentile(neg, i / k)) })
+        }
+      }
+      if (nonNeg.length) {
+        const k = Math.max(2, nStops - Math.round(nStops * negShare))
+        for (let i = 0; i <= k; i++) {
+          out.push({ pos: negShare + (i / k) * (1 - negShare), rgb: color(percentile(nonNeg, i / k)) })
+        }
+      }
       return out
     },
     quantiles: n
@@ -105,7 +121,6 @@ export function makeQuantileScale(vals, pal) {
       : null,
     lo: n ? sorted[0] : 0, // observed extremes — legend endpoints only
     hi: n ? sorted[n - 1] : 0,
-    hasNegatives: split > 0,
-    negShare: n ? split / n : 0, // CDF position of 0 € — the legend's zero marker
+    negShare, // CDF position of 0 € — the legend's zero marker; > 0 ⇔ negatives exist
   }
 }
