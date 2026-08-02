@@ -33,6 +33,25 @@ export const UTIL_HIGH = 90
 export const arcWidth = (mw) =>
   Math.max(1, ARC_MAX_PX * Math.sqrt(Math.min(Math.abs(mw), FLOW_WIDTH_MAX_MW) / FLOW_WIDTH_MAX_MW))
 
+// ── Transmission-outage overlay (ENTSO-E A78) ─────────────────────────────────
+// Geometry is a STRAIGHT chord between the two zone centroids — deliberately
+// not the flow arcs' bowed one (getHeight 0.4): both overlays can be on at the
+// same time, so they have to stay tellable apart by FORM, not by colour alone.
+// The dash pattern is the second variable. An outage is a WINDOW, and the feed
+// carries everything that starts inside the horizon (30 d): a line that is out
+// RIGHT NOW draws the tight dash, one that only starts later draws the sparse
+// one — three weeks out must not look like "this line is gone".
+export const OUTAGE_DASH_RUNNING = [4, 3]
+export const OUTAGE_DASH_UPCOMING = [2, 7]
+// Forced is the rare exception (single digits of several hundred live events),
+// so it also gets the heavier stroke; planned is the routine background hum.
+export const OUTAGE_WIDTH = { forced: 3, planned: 1.5 }
+// Every path is drawn TWICE: this much wider, in pal.labelOutline, underneath.
+// The choropleth below spans 21 fuel hues plus the whole price ramp — no single
+// stroke colour is legible over all of them, so legibility comes from the
+// casing (the cartographic road-casing trick), not from picking a lucky hue.
+export const OUTAGE_CASING_PX = 2
+
 export function fmtTs(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString('en-US', {

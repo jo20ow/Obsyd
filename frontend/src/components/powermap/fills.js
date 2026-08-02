@@ -1,4 +1,4 @@
-import { PriceScaleLegend, StateLegend, TechLegend } from './Legend'
+import { PriceScaleLegend, StateLegend, TechLegend } from './legends'
 import { fmtTs } from './constants'
 import { techIndex, techRgb } from './tech'
 
