@@ -1,3 +1,4 @@
+import LegendRow from './LegendRow'
 import { rgbCss } from '../palettes'
 import { UTIL_MID, UTIL_HIGH } from '../constants'
 
@@ -8,7 +9,7 @@ import { UTIL_MID, UTIL_HIGH } from '../constants'
    the arcs themselves are on (index.jsx couples it to overlays.flows). */
 export default function FlowArcLegend({ pal, atLatest }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-1.5 border-t border-border font-mono text-[9px] text-neutral-600">
+    <LegendRow>
       <span>flows: width ∝ GW (√, caps at 5)</span>
       <span><span style={{ color: rgbCss(pal.arc.low) }}>■</span> &lt;{UTIL_MID}%</span>
       <span><span style={{ color: rgbCss(pal.arc.mid) }}>■</span> {UTIL_MID}–{UTIL_HIGH}%</span>
@@ -18,6 +19,6 @@ export default function FlowArcLegend({ pal, atLatest }) {
       <span>grey = context (thin)</span>
       <span>solid end = importer</span>
       {!atLatest && <span className="text-neutral-500">hidden while scrubbing — arcs show latest only</span>}
-    </div>
+    </LegendRow>
   )
 }
