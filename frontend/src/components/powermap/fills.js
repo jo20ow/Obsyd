@@ -6,6 +6,13 @@ import { techIndex, techRgb } from './tech'
 // per-fill contract so a new fill lands purely additively here;
 // index.jsx never branches on a fill key:
 //   key/label      — header toggle button
+//   info           — REQUIRED. One or two sentences for the map's ⓘ popover,
+//                    describing what THIS fill encodes. MapHeader renders it as
+//                    the <dd> of a <dl> whose <dt> is `label`, so do NOT open by
+//                    repeating the fill's own name — start with the explanation.
+//                    Composed in registry order, so a new fill ships its
+//                    explanation next to its colours — there is no central
+//                    string to remember to edit.
 //   scrub          — whether the time scrubber applies (grid state is always live)
 //   labelText(pt, ctx) — OPTIONAL label string for one point row, ctx as in
 //                    getColor; null = no label for this point (price fill skips
@@ -33,6 +40,14 @@ export const FILLS = [
   {
     key: 'price',
     label: 'DAY-AHEAD €/MWh',
+    info: (
+      'Each zone by its cleared auction price. IMPORTANT: ONE HOUR at a time (the hour on the '
+      + 'slider below), not the whole day — so a zone can read €0 here at 08:00 while the all-zones '
+      + 'table shows a positive daily mean; drag the slider to move through the hours. Fixed '
+      + 'equal-frequency colour scale across the shown week: colours spread by rank among the '
+      + "week's all-zone hours, not by € distance (tooltips carry exact €) — violet = negative "
+      + 'prices (a distinct state, not just cheap), brighter cyan = more expensive.'
+    ),
     scrub: true,
     labelText: (p) => (p.price == null ? null : `${p.label} ${Math.round(p.price)}`),
     // |price| so the EXTREME zones survive the collision cull — a €300 spike or
@@ -54,6 +69,11 @@ export const FILLS = [
   {
     key: 'state',
     label: 'GRID STATE',
+    info: (
+      'Each zone by how far it sits from its own 30-day norm — CALM / ELEVATED / STRESSED. A '
+      + 'deviation vs history, not a forecast, and always the latest reading (no slider: the state '
+      + 'is only ever "now").'
+    ),
     scrub: false,
     // State is already the color — the label only answers "which zone is that",
     // so it's the bare zone code. Cull priority = severity: a STRESSED zone's
@@ -72,6 +92,11 @@ export const FILLS = [
   {
     key: 'tech',
     label: 'PRICE-SETTING TECH',
+    info: (
+      'Each zone by the technology estimated to have set its latest price — a fixed-merit-order '
+      + 'attribution in the generation-mix fuel colours, not a cost model (a slate zone is in scope '
+      + 'but has no value, and each zone carries its own hour — hover it; glossary in HOW TO READ).'
+    ),
     // No scrubber: the estimate is computed on read for the LATEST hour only —
     // there is no per-hour matrix to scrub, and back-dating one colour across
     // the week would be a lie. Flow arcs stay on (latest-on-latest is honest).
