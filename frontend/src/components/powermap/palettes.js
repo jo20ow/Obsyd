@@ -42,6 +42,32 @@ export const PALETTES = {
     // territory and is relieved by the worded legend + exact util % in the
     // tooltip. The grays are MEANT to read gray.
     arc: { low: [34, 211, 238], mid: [251, 191, 36], high: [251, 146, 60], proxy: [148, 163, 184], none: [100, 116, 139] },
+    // Transmission-outage overlay (A78): ONE reserved alarm hue for the rare
+    // FORCED event, and a deliberately near-achromatic neutral for the routine
+    // PLANNED ones — 558 of the 563 live events on 2026-08-02 were planned, so
+    // a second alarm colour would cry wolf ~99% of the time (the same reasoning
+    // that keeps two arc colours grey). fuchsia-500 was picked over every red/rose:
+    // the whole red→orange wedge sits too close to arc.high under NORMAL vision
+    // (rose-400↔arc.high ΔE 12.5, red-400 10.6, both under the 15 floor) and
+    // red-400 IS pal.state.STRESSED (ΔE 0.0).
+    // Validated (dataviz validate_palette.js) on #06060a — forced↔planned ΔE
+    // 30.4 CVD / 36.4 normal; vs the five arc colours (the OTHER line mark,
+    // drawable at the same time) forced's worst is 12.3 / 25.0 (vs arc.proxy)
+    // and PLANNED's is worse on both counts — 9.5 CVD vs arc.low's cyan, 18.4
+    // normal vs arc.mid's amber — so the pair that actually sets the floor here
+    // is planned's, still clear of 8 / 15; vs the state trio 23.1 / 23.2;
+    // contrast 5.9:1 and 16.1:1; forced's L sits inside the dark band.
+    // `planned` is chroma-floor exempt ON PURPOSE (it is meant to read neutral)
+    // and its L is above the band for the same reason: it has to out-lighten
+    // the two grey arc colours to stay separable from them.
+    // Against the CHOROPLETH underneath no stroke colour can win (the tech
+    // fill's seven fuels + the price ramp — worst is forced↔Nuclear at 4.6 CVD
+    // / 15.7 normal, composited at the fill's own alpha; and planned↔posPole,
+    // the ramp's expensive end, 4.2 CVD / 13.1 normal raw):
+    // legibility there is the CASING's job, not the hue's — see OUTAGE_CASING_PX.
+    // Which is why the casing has to stay IN PHASE with the stroke it cases —
+    // deck.gl dashes are width-relative, see makeOutageLayers.
+    outage: { forced: [217, 70, 239], planned: [231, 229, 228] },
   },
   light: {
     surface: '#f4f5f7',
@@ -73,6 +99,27 @@ export const PALETTES = {
     // indistinguishable. amber-600 lifts the pair to deutan 11.3 / normal
     // 12.7 (CVD target met; adjacent ordinal steps, legend + tooltip relieve).
     arc: { low: [8, 145, 178], mid: [217, 119, 6], high: [194, 65, 12], proxy: [100, 116, 139], none: [148, 163, 184] },
+    // Same two roles, inverted for the light surface: the alarm hue darkens
+    // (fuchsia-800) and the neutral goes DARK too (stone-700) — a pale
+    // "planned" would collide with pal.zoneLine, which is white here.
+    // Validated on #f4f5f7 — forced↔planned ΔE 13.2 CVD / 20.9 normal; vs the
+    // arc colours 12.1 / 20.7 (forced) and 13.2 / 18.7 (planned); vs the state
+    // trio 21.7 / 24.7 and 11.2 / 29.1; contrast 7.6:1 and 9.4:1, and 8.2:1 /
+    // 10.3:1 against the white casing they actually sit on. planned is again
+    // chroma-floor/L-band exempt by design (neutral, and dark enough to clear
+    // the light surface).
+    // What they do NOT clear is the dark end of the light FILLS — recorded here
+    // rather than left implicit, because it is the pair that decides the whole
+    // overlay: planned↔noData ΔE 10.5 normal (4.7 as the no-data slate actually
+    // renders, at its own alpha 215 over the surface), planned↔posPole 13.1,
+    // forced↔negPole 13.4 — all under the 15 floor. The two pole figures are
+    // RAW, i.e. the conservative reading: composited at the price fill's own
+    // alpha 235 they improve to 15.9 normal / 14.1 CVD. Deliberate: no stroke hue
+    // clears a full diverging ramp AND a dark no-data slate on a light surface,
+    // so what carries legibility there is the white CASING under the chord (see
+    // OUTAGE_CASING_PX), not the hue — which is exactly why the casing's dash
+    // must stay in phase with the coloured one (makeOutageLayers).
+    outage: { forced: [134, 25, 143], planned: [68, 64, 60] },
   },
 }
 

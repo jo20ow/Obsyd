@@ -6,7 +6,15 @@
 // price-setting technology and its tension flag. Dispatched, never branched on
 // a fill key, and `fillCtx` is the very ctx that fill colors with, so tooltip
 // and colour can never tell different stories.
-export function makeTooltip(byZone, pal, fillDef, fillCtx) {
+//
+// OVERLAYS are a different concern from fills and get their own seam:
+// `overlayTips` is an ordered list of resolvers `(object) => html | null`, each
+// owned by its overlay's own layer module (layers/outageLayer.js), tried BEFORE
+// the built-in branches — an overlay's data object may carry the same fields
+// the branches below sniff for (an outage path has zone_a/zone_b too, which
+// would otherwise be mistaken for a border arc). This file keeps the styling
+// and the fill/zone shapes; it learns nothing about any overlay's payload.
+export function makeTooltip({ byZone, pal, fillDef, fillCtx, overlayTips = [] }) {
   const TIP_STYLE = { ...pal.tooltip, fontFamily: 'monospace', fontSize: '11px', padding: '6px 8px' }
   const fillLines = (zone) => {
     const lines = fillDef?.tooltipLines?.(zone, fillCtx) || []
@@ -14,6 +22,10 @@ export function makeTooltip(byZone, pal, fillDef, fillCtx) {
   }
   return ({ object }) => {
     if (!object) return null
+    for (const tip of overlayTips) {
+      const html = tip(object)
+      if (html) return { html, style: TIP_STYLE }
+    }
     if (object.zone_a && object.zone_b) { // a border arc — richer, so {html}
       const label = object.label || `${object.zone_a}↔${object.zone_b}`
       const [la, lb] = label.split('↔')
