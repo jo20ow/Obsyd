@@ -129,6 +129,8 @@ export function outageTooltip(o) {
     `<div>${avail}</div>`,
     `<div>${fmtTs(w.start_utc)} → ${fmtTs(w.end_utc)} UTC</div>`,
     `<div style="opacity:.55">${when}${o.running > 0 && !w.running_now ? ` · ${o.running} other out now` : ''}</div>`,
+    // Same affordance as the arcs' tooltip — the chord carries the same click.
+    '<div style="opacity:.55">click → border detail</div>',
   ].join('')
 }
 
@@ -140,17 +142,23 @@ export function outageTooltip(o) {
  * the choropleth through instead of laying an opaque rail across it.
  * Only the top layer is pickable; the casing would just steal its own hovers.
  */
-export function makeOutageLayers({ paths, pal }) {
+export function makeOutageLayers({ paths, pal, onBorderSelect }) {
   const common = {
     data: paths,
     getPath: (d) => d.path,
     widthUnits: 'pixels',
-    // Dash lengths are in the same pixel units as the width (dashJustified
-    // stretches the pattern so both ends of a chord finish on a dash).
+    // deck.gl dash lengths are RELATIVE TO STROKE WIDTH, not absolute pixels:
+    // PathLayer's vertex shader divides path space by the stroke width, so
+    // [4,3] on a 1.5 px stroke paints 6 px on / 4.5 px off. Handing the SAME
+    // array to the wider casing therefore stretches its period (see its own
+    // getDashArray below). dashJustified then stretches the pattern so both
+    // ends of a chord finish on a dash.
     extensions: [new PathStyleExtension({ dash: true })],
     dashJustified: true,
     dashGapPickable: true,
     getDashArray: (d) => d.dash,
+    // Keyed by ACCESSOR NAME, so this entry keeps covering getDashArray on the
+    // casing layer below, which overrides the accessor but inherits these.
     updateTriggers: { getPath: [paths], getColor: [paths], getWidth: [paths], getDashArray: [paths] },
   }
   return [
@@ -160,6 +168,16 @@ export function makeOutageLayers({ paths, pal }) {
       pickable: false,
       getColor: pal.labelOutline,
       getWidth: (d) => d.width + OUTAGE_CASING_PX,
+      // Rescaled by width/(width + casing) so the casing's ABSOLUTE dash period
+      // is identical to the coloured stroke's. Unscaled it ran 1.67× (forced) /
+      // 2.33× (planned) longer, the two patterns drifted out of phase, and the
+      // casing stopped being a contour: most of each coloured dash sat on bare
+      // choropleth while the casing read as a dashed line in its own right
+      // (planned chords looked white-with-dark-speckles on the light surface —
+      // exactly the pal.zoneLine collision stone-700 was chosen to avoid).
+      // dashJustified stays in step too: the round(vPathLength/unitLength) it
+      // divides by is the same integer once the period matches.
+      getDashArray: (d) => d.dash.map((v) => (v * d.width) / (d.width + OUTAGE_CASING_PX)),
     }),
     new PathLayer({
       ...common,
@@ -170,6 +188,17 @@ export function makeOutageLayers({ paths, pal }) {
       // vanishing under the cursor. The tooltip is the hover feedback here.
       getColor: (d) => d.color,
       getWidth: (d) => d.width,
+      // Same click as the flow arcs, deliberately: these chords sit ABOVE the
+      // zones layer and are pickable (dashGapPickable + pickingRadius 4, so the
+      // corridor is ~11 px wide), and deck.gl does not fall through to the
+      // layer underneath — without this, turning the overlay on would lay a
+      // few dozen dead stripes across the map where a zone click stops working.
+      // The pair is the /borders canonical sorted pair (same convention as the
+      // arcs), so BordersPanel opens the matching row. If a pair has no row
+      // (none of today's 37 do, but A78 names the counterparty, not the border)
+      // the panel still expands and scrolls into view with nothing pre-opened —
+      // degraded, never dead, and never throwing.
+      onClick: ({ object }) => { if (object) onBorderSelect?.(object.zone_a, object.zone_b) },
     }),
   ]
 }

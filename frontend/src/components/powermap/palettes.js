@@ -52,14 +52,20 @@ export const PALETTES = {
     // red-400 IS pal.state.STRESSED (ΔE 0.0).
     // Validated (dataviz validate_palette.js) on #06060a — forced↔planned ΔE
     // 30.4 CVD / 36.4 normal; vs the five arc colours (the OTHER line mark,
-    // drawable at the same time) worst 12.3 / 25.0; vs the state trio 23.1 /
-    // 23.2; contrast 5.9:1 and 16.1:1; forced's L sits inside the dark band.
+    // drawable at the same time) forced's worst is 12.3 / 25.0 (vs arc.proxy)
+    // and PLANNED's is worse on both counts — 9.5 CVD vs arc.low's cyan, 18.4
+    // normal vs arc.mid's amber — so the pair that actually sets the floor here
+    // is planned's, still clear of 8 / 15; vs the state trio 23.1 / 23.2;
+    // contrast 5.9:1 and 16.1:1; forced's L sits inside the dark band.
     // `planned` is chroma-floor exempt ON PURPOSE (it is meant to read neutral)
     // and its L is above the band for the same reason: it has to out-lighten
     // the two grey arc colours to stay separable from them.
     // Against the CHOROPLETH underneath no stroke colour can win (21 fuel hues
-    // + the price ramp — forced↔Hydro-Pumped-Storage is ΔE 0.6 under protan):
+    // + the price ramp — forced↔Hydro-Pumped-Storage is ΔE 0.6 under protan,
+    // planned↔posPole, the ramp's expensive end, 4.2 CVD / 13.1 normal):
     // legibility there is the CASING's job, not the hue's — see OUTAGE_CASING_PX.
+    // Which is why the casing has to stay IN PHASE with the stroke it cases —
+    // deck.gl dashes are width-relative, see makeOutageLayers.
     outage: { forced: [217, 70, 239], planned: [231, 229, 228] },
   },
   light: {
@@ -101,6 +107,15 @@ export const PALETTES = {
     // 10.3:1 against the white casing they actually sit on. planned is again
     // chroma-floor/L-band exempt by design (neutral, and dark enough to clear
     // the light surface).
+    // What they do NOT clear is the dark end of the light FILLS — recorded here
+    // rather than left implicit, because it is the pair that decides the whole
+    // overlay: planned↔noData ΔE 10.5 normal (4.7 as the no-data slate actually
+    // renders, at its own alpha 215 over the surface), planned↔posPole 13.1,
+    // forced↔negPole 13.4 — all under the 15 floor. Deliberate: no stroke hue
+    // clears a full diverging ramp AND a dark no-data slate on a light surface,
+    // so what carries legibility there is the white CASING under the chord (see
+    // OUTAGE_CASING_PX), not the hue — which is exactly why the casing's dash
+    // must stay in phase with the coloured one (makeOutageLayers).
     outage: { forced: [134, 25, 143], planned: [68, 64, 60] },
   },
 }
