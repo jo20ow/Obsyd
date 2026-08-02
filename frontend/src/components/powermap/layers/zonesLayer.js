@@ -8,7 +8,7 @@ import { GeoJsonLayer } from '@deck.gl/layers'
 // zone's features.
 //
 // `fillColorTriggers` is the fully assembled getFillColor updateTriggers array
-// (index.jsx builds it as [fill, effRows, ...fillDef.triggers(ctx), theme]).
+// (index.jsx builds it as [fill, effRows, ...(fillDef.triggers?.(ctx) ?? []), theme]).
 export function makeZonesLayer({ geo, zoneFill, pal, theme, fillColorTriggers, selectedZone, onZoneClick }) {
   return new GeoJsonLayer({
     id: 'eu-zones',

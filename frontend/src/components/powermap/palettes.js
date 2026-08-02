@@ -27,7 +27,7 @@ export const PALETTES = {
     // bidding zone missing its value then looked exactly like a neighbour that
     // has none by design. Validated (dataviz validator) at the
     // fill's own alpha 215 over #06060a — worst normal-vision pair 15.8 vs
-    // Oil, 19.1 vs the context countries, ≥21 vs every other fuel; CVD ≥15.5
+    // Oil, ~15 vs the context countries, ≥21 vs every other fuel; CVD ≥15.5
     // throughout. The 1.7:1 surface contrast is deliberate (no-data must stay
     // recessive) and relieved by the zone label + tooltip + legend count.
     noData: [51, 65, 85],
