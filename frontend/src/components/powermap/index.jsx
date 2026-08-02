@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import DeckGL from '@deck.gl/react'
 import { useTheme } from '../../context/ThemeContext'
 import { PALETTES } from './palettes'
-import { ZONE_COORDS, INITIAL_VIEW } from './constants'
+import { ZONE_COORDS, INITIAL_VIEW, DESK_COLUMN_H } from './constants'
 import { collectWeekValues, makeQuantileScale } from './scales'
 import { FILLS } from './fills'
 import useMapData from './useMapData'
@@ -163,22 +163,28 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
 
   const zoneCount = byZone.size
 
+  // A selected zone the geometry does not contain (the bundle carries 36
+  // polygons for 37 zones — IT_CALABRIA has no shape) would otherwise outline
+  // NOTHING and look like a broken click. Since the rail's row click is now the
+  // primary way to select, say so where the shape should have appeared.
+  const selectionHasNoShape = Boolean(
+    selectedZone && geo && !geo.features.some((f) => f.properties.zone === selectedZone)
+  )
+
   return (
-    // `tall` on lg: the CARD is exactly one viewport minus the desk's 12 px top
-    // offset and 12 px of air, and the canvas takes whatever the chrome leaves
-    // — a flex column, not a magic constant. The chrome is NOT a fixed height:
-    // the header and the legends flex-wrap, so it measures 142 px at 1920 wide
-    // and 298 px at 1024, and grows again when LINE OUTAGES adds its legend.
-    // Any `calc(100vh - <constant>)` for the CANVAS is therefore wrong at most
-    // widths — it overflowed the viewport by 15 px at 1280×800.
-    // The height must be DEFINITE (h-, not max-h-): `flex-1` distributes free
-    // space, and a max-height leaves none to distribute — under max-h the canvas
-    // collapsed onto its own floor (360 px) at every desktop width, i.e. the
+    // `tall` on lg: the card takes the desk's shared column height
+    // (DESK_COLUMN_H — the rail wears the identical class) and the canvas takes
+    // whatever the chrome leaves, as a flex column rather than a magic constant.
+    // The chrome is NOT a fixed height: the header and the legends flex-wrap, so
+    // it measures 142 px at 1920 wide and ~300 px at 1024, and grows again when
+    // LINE OUTAGES adds its legend. Any `calc(100vh - <constant>)` for the
+    // CANVAS is therefore wrong at most widths — it overflowed by 15 px at
+    // 1280×800. The height must also be DEFINITE (h-, not max-h-): `flex-1`
+    // distributes free space and a max-height leaves none to distribute — under
+    // max-h the canvas collapsed onto its own floor at every desktop width, the
     // exact "map is too small" this layout exists to fix.
-    // The max() floor is for short-but-wide viewports: below it the card simply
-    // exceeds the viewport (and scrolls) instead of squeezing the map flat.
     <div className={`border border-border bg-surface rounded overflow-hidden shadow-sm ${
-      tall ? 'lg:flex lg:flex-col lg:h-[max(560px,calc(100vh-1.5rem))]' : ''
+      tall ? `lg:flex lg:flex-col ${DESK_COLUMN_H}` : ''
     }`}>
       <MapHeader
         view={view} setView={setView}
@@ -193,8 +199,35 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
         style={tall ? { background: pal.surface } : { height: 460, background: pal.surface }}
       >
         {/* pickingRadius: the demoted 2 px context arcs stay clickable without
-            pixel-hunting — widens hit-testing only, no visual change. */}
-        <DeckGL initialViewState={INITIAL_VIEW} controller={true} layers={layers} getTooltip={getTooltip} pickingRadius={4} />
+            pixel-hunting — widens hit-testing only, no visual change.
+            touchAction 'pan-y' — a TOP-LEVEL Deck prop, NOT a controller option
+            (deck.gl passes props.touchAction straight to its EventManager;
+            inside `controller` it is silently ignored, which measures as
+            touch-action:none and no page scroll). deck.gl otherwise computes
+            `touch-action: none` on its container and swallows every touch, so on
+            a phone — where this card is TALLER than the viewport, leaving no
+            page margin to grab — a vertical swipe panned the map and the page
+            could not be scrolled past it at all. 'pan-y' hands vertical swipes
+            back to the browser; per the touch-action spec only vertical panning
+            goes to the browser, so the map keeps pinch-zoom, double-tap and
+            horizontal drag, and a mouse is unaffected. The trade is
+            single-finger VERTICAL panning of the map on touch: pinch to zoom and
+            drag sideways instead. Scrolling past the map beats panning in it. */}
+        <DeckGL
+          initialViewState={INITIAL_VIEW}
+          controller={true}
+          touchAction="pan-y"
+          layers={layers}
+          getTooltip={getTooltip}
+          pickingRadius={4}
+        />
+        {selectionHasNoShape && (
+          <div className="absolute bottom-2 left-2 right-2 pointer-events-none">
+            <span className="inline-block border border-border bg-surface/90 rounded px-2 py-1 font-mono text-[9px] text-neutral-400">
+              {byZone.get(selectedZone)?.zone_label || selectedZone} has no map geometry — its row is selected, but no shape can be outlined.
+            </span>
+          </div>
+        )}
       </div>
 
       {fillDef.scrub && ts.length > 1 && <Scrubber ts={ts} effIdx={effIdx} setIdx={setIdx} />}

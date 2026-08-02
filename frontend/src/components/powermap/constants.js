@@ -63,6 +63,19 @@ export const OUTAGE_CASING_PX = 2
 export const SELECTION_WIDTH_PX = 3
 export const SELECTION_CASING_PX = 3
 
+// The desk split's shared column height (EuropeDesk's rail AND the map card),
+// named once so the two can never drift apart — equal heights are what let both
+// columns hand their leftover space to a `flex-1 min-h-0` child instead of each
+// guessing a vh. One viewport, minus the grid's 12 px of top offset and 12 px of
+// air. The floor is NOT decorative: in-card chrome reaches ~333 px (1024 wide,
+// with the outage legend showing), so a 560 px floor would have left a 227 px
+// canvas — SHORTER than the 460 px the map had before this layout existed. 760
+// keeps ≥425 px of canvas at every width the `lg:` breakpoint can present.
+// Below the floor the column simply exceeds the viewport and the page scrolls;
+// one scroll is the right price for a map you can actually read.
+// A Tailwind literal on purpose — the scanner reads this file.
+export const DESK_COLUMN_H = 'lg:h-[max(760px,calc(100vh-1.5rem))]'
+
 export function fmtTs(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString('en-US', {

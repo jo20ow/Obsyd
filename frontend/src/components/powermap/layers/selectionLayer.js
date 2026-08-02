@@ -20,6 +20,12 @@ export function makeSelectionLayers({ geo, selectedZone, pal }) {
   if (features.length === 0) return []
   const data = { type: 'FeatureCollection', features }
 
+  // No updateTriggers: both stroke accessors below are CONSTANTS, not per-feature
+  // functions, so there is nothing for deck.gl to cache and re-evaluate — a
+  // constant accessor is re-read whenever the prop itself changes. What actually
+  // varies here is `data` (a new selection is a new filtered FeatureCollection,
+  // and these layers are not created at all when nothing is selected) and the
+  // palette (a theme flip changes pal, hence the constants themselves).
   const base = {
     data,
     pickable: false,
@@ -28,9 +34,6 @@ export function makeSelectionLayers({ geo, selectedZone, pal }) {
     lineWidthUnits: 'pixels',
     lineJointRounded: true,
     lineCapRounded: true,
-    // The contour is a pure function of (zone, theme) — deck.gl caches the
-    // stroke accessors, so both must repaint when either changes.
-    updateTriggers: { getLineColor: [selectedZone], getLineWidth: [selectedZone] },
   }
 
   return [

@@ -5,6 +5,7 @@ import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
 import EuropeDesk from './components/EuropeDesk'
+import { MAP_FALLBACK } from './components/MapFallback'
 import DurationCurvePanel from './components/DurationCurvePanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
 import MarginalTechPanel from './components/MarginalTechPanel'
@@ -85,12 +86,6 @@ const CopperPanel = lazy(() => import('./components/CopperPanel'))
 const NewsPanel = lazy(() => import('./components/NewsPanel'))
 const EIAPredictionPanel = lazy(() => import('./components/EIAPredictionPanel'))
 const EIAPredictionMini = lazy(() => import('./components/EIAPredictionPanel').then((m) => ({ default: m.EIAPredictionMini })))
-
-const MAP_FALLBACK = (
-  <div className="border border-border bg-surface rounded px-4 py-8 text-center font-mono text-xs text-neutral-500">
-    Loading map…
-  </div>
-)
 
 const API = '/api'
 

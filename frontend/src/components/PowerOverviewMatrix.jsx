@@ -11,10 +11,13 @@ import { POLL_FAST_MS } from '../utils/poll'
 // the zone on the map beside it. Descriptive, not a forecast.
 const API = '/api'
 
+// `c` is the compact rail's one-letter code. It is NOT decoration: compact has
+// no room for the word, and green/amber/red dots alone are the textbook
+// red-green CVD collision — the letter is the second, non-colour carrier.
 const STATE = {
-  CALM: { t: 'text-green-glow', d: 'bg-green-glow' },
-  ELEVATED: { t: 'text-yellow-400', d: 'bg-yellow-400' },
-  STRESSED: { t: 'text-red-400', d: 'bg-red-400' },
+  CALM: { t: 'text-green-glow', d: 'bg-green-glow', c: 'C' },
+  ELEVATED: { t: 'text-yellow-400', d: 'bg-yellow-400', c: 'E' },
+  STRESSED: { t: 'text-red-400', d: 'bg-red-400', c: 'S' },
 }
 const STATE_ORDER = { CALM: 0, ELEVATED: 1, STRESSED: 2 }
 
@@ -24,11 +27,13 @@ const zColor = (z) =>
 // `compact` = the desk-split rail (~1/3 width, beside the big map): same table,
 // same sorting, less horizontal ink. The units move OUT of every cell and INTO
 // the header (74 under "€/MWh" instead of €74 under "Day-ahead"), which is both
-// shorter per row and where a unit belongs; the State word becomes its dot
-// alone (the word stays reachable as the cell's title=).
+// shorter per row and where a unit belongs; the State word shrinks to a dot plus
+// its one-letter code (see STATE.c — the letter is what survives colour
+// blindness), with the full word kept for screen readers.
 const COLUMNS = [
   { key: 'zone', label: 'Zone', align: 'left', get: (z) => z.zone_label || z.zone },
-  { key: 'state', label: 'State', compactLabel: '', align: 'left', get: (z) => STATE_ORDER[z.state] ?? -1 },
+  // 'ST' rather than '': a sortable column needs a visible thing to click.
+  { key: 'state', label: 'State', compactLabel: 'ST', align: 'left', get: (z) => STATE_ORDER[z.state] ?? -1 },
   { key: 'price', label: 'Day-ahead', compactLabel: '€/MWh', align: 'right', get: (z) => z.price_close },
   { key: 'residual', label: 'Residual', compactLabel: 'GW', align: 'right', get: (z) => z.residual_gw },
   { key: 'renewables', label: 'Renewables', compactLabel: 'RES', align: 'right', get: (z) => (z.renewable_reliable === false ? null : z.renewable_share) },
@@ -95,15 +100,24 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
   const edgeX = compact ? 'px-1.5' : 'px-3'
 
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
-      <div className="px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
+    // Compact fills the desk rail's column instead of capping itself: the rail
+    // is a flex column of a known height, so the card takes what is left
+    // (lg:flex-1) and hands it to the scroller below. No max-h — the old
+    // `42vh` was a number from nowhere that inner-scrolled at 14 of 37 zones
+    // while 400 px of rail sat empty. Only at lg: on a phone the rail has no
+    // forced height and the table simply renders, rather than trapping a scroll
+    // inside a page scroll.
+    <div className={`border border-border bg-surface rounded overflow-hidden shadow-sm ${
+      compact ? 'lg:flex-1 lg:min-h-0 lg:flex lg:flex-col' : ''
+    }`}>
+      <div className="shrink-0 px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
         <span className="font-mono text-[12px] font-semibold text-neutral-300">European power · all zones</span>
         <InfoPopover text={TABLE_INFO} />
         <span className="font-mono text-[9px] text-neutral-700 ml-auto">
           {compact ? 'sort ↕ · click a zone to focus it' : 'sort ↕ · click a zone for detail →'}
         </span>
       </div>
-      <div className={`overflow-x-auto ${compact ? 'max-h-[42vh]' : 'max-h-[520px]'} overflow-y-auto`}>
+      <div className={`overflow-x-auto overflow-y-auto ${compact ? 'lg:flex-1 lg:min-h-0' : 'max-h-[520px]'}`}>
         <table className="w-full font-mono text-[11px]">
           <thead className="sticky top-0 bg-surface">
             <tr className="text-[9px] text-neutral-500">
@@ -137,13 +151,15 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
                     {sel && <span className="text-cyan-glow"> ‹</span>}
                     {z.stale && <span className="text-orange-400/70 text-[8px]"> stale</span>}
                   </td>
-                  {/* Compact drops the word and keeps the dot — title= keeps it
-                      readable, and the row's colour is not the only carrier
-                      (the zone's own state column stays sortable). */}
-                  <td className={`${cellX} py-2`} title={z.state}>
+                  {/* Compact swaps the word for the dot + its letter. The letter
+                      is the accessibility carrier (colour alone fails red-green
+                      CVD); the sr-only word is what assistive tech reads, since
+                      a title= on a <td> reaches neither it nor the keyboard. */}
+                  <td className={`${cellX} py-2`}>
                     <span className={`inline-flex items-center gap-1 font-bold ${st.t}`}>
                       <span className={`${compact ? 'w-2 h-2' : 'w-1.5 h-1.5'} rounded-sm ${st.d}`} />
-                      {!compact && z.state}
+                      {compact ? <span aria-hidden="true">{st.c}</span> : z.state}
+                      {compact && <span className="sr-only">{z.state}</span>}
                     </span>
                   </td>
                   <td className={`${cellX} py-2 text-right num ${zColor(z.price_z)}`}>
@@ -162,7 +178,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
           </tbody>
         </table>
       </div>
-      <div className="px-3 py-1 border-t border-border/40 font-mono text-[8px] text-neutral-700 leading-snug">
+      <div className="shrink-0 px-3 py-1 border-t border-border/40 font-mono text-[8px] text-neutral-700 leading-snug">
         Colour = how far each metric sits from its own {data.baseline_days ? `${data.baseline_days}-day` : 'trailing'} norm (grey normal · amber elevated · red extreme). Descriptive, not a forecast.
       </div>
     </div>

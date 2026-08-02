@@ -22,42 +22,65 @@ function ToggleButton({ active, onClick, title, children }) {
   )
 }
 
+// ── The overlay registry ──────────────────────────────────────────────────────
+// ONE list, two consumers: it renders the toggle buttons AND supplies the ⓘ
+// entries below. It used to be an object read positionally (.flows / .outages),
+// which quietly reintroduced the very "central string someone must remember to
+// edit" that reading `info` off FILLS had just removed — a third overlay would
+// have shipped a button with no explanation. Same shape as a FILLS entry
+// (key/label/info) so both lists render through the same code.
+const OVERLAYS = [
+  {
+    key: 'flows',
+    label: 'FLOWS',
+    title: 'Cross-border flow arcs (latest hour)',
+    info: (
+      'Arcs = the latest cross-border flow per border: the faint end exports, the solid end '
+      + 'imports; width ∝ GW, colour = how loaded the border is vs its offered day-ahead capacity '
+      + '(grey = no NTC published or no reading — drawn thin and faint as context). They always '
+      + 'show the latest hour and hide while you scrub the past — click one for the border detail '
+      + 'below.'
+    ),
+  },
+  {
+    key: 'outages',
+    label: 'LINE OUTAGES',
+    title: 'Transmission lines out or de-rated now, or starting within 30 days (ENTSO-E A78)',
+    info: (
+      'A dashed chord on every border with a transmission asset out or de-rated now (tight dash) '
+      + 'or starting within 30 days (sparse dash); colour = forced/unplanned vs planned '
+      + 'maintenance. The chords stay put while you scrub — an outage is a window, not an hour '
+      + '(glossary in HOW TO READ).'
+    ),
+  },
+]
+
 // ── The ⓘ copy ────────────────────────────────────────────────────────────────
-// COMPOSED, not hand-written as one blob: what the map is, then ONE sentence
-// per fill (read straight off the FILLS registry, so a new fill ships its own
-// sentence with its colours instead of someone remembering to edit a string
-// here), then one per overlay, then the credits. Kept out of the JSX so the
-// header row stays readable.
+// STRUCTURED, per the PR #138 rule: a term list, not a wall of prose. It is
+// composed, never hand-written — one entry per fill and per overlay, read off
+// the two registries, so a new fill or overlay ships its own explanation beside
+// its colours instead of growing a central string. (It was briefly a ~1,900-char
+// single paragraph, which is exactly what that rule exists to prevent.)
 const INTRO = (
   'Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by whichever fill is '
-  + 'active — the day-ahead price, the grid state, or the technology setting the price. '
-  + 'Flat unlabelled shapes = neighbouring countries, no data by design.'
+  + 'active. Flat unlabelled shapes = neighbouring countries, no data by design.'
 )
-// Overlays are owned by this header's toggles (not by the FILLS registry), so
-// their sentences live here, one per toggle.
-const OVERLAY_INFO = {
-  flows: (
-    'FLOWS arcs = the latest cross-border flow per border: the faint end exports, the solid end '
-    + 'imports; width ∝ GW, colour = how loaded the border is vs its offered day-ahead capacity '
-    + '(grey = no NTC published or no reading — drawn thin and faint as context); they always show '
-    + 'the latest hour and hide while you scrub the past — click one for the border detail below.'
-  ),
-  outages: (
-    'LINE OUTAGES draws a dashed chord on every border with a transmission asset out or de-rated '
-    + 'now (tight dash) or starting within 30 days (sparse dash); colour = forced/unplanned vs '
-    + 'planned maintenance, and the chords stay put while you scrub — an outage is a window, not an '
-    + 'hour (glossary in HOW TO READ).'
-  ),
-}
 const CREDITS = 'Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast.'
 
-const MAP_INFO = [
-  INTRO,
-  ...FILLS.map((f) => f.info).filter(Boolean),
-  OVERLAY_INFO.flows,
-  OVERLAY_INFO.outages,
-  CREDITS,
-].join(' ')
+const MAP_INFO = (
+  <div className="space-y-2">
+    <p className="text-neutral-400 leading-snug">{INTRO}</p>
+    <dl className="space-y-1.5">
+      {[...FILLS, ...OVERLAYS].map(({ key, label, info }) => (
+        <div key={key}>
+          <dt className="text-cyan-glow/90">{label}</dt>
+          <dd className="text-neutral-400 leading-snug">{info}</dd>
+        </div>
+      ))}
+    </dl>
+    <div className="pt-1 border-t border-border/40 text-neutral-500">{CREDITS}</div>
+  </div>
+)
 
 export default function MapHeader({ view, setView, fill, setFill, fillDef, overlays, setOverlays }) {
   const toggleOverlay = (key) => setOverlays((o) => ({ ...o, [key]: !o[key] }))
@@ -78,20 +101,16 @@ export default function MapHeader({ view, setView, fill, setFill, fillDef, overl
             <ToggleButton key={m.key} active={fill === m.key} onClick={() => setFill(m.key)}>{m.label}</ToggleButton>
           ))}
         </div>
-        <ToggleButton
-          active={overlays.flows}
-          onClick={() => toggleOverlay('flows')}
-          title="Cross-border flow arcs (latest hour)"
-        >
-          FLOWS
-        </ToggleButton>
-        <ToggleButton
-          active={overlays.outages}
-          onClick={() => toggleOverlay('outages')}
-          title="Transmission lines out or de-rated now, or starting within 30 days (ENTSO-E A78)"
-        >
-          LINE OUTAGES
-        </ToggleButton>
+        {OVERLAYS.map((o) => (
+          <ToggleButton
+            key={o.key}
+            active={overlays[o.key]}
+            onClick={() => toggleOverlay(o.key)}
+            title={o.title}
+          >
+            {o.label}
+          </ToggleButton>
+        ))}
         {view === 'zones' && fillDef.labelText && (
           <ToggleButton
             active={overlays.labels}
