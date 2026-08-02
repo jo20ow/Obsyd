@@ -1,4 +1,4 @@
-import { fuelColor } from '../../utils/fuels'
+import { DEFAULT_FUEL_COLOR, fuelColor } from '../../utils/fuels'
 
 // Vocabulary of the price-setting-technology fill, in ONE place because three
 // modules need it and none of them may import each other: fills.js (zone
@@ -14,7 +14,10 @@ import { fuelColor } from '../../utils/fuels'
 // generation-mix charts already teach, so orange means gas on both surfaces.
 // hydro_flex borrows Hydro Reservoir (the band it is attributed from, B12/B10)
 // and must_run_renewables the Other Renewable green.
-export const TECH_FUEL = {
+// Null-prototype on purpose: the keys are payload strings, so a zone shipped
+// as tech "constructor" or "toString" must read as UNKNOWN, never inherit a
+// Function that getColor would then try to spread into an RGB.
+export const TECH_FUEL = Object.freeze(Object.assign(Object.create(null), {
   must_run_renewables: 'Other Renewable',
   nuclear: 'Nuclear',
   lignite: 'Lignite',
@@ -22,7 +25,7 @@ export const TECH_FUEL = {
   gas: 'Fossil Gas',
   oil: 'Oil',
   hydro_flex: 'Hydro Reservoir',
-}
+}))
 
 // fuels.js speaks CSS hex (Recharts), deck.gl wants [r, g, b] — and the repo
 // has no hex→rgb helper. Converted ONCE per tech at module load, so getColor
@@ -34,14 +37,30 @@ const hexRgb = (hex) => [
   parseInt(hex.slice(5, 7), 16),
 ]
 
-const TECH_RGB = Object.fromEntries(
+const TECH_RGB = new Map(
   Object.entries(TECH_FUEL).map(([tech, fuel]) => [tech, hexRgb(fuelColor(fuel))])
 )
 
 // null = tech outside the closed set (or absent) — the caller paints no-data
 // rather than inventing a hue, exactly as fuels.js refuses to cycle colours.
-export const techRgb = (tech) => TECH_RGB[tech] ?? null
-export const techHex = (tech) => (TECH_FUEL[tech] ? fuelColor(TECH_FUEL[tech]) : null)
+export const techRgb = (tech) => TECH_RGB.get(tech) ?? null
+export const techHex = (tech) =>
+  (Object.hasOwn(TECH_FUEL, tech) ? fuelColor(TECH_FUEL[tech]) : null)
+
+// The claim "the legend cannot drift from the map" only holds while every
+// mapping still RESOLVES in fuels.js. A rename there would quietly hand two
+// techs the same fallback gray, and the map would keep drawing confidently —
+// so say it out loud in dev instead. (Dev-only: no cost in the bundle's
+// production branch, and the seven names are a compile-time-ish constant.)
+if (import.meta.env.DEV) { // statically replaced by Vite — the block leaves the prod bundle entirely
+  const unresolved = Object.entries(TECH_FUEL).filter(([, fuel]) => fuelColor(fuel) === DEFAULT_FUEL_COLOR)
+  const distinct = new Set([...TECH_RGB.values()].map((rgb) => rgb.join(',')))
+  if (unresolved.length) {
+    console.error('powermap/tech: these techs no longer resolve in utils/fuels.js (they would all paint the fallback gray):', unresolved)
+  } else if (distinct.size !== TECH_RGB.size) {
+    console.error('powermap/tech: two technologies now share one colour — the map and its legend cannot stay honest:', [...TECH_RGB])
+  }
+}
 
 const EMPTY_INDEX = new Map()
 

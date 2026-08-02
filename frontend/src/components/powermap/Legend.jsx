@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import FreshnessCaption from '../FreshnessCaption'
 import { rgbCss } from './palettes'
 import { UTIL_MID, UTIL_HIGH } from './constants'
 import { TECH_FUEL, techHex } from './tech'
@@ -90,17 +91,19 @@ export function PriceScaleLegend({ scale }) {
 // PR #138 rule): the coverage count is structured here, one compact sentence
 // sits in the map's ⓘ, and the full method is the HOW TO READ glossary entry.
 export function TechLegend({ extra, extraError }) {
-  const { rows, shown, total, tension, gapText } = useMemo(() => {
+  const { rows, shown, total, tension, staleN, gapText } = useMemo(() => {
     const zones = extra?.zones || []
     const counts = new Map() // tech -> { label, n }
     let unmapped = 0 // tech outside the closed set: painted no-data, counted as a gap
     let tensionN = 0
+    let staleZones = 0
     for (const z of zones) {
-      if (!TECH_FUEL[z.tech]) {
+      if (!Object.hasOwn(TECH_FUEL, z.tech)) {
         unmapped++
-        continue // counted below, and NOT in `tension` — it stays in step with `shown`
+        continue // counted below, and NOT in the tallies — they stay in step with `shown`
       }
       if (z.consistency === 'tension') tensionN++
+      if (z.stale) staleZones++
       const hit = counts.get(z.tech)
       if (hit) hit.n++
       else counts.set(z.tech, { label: z.tech_label || z.tech, n: 1 })
@@ -123,6 +126,7 @@ export function TechLegend({ extra, extraError }) {
       shown: zones.length - unmapped,
       total: zones.length + (extra?.missing?.length || 0) + failed,
       tension: tensionN,
+      staleN: staleZones,
       gapText: [noData && `${noData} no data`, failed && `${failed} failed`].filter(Boolean).join(' · '),
     }
   }, [extra])
@@ -135,7 +139,12 @@ export function TechLegend({ extra, extraError }) {
     return <span className="text-red-400">price-setting tech // FETCH ERROR — map shows no data</span>
   }
   if (!extra) return <span className="text-neutral-600">price-setting tech · loading…</span>
-  if (extra.available === false || rows.length === 0) {
+  // Nothing to show AND nothing to explain — the genuinely empty case. When
+  // every zone's compute raised, `available` is false too (it is bool(zones)),
+  // but `errors` holds all of them: fall THROUGH so the line below reports
+  // "37 failed". An all-zones failure reported as an honest data gap is the
+  // exact confusion the backend splits those two lists to prevent.
+  if (rows.length === 0 && !gapText) {
     return <span className="text-neutral-600">price-setting tech · no data</span>
   }
   return (
@@ -145,7 +154,10 @@ export function TechLegend({ extra, extraError }) {
           <span style={{ color: techHex(tech) }}>■</span> {label} ×{n}
         </span>
       ))}
-      <span className="text-neutral-600">
+      <span
+        className="text-neutral-600"
+        title="Each zone is attributed at ITS OWN newest hour and those hours differ across the map — hover a zone for the hour it was read at."
+      >
         estimated — fixed merit order, not computed costs · {shown}/{total} zones
       </span>
       {gapText && (
@@ -167,6 +179,22 @@ export function TechLegend({ extra, extraError }) {
           {tension} in tension
         </span>
       )}
+      {/* Per-zone staleness, which the top-level chip CANNOT carry: `as_of` is
+          the newest zone across the map, so three zones stuck six days back
+          would hide behind 34 current ones while painting the same saturated
+          colour. Counted here, dated per zone in the tooltip. */}
+      {staleN > 0 && (
+        <span
+          className="text-orange-400"
+          title="Zones whose newest attributed hour is past the freshness threshold. They keep their technology's colour — hover one for the hour it was actually read at."
+        >
+          {staleN} stale
+        </span>
+      )}
+      {/* The repo's standard as_of / STALE chip, on the payload's own
+          freshness triple — best-of across zones, which is why the per-zone
+          count above exists beside it. */}
+      <FreshnessCaption meta={extra} />
       {/* Payload on screen but the last refresh failed — the SWR cache is
           still serving it, so the colours are real, just not newly confirmed. */}
       {extraError && <span className="text-red-400">refresh failed — showing last payload</span>}

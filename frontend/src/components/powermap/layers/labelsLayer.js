@@ -25,13 +25,15 @@ export function makeLabelsLayer({ points, pal, theme, effRows, fill, fillDef, fi
     pickable: false,
     // Collision cull: overlapping labels hide instead of overprinting (they
     // reappear on zoom — that's the extension's behavior, no code needed).
-    // Which one survives is the fill's call — see labelPriority in fills.js.
+    // Which one survives is the fill's call — see labelPriority in fills.js;
+    // a fill that ranks nothing (no technology outranks another) omits it and
+    // gets the flat 0 default.
     // sizeScale 1.2 tests a slightly fatter footprint, buying breathing room
     // between labels that would otherwise kiss; sizeMaxPixels lifted in step
     // so the padding survives once labels hit the 13 px render cap.
     extensions: [new CollisionFilterExtension()],
     collisionGroup: 'zone-labels',
-    getCollisionPriority: (d) => fillDef.labelPriority(d, fillCtx),
+    getCollisionPriority: (d) => fillDef.labelPriority?.(d, fillCtx) ?? 0,
     collisionTestProps: { sizeScale: 1.2, sizeMaxPixels: 16 },
     updateTriggers: {
       getText: [effRows, fill],

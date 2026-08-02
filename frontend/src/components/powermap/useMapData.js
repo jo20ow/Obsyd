@@ -68,9 +68,10 @@ export default function useMapData(fill) {
   // second place. So the hook learned the cheaper contract instead: a NULL url
   // = idle, no request (inert for its ~90 other callers, all of which pass a
   // real url). One unconditional call here, url only while the owning fill is
-  // selected; switching fills back and forth repaints INSTANTLY from the
-  // url-keyed SWR cache (it still revalidates in the background — one cheap
-  // GET, no empty legend in between). Passed on RAW (no `available` gate like snap/
+  // selected; after ONE COMPLETED fetch, switching fills back repaints
+  // instantly from the url-keyed SWR cache while it revalidates behind the
+  // scenes (switching away MID-FLIGHT aborts before the cache write, so that
+  // return trip still loads cold). Passed on RAW (no `available` gate like snap/
   // borders): the fill needs the coverage metadata to count its own gaps.
   const { data: extra, error: extraError } = useFetchWithError(EXTRA_BY_FILL[fill] ?? null)
   useEffect(() => { if (extraError) console.error(`PowerMap ${fill} feed:`, extraError) }, [extraError, fill])
