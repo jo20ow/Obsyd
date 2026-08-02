@@ -6,7 +6,10 @@ import { GeoJsonLayer } from '@deck.gl/layers'
 // unique — DE_LU spans two features (DE + LU), FR two (FR + FR-COR) — so the
 // selectedZone outline matches by property value and lights up ALL of a
 // zone's features.
-export function makeZonesLayer({ geo, zoneFill, pal, theme, fill, effRows, lo, hi, selectedZone, onZoneClick }) {
+//
+// `fillColorTriggers` is the fully assembled getFillColor updateTriggers array
+// (index.jsx builds it as [fill, effRows, ...fillDef.triggers(ctx), theme]).
+export function makeZonesLayer({ geo, zoneFill, pal, theme, fillColorTriggers, selectedZone, onZoneClick }) {
   return new GeoJsonLayer({
     id: 'eu-zones',
     data: geo,
@@ -32,7 +35,7 @@ export function makeZonesLayer({ geo, zoneFill, pal, theme, fill, effRows, lo, h
       if (zone) onZoneClick?.(zone)
     },
     updateTriggers: {
-      getFillColor: [fill, effRows, lo, hi, theme],
+      getFillColor: fillColorTriggers,
       getLineColor: [theme, selectedZone],
       getLineWidth: [selectedZone],
     },
@@ -41,12 +44,18 @@ export function makeZonesLayer({ geo, zoneFill, pal, theme, fill, effRows, lo, h
 
 // POINTS view keeps the zone shapes underneath as pure context (uniform fill,
 // not pickable). A `.clone()` of the configured layer, so the base props stay
-// in lock-step with the main variant by construction.
+// in lock-step with the main variant by construction. theme stays in the line
+// triggers: a theme flip while in POINTS view must repaint the (inherited)
+// stroke accessors, not leave stale outlines.
 export function makeContextZonesLayer(zonesLayer, { pal, theme, selectedZone }) {
   return zonesLayer.clone({
     pickable: false,
     autoHighlight: false,
     getFillColor: pal.contextFill,
-    updateTriggers: { getFillColor: [theme], getLineColor: [selectedZone], getLineWidth: [selectedZone] },
+    updateTriggers: {
+      getFillColor: [theme],
+      getLineColor: [theme, selectedZone],
+      getLineWidth: [theme, selectedZone],
+    },
   })
 }

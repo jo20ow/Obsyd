@@ -4,7 +4,7 @@ import { InfoPopover } from '../Panel'
 import { useTheme } from '../../context/ThemeContext'
 import { PALETTES } from './palettes'
 import { ZONE_COORDS, INITIAL_VIEW } from './constants'
-import { priceColor, percentile } from './scales'
+import { weekDomain } from './scales'
 import { FILLS } from './fills'
 import useMapData from './useMapData'
 import { makeTooltip } from './tooltip'
@@ -12,17 +12,35 @@ import { makeZonesLayer, makeContextZonesLayer } from './layers/zonesLayer'
 import { makeLabelsLayer } from './layers/labelsLayer'
 import { buildArcs, makeFlowArcsLayer } from './layers/flowArcsLayer'
 import { makePointsLayer } from './layers/pointsLayer'
-import { FlowArcLegend, PriceScaleLegend, StateLegend } from './Legend'
+import { FlowArcLegend } from './Legend'
 import Scrubber from './Scrubber'
 
+// Header toggle chip — the ONE source for the active/idle button styling
+// (ZONES/POINTS, the fill buttons, FLOWS; later PRs add more).
+function ToggleButton({ active, onClick, title, children }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`font-mono text-[9px] px-2 py-0.5 rounded border ${
+        active ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
 // Container: owns the map state (fill, view, overlays, scrub index), composes
-// the data hook + layer factories + chrome. `onZoneSelect`/`selectedZone`/`tall`
-// are optional and no-ops until the desk threads them (PR 8).
+// the data hook + layer factories + chrome. Everything fill-specific (color,
+// alpha, legend, labels, scrub, triggers) is dispatched through the FILLS
+// registry — no fill-key branches live here. `onZoneSelect`/`selectedZone`/
+// `tall` are optional and no-ops until the desk threads them (PR 8).
 export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, tall = false }) {
   const { theme } = useTheme()
   const pal = PALETTES[theme] || PALETTES.dark
-  const { geo, rows, snap, borders } = useMapData()
   const [fill, setFill] = useState('price')
+  const { geo, rows, snap, borders } = useMapData(fill)
   const [view, setView] = useState('zones') // 'zones' choropleth | 'points' per-zone dots
   const [idx, setIdx] = useState(null) // selected hour index; null = latest/live
   const [overlays, setOverlays] = useState({ flows: true }) // map overlays; flows = cross-border arcs
@@ -45,7 +63,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
       const v = col ? col[effIdx] : undefined
       return v == null ? z : { ...z, price_close: v }
     })
-  }, [rows, snap, effIdx, fill, ts.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rows, snap, effIdx, fillDef, ts.length])
 
   const byZone = useMemo(() => {
     const m = new Map()
@@ -53,24 +71,9 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
     return m
   }, [effRows])
 
-  // FIXED color domain over the whole 7-day window (all zones × all hours), so
-  // scrubbing compares hours honestly — a per-frame min/max would repaint every
-  // zone each step and make yesterday incomparable to today. p2/p98 clamp keeps
-  // one spike hour from crushing the rest of the scale; the legend says so.
-  const { lo, hi } = useMemo(() => {
-    const vals = []
-    if (snap?.zones) {
-      for (const col of Object.values(snap.zones)) {
-        for (const v of col) if (v != null) vals.push(v)
-      }
-    }
-    for (const z of rows || []) if (z.price_close != null) vals.push(z.price_close)
-    if (!vals.length) return { lo: 0, hi: 1 }
-    vals.sort((a, b) => a - b)
-    const p2 = percentile(vals, 0.02)
-    const p95 = percentile(vals, 0.95)
-    return { lo: Math.min(p2, 0), hi: Math.max(p95, 1) }
-  }, [snap, rows])
+  // Fixed weekly color domain — see weekDomain in scales.js (p2/p98 over all
+  // zones × all snapshot hours + the live rows).
+  const { lo, hi } = useMemo(() => weekDomain(snap, rows), [snap, rows])
 
   const points = useMemo(() => {
     const pts = []
@@ -86,33 +89,33 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
 
   const layers = useMemo(() => {
     if (!geo) return []
+    const fillCtx = { byZone, lo, hi, pal }
     const zoneFill = (zone) => {
-      const z = byZone.get(zone)
-      if (!z) return pal.contextFill
-      if (fill === 'state') return [...(pal.state[z.state] || pal.mid), 215]
-      return [...priceColor(z.price_close, lo, hi, pal), 235]
+      const rgb = fillDef.getColor(zone, fillCtx)
+      return rgb ? [...rgb, fillDef.alpha.zone] : pal.contextFill
     }
+    // Shared identity inputs + the active fill's own tail (e.g. lo/hi for price).
+    const fillColorTriggers = [fill, effRows, ...fillDef.triggers(fillCtx), theme]
     const arcLayer = overlays.flows && atLatest && arcs.length > 0
       ? makeFlowArcsLayer({ arcs, pal, onBorderSelect })
       : null
     const zonesLayer = makeZonesLayer({
-      geo, zoneFill, pal, theme, fill, effRows, lo, hi, selectedZone, onZoneClick: onZoneSelect,
+      geo, zoneFill, pal, theme, fillColorTriggers, selectedZone, onZoneClick: onZoneSelect,
     })
     if (view === 'points') {
-      const pointFill = (p) => {
-        if (fill === 'state') return [...(pal.state[p.state] || pal.mid), 240]
-        return [...priceColor(p.price, lo, hi, pal), 240]
-      }
+      // Every point's zone is in byZone by construction (both derive from
+      // effRows), so the pal.mid fallback is only defensive.
+      const pointFill = (p) => [...(fillDef.getColor(p.zone, fillCtx) || pal.mid), fillDef.alpha.point]
       return [
         makeContextZonesLayer(zonesLayer, { pal, theme, selectedZone }),
         ...(arcLayer ? [arcLayer] : []),
-        makePointsLayer({ points, pointFill, pal, theme, fill, effRows, lo, hi, onZoneClick: onZoneSelect }),
+        makePointsLayer({ points, pointFill, pal, theme, fillColorTriggers, onZoneClick: onZoneSelect }),
       ]
     }
     const labels = makeLabelsLayer({ points, pal, theme, effRows })
-    const base = fill === 'price' ? [zonesLayer, labels] : [zonesLayer]
+    const base = fillDef.hasLabels ? [zonesLayer, labels] : [zonesLayer]
     return arcLayer ? [...base, arcLayer] : base
-  }, [geo, view, fill, effRows, byZone, lo, hi, points, theme, arcs, overlays.flows, atLatest, onBorderSelect, onZoneSelect, selectedZone, pal])
+  }, [geo, view, fill, fillDef, effRows, byZone, lo, hi, points, theme, arcs, overlays, atLatest, onBorderSelect, onZoneSelect, selectedZone, pal])
 
   const getTooltip = useMemo(() => makeTooltip(byZone, pal), [byZone, pal])
 
@@ -128,41 +131,21 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
             {[['zones', 'ZONES'], ['points', 'POINTS']].map(([v, l]) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={`font-mono text-[9px] px-2 py-0.5 rounded border ${
-                  view === v ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'
-                }`}
-              >
-                {l}
-              </button>
+              <ToggleButton key={v} active={view === v} onClick={() => setView(v)}>{l}</ToggleButton>
             ))}
           </div>
           <div className="flex items-center gap-1">
             {FILLS.map((m) => (
-              <button
-                key={m.key}
-                onClick={() => setFill(m.key)}
-                className={`font-mono text-[9px] px-2 py-0.5 rounded border ${
-                  fill === m.key
-                    ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10'
-                    : 'text-neutral-500 border-border hover:text-neutral-300'
-                }`}
-              >
-                {m.label}
-              </button>
+              <ToggleButton key={m.key} active={fill === m.key} onClick={() => setFill(m.key)}>{m.label}</ToggleButton>
             ))}
           </div>
-          <button
+          <ToggleButton
+            active={overlays.flows}
             onClick={() => setOverlays((o) => ({ ...o, flows: !o.flows }))}
-            className={`font-mono text-[9px] px-2 py-0.5 rounded border ${
-              overlays.flows ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'
-            }`}
             title="Cross-border flow arcs (latest hour)"
           >
             FLOWS
-          </button>
+          </ToggleButton>
         </div>
       </div>
 
@@ -178,7 +161,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
       {overlays.flows && <FlowArcLegend pal={pal} atLatest={atLatest} />}
 
       <div className="flex items-center justify-between gap-2 px-4 py-2 border-t border-border font-mono text-[9px] text-neutral-600">
-        {fill === 'price' ? <PriceScaleLegend lo={lo} hi={hi} pal={pal} /> : <StateLegend pal={pal} />}
+        <fillDef.Legend lo={lo} hi={hi} pal={pal} />
         <span>{zoneCount} zones · ENTSO-E · zones © Electricity Maps</span>
       </div>
     </div>
