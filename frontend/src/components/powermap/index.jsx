@@ -116,7 +116,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
       ]
     }
     const labels = overlays.labels && fillDef.hasLabels
-      ? makeLabelsLayer({ points, pal, theme, effRows, fill, fillDef })
+      ? makeLabelsLayer({ points, pal, theme, effRows, fill, fillDef, fillCtx })
       : null
     const base = labels ? [zonesLayer, labels] : [zonesLayer]
     return arcLayer ? [...base, arcLayer] : base
@@ -151,7 +151,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
           >
             FLOWS
           </ToggleButton>
-          {fillDef.hasLabels && (
+          {view === 'zones' && fillDef.hasLabels && (
             <ToggleButton
               active={overlays.labels}
               onClick={() => setOverlays((o) => ({ ...o, labels: !o.labels }))}
@@ -167,7 +167,9 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
         className={`relative ${tall ? 'h-[60vh] lg:h-[min(75vh,calc(100vh-230px))]' : ''}`}
         style={tall ? { background: pal.surface } : { height: 460, background: pal.surface }}
       >
-        <DeckGL initialViewState={INITIAL_VIEW} controller={true} layers={layers} getTooltip={getTooltip} />
+        {/* pickingRadius: the demoted 2 px context arcs stay clickable without
+            pixel-hunting — widens hit-testing only, no visual change. */}
+        <DeckGL initialViewState={INITIAL_VIEW} controller={true} layers={layers} getTooltip={getTooltip} pickingRadius={4} />
       </div>
 
       {fillDef.scrub && ts.length > 1 && <Scrubber ts={ts} effIdx={effIdx} setIdx={setIdx} />}

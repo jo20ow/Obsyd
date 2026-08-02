@@ -41,7 +41,6 @@ export function buildArcs(borders, pal) {
     else { sourceAlpha = 40; targetAlpha = 110 }
     out.push({
       ...b,
-      informative,
       source: flip ? cb : ca,
       target: flip ? ca : cb,
       width: noFlow ? 1 : informative ? arcWidth(mw) : Math.min(arcWidth(mw), ARC_CONTEXT_MAX_PX),

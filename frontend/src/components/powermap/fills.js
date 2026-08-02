@@ -7,10 +7,12 @@ import { PriceScaleLegend, StateLegend } from './Legend'
 //   scrub          — whether the time scrubber applies (grid state is always live)
 //   hasLabels      — whether the ZONES view offers the per-zone TextLayer
 //                    (+ the LABELS toggle in the header)
-//   labelText(pt)  — label string for one point row; null = no label for this
-//                    point (price fill skips zones without a price)
-//   labelPriority(pt) — collision-cull rank: when labels overlap, the HIGHER
-//                    value survives. Must stay within deck.gl's −1000..1000.
+//   labelText(pt, ctx) — label string for one point row, ctx as in getColor;
+//                    null = no label for this point (price fill skips zones
+//                    without a price)
+//   labelPriority(pt, ctx) — collision-cull rank: when labels overlap, the
+//                    HIGHER value survives. Must stay within deck.gl's
+//                    −1000..1000.
 //   getColor(zoneKey, ctx) — base RGB for one zone, ctx = {byZone, scale, pal};
 //                    null = zone has no data (index falls back to pal.contextFill)
 //   alpha          — layer opacities: .zone (choropleth) / .point (dots)
