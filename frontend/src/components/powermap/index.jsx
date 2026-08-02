@@ -167,8 +167,11 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
   // polygons for 37 zones — IT_CALABRIA has no shape) would otherwise outline
   // NOTHING and look like a broken click. Since the rail's row click is now the
   // primary way to select, say so where the shape should have appeared.
+  // Zones-view only: POINTS draws from ZONE_COORDS, which DOES carry the zone,
+  // so its dot is there and the message would be wrong.
   const selectionHasNoShape = Boolean(
-    selectedZone && geo && !geo.features.some((f) => f.properties.zone === selectedZone)
+    view === 'zones' && selectedZone && geo
+    && !geo.features.some((f) => f.properties.zone === selectedZone)
   )
 
   return (
@@ -224,7 +227,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
         {selectionHasNoShape && (
           <div className="absolute bottom-2 left-2 right-2 pointer-events-none">
             <span className="inline-block border border-border bg-surface/90 rounded px-2 py-1 font-mono text-[9px] text-neutral-400">
-              {byZone.get(selectedZone)?.zone_label || selectedZone} has no map geometry — its row is selected, but no shape can be outlined.
+              {byZone.get(selectedZone)?.zone_label || selectedZone} has no zone shape in the map geometry — its row is selected, but there is nothing to outline. Switch to POINTS to see it.
             </span>
           </div>
         )}

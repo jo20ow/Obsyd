@@ -53,6 +53,22 @@ const OVERLAYS = [
       + '(glossary in HOW TO READ).'
     ),
   },
+  {
+    key: 'labels',
+    label: 'LABELS',
+    title: 'Per-zone labels (overlapping labels hide — zoom in to reveal)',
+    // Only offered where a label can exist: the TextLayer is a zones-view layer,
+    // and a fill without `labelText` has nothing to write. `when` keeps that
+    // condition here rather than as a separate branch in the button row, so the
+    // registry stays the ONE list — the point of it is that no toggle can ship
+    // without its ⓘ entry, which is exactly what a hand-rolled branch allowed.
+    when: ({ view, fillDef }) => view === 'zones' && Boolean(fillDef.labelText),
+    info: (
+      'Names each zone with its value ("DE-LU 74"; the grid-state fill writes the zone code '
+      + 'alone). Labels that would collide hide, keeping the extreme prices — zoom in to reveal '
+      + 'the rest.'
+    ),
+  },
 ]
 
 // ── The ⓘ copy ────────────────────────────────────────────────────────────────
@@ -101,7 +117,7 @@ export default function MapHeader({ view, setView, fill, setFill, fillDef, overl
             <ToggleButton key={m.key} active={fill === m.key} onClick={() => setFill(m.key)}>{m.label}</ToggleButton>
           ))}
         </div>
-        {OVERLAYS.map((o) => (
+        {OVERLAYS.filter((o) => !o.when || o.when({ view, fillDef })).map((o) => (
           <ToggleButton
             key={o.key}
             active={overlays[o.key]}
@@ -111,15 +127,6 @@ export default function MapHeader({ view, setView, fill, setFill, fillDef, overl
             {o.label}
           </ToggleButton>
         ))}
-        {view === 'zones' && fillDef.labelText && (
-          <ToggleButton
-            active={overlays.labels}
-            onClick={() => toggleOverlay('labels')}
-            title="Per-zone labels (overlapping labels hide — zoom in to reveal)"
-          >
-            LABELS
-          </ToggleButton>
-        )}
       </div>
     </div>
   )
