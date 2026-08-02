@@ -1,7 +1,17 @@
 // getTooltip builder for the three pickable shapes: border arc ({html}), scatter
 // point (text), zone polygon (text). Returns the function DeckGL calls.
-export function makeTooltip(byZone, pal) {
+//
+// The ACTIVE fill may append its own lines to a zone's tooltip through the
+// registry's optional `tooltipLines(zone, ctx)` (fills.js) — e.g. the
+// price-setting technology and its tension flag. Dispatched, never branched on
+// a fill key, and `fillCtx` is the very ctx that fill colors with, so tooltip
+// and colour can never tell different stories.
+export function makeTooltip(byZone, pal, fillDef, fillCtx) {
   const TIP_STYLE = { ...pal.tooltip, fontFamily: 'monospace', fontSize: '11px', padding: '6px 8px' }
+  const fillLines = (zone) => {
+    const lines = fillDef?.tooltipLines?.(zone, fillCtx) || []
+    return lines.length ? `\n${lines.join('\n')}` : ''
+  }
   return ({ object }) => {
     if (!object) return null
     if (object.zone_a && object.zone_b) { // a border arc — richer, so {html}
@@ -36,17 +46,24 @@ export function makeTooltip(byZone, pal) {
       ].filter(Boolean).join('')
       return { html, style: TIP_STYLE }
     }
+    // A point IS a zone (POINTS view) — it carries the same fill, so it earns
+    // the same fill lines.
     if (object.position && object.zone) { // a scatter point
       const price = object.price != null ? `${object.price.toFixed(1)} €/MWh` : 'n/a'
-      return { text: `${object.label} · ${object.state || ''}\nDay-ahead: ${price}`, style: TIP_STYLE }
+      return {
+        text: `${object.label} · ${object.state || ''}\nDay-ahead: ${price}${fillLines(object.zone)}`,
+        style: TIP_STYLE,
+      }
     }
     const zone = object.properties?.zone
     if (!zone) return null // neighbouring country — context only
     const z = byZone.get(zone)
-    if (!z) return { text: `${zone}\nno data yet`, style: TIP_STYLE }
+    // No overview row — but the active fill may still know something about
+    // this zone (its feed is a different endpoint with its own coverage).
+    if (!z) return { text: `${zone}\nno data yet${fillLines(zone)}`, style: TIP_STYLE }
     const price = z.price_close != null ? `${z.price_close.toFixed(1)} €/MWh` : 'n/a'
     return {
-      text: `${z.zone_label || zone} · ${z.state || ''}\nDay-ahead: ${price}\nResidual z: ${z.residual_z != null ? z.residual_z.toFixed(1) : 'n/a'}`,
+      text: `${z.zone_label || zone} · ${z.state || ''}\nDay-ahead: ${price}\nResidual z: ${z.residual_z != null ? z.residual_z.toFixed(1) : 'n/a'}${fillLines(zone)}`,
       style: TIP_STYLE,
     }
   }

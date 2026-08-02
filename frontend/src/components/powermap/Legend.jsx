@@ -1,5 +1,7 @@
+import { useMemo } from 'react'
 import { rgbCss } from './palettes'
 import { UTIL_MID, UTIL_HIGH } from './constants'
+import { TECH_FUEL, techHex } from './tech'
 
 /* Flow-arc legend — swatches read straight from pal.arc (they cannot
    drift from the layer) and thresholds from UTIL_MID/UTIL_HIGH. Only the
@@ -75,6 +77,69 @@ export function PriceScaleLegend({ scale }) {
       <span className="text-neutral-500">{scale.hi.toFixed(0)} €/MWh</span>
       <span className="text-neutral-600">equal-frequency scale · week&apos;s all-zone hours</span>
       {scale.negShare > 0 && <span className="text-violet-300">violet = negative</span>}
+    </span>
+  )
+}
+
+// Categorical legend for the price-setting-tech fill: only the technologies
+// actually on the map right now, each with how many zones it holds (biggest
+// first — the reader's first question is "what is setting the price in Europe
+// this hour"). Swatch colours come from tech.js, i.e. from the same canonical
+// fuel palette the generation-mix charts use, so the legend cannot drift from
+// the map. The honesty line is NOT the API's raw `note` (never rendered raw —
+// PR #138 rule): the coverage count is structured here, the full method sits
+// in the map's ⓘ.
+export function TechLegend({ extra }) {
+  const { rows, shown, total, tension } = useMemo(() => {
+    const zones = extra?.zones || []
+    const counts = new Map() // tech -> { label, n }
+    let unmapped = 0 // tech outside the closed set: painted no-data, counted as a gap
+    let tensionN = 0
+    for (const z of zones) {
+      if (z.consistency === 'tension') tensionN++
+      if (!TECH_FUEL[z.tech]) {
+        unmapped++
+        continue
+      }
+      const hit = counts.get(z.tech)
+      if (hit) hit.n++
+      else counts.set(z.tech, { label: z.tech_label || z.tech, n: 1 })
+    }
+    const list = [...counts]
+      .map(([tech, e]) => ({ tech, ...e }))
+      .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label))
+    // Denominator = every zone the endpoint considered (answered + missing +
+    // errored) — never a hardcoded 37, the zone list grows.
+    const gaps = (extra?.missing?.length || 0) + (extra?.errors?.length || 0)
+    return { rows: list, shown: zones.length - unmapped, total: zones.length + gaps, tension: tensionN }
+  }, [extra])
+
+  if (!extra) return <span className="text-neutral-600">price-setting tech · loading…</span>
+  if (extra.available === false || rows.length === 0) {
+    return <span className="text-neutral-600">price-setting tech · no data</span>
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+      {rows.map(({ tech, label, n }) => (
+        <span key={tech}>
+          <span style={{ color: techHex(tech) }}>■</span> {label} ×{n}
+        </span>
+      ))}
+      <span className="text-neutral-600">
+        estimated — fixed merit order, not computed costs · {shown}/{total} zones
+      </span>
+      {shown < total && <span className="text-neutral-600">grey = no data</span>}
+      {/* The tension tally is REPORTED, not painted: those zones keep their
+          technology's colour (never restyled, never reclassified). Without it
+          the caveat would only exist inside a tooltip nobody hovers. */}
+      {tension > 0 && (
+        <span
+          className="text-neutral-600"
+          title="Zones whose price sits outside the coarse band their attributed technology implies — the canary that the static merit order is off. Reported, never reclassified; hover a zone to see it."
+        >
+          {tension} in tension
+        </span>
+      )}
     </span>
   )
 }
