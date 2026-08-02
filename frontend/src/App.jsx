@@ -57,7 +57,7 @@ import { ViewStateProvider, useViewState } from './context/ViewStateContext'
 // tabs — lazy-load them so the default POWER desk doesn't ship the mapping stack.
 const VesselMap = lazy(() => import('./components/VesselMap'))
 const AtlasMap = lazy(() => import('./components/AtlasMap'))
-const PowerMap = lazy(() => import('./components/PowerMap'))
+const PowerMap = lazy(() => import('./components/powermap'))
 
 // Dormant non-power verticals (oil/maritime/metals/news/atlas/sentiment): their
 // tabs left with the 2026-07-03 refocus, so these render blocks are unreachable —
