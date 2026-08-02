@@ -21,7 +21,8 @@ import { techIndex, techRgb } from './tech'
 //                    fills that don't register one.
 //   alpha          — layer opacities: .zone (choropleth) / .point (dots)
 //   Legend         — footer legend row component; always receives
-//                    {scale, pal, extra}
+//                    {scale, pal, extra, extraError} (a dead per-fill feed is
+//                    the legend's job to report — panels never fail silently)
 //   tooltipLines(zone, ctx) — OPTIONAL extra tooltip lines for a zone (same
 //                    ctx as getColor), so the fill's own reading stays next to
 //                    its colors and tooltip.js branches on no fill key either

@@ -87,20 +87,20 @@ export function PriceScaleLegend({ scale }) {
 // this hour"). Swatch colours come from tech.js, i.e. from the same canonical
 // fuel palette the generation-mix charts use, so the legend cannot drift from
 // the map. The honesty line is NOT the API's raw `note` (never rendered raw —
-// PR #138 rule): the coverage count is structured here, the full method sits
-// in the map's ⓘ.
-export function TechLegend({ extra }) {
-  const { rows, shown, total, tension } = useMemo(() => {
+// PR #138 rule): the coverage count is structured here, one compact sentence
+// sits in the map's ⓘ, and the full method is the HOW TO READ glossary entry.
+export function TechLegend({ extra, extraError }) {
+  const { rows, shown, total, tension, gapText } = useMemo(() => {
     const zones = extra?.zones || []
     const counts = new Map() // tech -> { label, n }
     let unmapped = 0 // tech outside the closed set: painted no-data, counted as a gap
     let tensionN = 0
     for (const z of zones) {
-      if (z.consistency === 'tension') tensionN++
       if (!TECH_FUEL[z.tech]) {
         unmapped++
-        continue
+        continue // counted below, and NOT in `tension` — it stays in step with `shown`
       }
+      if (z.consistency === 'tension') tensionN++
       const hit = counts.get(z.tech)
       if (hit) hit.n++
       else counts.set(z.tech, { label: z.tech_label || z.tech, n: 1 })
@@ -108,12 +108,32 @@ export function TechLegend({ extra }) {
     const list = [...counts]
       .map(([tech, e]) => ({ tech, ...e }))
       .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label))
+    // The backend keeps `missing` (no attributable hour) APART from `errors`
+    // (the zone's compute raised) precisely so a failure can never pass itself
+    // off as an honest data gap — compute_marginal_overview's docstring. Both
+    // paint the same grey, so the legend is where that guarantee would die:
+    // count them SEPARATELY. A tech outside the closed set is a UI-side gap,
+    // so it joins "no data", never "failed".
+    const noData = (extra?.missing?.length || 0) + unmapped
+    const failed = extra?.errors?.length || 0
     // Denominator = every zone the endpoint considered (answered + missing +
     // errored) — never a hardcoded 37, the zone list grows.
-    const gaps = (extra?.missing?.length || 0) + (extra?.errors?.length || 0)
-    return { rows: list, shown: zones.length - unmapped, total: zones.length + gaps, tension: tensionN }
+    return {
+      rows: list,
+      shown: zones.length - unmapped,
+      total: zones.length + (extra?.missing?.length || 0) + failed,
+      tension: tensionN,
+      gapText: [noData && `${noData} no data`, failed && `${failed} failed`].filter(Boolean).join(' · '),
+    }
   }, [extra])
 
+  // A dead feed must SAY so: the map underneath is painted all no-data grey,
+  // and "loading…" forever would be exactly the silent failure the desk
+  // forbids. With a cached payload still on screen the fill keeps rendering
+  // and the failure is reported beside it (see below) instead of blanking it.
+  if (extraError && !extra) {
+    return <span className="text-red-400">price-setting tech // FETCH ERROR — map shows no data</span>
+  }
   if (!extra) return <span className="text-neutral-600">price-setting tech · loading…</span>
   if (extra.available === false || rows.length === 0) {
     return <span className="text-neutral-600">price-setting tech · no data</span>
@@ -128,7 +148,14 @@ export function TechLegend({ extra }) {
       <span className="text-neutral-600">
         estimated — fixed merit order, not computed costs · {shown}/{total} zones
       </span>
-      {shown < total && <span className="text-neutral-600">grey = no data</span>}
+      {gapText && (
+        <span
+          className="text-neutral-600"
+          title="Grey zones, kept apart: 'no data' = no attributable hour in the window; 'failed' = the zone's computation raised. A failure never counts as an honest data gap."
+        >
+          grey: {gapText}
+        </span>
+      )}
       {/* The tension tally is REPORTED, not painted: those zones keep their
           technology's colour (never restyled, never reclassified). Without it
           the caveat would only exist inside a tooltip nobody hovers. */}
@@ -140,6 +167,9 @@ export function TechLegend({ extra }) {
           {tension} in tension
         </span>
       )}
+      {/* Payload on screen but the last refresh failed — the SWR cache is
+          still serving it, so the colours are real, just not newly confirmed. */}
+      {extraError && <span className="text-red-400">refresh failed — showing last payload</span>}
     </span>
   )
 }
