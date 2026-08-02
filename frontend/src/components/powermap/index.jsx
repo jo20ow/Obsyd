@@ -4,7 +4,7 @@ import { InfoPopover } from '../Panel'
 import { useTheme } from '../../context/ThemeContext'
 import { PALETTES } from './palettes'
 import { ZONE_COORDS, INITIAL_VIEW } from './constants'
-import { weekDomain } from './scales'
+import { collectWeekValues, makeQuantileScale } from './scales'
 import { FILLS } from './fills'
 import useMapData from './useMapData'
 import { makeTooltip } from './tooltip'
@@ -71,9 +71,11 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
     return m
   }, [effRows])
 
-  // Fixed weekly color domain — see weekDomain in scales.js (p2/p98 over all
-  // zones × all snapshot hours + the live rows).
-  const { lo, hi } = useMemo(() => weekDomain(snap, rows), [snap, rows])
+  // Week-fixed equal-frequency color scale, built ONCE from the whole window's
+  // population (all zones × all hours + live rows) so scrubbing repaints hours
+  // against the same mapping — see makeQuantileScale in scales.js. Its object
+  // identity doubles as the repaint trigger for the price fill.
+  const scale = useMemo(() => makeQuantileScale(collectWeekValues(snap, rows), pal), [snap, rows, pal])
 
   const points = useMemo(() => {
     const pts = []
@@ -89,12 +91,12 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
 
   const layers = useMemo(() => {
     if (!geo) return []
-    const fillCtx = { byZone, lo, hi, pal }
+    const fillCtx = { byZone, scale, pal }
     const zoneFill = (zone) => {
       const rgb = fillDef.getColor(zone, fillCtx)
       return rgb ? [...rgb, fillDef.alpha.zone] : pal.contextFill
     }
-    // Shared identity inputs + the active fill's own tail (e.g. lo/hi for price).
+    // Shared identity inputs + the active fill's own tail (e.g. the scale for price).
     const fillColorTriggers = [fill, effRows, ...fillDef.triggers(fillCtx), theme]
     const arcLayer = overlays.flows && atLatest && arcs.length > 0
       ? makeFlowArcsLayer({ arcs, pal, onBorderSelect })
@@ -115,7 +117,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
     const labels = makeLabelsLayer({ points, pal, theme, effRows })
     const base = fillDef.hasLabels ? [zonesLayer, labels] : [zonesLayer]
     return arcLayer ? [...base, arcLayer] : base
-  }, [geo, view, fill, fillDef, effRows, byZone, lo, hi, points, theme, arcs, overlays, atLatest, onBorderSelect, onZoneSelect, selectedZone, pal])
+  }, [geo, view, fill, fillDef, effRows, byZone, scale, points, theme, arcs, overlays, atLatest, onBorderSelect, onZoneSelect, selectedZone, pal])
 
   const getTooltip = useMemo(() => makeTooltip(byZone, pal), [byZone, pal])
 
@@ -126,7 +128,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-[12px] font-semibold text-neutral-300">Europe · power map</span>
-          <InfoPopover text="Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by the day-ahead price — or by grid state. IMPORTANT: it shades ONE HOUR at a time (the hour on the slider below), not the whole day — so a zone can read €0 here at 08:00 while the all-zones table shows a positive daily mean. Drag the slider to move through the hours. Fixed colour scale across the shown week: violet = negative prices (a distinct state, not just cheap), brighter cyan = more expensive. Dark shapes = neighbouring countries, no data by design. FLOWS arcs = the latest cross-border flow per border: the faint end exports, the solid end imports; width ∝ GW, colour = how loaded the border is vs its offered day-ahead capacity (grey = no NTC published or no reading); they always show the latest hour and hide while you scrub the past — click one for the border detail below. Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast." />
+          <InfoPopover text="Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by the day-ahead price — or by grid state. IMPORTANT: it shades ONE HOUR at a time (the hour on the slider below), not the whole day — so a zone can read €0 here at 08:00 while the all-zones table shows a positive daily mean. Drag the slider to move through the hours. Fixed equal-frequency colour scale across the shown week: colours spread by rank among the week's all-zone hours, not by € distance (tooltips carry exact €) — violet = negative prices (a distinct state, not just cheap), brighter cyan = more expensive. Dark shapes = neighbouring countries, no data by design. FLOWS arcs = the latest cross-border flow per border: the faint end exports, the solid end imports; width ∝ GW, colour = how loaded the border is vs its offered day-ahead capacity (grey = no NTC published or no reading); they always show the latest hour and hide while you scrub the past — click one for the border detail below. Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast." />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
@@ -161,7 +163,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
       {overlays.flows && <FlowArcLegend pal={pal} atLatest={atLatest} />}
 
       <div className="flex items-center justify-between gap-2 px-4 py-2 border-t border-border font-mono text-[9px] text-neutral-600">
-        <fillDef.Legend lo={lo} hi={hi} pal={pal} />
+        <fillDef.Legend scale={scale} pal={pal} />
         <span>{zoneCount} zones · ENTSO-E · zones © Electricity Maps</span>
       </div>
     </div>
