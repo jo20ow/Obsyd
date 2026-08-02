@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import DeckGL from '@deck.gl/react'
-import { InfoPopover } from '../Panel'
 import { useTheme } from '../../context/ThemeContext'
 import { PALETTES } from './palettes'
 import { ZONE_COORDS, INITIAL_VIEW } from './constants'
@@ -9,6 +8,7 @@ import { FILLS } from './fills'
 import useMapData from './useMapData'
 import { makeTooltip } from './tooltip'
 import { makeZonesLayer, makeContextZonesLayer } from './layers/zonesLayer'
+import { makeSelectionLayers } from './layers/selectionLayer'
 import { makeLabelsLayer } from './layers/labelsLayer'
 import { buildArcs, makeFlowArcsLayer } from './layers/flowArcsLayer'
 import { makePointsLayer } from './layers/pointsLayer'
@@ -16,6 +16,7 @@ import { buildOutagePaths, makeOutageLayers, outageTooltip } from './layers/outa
 import { FlowArcLegend, OutageLegend } from './legends'
 import useFetchWithError from '../../hooks/useFetchWithError'
 import Scrubber from './Scrubber'
+import MapHeader from './MapHeader'
 
 // The A78 overlay's own feed. NOT in useMapData's EXTRA_BY_FILL: that seam is
 // keyed by the active FILL, and this is an overlay — it is owned by the
@@ -28,27 +29,15 @@ const OUTAGES_URL = '/api/power/outages/transmission'
 // so the memo below is not invalidated on every render.
 const OVERLAY_TIPS = [outageTooltip]
 
-// Header toggle chip — the ONE source for the active/idle button styling
-// (ZONES/POINTS, the fill buttons, FLOWS; later PRs add more).
-function ToggleButton({ active, onClick, title, children }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`font-mono text-[9px] px-2 py-0.5 rounded border ${
-        active ? 'text-cyan-glow border-cyan-glow/40 bg-cyan-glow/10' : 'text-neutral-500 border-border hover:text-neutral-300'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}
-
 // Container: owns the map state (fill, view, overlays, scrub index), composes
-// the data hook + layer factories + chrome. Everything fill-specific (color,
-// alpha, legend, labels, scrub, triggers) is dispatched through the FILLS
-// registry — no fill-key branches live here. `onZoneSelect`/`selectedZone`/
-// `tall` are optional and no-ops until the desk threads them (PR 8).
+// the data hook + layer factories + chrome (MapHeader). Everything fill-specific
+// (color, alpha, legend, labels, scrub, triggers, ⓘ copy) is dispatched through
+// the FILLS registry — no fill-key branches live here.
+//   selectedZone / onZoneSelect — the desk's zone selection, two-way: the rail's
+//     table highlights the outlined zone and a click on the map selects the row
+//     (EuropeDesk owns the state). Both optional; the map is standalone without.
+//   tall — the desk-split layout's map column, where the map is the page's
+//     subject and gets the viewport height it deserves.
 export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, tall = false }) {
   const { theme } = useTheme()
   const pal = PALETTES[theme] || PALETTES.dark
@@ -140,14 +129,19 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
       ? makeOutageLayers({ paths: outagePaths, pal, onBorderSelect })
       : []
     const zonesLayer = makeZonesLayer({
-      geo, zoneFill, pal, theme, fillColorTriggers, selectedZone, onZoneClick: onZoneSelect,
+      geo, zoneFill, pal, theme, fillColorTriggers, onZoneClick: onZoneSelect,
     })
+    // Straight above the choropleth, below every overlay: the contour marks
+    // which zone the rail is looking at, but the arcs/chords/labels are the
+    // information ON the map and keep the top of the stack.
+    const selectionLayers = makeSelectionLayers({ geo, selectedZone, pal })
     if (view === 'points') {
       // Every point's zone is in byZone by construction (both derive from
       // effRows), so the pal.mid fallback is only defensive.
       const pointFill = (p) => [...(fillDef.getColor(p.zone, fillCtx) || pal.mid), fillDef.alpha.point]
       return [
-        makeContextZonesLayer(zonesLayer, { pal, theme, selectedZone }),
+        makeContextZonesLayer(zonesLayer, { pal, theme }),
+        ...selectionLayers,
         ...outageLayers,
         ...(arcLayer ? [arcLayer] : []),
         makePointsLayer({ points, pointFill, pal, theme, fillColorTriggers, onZoneClick: onZoneSelect }),
@@ -158,7 +152,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
       : null
     // Labels ride ABOVE the outage chords (they carry an outline halo and are
     // not pickable, so they stay readable without stealing a hover).
-    const base = [zonesLayer, ...outageLayers, ...(labels ? [labels] : [])]
+    const base = [zonesLayer, ...selectionLayers, ...outageLayers, ...(labels ? [labels] : [])]
     return arcLayer ? [...base, arcLayer] : base
   }, [geo, view, fill, fillDef, fillCtx, effRows, points, theme, arcs, outagePaths, overlays, atLatest, onBorderSelect, onZoneSelect, selectedZone, pal])
 
@@ -170,51 +164,32 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
   const zoneCount = byZone.size
 
   return (
-    <div className="border border-border bg-surface rounded overflow-hidden shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-border">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[12px] font-semibold text-neutral-300">Europe · power map</span>
-          <InfoPopover text="Real bidding-zone geometry (SE1–SE4, NO1–NO5, Italian sub-zones), shaded by the day-ahead price — or by grid state, or by the technology setting the price. IMPORTANT: it shades ONE HOUR at a time (the hour on the slider below), not the whole day — so a zone can read €0 here at 08:00 while the all-zones table shows a positive daily mean. Drag the slider to move through the hours. Fixed equal-frequency colour scale across the shown week: colours spread by rank among the week's all-zone hours, not by € distance (tooltips carry exact €) — violet = negative prices (a distinct state, not just cheap), brighter cyan = more expensive. Flat unlabelled shapes = neighbouring countries, no data by design. PRICE-SETTING TECH shades each zone by the technology estimated to have set its latest price — a fixed-merit-order attribution in the generation-mix fuel colours, not a cost model (a slate zone is in scope but has no value, and each zone carries its own hour — hover it; glossary in HOW TO READ). FLOWS arcs = the latest cross-border flow per border: the faint end exports, the solid end imports; width ∝ GW, colour = how loaded the border is vs its offered day-ahead capacity (grey = no NTC published or no reading — drawn thin and faint as context); they always show the latest hour and hide while you scrub the past — click one for the border detail below. LINE OUTAGES draws a dashed chord on every border with a transmission asset out or de-rated now (tight dash) or starting within 30 days (sparse dash); colour = forced/unplanned vs planned maintenance, and the chords stay put while you scrub — an outage is a window, not an hour (glossary in HOW TO READ). Zone geometry © Electricity Maps contributors (AGPL). Data: ENTSO-E. Descriptive, not a forecast." />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-            {[['zones', 'ZONES'], ['points', 'POINTS']].map(([v, l]) => (
-              <ToggleButton key={v} active={view === v} onClick={() => setView(v)}>{l}</ToggleButton>
-            ))}
-          </div>
-          <div className="flex items-center gap-1">
-            {FILLS.map((m) => (
-              <ToggleButton key={m.key} active={fill === m.key} onClick={() => setFill(m.key)}>{m.label}</ToggleButton>
-            ))}
-          </div>
-          <ToggleButton
-            active={overlays.flows}
-            onClick={() => setOverlays((o) => ({ ...o, flows: !o.flows }))}
-            title="Cross-border flow arcs (latest hour)"
-          >
-            FLOWS
-          </ToggleButton>
-          <ToggleButton
-            active={overlays.outages}
-            onClick={() => setOverlays((o) => ({ ...o, outages: !o.outages }))}
-            title="Transmission lines out or de-rated now, or starting within 30 days (ENTSO-E A78)"
-          >
-            LINE OUTAGES
-          </ToggleButton>
-          {view === 'zones' && fillDef.labelText && (
-            <ToggleButton
-              active={overlays.labels}
-              onClick={() => setOverlays((o) => ({ ...o, labels: !o.labels }))}
-              title="Per-zone labels (overlapping labels hide — zoom in to reveal)"
-            >
-              LABELS
-            </ToggleButton>
-          )}
-        </div>
-      </div>
+    // `tall` on lg: the CARD is exactly one viewport minus the desk's 12 px top
+    // offset and 12 px of air, and the canvas takes whatever the chrome leaves
+    // — a flex column, not a magic constant. The chrome is NOT a fixed height:
+    // the header and the legends flex-wrap, so it measures 142 px at 1920 wide
+    // and 298 px at 1024, and grows again when LINE OUTAGES adds its legend.
+    // Any `calc(100vh - <constant>)` for the CANVAS is therefore wrong at most
+    // widths — it overflowed the viewport by 15 px at 1280×800.
+    // The height must be DEFINITE (h-, not max-h-): `flex-1` distributes free
+    // space, and a max-height leaves none to distribute — under max-h the canvas
+    // collapsed onto its own floor (360 px) at every desktop width, i.e. the
+    // exact "map is too small" this layout exists to fix.
+    // The max() floor is for short-but-wide viewports: below it the card simply
+    // exceeds the viewport (and scrolls) instead of squeezing the map flat.
+    <div className={`border border-border bg-surface rounded overflow-hidden shadow-sm ${
+      tall ? 'lg:flex lg:flex-col lg:h-[max(560px,calc(100vh-1.5rem))]' : ''
+    }`}>
+      <MapHeader
+        view={view} setView={setView}
+        fill={fill} setFill={setFill} fillDef={fillDef}
+        overlays={overlays} setOverlays={setOverlays}
+      />
 
+      {/* min-h-0 lets the canvas yield to the chrome rather than push the
+          scrubber/legends out of the clipped card. */}
       <div
-        className={`relative ${tall ? 'h-[60vh] lg:h-[min(75vh,calc(100vh-230px))]' : ''}`}
+        className={`relative ${tall ? 'h-[60vh] lg:h-auto lg:flex-1 lg:min-h-0' : ''}`}
         style={tall ? { background: pal.surface } : { height: 460, background: pal.surface }}
       >
         {/* pickingRadius: the demoted 2 px context arcs stay clickable without

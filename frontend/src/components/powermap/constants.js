@@ -52,6 +52,17 @@ export const OUTAGE_WIDTH = { forced: 3, planned: 1.5 }
 // casing (the cartographic road-casing trick), not from picking a lucky hue.
 export const OUTAGE_CASING_PX = 2
 
+// The selected zone's contour, and the SAME casing trick for the same reason.
+// The accent alone used to be pal.posPole, which is also the price ramp's
+// expensive END — so selecting an expensive zone drew a teal rim on a teal fill
+// at ΔE 0.0 (measured, both themes: the outline was invisible on exactly the
+// zones you most want to inspect). Two tones fix it: whatever the fill, one of
+// them separates from it. Worst per-fill best-tone ΔE (dataviz validate_palette,
+// raw, vs price poles / mid / no-data slate / context) = 50.2 dark, 46.3 light;
+// accent↔casing 74.9 / 53.9.
+export const SELECTION_WIDTH_PX = 3
+export const SELECTION_CASING_PX = 3
+
 export function fmtTs(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleString('en-US', {

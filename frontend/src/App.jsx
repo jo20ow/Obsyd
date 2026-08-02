@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import Sidebar from './components/Sidebar'
 import CompactView from './components/CompactView'
 import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
+import EuropeDesk from './components/EuropeDesk'
 import DurationCurvePanel from './components/DurationCurvePanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
 import MarginalTechPanel from './components/MarginalTechPanel'
@@ -24,9 +25,6 @@ import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import RegionPills from './components/RegionPills'
-import LiveCharts from './components/LiveCharts'
-import InsightsStrip from './components/InsightsStrip'
-import NarrativeHero from './components/NarrativeHero'
 import RangeSelector from './components/RangeSelector'
 import PowerSituationHeader from './components/PowerSituationHeader'
 import LiveNowPanel from './components/LiveNowPanel'
@@ -41,11 +39,8 @@ import RecordsPanel from './components/RecordsPanel'
 import EpisodeArchivePanel from './components/EpisodeArchivePanel'
 import CapturePanel from './components/CapturePanel'
 import SparkCalculatorPanel from './components/SparkCalculatorPanel'
-import BordersPanel from './components/BordersPanel'
 import DriversPanel from './components/DriversPanel'
 import ProductsPanel from './components/ProductsPanel'
-import PowerOverviewMatrix from './components/PowerOverviewMatrix'
-import HowToRead from './components/HowToRead'
 import Landing from './components/Landing'
 import LegalPage from './components/LegalPage'
 import CommandPalette from './components/CommandPalette'
@@ -57,7 +52,6 @@ import { ViewStateProvider, useViewState } from './context/ViewStateContext'
 // tabs — lazy-load them so the default POWER desk doesn't ship the mapping stack.
 const VesselMap = lazy(() => import('./components/VesselMap'))
 const AtlasMap = lazy(() => import('./components/AtlasMap'))
-const PowerMap = lazy(() => import('./components/powermap'))
 
 // Dormant non-power verticals (oil/maritime/metals/news/atlas/sentiment): their
 // tabs left with the 2026-07-03 refocus, so these render blocks are unreachable —
@@ -257,13 +251,6 @@ function Dashboard() {
   // the URL (?zone=) and persists. Aliased to the old local names so the ~14
   // downstream consumers stay untouched. SparkSpreadHistory is DE-LU-only in-panel.
   const { zone: energyZone, setZone: setEnergyZone } = useViewState()
-
-  // Map arc click → border detail: the focus travels as a prop to BordersPanel
-  // (opens the row, expands + scrolls the panel). `ts` makes every click a NEW
-  // signal, so re-clicking the same border still scrolls/expands. Stable
-  // callback — PowerMap's layers memo depends on it.
-  const [borderFocus, setBorderFocus] = useState(null)
-  const onBorderSelect = useCallback((a, b) => setBorderFocus({ a, b, ts: Date.now() }), [])
 
   // URL hash sync — keep the default (POWER) tab off the URL so the bare
   // homepage stays clean (`/`); only non-default tabs get a shareable hash.
@@ -799,45 +786,12 @@ function Dashboard() {
           </>
         )}
 
-        {/* LIVE (default front door) — the all-zones overview: sortable table BESIDE
-            the choropleth map, then the anomaly radar + orientation. */}
+        {/* EUROPE (default front door) — map-first desk split; the whole tab
+            lives in EuropeDesk, which owns its own layout + selection state. */}
         {activeTab === 'europe' && (
-          <div className="space-y-3">
-            <ErrorBoundary name="narrative">
-              <NarrativeHero />
-            </ErrorBoundary>
-            <h2 className="font-mono text-[15px] font-semibold text-neutral-200">European power desk · all zones</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-              <ErrorBoundary name="power-overview">
-                <PowerOverviewMatrix
-                  selectedZone={energyZone}
-                  onSelect={(z) => { setEnergyZone(z); goToTab('energy') }}
-                />
-              </ErrorBoundary>
-              <ErrorBoundary name="power-map">
-                <Suspense fallback={MAP_FALLBACK}>
-                  <PowerMap onBorderSelect={onBorderSelect} />
-                </Suspense>
-              </ErrorBoundary>
-            </div>
-            <ErrorBoundary name="insights">
-              <InsightsStrip onMore={() => goToTab('alerts')} />
-            </ErrorBoundary>
-            {/* The border layer: prices × flows. A zone map shows WHERE power is
-                expensive; only the borders show whether the market is coupled. */}
-            <ErrorBoundary name="borders">
-              <BordersPanel focus={borderFocus} />
-            </ErrorBoundary>
-            <ErrorBoundary name="hydro">
-              <HydroReservoirPanel />
-            </ErrorBoundary>
-            <ErrorBoundary name="live-charts">
-              <LiveCharts />
-            </ErrorBoundary>
-            <ErrorBoundary name="how-to-read">
-              <HowToRead />
-            </ErrorBoundary>
-          </div>
+          <ErrorBoundary name="europe-desk">
+            <EuropeDesk energyZone={energyZone} setEnergyZone={setEnergyZone} goToTab={goToTab} />
+          </ErrorBoundary>
         )}
 
         {/* EXPLORE TAB — interactive query over the public data API (/api/v1/series) */}
