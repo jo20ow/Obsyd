@@ -60,9 +60,10 @@ export const PALETTES = {
     // `planned` is chroma-floor exempt ON PURPOSE (it is meant to read neutral)
     // and its L is above the band for the same reason: it has to out-lighten
     // the two grey arc colours to stay separable from them.
-    // Against the CHOROPLETH underneath no stroke colour can win (21 fuel hues
-    // + the price ramp — forced↔Hydro-Pumped-Storage is ΔE 0.6 under protan,
-    // planned↔posPole, the ramp's expensive end, 4.2 CVD / 13.1 normal):
+    // Against the CHOROPLETH underneath no stroke colour can win (the tech
+    // fill's seven fuels + the price ramp — worst is forced↔Nuclear at 4.6 CVD
+    // / 15.7 normal, composited at the fill's own alpha; and planned↔posPole,
+    // the ramp's expensive end, 4.2 CVD / 13.1 normal raw):
     // legibility there is the CASING's job, not the hue's — see OUTAGE_CASING_PX.
     // Which is why the casing has to stay IN PHASE with the stroke it cases —
     // deck.gl dashes are width-relative, see makeOutageLayers.
@@ -111,7 +112,9 @@ export const PALETTES = {
     // rather than left implicit, because it is the pair that decides the whole
     // overlay: planned↔noData ΔE 10.5 normal (4.7 as the no-data slate actually
     // renders, at its own alpha 215 over the surface), planned↔posPole 13.1,
-    // forced↔negPole 13.4 — all under the 15 floor. Deliberate: no stroke hue
+    // forced↔negPole 13.4 — all under the 15 floor. The two pole figures are
+    // RAW, i.e. the conservative reading: composited at the price fill's own
+    // alpha 235 they improve to 15.9 normal / 14.1 CVD. Deliberate: no stroke hue
     // clears a full diverging ramp AND a dark no-data slate on a light surface,
     // so what carries legibility there is the white CASING under the chord (see
     // OUTAGE_CASING_PX), not the hue — which is exactly why the casing's dash
