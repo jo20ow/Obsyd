@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../utils/poll'
+import { ZONE_STATE, STATE_ORDER, zColor } from '../utils/zoneState'
 
 // Single-glance overview — read all bidding zones at once, colour-first, like
 // Electricity Maps. Colour encodes how far each metric sits from its
@@ -11,24 +12,14 @@ import { POLL_FAST_MS } from '../utils/poll'
 // the zone on the map beside it. Descriptive, not a forecast.
 const API = '/api'
 
-// `c` is the compact rail's one-letter code. It is NOT decoration: compact has
-// no room for the word, and green/amber/red dots alone are the textbook
-// red-green CVD collision — the letter is the second, non-colour carrier.
-const STATE = {
-  CALM: { t: 'text-green-glow', d: 'bg-green-glow', c: 'C' },
-  ELEVATED: { t: 'text-yellow-400', d: 'bg-yellow-400', c: 'E' },
-  STRESSED: { t: 'text-red-400', d: 'bg-red-400', c: 'S' },
-}
-const STATE_ORDER = { CALM: 0, ELEVATED: 1, STRESSED: 2 }
-
-const zColor = (z) =>
-  z == null ? 'text-neutral-400' : Math.abs(z) >= 3 ? 'text-red-400' : Math.abs(z) >= 2 ? 'text-yellow-400' : 'text-neutral-300'
-
+// State colours + the compact rail's one-letter code now live in
+// utils/zoneState.js: the desk rail renders this table and ZoneDetailCard for
+// the SAME zone at the same time, so the two must read from one map.
 // `compact` = the desk-split rail (~1/3 width, beside the big map): same table,
 // same sorting, less horizontal ink. The units move OUT of every cell and INTO
 // the header (74 under "€/MWh" instead of €74 under "Day-ahead"), which is both
 // shorter per row and where a unit belongs; the State word shrinks to a dot plus
-// its one-letter code (see STATE.c — the letter is what survives colour
+// its one-letter code (see ZONE_STATE.code — the letter is what survives colour
 // blindness), with the full word kept for screen readers.
 const COLUMNS = [
   { key: 'zone', label: 'Zone', align: 'left', get: (z) => z.zone_label || z.zone },
@@ -135,7 +126,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
           </thead>
           <tbody>
             {sorted.map((z) => {
-              const st = STATE[z.state] || STATE.CALM
+              const st = ZONE_STATE[z.state] || ZONE_STATE.CALM
               const sel = z.zone === selectedZone
               return (
                 <tr
@@ -156,9 +147,9 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
                       CVD); the sr-only word is what assistive tech reads, since
                       a title= on a <td> reaches neither it nor the keyboard. */}
                   <td className={`${cellX} py-2`}>
-                    <span className={`inline-flex items-center gap-1 font-bold ${st.t}`}>
-                      <span className={`${compact ? 'w-2 h-2' : 'w-1.5 h-1.5'} rounded-sm ${st.d}`} />
-                      {compact ? <span aria-hidden="true">{st.c}</span> : z.state}
+                    <span className={`inline-flex items-center gap-1 font-bold ${st.text}`}>
+                      <span className={`${compact ? 'w-2 h-2' : 'w-1.5 h-1.5'} rounded-sm ${st.dot}`} />
+                      {compact ? <span aria-hidden="true">{st.code}</span> : z.state}
                       {compact && <span className="sr-only">{z.state}</span>}
                     </span>
                   </td>

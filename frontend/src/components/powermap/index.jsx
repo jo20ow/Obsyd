@@ -216,6 +216,22 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
             horizontal drag, and a mouse is unaffected. The trade is
             single-finger VERTICAL panning of the map on touch: pinch to zoom and
             drag sideways instead. Scrolling past the map beats panning in it. */}
+        {/* UNCONTROLLED view state, deliberately — deck.gl owns the camera and
+            nothing in the app moves it. Known limit, measured: zoom into
+            Denmark, click IT-Sicilia in the rail's table, and the map shows no
+            change at all (the zone is off-screen and its outline is drawn where
+            nobody can see it). Selecting a zone does NOT fly the camera there,
+            for the same reason a border click no longer scrolls the page (see
+            EuropeDesk): a click is a look, and moving the viewport the user
+            arranged is a move they did not ask for. Auto-flying would fire on
+            the COMMON case — default zoom, whole continent visible, clicking
+            rows to compare — where the camera move is pure noise. The click is
+            answered either way: ZoneDetailCard under the table updates.
+            The right fix is an OFFERED recenter (a chip, like the border one)
+            shown only while the selection is actually outside the viewport.
+            That needs a CONTROLLED `viewState` + `onViewStateChange`, i.e. a
+            real change in who owns the camera, with pan/zoom/scrub/picking to
+            re-verify — its own PR, not a rider on this one. */}
         <DeckGL
           initialViewState={INITIAL_VIEW}
           controller={true}
