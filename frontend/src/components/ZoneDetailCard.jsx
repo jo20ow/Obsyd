@@ -1,8 +1,8 @@
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../utils/poll'
-import { ZONE_STATE, zColor } from '../utils/zoneState'
+import { ZONE_STATE, zColor, metricGlossary } from '../utils/zoneState'
 import { InfoPopover } from './Panel'
-import MiniMixCard from './MiniMixCard'
+import FreshnessCaption from './FreshnessCaption'
 
 const API = '/api'
 
@@ -32,24 +32,16 @@ const FLAG_STYLE = {
 
 // The prose that would otherwise eat three lines of a rail this narrow. Lives
 // in the header's ⓘ, the repo's convention for "structured, not a raw note".
-const CARD_INFO = (baselineDays) => (
-  'This zone, as the desk reads it right now. '
-  + 'Day-ahead: the auction price cleared the day before for this delivery day — the DAILY MEAN across its hours, a settled market price, not a forecast. '
-  + 'Residual: load − wind − solar, the gap conventional plants must fill. '
-  + 'Renewables: wind + solar as a share of load, blank when the feed is too incomplete to divide by. '
-  + `σ: distance from this zone's own ${baselineDays ? `${baselineDays}-day` : 'trailing'} norm — amber past 2σ, red past 3σ. Descriptive, never a forecast. `
-  + 'Flags and the one-line read come from the zone situation feed and carry their own timestamp.'
-)
-
-function StaleChip({ asOf, ageDays }) {
-  return (
-    <span
-      className="shrink-0 font-mono text-[8px] tracking-wide text-orange-400 border border-orange-500/30 rounded px-1 py-px"
-      title={`Latest data ${asOf} — this zone's feed may be stalled`}
-    >
-      STALE{ageDays != null ? ` · ${ageDays}d` : ''}
-    </span>
-  )
+// The four definitions are SHARED with the matrix's column legend directly above
+// (utils/zoneState.js) — see the note there for why they may not be rewritten
+// here. Only the first and last sentences are this card's own.
+const CARD_INFO = (baselineDays) => {
+  const g = metricGlossary(baselineDays)
+  return [
+    'This zone, as the desk reads it right now.',
+    g.state, g.dayAhead, g.residual, g.renewables, g.sigma,
+    'Flags and the one-line read come from the zone situation feed and carry their own timestamp, which can lag the numbers above.',
+  ].join(' ')
 }
 
 // One headline number + what it is measured against. `sub` is never decoration:
@@ -117,7 +109,7 @@ function ZoneSituation({ zone }) {
         </div>
         {/* This feed's OWN age — it can lag the overview row the numbers come
             from, and then it must say so next to its own sentence. */}
-        {data.stale && <StaleChip asOf={data.as_of} ageDays={data.age_days} />}
+        {data.stale && <FreshnessCaption meta={data} dense />}
       </div>
     </div>
   )
@@ -132,21 +124,37 @@ function ZoneSituation({ zone }) {
  * and the TABLE is its `flex-1 min-h-0` child, so every pixel this card takes is
  * a row the table loses. Everything here is therefore `shrink-0` and bounded —
  * a fixed 3-stat grid, a 2-line clamp on the read, a min-height on the situation
- * box, a flag row that renders even when empty — so the card measures 342 px for
- * every one of the 37 zones and switching zones does not re-flow the table.
- * The single moving part is how many flags the backend raises: the synthetic
- * worst case (3 flags wrapping to 3 lines + a 2-line headline) reaches 385 px at
- * 1280 wide and costs the table one row. That is the right thing to spend a row
- * on, and it cannot overflow the column — the table yields, this card does not.
+ * box, a flag row that renders even when empty — so the card measures 160 px for
+ * every one of the 37 zones AND through every loading state, and clicking from
+ * zone to zone never re-flows the table. The only moving part is how many flags
+ * the backend raises: the synthetic worst case (3 flags wrapping to 3 lines +
+ * a 2-line headline) reaches 203 px and costs the table one row. That is the
+ * right thing to spend a row on, and it cannot overflow the column — the table
+ * yields, this card does not.
  *
- * That constant is also why RecordChip is NOT here, though it is narrow enough
- * and stays silent without a fresh record. Measured: it costs 47–106 px when it
- * does fire, which took the table from 6 visible rows to 3 at 1280×800 (2 at
- * 1024×768) — and it fires for whichever zones happen to hold a 7-day record
- * (10 of 37 the day this was measured), so the table would gain and lose half
- * its rows as the user clicks around. A conditional element is affordable in a
- * full-width panel and not in a rail on a fixed budget. Fresh records stay one
- * click away behind "Open zone →", where RecordsPanel already carries them.
+ * That budget is why two things the plan offered are NOT here.
+ *
+ * MiniMixCard was, and cost 182 px — 53 % of the card — to stack 15 unlabelled
+ * series in a 330 px-wide rail. Removing it took the table from 6 visible zones
+ * to 11 at 1280×800 and 13 to 18 at 1500×1000. PowerOverviewMatrix's own comment
+ * records that the desk split exists because the old `42vh` table "inner-scrolled
+ * at 14 of 37 zones"; a rail showing 6 of 37 is that same defect, worse. The
+ * chart is also the one element here that is LESS useful than where it already
+ * lives — LiveCharts renders this exact component at full width, one click away
+ * behind "Open zone →".
+ *
+ * RecordChip, for the same budget and a second reason: measured at 47–106 px,
+ * and it fires only for whichever zones hold a 7-day record (10 of 37 the day
+ * this was measured), so the table would gain and lose rows as the user clicks
+ * around. A conditional element is affordable in a full-width panel and not in a
+ * rail on a fixed budget. Records too are behind "Open zone →" (RecordsPanel).
+ *
+ * The general rule both cases teach: in this card, height must not depend on
+ * WHICH zone is selected or on whether a feed has answered yet. A child whose
+ * loading state is a different height than its loaded state (MiniMixCard's was:
+ * `px-3 py-8` placeholder vs `px-1 py-2` + 110 px chart, a 45 px delta, and
+ * useFetchWithError clears `data` on every url change) makes the table twitch on
+ * EVERY click, which is the same defect as RecordChip at 100 % of clicks.
  */
 export default function ZoneDetailCard({ zone, onOpenZone }) {
   const { data, loading, error } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
@@ -169,9 +177,16 @@ export default function ZoneDetailCard({ zone, onOpenZone }) {
 
   const st = ZONE_STATE[row.state] || ZONE_STATE.CALM
   return (
-    // gap-3 matches the rail's own gap, so the three boxes read as one stack.
-    <div className="shrink-0 flex flex-col gap-3">
-      <div className={`border ${st.border} bg-surface rounded overflow-hidden shadow-sm`}>
+    // NO `overflow-hidden` on this frame, unlike the panels it sits under. Those
+    // are 380–580 px tall and clip nothing that matters; this card is ~160 px, so
+    // the clip landed inside its own ⓘ — 154 of the popover's 283 px cut off mid
+    // sentence, right after "Residual: load − wind − solar…", taking the σ
+    // paragraph that explains the "+0.7σ vs norm" printed on every tile. The
+    // ancestor is hidden, not scrollable, so the text was unreachable, not just
+    // out of view. All the class bought was clipping a header border against a
+    // 4 px radius. A popover on a short card outranks a rounded corner.
+    <div className="shrink-0">
+      <div className={`border ${st.border} bg-surface rounded shadow-sm`}>
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/60">
           <span
             className={`inline-flex items-center gap-1 shrink-0 font-mono text-[11px] font-bold ${st.text}`}
@@ -186,10 +201,10 @@ export default function ZoneDetailCard({ zone, onOpenZone }) {
           </span>
           <InfoPopover text={CARD_INFO(data.baseline_days)} />
           {/* The date the NUMBERS below are for — always on screen, replaced by
-              the louder chip when the row is stale. */}
-          {row.stale
-            ? <StaleChip asOf={row.as_of} />
-            : <span className="shrink-0 num text-[8px] text-neutral-700">{row.as_of}</span>}
+              the louder chip when the row is stale. Overview rows carry no
+              `age_days`, so this renders a bare STALE; the situation block below
+              has the age and prints it. */}
+          <FreshnessCaption meta={row} dense />
           {/* The deliberate door: a row click is a look, THIS navigates. */}
           <button
             onClick={onOpenZone}
@@ -226,8 +241,6 @@ export default function ZoneDetailCard({ zone, onOpenZone }) {
           </div>
         </div>
       </div>
-
-      <MiniMixCard title="Generation mix" zone={zone} height={110} />
     </div>
   )
 }

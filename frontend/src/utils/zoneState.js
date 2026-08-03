@@ -24,3 +24,27 @@ export const STATE_ORDER = { CALM: 0, ELEVATED: 1, STRESSED: 2 }
 // and a red number in the row always mean the identical thing.
 export const zColor = (z) =>
   z == null ? 'text-neutral-400' : Math.abs(z) >= 3 ? 'text-red-400' : Math.abs(z) >= 2 ? 'text-yellow-400' : 'text-neutral-300'
+
+// ── What the four numbers MEAN ────────────────────────────────────────────────
+// The desk rail puts two ⓘ popovers ~200 px apart — the matrix's column legend
+// and the detail card's — and they define the same four things. Written twice
+// they drift, and they had: the table's copy hardcoded "its own 30-day norm"
+// while the card's read the live `baseline_days`, so the table's popover could
+// contradict the table's OWN footer two lines below it. Same lesson as the price
+// strings that lived in three files (CLAUDE.md, "Preis-Strings leben verstreut")
+// and the state colours above. Definitions live here; each popover adds only the
+// sentence that is true of ITS surface.
+//
+// `baselineDays` comes from /power/overview's own `baseline_days` — never a
+// literal, so the prose cannot outlive a backend change to the window.
+export const metricGlossary = (baselineDays) => {
+  const norm = baselineDays ? `${baselineDays}-day` : 'trailing'
+  return {
+    norm,
+    state: `State: how far this zone sits from its own ${norm} norm — CALM / ELEVATED (amber) / STRESSED (red); a deviation vs history, not a forecast.`,
+    dayAhead: 'Day-ahead: the auction price (€/MWh), cleared the day before for this delivery day — a settled market price, NOT a forecast. It is the DAILY MEAN across the day’s hours.',
+    residual: 'Residual: demand − wind − solar (GW), the gap conventional plants must fill — what actually sets the price.',
+    renewables: 'Renewables: wind + solar as a share of load, left blank when the feed is too incomplete to trust the share.',
+    sigma: `σ: distance from this zone’s own ${norm} norm — amber past 2σ, red past 3σ. Descriptive, never a forecast.`,
+  }
+}

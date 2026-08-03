@@ -11,6 +11,10 @@ import LiveCharts from './LiveCharts'
 import HowToRead from './HowToRead'
 import { MAP_FALLBACK } from './MapFallback'
 import { DESK_COLUMN_H } from './powermap/constants'
+import useFetchWithError from '../hooks/useFetchWithError'
+import { POLL_SLOW_MS } from '../utils/poll'
+
+const API = '/api'
 
 // The EUROPE tab — the desk's front door, lifted out of App.jsx so the layout
 // that makes it a *map-first desk* lives in one file instead of inline in the
@@ -26,14 +30,12 @@ import { DESK_COLUMN_H } from './powermap/constants'
 // takes what is left rather than picking a vh of its own. Under it the rail now
 // answers the click it collects: the border chip's reserved slot (28 px, fixed
 // — the chip appearing must never cost the table a row), then the zone detail
-// card (342 px) — both `shrink-0`, so they come out of the SAME budget and the
-// table simply yields the rows they cost. Measured across all 37 zones ×
-// {1500×1000, 1280×800, 1024×768}: card 342 px for every zone, column overflow
-// 0 px everywhere, 13 rows fully visible at 1500×1000 and 6 at both smaller
-// sizes. The one thing that moves it is the flag row: the synthetic worst case
-// (3 flags + a 2-line headline, more than any zone carries today) grows the
-// card to 363/385 px and costs the table ONE row — still no overflow, because
-// the table is the flex child that yields. Nothing else about a zone may.
+// card (160 px) — both `shrink-0`, so they come out of the SAME budget and the
+// table simply yields the rows they cost. Both are kept CHEAP on purpose: this
+// rail is the map's index, and PR 8 split the desk precisely because a table
+// that shows 14 of 37 zones is not one. An earlier draft of the card carried a
+// generation-mix chart and landed the table at 6 of 37 — the same defect, worse;
+// see ZoneDetailCard's docblock for what came out and why.
 // Below lg the split collapses, NOTHING is force-fitted to the viewport, and the
 // MAP COMES FIRST (order-1) — on a phone it is still the thing you came for.
 // Everything below the grid (radar, borders, hydro, charts, orientation) stays
@@ -57,6 +59,20 @@ export default function EuropeDesk({ energyZone, setEnergyZone, goToTab }) {
   // Which focus the user has already dealt with (clicked through or dismissed).
   const [chipDoneTs, setChipDoneTs] = useState(null)
   const showChip = Boolean(borderFocus && borderFocus.ts !== chipDoneTs)
+
+  // The chip says a row "opened in Borders", so it has to KNOW one did. Flow
+  // arcs are built from this very payload and always have a row; A78 outage
+  // chords are not — outageLayer notes a chord can name a pair the borders table
+  // does not carry, and then nothing opens and the chip would be lying. Same url
+  // and cadence as BordersPanel, so useFetchWithError's dedupe + SWR cache serve
+  // it from that panel's request: no second GET for the claim.
+  const { data: bordersData } = useFetchWithError(`${API}/power/borders?days=30`, {
+    pollMs: POLL_SLOW_MS,
+  })
+  // null = not answered yet (say nothing either way); true/false = verified.
+  const focusHasRow = !borderFocus || !bordersData?.borders
+    ? null
+    : bordersData.borders.some((b) => b.zone_a === borderFocus.a && b.zone_b === borderFocus.b)
 
   // The zone the SPLIT is looking at — table row ⇄ map outline, both ways.
   // Deliberately NOT the global `energyZone`: selecting here is "show me this
@@ -100,15 +116,32 @@ export default function EuropeDesk({ energyZone, setEnergyZone, goToTab }) {
               the one thing a click MUST produce is feedback you can see. */}
           <div className="shrink-0 h-7 flex items-center">
             {showChip ? (
-              <div className="inline-flex items-center gap-1 max-w-full border border-cyan-glow/40 bg-surface rounded pl-2 pr-1 py-1">
+              <div className={`inline-flex items-center gap-1 max-w-full border bg-surface rounded pl-2 pr-1 py-1 ${
+                focusHasRow === false ? 'border-border' : 'border-cyan-glow/40'
+              }`}>
+                {/* Truncation is the normal case, not the exception: the longest
+                    pair (IT-Centro-Nord↔IT-Centro-Sud) needs 312 px into 306 px,
+                    and what falls off the end is the AFFORDANCE. The title=
+                    carries the whole sentence — the repo's "short at the element"
+                    rule — so a clipped chip is still readable on hover. */}
                 <button
                   onClick={() => {
                     document.getElementById('panel-power-borders')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                     setChipDoneTs(borderFocus.ts)
                   }}
+                  title={focusHasRow === false
+                    ? `${zoneLabel(borderFocus.a)}↔${zoneLabel(borderFocus.b)} has no row in the Borders table — the outage feed names pairs the border stats do not cover. Click to go to Borders anyway.`
+                    : `${zoneLabel(borderFocus.a)}↔${zoneLabel(borderFocus.b)} is open in the Borders panel below — click to scroll to it.`}
                   className="font-mono text-[9px] text-neutral-300 hover:text-cyan-glow transition-colors truncate"
                 >
-                  {zoneLabel(borderFocus.a)}↔{zoneLabel(borderFocus.b)} opened in Borders <span className="text-cyan-glow">· view ↓</span>
+                  {zoneLabel(borderFocus.a)}↔{zoneLabel(borderFocus.b)}
+                  {/* Only claim the row opened once the borders payload says it
+                      exists. An A78 chord can name a pair the table does not
+                      carry; then nothing opened and saying so beats sending the
+                      user down two screens to find out. */}
+                  {focusHasRow === false
+                    ? <span className="text-neutral-500"> · not in Borders</span>
+                    : <>{focusHasRow ? ' opened in Borders' : ' → Borders'} <span className="text-cyan-glow">· view ↓</span></>}
                 </button>
                 <button
                   onClick={() => setChipDoneTs(borderFocus.ts)}

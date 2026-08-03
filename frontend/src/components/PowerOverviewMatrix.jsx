@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../utils/poll'
-import { ZONE_STATE, STATE_ORDER, zColor } from '../utils/zoneState'
+import { ZONE_STATE, STATE_ORDER, zColor, metricGlossary } from '../utils/zoneState'
 
 // Single-glance overview — read all bidding zones at once, colour-first, like
 // Electricity Maps. Colour encodes how far each metric sits from its
@@ -31,15 +31,20 @@ const COLUMNS = [
 ]
 
 // One legend for the whole table (per-column popovers would be clipped by the
-// scroll container). Spells out what each column is — and, crucially, that
-// Day-ahead here is the DAILY MEAN, while the map shades a single hour.
-const TABLE_INFO = (
-  'What each column means. '
-  + 'State: how far this zone sits from its own 30-day norm — CALM / ELEVATED (amber) / STRESSED (red); a deviation vs history, not a forecast. '
-  + 'Day-ahead: the auction price (€/MWh), cleared the day before for this delivery day — a settled market price, NOT a forecast. It is the DAILY MEAN across the day’s hours; the map shades one hour at a time (its slider), so the map’s number differs from this average. '
-  + 'Residual: demand − wind − solar (GW), the gap conventional plants must fill — what actually sets the price. '
-  + 'Renewables: wind + solar as a share of load, left blank when the feed is too incomplete to trust the share.'
-)
+// scroll container). The four definitions are SHARED with ZoneDetailCard's ⓘ
+// ~200 px below in the same rail (utils/zoneState.js) — they must not be
+// rewritten here; this copy hardcoded "30-day" and could contradict the footer
+// two lines down, which reads the live baseline_days. Only the map caveat is
+// this table's own: Day-ahead here is the DAILY MEAN, the map shades one hour.
+const TABLE_INFO = (baselineDays) => {
+  const g = metricGlossary(baselineDays)
+  return [
+    'What each column means.',
+    g.state, g.dayAhead,
+    'The map shades one hour at a time (its slider), so the map’s number differs from this average.',
+    g.residual, g.renewables,
+  ].join(' ')
+}
 
 export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = false }) {
   const { data, loading, error } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
@@ -103,7 +108,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
     }`}>
       <div className="shrink-0 px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
         <span className="font-mono text-[12px] font-semibold text-neutral-300">European power · all zones</span>
-        <InfoPopover text={TABLE_INFO} />
+        <InfoPopover text={TABLE_INFO(data.baseline_days)} />
         <span className="font-mono text-[9px] text-neutral-700 ml-auto">
           {compact ? 'sort ↕ · click a zone to focus it' : 'sort ↕ · click a zone for detail →'}
         </span>
