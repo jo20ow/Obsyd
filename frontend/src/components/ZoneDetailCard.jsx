@@ -47,8 +47,11 @@ const CARD_INFO = (baselineDays) => {
 // One headline number + what it is measured against. `sub` is never decoration:
 // it carries the σ, i.e. the only thing that makes the number mean "unusual".
 function Stat({ label, value, sub, color = 'text-neutral-200' }) {
+  // Three columns share a ~340 px rail, so ~100 px each: the σ strings fit but
+  // the longer captions ("wind + solar of load") clip. `title` on the whole
+  // tile is the recovery — the repo's "short at the element" rule.
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" title={`${label} — ${value} (${sub})`}>
       <div className="font-mono text-[8px] text-neutral-600 uppercase tracking-wider truncate">{label}</div>
       <div className={`num text-[13px] font-bold leading-tight truncate ${color}`}>{value}</div>
       <div className="font-mono text-[8px] text-neutral-600 truncate">{sub}</div>

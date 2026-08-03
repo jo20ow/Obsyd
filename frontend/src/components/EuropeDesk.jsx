@@ -92,6 +92,47 @@ export default function EuropeDesk({ energyZone, setEnergyZone, goToTab }) {
   const { zones } = useZones()
   const zoneLabel = (key) => zones.find((z) => z.key === key)?.label || key
 
+  // Border-click feedback, pinned to the top of the CANVAS — the surface the
+  // click was made on, and the one part of the desk column that is on screen
+  // whenever the map is being looked at.
+  const borderChip = borderFocus && (
+    <div className={`inline-flex items-center gap-1 max-w-full border bg-surface/95 rounded pl-2 pr-1 py-1 shadow-sm ${
+      focusHasRow === false ? 'border-border' : 'border-cyan-glow/40'
+    }`}>
+      {/* Truncation is the normal case, not the exception: the longest pair
+          (IT-Centro-Nord↔IT-Centro-Sud) needs 312 px into 306 px, and what falls
+          off the end is the AFFORDANCE. The title= carries the whole sentence —
+          the repo's "short at the element" rule — so a clipped chip still reads
+          on hover. */}
+      <button
+        onClick={() => {
+          document.getElementById('panel-power-borders')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          setChipDoneTs(borderFocus.ts)
+        }}
+        title={focusHasRow === false
+          ? `${zoneLabel(borderFocus.a)}↔${zoneLabel(borderFocus.b)} has no row in the Borders table — the outage feed names pairs the border stats do not cover. Click to go to Borders anyway.`
+          : `${zoneLabel(borderFocus.a)}↔${zoneLabel(borderFocus.b)} is open in the Borders panel below — click to scroll to it.`}
+        className="font-mono text-[9px] text-neutral-300 hover:text-cyan-glow transition-colors truncate"
+      >
+        {zoneLabel(borderFocus.a)}↔{zoneLabel(borderFocus.b)}
+        {/* Only claim the row opened once the borders payload says it exists. An
+            A78 chord can name a pair the table does not carry; then nothing
+            opened, and saying so beats sending the user down two screens to
+            find out. */}
+        {focusHasRow === false
+          ? <span className="text-neutral-500"> · not in Borders</span>
+          : <>{focusHasRow ? ' opened in Borders' : ' → Borders'} <span className="text-cyan-glow">· view ↓</span></>}
+      </button>
+      <button
+        onClick={() => setChipDoneTs(borderFocus.ts)}
+        title="Dismiss" aria-label="Dismiss"
+        className="shrink-0 px-1 font-mono text-[10px] text-neutral-600 hover:text-neutral-300"
+      >
+        ×
+      </button>
+    </div>
+  )
+
   return (
     <div className="space-y-3">
       <ErrorBoundary name="narrative">
@@ -107,55 +148,14 @@ export default function EuropeDesk({ energyZone, setEnergyZone, goToTab }) {
           <ErrorBoundary name="power-overview">
             <PowerOverviewMatrix compact selectedZone={focusZone} onSelect={setFocusZone} />
           </ErrorBoundary>
-          {/* Border-click feedback, on a slot that is ALWAYS this tall: the chip
-              appearing must not cost the table a row, and the empty state is
-              not dead space — it is where the flow arcs say they are clickable.
-              In the RAIL, not under the map: the desk column runs past the fold
-              by design (see DESK_COLUMN_H), so anything anchored to the map's
-              bottom edge would land ~250 px below the viewport — measured — and
-              the one thing a click MUST produce is feedback you can see. */}
+          {/* The standing hint that the arcs are clickable. It never changes, so
+              it costs the table one fixed line and never a reflow — the chip it
+              used to share this slot with now answers on the map itself, where
+              the click was made (see `canvasOverlay`). */}
           <div className="shrink-0 h-7 flex items-center">
-            {showChip ? (
-              <div className={`inline-flex items-center gap-1 max-w-full border bg-surface rounded pl-2 pr-1 py-1 ${
-                focusHasRow === false ? 'border-border' : 'border-cyan-glow/40'
-              }`}>
-                {/* Truncation is the normal case, not the exception: the longest
-                    pair (IT-Centro-Nord↔IT-Centro-Sud) needs 312 px into 306 px,
-                    and what falls off the end is the AFFORDANCE. The title=
-                    carries the whole sentence — the repo's "short at the element"
-                    rule — so a clipped chip is still readable on hover. */}
-                <button
-                  onClick={() => {
-                    document.getElementById('panel-power-borders')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    setChipDoneTs(borderFocus.ts)
-                  }}
-                  title={focusHasRow === false
-                    ? `${zoneLabel(borderFocus.a)}↔${zoneLabel(borderFocus.b)} has no row in the Borders table — the outage feed names pairs the border stats do not cover. Click to go to Borders anyway.`
-                    : `${zoneLabel(borderFocus.a)}↔${zoneLabel(borderFocus.b)} is open in the Borders panel below — click to scroll to it.`}
-                  className="font-mono text-[9px] text-neutral-300 hover:text-cyan-glow transition-colors truncate"
-                >
-                  {zoneLabel(borderFocus.a)}↔{zoneLabel(borderFocus.b)}
-                  {/* Only claim the row opened once the borders payload says it
-                      exists. An A78 chord can name a pair the table does not
-                      carry; then nothing opened and saying so beats sending the
-                      user down two screens to find out. */}
-                  {focusHasRow === false
-                    ? <span className="text-neutral-500"> · not in Borders</span>
-                    : <>{focusHasRow ? ' opened in Borders' : ' → Borders'} <span className="text-cyan-glow">· view ↓</span></>}
-                </button>
-                <button
-                  onClick={() => setChipDoneTs(borderFocus.ts)}
-                  title="Dismiss" aria-label="Dismiss"
-                  className="shrink-0 px-1 font-mono text-[10px] text-neutral-600 hover:text-neutral-300"
-                >
-                  ×
-                </button>
-              </div>
-            ) : (
-              <span className="font-mono text-[9px] text-neutral-700 truncate">
-                Click a flow arc or outage line on the map to open its border.
-              </span>
-            )}
+            <span className="font-mono text-[9px] text-neutral-700 truncate">
+              Click a flow arc or outage line on the map to open its border.
+            </span>
           </div>
           {/* The answer to a row/map click — and the only door out of the tab
               ("Open zone →"), since a click here is a look, not a navigation. */}
@@ -174,6 +174,7 @@ export default function EuropeDesk({ energyZone, setEnergyZone, goToTab }) {
                 onBorderSelect={onBorderSelect}
                 selectedZone={focusZone}
                 onZoneSelect={setFocusZone}
+                canvasOverlay={showChip ? borderChip : null}
               />
             </Suspense>
           </ErrorBoundary>

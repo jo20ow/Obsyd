@@ -47,7 +47,13 @@ const OVERLAY_TIPS = [outageTooltip]
 // rail's ZoneDetailCard either way. The fix, when wanted, is an OFFERED recenter
 // shown only while the selection is off-screen — that needs a controlled
 // `viewState` + `onViewStateChange`, i.e. a change in who owns the camera.
-export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, tall = false }) {
+// `canvasOverlay` is a slot pinned to the TOP of the canvas, for feedback that
+// answers a click ON the map. Top, not bottom: the desk column runs past the
+// fold by design (DESK_COLUMN_H), so the card's lower edge — and anything
+// anchored to it — can sit below the viewport at the very moment the user is
+// looking at the map's upper half and clicking the Nordic arcs. The top edge of
+// the canvas is visible whenever any of the map is.
+export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, tall = false, canvasOverlay }) {
   const { theme } = useTheme()
   const pal = PALETTES[theme] || PALETTES.dark
   const [fill, setFill] = useState('price')
@@ -236,6 +242,9 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
           getTooltip={getTooltip}
           pickingRadius={4}
         />
+        {canvasOverlay && (
+          <div className="absolute top-2 left-2 right-2 flex justify-start">{canvasOverlay}</div>
+        )}
         {selectionHasNoShape && (
           <div className="absolute bottom-2 left-2 right-2 pointer-events-none">
             <span className="inline-block border border-border bg-surface/90 rounded px-2 py-1 font-mono text-[9px] text-neutral-400">
