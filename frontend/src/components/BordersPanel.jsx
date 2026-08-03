@@ -141,20 +141,29 @@ export default function BordersPanel({ focus }) {
   }
   const mountFocus = useRef(focus)
   useEffect(() => {
-    if (!focus?.a || !focus?.b || focus === mountFocus.current) return
+    // `scroll: false` = prepare the row but STAY PUT. The EUROPE tab sends it
+    // for map clicks: the panel is two screens below the map, so scrolling here
+    // dragged the page off the thing the user had just clicked. Opening +
+    // expanding is unchanged, so the row is ready whenever they come down —
+    // by their own scroll, or via the chip the map offers. Any caller that
+    // omits the field keeps the original scroll-into-view behaviour.
+    if (!focus?.a || !focus?.b || focus === mountFocus.current || focus.scroll === false) return
     document.getElementById('panel-power-borders')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [focus])
 
+  // The degraded states keep the panel's ANCHOR id: something on the map always
+  // offers to scroll here (the EUROPE tab's border chip), and a link that
+  // silently goes nowhere is worse than one that lands on "fetch error".
   if (error) {
     return (
-      <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
+      <div id="panel-power-borders" className="border border-red-500/20 bg-surface rounded px-4 py-3">
         <div className="font-mono text-[10px] text-red-400">BORDERS // FETCH ERROR</div>
       </div>
     )
   }
   if (!data?.available && !loading) {
     return (
-      <div className="border border-border bg-surface rounded px-4 py-3">
+      <div id="panel-power-borders" className="border border-border bg-surface rounded px-4 py-3">
         <div className="font-mono text-[10px] text-neutral-500">
           BORDERS — {data?.reason || 'no border data yet.'}
         </div>

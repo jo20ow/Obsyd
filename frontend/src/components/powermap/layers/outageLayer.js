@@ -228,8 +228,10 @@ export function makeOutageLayers({ paths, pal, onBorderSelect }) {
       // The pair is the /borders canonical sorted pair (same convention as the
       // arcs), so BordersPanel opens the matching row. If a pair has no row
       // (none of today's 37 do, but A78 names the counterparty, not the border)
-      // the panel still expands and scrolls into view with nothing pre-opened —
-      // degraded, never dead, and never throwing.
+      // the panel un-collapses with nothing pre-opened, and the chip on the
+      // canvas says "not in Borders" rather than claiming a row — degraded,
+      // never dead, and never throwing. The click no longer scrolls the page;
+      // the chip offers that trip (EuropeDesk).
       onClick: ({ object }) => { if (object) onBorderSelect?.(object.zone_a, object.zone_b) },
     }),
   ]

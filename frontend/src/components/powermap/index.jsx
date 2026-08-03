@@ -38,7 +38,22 @@ const OVERLAY_TIPS = [outageTooltip]
 //     (EuropeDesk owns the state). Both optional; the map is standalone without.
 //   tall — the desk-split layout's map column, where the map is the page's
 //     subject and gets the viewport height it deserves.
-export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, tall = false }) {
+//
+// Selecting a zone does NOT move the camera, and the view state is uncontrolled.
+// The limit, measured: zoom into Denmark, click IT-Sicilia in the rail, and the
+// map shows nothing — the outline is drawn off-screen. Left as is on purpose: a
+// click is a look, and auto-flying would fire on the common case (default zoom,
+// whole continent visible) where the move is noise; the click is answered by the
+// rail's ZoneDetailCard either way. The fix, when wanted, is an OFFERED recenter
+// shown only while the selection is off-screen — that needs a controlled
+// `viewState` + `onViewStateChange`, i.e. a change in who owns the camera.
+// `canvasOverlay` is a slot pinned to the TOP of the canvas, for feedback that
+// answers a click ON the map. Top, not bottom: the desk column runs past the
+// fold by design (DESK_COLUMN_H), so the card's lower edge — and anything
+// anchored to it — can sit below the viewport at the very moment the user is
+// looking at the map's upper half and clicking the Nordic arcs. The top edge of
+// the canvas is visible whenever any of the map is.
+export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, tall = false, canvasOverlay }) {
   const { theme } = useTheme()
   const pal = PALETTES[theme] || PALETTES.dark
   const [fill, setFill] = useState('price')
@@ -216,6 +231,9 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
             horizontal drag, and a mouse is unaffected. The trade is
             single-finger VERTICAL panning of the map on touch: pinch to zoom and
             drag sideways instead. Scrolling past the map beats panning in it. */}
+        {/* initialViewState = deck.gl owns the camera; nothing in the app moves
+            it. See "Selecting a zone" in the module docblock for the limit this
+            leaves and why it was left. */}
         <DeckGL
           initialViewState={INITIAL_VIEW}
           controller={true}
@@ -224,6 +242,9 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
           getTooltip={getTooltip}
           pickingRadius={4}
         />
+        {canvasOverlay && (
+          <div className="absolute top-2 left-2 right-2 flex justify-start">{canvasOverlay}</div>
+        )}
         {selectionHasNoShape && (
           <div className="absolute bottom-2 left-2 right-2 pointer-events-none">
             <span className="inline-block border border-border bg-surface/90 rounded px-2 py-1 font-mono text-[9px] text-neutral-400">

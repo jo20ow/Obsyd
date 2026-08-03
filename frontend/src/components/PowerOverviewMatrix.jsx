@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../utils/poll'
+import { ZONE_STATE, STATE_ORDER, zColor, metricGlossary } from '../utils/zoneState'
 
 // Single-glance overview — read all bidding zones at once, colour-first, like
 // Electricity Maps. Colour encodes how far each metric sits from its
@@ -11,24 +12,14 @@ import { POLL_FAST_MS } from '../utils/poll'
 // the zone on the map beside it. Descriptive, not a forecast.
 const API = '/api'
 
-// `c` is the compact rail's one-letter code. It is NOT decoration: compact has
-// no room for the word, and green/amber/red dots alone are the textbook
-// red-green CVD collision — the letter is the second, non-colour carrier.
-const STATE = {
-  CALM: { t: 'text-green-glow', d: 'bg-green-glow', c: 'C' },
-  ELEVATED: { t: 'text-yellow-400', d: 'bg-yellow-400', c: 'E' },
-  STRESSED: { t: 'text-red-400', d: 'bg-red-400', c: 'S' },
-}
-const STATE_ORDER = { CALM: 0, ELEVATED: 1, STRESSED: 2 }
-
-const zColor = (z) =>
-  z == null ? 'text-neutral-400' : Math.abs(z) >= 3 ? 'text-red-400' : Math.abs(z) >= 2 ? 'text-yellow-400' : 'text-neutral-300'
-
+// State colours + the compact rail's one-letter code now live in
+// utils/zoneState.js: the desk rail renders this table and ZoneDetailCard for
+// the SAME zone at the same time, so the two must read from one map.
 // `compact` = the desk-split rail (~1/3 width, beside the big map): same table,
 // same sorting, less horizontal ink. The units move OUT of every cell and INTO
 // the header (74 under "€/MWh" instead of €74 under "Day-ahead"), which is both
 // shorter per row and where a unit belongs; the State word shrinks to a dot plus
-// its one-letter code (see STATE.c — the letter is what survives colour
+// its one-letter code (see ZONE_STATE.code — the letter is what survives colour
 // blindness), with the full word kept for screen readers.
 const COLUMNS = [
   { key: 'zone', label: 'Zone', align: 'left', get: (z) => z.zone_label || z.zone },
@@ -40,15 +31,20 @@ const COLUMNS = [
 ]
 
 // One legend for the whole table (per-column popovers would be clipped by the
-// scroll container). Spells out what each column is — and, crucially, that
-// Day-ahead here is the DAILY MEAN, while the map shades a single hour.
-const TABLE_INFO = (
-  'What each column means. '
-  + 'State: how far this zone sits from its own 30-day norm — CALM / ELEVATED (amber) / STRESSED (red); a deviation vs history, not a forecast. '
-  + 'Day-ahead: the auction price (€/MWh), cleared the day before for this delivery day — a settled market price, NOT a forecast. It is the DAILY MEAN across the day’s hours; the map shades one hour at a time (its slider), so the map’s number differs from this average. '
-  + 'Residual: demand − wind − solar (GW), the gap conventional plants must fill — what actually sets the price. '
-  + 'Renewables: wind + solar as a share of load, left blank when the feed is too incomplete to trust the share.'
-)
+// scroll container). The four definitions are SHARED with ZoneDetailCard's ⓘ
+// ~200 px below in the same rail (utils/zoneState.js) — they must not be
+// rewritten here; this copy hardcoded "30-day" and could contradict the footer
+// two lines down, which reads the live baseline_days. Only the map caveat is
+// this table's own: Day-ahead here is the DAILY MEAN, the map shades one hour.
+const TABLE_INFO = (baselineDays) => {
+  const g = metricGlossary(baselineDays)
+  return [
+    'What each column means.',
+    g.state, g.dayAhead,
+    'The map shades one hour at a time (its slider), so the map’s number differs from this average.',
+    g.residual, g.renewables,
+  ].join(' ')
+}
 
 export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = false }) {
   const { data, loading, error } = useFetchWithError(`${API}/power/overview`, { pollMs: POLL_FAST_MS })
@@ -112,7 +108,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
     }`}>
       <div className="shrink-0 px-4 py-2.5 border-b border-border/60 flex items-center gap-2">
         <span className="font-mono text-[12px] font-semibold text-neutral-300">European power · all zones</span>
-        <InfoPopover text={TABLE_INFO} />
+        <InfoPopover text={TABLE_INFO(data.baseline_days)} />
         <span className="font-mono text-[9px] text-neutral-700 ml-auto">
           {compact ? 'sort ↕ · click a zone to focus it' : 'sort ↕ · click a zone for detail →'}
         </span>
@@ -135,7 +131,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
           </thead>
           <tbody>
             {sorted.map((z) => {
-              const st = STATE[z.state] || STATE.CALM
+              const st = ZONE_STATE[z.state] || ZONE_STATE.CALM
               const sel = z.zone === selectedZone
               return (
                 <tr
@@ -156,9 +152,9 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
                       CVD); the sr-only word is what assistive tech reads, since
                       a title= on a <td> reaches neither it nor the keyboard. */}
                   <td className={`${cellX} py-2`}>
-                    <span className={`inline-flex items-center gap-1 font-bold ${st.t}`}>
-                      <span className={`${compact ? 'w-2 h-2' : 'w-1.5 h-1.5'} rounded-sm ${st.d}`} />
-                      {compact ? <span aria-hidden="true">{st.c}</span> : z.state}
+                    <span className={`inline-flex items-center gap-1 font-bold ${st.text}`}>
+                      <span className={`${compact ? 'w-2 h-2' : 'w-1.5 h-1.5'} rounded-sm ${st.dot}`} />
+                      {compact ? <span aria-hidden="true">{st.code}</span> : z.state}
                       {compact && <span className="sr-only">{z.state}</span>}
                     </span>
                   </td>
