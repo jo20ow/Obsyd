@@ -121,11 +121,12 @@ def _require_series(series: str) -> None:
         )
 
 
-def _aggregate(rows: list[ForecastScoreDaily]) -> dict | None:
+def _aggregate(rows) -> dict | None:
     """Day-weighted aggregate over daily score rows (module docstring math).
-    Raw, unrounded floats — rounding happens once at the response edge. None
-    when no usable row (a row without mae/n_hours is defensive-skipped; the
-    engine never writes one)."""
+    Attribute access only, so it takes ORM entities (summary/monthly) and
+    column Row tuples (the ranking scan) alike. Raw, unrounded floats —
+    rounding happens once at the response edge. None when no usable row (a row
+    without mae/n_hours is defensive-skipped; the engine never writes one)."""
     n_total = 0
     days = 0
     mae_sum = rmse2_sum = bias_sum = 0.0
@@ -289,9 +290,28 @@ def _ranking_payload(db: Session, window: int) -> dict:
     freshness stamps ride each REQUEST, outside the cache."""
     today = datetime.now(UTC).date()
     cut = (today - timedelta(days=window)).isoformat()
-    rows = db.query(ForecastScoreDaily).filter(ForecastScoreDaily.date >= cut).all()
+    # Column tuples, not ORM entities: at 365d × 37 zones × 4 series the full
+    # entity hydration is several-fold dearer than Row named tuples, and the
+    # cached compute pays it in one gulp. Attribute names match the model's, so
+    # _aggregate reads them unchanged. THE ranking is 3 fixed SELECTs (score
+    # scan, capacity scan, max-date) — the budget test pins it.
+    rows = (
+        db.query(
+            ForecastScoreDaily.zone,
+            ForecastScoreDaily.series,
+            ForecastScoreDaily.n_hours,
+            ForecastScoreDaily.mae,
+            ForecastScoreDaily.rmse,
+            ForecastScoreDaily.bias,
+            ForecastScoreDaily.mape,
+            ForecastScoreDaily.mae_persistence,
+            ForecastScoreDaily.mae_seasonal,
+        )
+        .filter(ForecastScoreDaily.date >= cut)
+        .all()
+    )
 
-    cells: dict[tuple[str, str], list[ForecastScoreDaily]] = {}
+    cells: dict[tuple[str, str], list] = {}
     for r in rows:
         if r.zone in POWER_ZONES and r.series in FORECAST_PAIRS:
             cells.setdefault((r.zone, r.series), []).append(r)
@@ -316,6 +336,14 @@ def _ranking_payload(db: Session, window: int) -> dict:
             if name == "load":
                 entry["mape"] = round(agg["mape"], 2) if agg["mape"] is not None else None
                 entry["_metric"] = agg["mape"]
+                if agg["mape"] is None:
+                    # Same honesty as the capacity case: LISTED, with the
+                    # reason. The engine stores no MAPE only when every scored
+                    # hour's |actual| sat under its division floor.
+                    entry["signposted"] = (
+                        "MAPE unavailable for this window - "
+                        "not rankable, absolute mae shown unranked"
+                    )
             elif name in ("wind", "solar"):
                 labels = WIND_CAPACITY_LABELS if name == "wind" else SOLAR_CAPACITY_LABELS
                 cap = sum(caps.get((zone, lb), 0.0) for lb in labels)
@@ -398,6 +426,9 @@ def scoreboard_ranking(
                 f"{', '.join(map(str, RANKING_WINDOW_DAYS))}."
             ),
         )
+    # NB: cached_value serializes COLD computes behind api_guard's one shared
+    # _cache_lock (all keys) — a cold ranking briefly gates other cached keys'
+    # cold paths too. api_guard-design follow-on, noted here, not fixed here.
     data = cached_value(
         f"scoreboard_ranking_{window}",
         lambda: _ranking_payload(db, window),

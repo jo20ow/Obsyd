@@ -193,15 +193,23 @@ def test_bias_positive_when_forecast_leans_high_end_to_end(db_session):
 def test_ranking_load_by_mape(db_session):
     _score(db_session, "DE_LU", "load", _day(1), mae=500.0, mape=5.0)
     _score(db_session, "FR", "load", _day(1), mae=900.0, mape=2.0)  # bigger MW, better %
+    _score(db_session, "NL", "load", _day(1), mae=100.0, mape=None)  # no stored MAPE
     db_session.commit()
     body = _client(db_session).get("/api/v1/scoreboard/ranking").json()
     assert body["available"] is True
     assert body["window_days"] == 90
     load = body["series"]["load"]
     assert load["metric"] == "mape"
-    assert [(e["zone"], e["rank"]) for e in load["ranking"]] == [("FR", 1), ("DE_LU", 2)]
+    assert [(e["zone"], e["rank"]) for e in load["ranking"]] == [
+        ("FR", 1), ("DE_LU", 2), ("NL", None)]
     assert load["ranking"][0]["mape"] == pytest.approx(2.0)
     assert load["ranking"][0]["days_covered"] == 1
+    # NULL-MAPE zones are signposted like the missing-capacity case — listed,
+    # with the reason, never a bare null
+    nl = load["ranking"][2]
+    assert nl["mape"] is None
+    assert "MAPE unavailable" in nl["signposted"]
+    assert nl["mae"] == pytest.approx(100.0)  # the absolute number still served
 
 
 def test_ranking_nmae_math_and_capacity_signposting(db_session):
@@ -257,7 +265,10 @@ def test_ranking_window_filters_and_validates(db_session):
     assert "30" in r.json()["detail"] and "365" in r.json()["detail"]  # lists valid windows
 
 
-def test_ranking_is_cached_per_window_and_stamped_per_request(db_session, monkeypatch):
+def test_ranking_is_cached_per_window_and_restamped_per_request(db_session, monkeypatch):
+    """The payload computes once per TTL per window, but the freshness triple
+    must be re-derived from the LIVE clock on every request — a warm cache
+    that freezes age_days would misreport staleness for up to 15 minutes."""
     import backend.routes.scoreboard as sb
 
     _score(db_session, "DE_LU", "load", _day(1), mape=3.0)
@@ -272,12 +283,57 @@ def test_ranking_is_cached_per_window_and_stamped_per_request(db_session, monkey
     monkeypatch.setattr(sb, "_ranking_payload", counting)
     c = _client(db_session)
     first = c.get("/api/v1/scoreboard/ranking").json()
+    assert calls["n"] == 1
+    assert first["stale"] is False  # as_of is yesterday, window is 2 days
+
+    # Jump the handler's clock 3 days: the SAME cached payload must come back
+    # with a provably different, live-derived stamp — not the frozen one.
+    real_dt = sb.datetime
+
+    class _Warped(real_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return real_dt.now(tz) + timedelta(days=3)
+
+    monkeypatch.setattr(sb, "datetime", _Warped)
     second = c.get("/api/v1/scoreboard/ranking").json()
-    assert calls["n"] == 1  # second hit served from the keyed cache
+    assert calls["n"] == 1  # served warm — the payload was NOT recomputed
     assert first["series"] == second["series"]
-    assert "age_days" in second and "stale" in second  # triple rides each request
+    assert second["age_days"] == first["age_days"] + 3  # restamped from the live clock
+    assert second["stale"] is True  # > the 2-day forecast_scoreboard window
     c.get("/api/v1/scoreboard/ranking?window=30")
     assert calls["n"] == 2  # each window is its own cache entry
+
+
+def test_ranking_payload_select_budget(db_session):
+    """The ranking must stay a fixed handful of queries — one score scan, one
+    capacity scan, one max-date — never per-zone/per-cell point reads
+    (test_summary_payload_select_budget pattern from the quality suite)."""
+    from sqlalchemy import event
+
+    import backend.routes.scoreboard as sb
+
+    for zone in ("DE_LU", "FR"):
+        _score(db_session, zone, "load", _day(1), mape=3.0)
+        _score(db_session, zone, "wind", _day(1))
+        _cap(db_session, zone, "Wind Onshore", 10000.0)
+    db_session.commit()
+
+    statements = []
+
+    def _count(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", _count)
+    try:
+        payload = sb._ranking_payload(db_session, 90)
+    finally:
+        event.remove(engine, "before_cursor_execute", _count)
+    assert payload["available"] is True  # the seed actually exercised the matrix
+    assert len(payload["series"]["load"]["ranking"]) == 2
+    assert len(statements) <= 4, f"{len(statements)} SELECTs — ranking regressed to per-zone reads"
 
 
 # ─── /monthly ─────────────────────────────────────────────────────────────────
