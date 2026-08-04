@@ -26,9 +26,10 @@ positive here costs the product exactly the trust it exists to build:
   Chosen from the map, not from taste: the latest sunset among enabled zones is
   the west Irish coast at midsummer (~21:30 UTC), the earliest sunrise among
   zones with a MATERIAL PV fleet is Finland at midsummer (~00:54 UTC), so the
-  window is dark wherever solar could plausibly move the number. Above the
-  Arctic Circle (SE1/SE2 midnight sun) no UTC window is dark year-round — those
-  fleets are at most tens of MW, which is what the MW floor is for.
+  window is dark wherever solar could plausibly move the number. At and above
+  the Arctic Circle (SE1/SE2, NO3/NO4, northern FI — midnight sun / no
+  astronomical night) no UTC window is dark year-round — those fleets are at
+  most tens of MW, which is what the MW floor is for.
 * zero_run (load.actual): six consecutive exact-0.0 hours. Zero LOAD is
   physically implausible anywhere in Europe; zero or negative PRICES are real
   market outcomes, so this rule must never be wired onto a price series.
@@ -89,6 +90,7 @@ STEP_JUMP_IQR_MULT = 8.0
 STEP_LOOKBACK_DAYS = 30
 #: Absolute floors under the IQR threshold: 500 MW for load, 100 EUR for price.
 #: Presence here doubles as "this series gets the step_jump rule's delta pass".
+#: Hourly series only — the delta pass assumes 3600 s spacing.
 STEP_JUMP_FLOORS: dict[str, float] = {
     "load.actual": 500.0,
     "price.dayahead": 100.0,
@@ -215,7 +217,11 @@ def rule_gen_below_load_exports(
       flag every day. No flow points, no flag.
 
     `net_export_mwh` uses iter_border_points' sign (positive = `zone` exports),
-    summed over the day. Zone-level: recorded under series_key "_zone"."""
+    summed over the day. Zone-level: recorded under series_key "_zone".
+
+    Known bias, stated: consumption.* series (pumped-storage absorption) are
+    ignored, which inflates generation relative to load + exports and therefore
+    only SUPPRESSES flags — errs in this module's chosen safe direction."""
     if load_mwh is None or load_mwh <= 0 or gen_mwh is None or not has_flows:
         return None
     if gen_mwh < coverage_min_ratio(zone) * load_mwh:
@@ -270,7 +276,11 @@ def compute_and_store_range(db: Session, zone: str, start_day: str, end_day: str
     buckets_by_series: dict[str, dict[int, dict[int, float]]] = {}
 
     for key in QUALITY_SERIES:
-        points = read_hourly(db, key, zone, start_ts - margin, end_ts + margin)
+        # One extra hour below the margin: the delta AT the lookback window's
+        # first hour needs its predecessor, or the first day of every run would
+        # see 719 trailing deltas where a later run sees 720 — and backfill and
+        # nightly must never disagree.
+        points = read_hourly(db, key, zone, start_ts - margin - _HOUR_S, end_ts + margin)
         ts_all = [t for t, _ in points]  # read_hourly returns time-ordered rows
         buckets: dict[int, dict[int, float]] = defaultdict(dict)
         for t, v in points:

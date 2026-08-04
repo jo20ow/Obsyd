@@ -129,8 +129,11 @@ def test_pv_at_night_boundary_values_do_not_flag(db_session):
     _seed_hours(db_session, "gen.B16", "FR", DAY, {12: 100.0, 22: 50.0})
     # 21:00 UTC is OUTSIDE the conservative window — high values there are dusk, not night
     _seed_hours(db_session, "gen.B16", "NL", DAY, {12: 8000.0, 21: 5000.0})
+    # …and so is 01:00 UTC, the first hour past the window's pre-dawn end
+    # (Finnish midsummer sunrise ~00:54 UTC is exactly why the window stops there)
+    _seed_hours(db_session, "gen.B16", "BE", DAY, {12: 8000.0, 1: 5000.0})
     db_session.commit()
-    for zone in ("DE_LU", "FR", "NL"):
+    for zone in ("DE_LU", "FR", "NL", "BE"):
         compute_and_store_quality(db_session, zone, DAY)
         assert _flags(_row(db_session, "gen.B16", zone=zone)) == []
 
@@ -216,6 +219,15 @@ def test_step_jump_absolute_floor_guards_series_without_history(db_session):
     assert "step_jump" not in _rules(_row(db_session, "load.actual"))
     fr_flags = [f for f in _flags(_row(db_session, "load.actual", zone="FR")) if f["rule"] == "step_jump"]
     assert fr_flags and fr_flags[0]["detail"]["threshold"] == pytest.approx(500.0)
+
+
+def test_every_step_jump_wired_series_has_a_floor():
+    """The delta pass reads its floor from STEP_JUMP_FLOORS — wiring a series
+    into step_jump without one would KeyError at 23:55 UTC, not in review."""
+    from backend.power.quality import QUALITY_RULES, STEP_JUMP_FLOORS, rule_step_jump
+
+    wired = {key for key, rules in QUALITY_RULES.items() if rule_step_jump in rules}
+    assert wired <= set(STEP_JUMP_FLOORS)
 
 
 def test_step_jump_price_floor_is_100_eur(db_session):
