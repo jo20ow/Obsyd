@@ -24,10 +24,20 @@ from backend.main import app
 from backend.models.energy import IngestArrival, PowerRevision, QualityDaily
 from backend.power.hourly_store import resolve_series_id, resolve_zone_id, upsert_hourly
 
+# Rebound per TEST by the _clock fixture below — the endpoints read the live
+# clock, so a suite that imports before UTC midnight and asserts after it must
+# not do its day math from a frozen import-time NOW (repo rule #111's flake class).
 NOW = datetime.now(UTC)
 NOW_S = int(NOW.timestamp())
 _H = 3600
 _D = 86400
+
+
+@pytest.fixture(autouse=True)
+def _clock():
+    global NOW, NOW_S
+    NOW = datetime.now(UTC)
+    NOW_S = int(NOW.timestamp())
 
 
 @pytest.fixture(autouse=True)
@@ -130,6 +140,42 @@ def test_summary_empty_is_honest(db_session):
     assert body["as_of"] is None and body["stale"] is False  # inert, not a crash
 
 
+def test_summary_payload_select_budget(db_session):
+    """The matrix must stay a fixed handful of queries — never O(cells) point
+    lookups (test_bulk_uses_fixed_query_count pattern). Budget: quality scan,
+    two dim reads, revision GROUP BY, frontier join, max-date + headroom."""
+    from sqlalchemy import event
+
+    import backend.routes.quality as q
+
+    for zone in ("DE_LU", "FR"):
+        for series in ("load.actual", "gen.B16"):
+            _q(db_session, zone, series, _day(1), 24, 24)
+            sid, zid = _ids(db_session, series, zone)
+            db_session.add(IngestArrival(series_id=sid, zone_id=zid, observed_at=NOW_S - 100,
+                                         n_new=1, n_changed=0, min_ts_new=NOW_S - 100 - _H,
+                                         max_ts_new=NOW_S - 100 - _H))
+            db_session.add(PowerRevision(series_id=sid, zone_id=zid,
+                                         ts_utc=NOW_S // _H * _H - 5 * _D,
+                                         old_value=1.0, new_value=3.0, observed_at=NOW_S - 50))
+    db_session.commit()
+
+    statements = []
+
+    def _count(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", _count)
+    try:
+        payload = q._summary_payload(db_session)
+    finally:
+        event.remove(engine, "before_cursor_execute", _count)
+    assert len(payload["zones"]) == 2  # the seed actually exercised the matrix
+    assert len(statements) <= 8, f"{len(statements)} SELECTs — summary regressed to per-cell reads"
+
+
 def test_summary_is_cached_and_stamped_per_request(db_session, monkeypatch):
     """The matrix computes once per TTL; the freshness triple must ride each
     REQUEST (a warm cache must not freeze age_days — marginal/overview rule)."""
@@ -174,6 +220,19 @@ def test_series_rows_newest_first_flags_decoded(db_session):
     assert flag["hours"] == [f"{_day(2)}T23:00:00+00:00"]  # epoch → ISO at the edge
     assert flag["detail"] == {"longest_run_hours": 6}
     assert body["as_of"] == _day(1)
+
+
+def test_series_corrupt_flags_row_degrades_visibly(db_session):
+    """A row whose flags JSON won't parse yields a `_decode_error` flag for THAT
+    row — never a 500 that hides the healthy rows around it."""
+    db_session.add(QualityDaily(zone="DE_LU", series_key="load.actual", date=_day(2),
+                                hours_present=24, hours_expected=24, flags="{not json"))
+    _q(db_session, "DE_LU", "load.actual", _day(1), 24, 24)
+    db_session.commit()
+    body = _client(db_session).get(
+        "/api/v1/quality/series?series=load.actual&zone=DE_LU").json()
+    assert len(body["data"]) == 2  # the healthy row still served
+    assert body["data"][1]["flags"] == [{"rule": "_decode_error", "hours": [], "detail": {}}]
 
 
 def test_series_day_window_filters_and_caps(db_session):

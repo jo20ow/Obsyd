@@ -120,7 +120,11 @@ The revision ledger for ONE series+zone: every time the source re-published a
 different value for an hour it had already published (beyond a float-noise
 epsilon), with `old_value`/`new_value`, `observed_at` and `delta_pct` — plus
 `restated_hours`, a roll-up of hours restated more than once
-(`n_revisions`, `last_change_pct`). Heavy-guarded, row-capped (20k/request).
+(`n_revisions`, `last_change_pct`). `delta_pct` divides by the *absolute*
+previous value, so its sign is always the direction of movement (a negative
+price restated further down is a negative delta, not a sign flip). The roll-up
+is computed over the rows the `mature` filter left — toggling `mature` changes
+`restated_hours` too. Heavy-guarded, row-capped (20k/request).
 
 | Param | Default | Notes |
 |-------|---------|-------|

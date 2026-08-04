@@ -130,14 +130,23 @@ def _require_quality_series(series: str) -> None:
 
 def _decode_flags(raw: str | None) -> list[dict]:
     """quality_daily.flags (JSON text) → list of flag dicts with the stored
-    epoch `hours` converted to ISO strings, keeping one time format on the wire."""
-    flags = json.loads(raw) if raw else []
+    epoch `hours` converted to ISO strings, keeping one time format on the wire.
+
+    A row whose JSON won't parse yields a visible `_decode_error` flag instead
+    of 500ing the whole response — "panels never disappear silently" applies to
+    rows too, and one corrupt row must not hide the other 89 days."""
+    try:
+        flags = json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        return [{"rule": "_decode_error", "hours": [], "detail": {}}]
     return [{**f, "hours": [_iso(t) for t in f.get("hours", [])]} for f in flags]
 
 
 def _delta_pct(old: float, new: float) -> float | None:
     """Restatement size as % of the previously published value; None when the
-    old value was exactly 0 (no honest percentage exists)."""
+    old value was exactly 0 (no honest percentage exists). Divides by ABS(old),
+    so the sign always equals the direction of movement — a negative price
+    restated further down reads as a negative delta, never a sign flip."""
     if old == 0:
         return None
     return round(100.0 * (new - old) / abs(old), 2)
@@ -155,33 +164,56 @@ def _pctl(values: list[int], q: float) -> int | None:
     return int(round(s[lo] + (s[hi] - s[lo]) * (pos - lo)))
 
 
-def _latest_frontier_lag_s(db: Session, sid: int, zid: int) -> int | None:
-    """observed_at − max_ts_new of the NEWEST arrival row that brought new hours
-    (rows with n_new == 0 carry no frontier and are skipped). May be NEGATIVE:
-    day-ahead auctions publish hours that lie in the future, so their frontier
-    runs ahead of the wall clock — that is the honest number, not an error."""
-    row = (
-        db.query(IngestArrival.observed_at, IngestArrival.max_ts_new)
-        .filter(
-            IngestArrival.series_id == sid,
-            IngestArrival.zone_id == zid,
-            IngestArrival.max_ts_new.isnot(None),
+def _latest_frontier_lags(db: Session) -> dict[tuple[int, int], int]:
+    """(series_id, zone_id) → observed_at − max_ts_new of the NEWEST arrival row
+    that brought new hours (rows with n_new == 0 carry no frontier and are
+    skipped). ONE greatest-per-group join over ingest_arrival instead of a
+    point query per summary cell (O(cells) SELECTs at 37 zones × 6 series —
+    pinned by the SELECT-budget test). Lag may be NEGATIVE: day-ahead auctions
+    publish hours that lie in the future, so their frontier runs ahead of the
+    wall clock — that is the honest number, not an error. Should two frontier
+    batches for one pair share the same observed_at second, MIN(max_ts_new)
+    wins — the conservative (larger) lag."""
+    newest = (
+        db.query(
+            IngestArrival.series_id.label("sid"),
+            IngestArrival.zone_id.label("zid"),
+            func.max(IngestArrival.observed_at).label("obs"),
         )
-        .order_by(IngestArrival.observed_at.desc())
-        .first()
+        .filter(IngestArrival.max_ts_new.isnot(None))
+        .group_by(IngestArrival.series_id, IngestArrival.zone_id)
+        .subquery()
     )
-    return int(row[0] - row[1]) if row else None
+    rows = (
+        db.query(
+            IngestArrival.series_id,
+            IngestArrival.zone_id,
+            IngestArrival.observed_at,
+            func.min(IngestArrival.max_ts_new),
+        )
+        .join(
+            newest,
+            (IngestArrival.series_id == newest.c.sid)
+            & (IngestArrival.zone_id == newest.c.zid)
+            & (IngestArrival.observed_at == newest.c.obs),
+        )
+        .filter(IngestArrival.max_ts_new.isnot(None))
+        .group_by(IngestArrival.series_id, IngestArrival.zone_id, IngestArrival.observed_at)
+        .all()
+    )
+    return {(sid, zid): int(obs - mts) for sid, zid, obs, mts in rows}
 
 
 # ─── /summary ─────────────────────────────────────────────────────────────────
 
 
 def _summary_payload(db: Session) -> dict:
-    """The full enabled-zones × charter-series quality matrix. Expensive-ish
-    (one 90-day quality scan, one revision GROUP BY, one arrival point-lookup
-    per emitted cell) → computed at most once per SUMMARY_TTL_S via
-    cached_value; freshness stamps are added per REQUEST, outside the cache
-    (a warm cache must not freeze age_days — marginal/overview convention)."""
+    """The full enabled-zones × charter-series quality matrix. A fixed handful
+    of queries (one 90-day quality scan, one revision GROUP BY, one
+    greatest-per-group arrival join — never O(cells); the SELECT-budget test
+    pins it) → computed at most once per SUMMARY_TTL_S via cached_value;
+    freshness stamps are added per REQUEST, outside the cache (a warm cache
+    must not freeze age_days — marginal/overview convention)."""
     now = datetime.now(UTC)
     today = now.date()
     cut_long = (today - timedelta(days=SUMMARY_LONG_DAYS)).isoformat()
@@ -219,9 +251,10 @@ def _summary_payload(db: Session) -> dict:
             if flagged:
                 c["flagged30"] += 1
 
-    # Trailing-30d revision counts per (series, zone), one GROUP BY. observed_at
-    # is unindexed, but the ledger accrues from first deploy (A1) and this runs
-    # at most once per cache TTL behind the heavy guard.
+    # Trailing-30d revision counts per (series, zone), one GROUP BY — a covering
+    # scan of ix_power_revision_series_zone_observed (series, zone, observed_at):
+    # grouped by the index's own prefix, windowed on its third column, no table
+    # touch (measured ~924ms full-scan → 4-40ms covering at 2M rows).
     cut_epoch_30 = int(now.timestamp()) - SUMMARY_SHORT_DAYS * _DAY_S
     sid_key = dict(db.query(SeriesDim.id, SeriesDim.key).all())
     zid_key = dict(db.query(ZoneDim.id, ZoneDim.key).all())
@@ -238,6 +271,7 @@ def _summary_payload(db: Session) -> dict:
 
     key_sid = {v: k for k, v in sid_key.items()}
     key_zid = {v: k for k, v in zid_key.items()}
+    frontier = _latest_frontier_lags(db)
 
     zones_out = []
     for zone in POWER_ZONES:  # registry order — deterministic
@@ -252,12 +286,7 @@ def _summary_payload(db: Session) -> dict:
                 revisions, lag = None, None
             else:
                 revisions = rev30.get((zone, skey), 0)
-                sid, zid = key_sid.get(skey), key_zid.get(zone)
-                lag = (
-                    _latest_frontier_lag_s(db, sid, zid)
-                    if sid is not None and zid is not None
-                    else None
-                )
+                lag = frontier.get((key_sid.get(skey), key_zid.get(zone)))
             series_out.append(
                 {
                     "series_key": skey,

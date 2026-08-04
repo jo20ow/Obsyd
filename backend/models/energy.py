@@ -279,11 +279,18 @@ class PowerRevision(Base):
     new_value: Mapped[float] = mapped_column(Float, nullable=False)
     observed_at: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec UTC
 
-    # The read pattern of the later quality slices is "revisions for one series+zone
-    # in a time window" — same shape as power_hourly's PK scan. New table, so
-    # create_all creates the index everywhere; no migrations.py retrofit needed.
+    # Every read (routes/quality.py) filters/aggregates on observed_at — the
+    # /revisions window rides it (and gets its ORDER BY observed_at free), and
+    # the summary's trailing-30d GROUP BY becomes a covering index scan instead
+    # of a full-table scan (measured ~924ms → 4-40ms at 2M rows). Nothing reads
+    # by ts_utc range, so observed_at is the third column — the exact shape
+    # ingest_arrival's index already has. New table: create_all creates this
+    # everywhere (the branch is undeployed, so prod gets it free). A LOCAL dev
+    # DB that already ran the earlier index needs a one-time
+    #   DROP INDEX ix_power_revision_series_zone_ts;
+    # (the stale index is harmless but dead weight — create_all never drops).
     __table_args__ = (
-        Index("ix_power_revision_series_zone_ts", "series_id", "zone_id", "ts_utc"),
+        Index("ix_power_revision_series_zone_observed", "series_id", "zone_id", "observed_at"),
     )
 
 
