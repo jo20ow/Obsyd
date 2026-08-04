@@ -11,6 +11,7 @@ import { MAP_FALLBACK } from './components/MapFallback'
 import DurationCurvePanel from './components/DurationCurvePanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
 import MarginalTechPanel from './components/MarginalTechPanel'
+import ForecastScoreboardPanel from './components/ForecastScoreboardPanel'
 import GenMixHistoryPanel from './components/GenMixHistoryPanel'
 import TrendsPanel from './components/TrendsPanel'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -766,6 +767,11 @@ function Dashboard() {
             <div className="mt-3">
               <ErrorBoundary name="marginal-tech">
                 <MarginalTechPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
+              <ErrorBoundary name="forecast-scoreboard">
+                <ForecastScoreboardPanel zone={energyZone} />
               </ErrorBoundary>
             </div>
             <div className="mt-3">
