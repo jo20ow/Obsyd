@@ -357,8 +357,16 @@ function Dashboard() {
           <div className="text-red-400 font-mono text-xs mb-2">// CONNECTION ERROR</div>
           <div className="text-red-300 font-mono text-sm">{error}</div>
           <div className="text-neutral-500 font-mono text-xs mt-3">
-            Ensure backend is running at localhost:8000
+            The data API is not responding — usually temporary. Self-hosting? Check that the
+            backend is running (default localhost:8000).
           </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 text-[11px] tracking-wider font-mono border border-red-500/40 text-red-300 hover:bg-red-500/10 transition-colors"
+          >
+            RELOAD
+          </button>
         </div>
       </div>
     )
