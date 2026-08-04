@@ -11,6 +11,7 @@ from backend.models.energy import IngestArrival, PowerRevision
 from backend.power.hourly_store import (
     REVISION_FLOOR,
     REVISION_REL_TOL,
+    read_hourly,
     resolve_series_id,
     resolve_zone_id,
     upsert_hourly,
@@ -101,7 +102,7 @@ def test_change_below_relative_epsilon_is_not_a_revision(db_session):
     upsert_hourly(db_session, "load.actual", "DE_LU", [(BASE, 60_000.0)])
     upsert_hourly(db_session, "load.actual", "DE_LU", [(BASE, 60_040.0)])  # Δ=40 ≤ 60
     assert db_session.query(PowerRevision).count() == 0
-    upsert_hourly(db_session, "load.actual", "DE_LU", [(BASE, 60_100.0)])  # Δ=60 vs 60_040 → > 60.04? no: 60 ≤ 60.04
+    upsert_hourly(db_session, "load.actual", "DE_LU", [(BASE, 60_100.0)])  # Δ=60 ≤ 60.04 (0.1% of 60_040) → below relative epsilon
     assert db_session.query(PowerRevision).count() == 0
     upsert_hourly(db_session, "load.actual", "DE_LU", [(BASE, 61_000.0)])  # Δ=900 > 60.1
     assert db_session.query(PowerRevision).count() == 1
@@ -140,6 +141,23 @@ def test_mixed_batch_counts_new_and_changed(db_session):
     assert a.n_new == 1
     assert a.n_changed == 1
     assert a.min_ts_new == a.max_ts_new == BASE + 2 * H
+
+
+def test_duplicate_ts_in_batch_diffs_last_wins(db_session):
+    # A batch carrying the same hour twice is diffed against the LAST value —
+    # mirroring what the ON CONFLICT upsert leaves behind. Here the last value
+    # equals the stored one, so nothing is a revision.
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(BASE, 50.0)])
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(BASE, 99.0), (BASE, 50.0)])
+    assert db_session.query(PowerRevision).count() == 0
+    assert read_hourly(db_session, "price.dayahead", "DE_LU") == [(BASE, 50.0)]
+
+
+def test_duplicate_new_ts_counts_once(db_session):
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", [(BASE, 99.0), (BASE, 50.0)])
+    a = db_session.query(IngestArrival).one()
+    assert a.n_new == 1
+    assert a.min_ts_new == a.max_ts_new == BASE
 
 
 def test_ledger_issues_bounded_selects_per_batch(db_session):

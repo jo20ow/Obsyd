@@ -262,7 +262,9 @@ class PowerRevision(Base):
     Forward-only by design: upstream re-fetches overwrite caches, so history
     before deploy is unrecoverable — the ledger accrues from first write.
     "Maturity" (real restatement vs normal provisional fill-in) is a READ-time
-    concern for a later slice; everything beyond epsilon is stored.
+    concern for a later slice; everything beyond epsilon is stored. Epsilon
+    caveat: the diff is against the CURRENT stored value, so successive
+    sub-epsilon steps can accumulate real movement without ever ledgering.
 
     All timestamps follow power_hourly's convention: epoch seconds UTC.
     `observed_at` is the ingest wall clock, `ts_utc` the hour that changed."""
@@ -294,7 +296,11 @@ class IngestArrival(Base):
     fetch health ("no row" must mean "never polled", not "polled, unchanged").
     min/max_ts_new span only the batch's NEW hours (NULL when n_new == 0);
     frontier lag is derivable as observed_at − max_ts_new. Epoch seconds UTC
-    throughout, like power_hourly."""
+    throughout, like power_hourly.
+
+    TODO: retention/pruning is owned by a later slice (hook into
+    backend/collectors/retention.py) — the log grows by one row per scheduled
+    fetch, unbounded until then."""
 
     __tablename__ = "ingest_arrival"
 
@@ -306,6 +312,13 @@ class IngestArrival(Base):
     n_changed: Mapped[int] = mapped_column(Integer, nullable=False)
     min_ts_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     max_ts_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Arrival-cadence reads are "rows for one series+zone ordered by time" —
+    # without this they full-scan a table growing by ~10^4 rows/day. New table,
+    # so create_all creates it everywhere; no migrations.py retrofit needed.
+    __table_args__ = (
+        Index("ix_ingest_arrival_series_zone_observed", "series_id", "zone_id", "observed_at"),
+    )
 
 
 class InstalledCapacity(Base):

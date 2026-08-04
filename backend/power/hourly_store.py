@@ -111,7 +111,10 @@ def _record_ledger(db: Session, series_key: str, series_id: int, zone_id: int, r
     ONE indexed SELECT over the batch's ts range (rides the power_hourly PK),
     never per-row — backfill batches can be a whole month. A range read may
     sweep in existing hours the batch doesn't touch; only batch keys are
-    diffed, so that is just a few spare rows in memory, not extra queries."""
+    diffed, so that is spare rows in memory, not extra queries. Worst case: a
+    sparse batch spanning a dense qh series materializes the whole span
+    (~35k rows per spanned year, transiently) — no current caller writes such
+    batches; if one ever appears, switch this read to an IN-list."""
     observed_at = int(datetime.now(timezone.utc).timestamp())
     # Last-wins dedupe mirrors what the ON CONFLICT upsert leaves behind should
     # a batch carry the same hour twice.
