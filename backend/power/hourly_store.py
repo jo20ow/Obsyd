@@ -6,16 +6,22 @@ ingest process is the sole steady-state writer (roadmap Block 0/1). Dimension id
 (zone/series) are resolved get-or-create per call; the dims are tiny and indexed,
 so we deliberately avoid a module-level cache (it would leak ids across the
 per-test in-memory DBs and across a reconnect).
+
+Since Honest Record slice A1 every batch is also silently ledgered (see
+`_record_ledger`): real value changes → `power_revision`, one `ingest_arrival`
+row per non-empty batch. Transparent to all callers — same signature, same
+transaction, one extra indexed SELECT per batch.
 """
 from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
+from sqlalchemy import insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
+from backend.models.energy import IngestArrival, PowerHourly, PowerRevision, SeriesDim, ZoneDim
 
 
 def day_hour_ts(day: str, hour: int) -> int:
@@ -26,6 +32,19 @@ def day_hour_ts(day: str, hour: int) -> int:
 # Rows per multi-row INSERT. 4 cols × 2000 = 8000 bind params — well under SQLite's
 # default limit across versions; small enough to release the write lock frequently.
 _BATCH = 2000
+
+# --- Revision ledger (Honest Record slice A1) --------------------------------
+# An overwrite only counts as a revision when the re-published value moved by
+#   abs(new − old) > max(REVISION_FLOOR, REVISION_REL_TOL · abs(old))
+# — the absolute floor kills float noise on small magnitudes (prices near 0),
+# the relative term keeps the guard proportionate on MW-scale series.
+REVISION_FLOOR = 0.5
+REVISION_REL_TOL = 0.001
+
+# Derived series are not revision-ledgered: residual.* restates whenever its
+# inputs (load/wind/solar) restate, so ledgering it would double-count every
+# upstream revision. Their arrival rows are still written.
+REVISION_EXCLUDED_PREFIXES = ("residual.",)
 
 
 def _get_or_create_id(db: Session, model, key: str, **extra) -> int:
@@ -67,6 +86,7 @@ def upsert_hourly(
     ]
     if not rows:
         return 0
+    _record_ledger(db, series_key, series_id, zone_id, rows)
     written = 0
     for i in range(0, len(rows), _BATCH):
         chunk = rows[i : i + _BATCH]
@@ -79,6 +99,75 @@ def upsert_hourly(
         written += len(chunk)
     db.commit()
     return written
+
+
+def _record_ledger(db: Session, series_key: str, series_id: int, zone_id: int, rows: list[dict]) -> None:
+    """Diff the incoming batch against the stored values and write the Honest-
+    Record ledger: per-point PowerRevision rows for real changes plus ONE
+    IngestArrival row per (non-empty) batch. Must run BEFORE the upsert — it
+    reads the pre-overwrite values — and shares the caller's transaction (the
+    upsert's db.commit() lands data + ledger atomically).
+
+    ONE indexed SELECT over the batch's ts range (rides the power_hourly PK),
+    never per-row — backfill batches can be a whole month. A range read may
+    sweep in existing hours the batch doesn't touch; only batch keys are
+    diffed, so that is just a few spare rows in memory, not extra queries."""
+    observed_at = int(datetime.now(timezone.utc).timestamp())
+    # Last-wins dedupe mirrors what the ON CONFLICT upsert leaves behind should
+    # a batch carry the same hour twice.
+    incoming = {r["ts_utc"]: r["value"] for r in rows}
+    existing = dict(
+        db.query(PowerHourly.ts_utc, PowerHourly.value)
+        .filter(
+            PowerHourly.series_id == series_id,
+            PowerHourly.zone_id == zone_id,
+            PowerHourly.ts_utc >= min(incoming),
+            PowerHourly.ts_utc <= max(incoming),
+        )
+        .all()
+    )
+    new_ts = [ts for ts in incoming if ts not in existing]
+    ledgered = not series_key.startswith(REVISION_EXCLUDED_PREFIXES)
+    n_changed = 0
+    revision_rows: list[dict] = []
+    for ts, new_v in incoming.items():
+        old_v = existing.get(ts)
+        # power_hourly.value is NOT NULL, so None strictly means "no row yet" —
+        # a first arrival (counted in n_new above), never a revision.
+        if old_v is None:
+            continue
+        if abs(new_v - old_v) <= max(REVISION_FLOOR, REVISION_REL_TOL * abs(old_v)):
+            continue  # float noise / provisional jitter below epsilon
+        n_changed += 1
+        # Excluded (derived) series still COUNT their changes in the arrival row
+        # (a batch-level stat, no double-count risk) — they just get no
+        # per-point revision rows.
+        if ledgered:
+            revision_rows.append(
+                {
+                    "series_id": series_id,
+                    "zone_id": zone_id,
+                    "ts_utc": ts,
+                    "old_value": old_v,
+                    "new_value": new_v,
+                    "observed_at": observed_at,
+                }
+            )
+    if revision_rows:
+        db.execute(insert(PowerRevision), revision_rows)
+    # A no-change batch still logs its arrival: evidence of a fetch ("no row"
+    # must mean "never polled", not "polled, unchanged").
+    db.add(
+        IngestArrival(
+            series_id=series_id,
+            zone_id=zone_id,
+            observed_at=observed_at,
+            n_new=len(new_ts),
+            n_changed=n_changed,
+            min_ts_new=min(new_ts) if new_ts else None,
+            max_ts_new=max(new_ts) if new_ts else None,
+        )
+    )
 
 
 def upsert_day_hours(

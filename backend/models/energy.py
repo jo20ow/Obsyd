@@ -248,6 +248,66 @@ class PowerHourly(Base):
     __table_args__ = {"sqlite_with_rowid": False}
 
 
+class PowerRevision(Base):
+    """Revision ledger (Honest Record slice A1): one row per REAL value change
+    observed at the single hourly write path (backend/power/hourly_store.py).
+
+    "Real" = the (series, zone, hour) row already existed and the re-published
+    value moved beyond the float-noise epsilon (REVISION_FLOOR/REVISION_REL_TOL
+    in hourly_store). First-time arrivals are NOT revisions — they land in
+    ingest_arrival's n_new instead. Derived series (residual.*) are excluded at
+    write time: they restate whenever their inputs restate, so ledgering them
+    would double-count every upstream revision.
+
+    Forward-only by design: upstream re-fetches overwrite caches, so history
+    before deploy is unrecoverable — the ledger accrues from first write.
+    "Maturity" (real restatement vs normal provisional fill-in) is a READ-time
+    concern for a later slice; everything beyond epsilon is stored.
+
+    All timestamps follow power_hourly's convention: epoch seconds UTC.
+    `observed_at` is the ingest wall clock, `ts_utc` the hour that changed."""
+
+    __tablename__ = "power_revision"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    zone_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    ts_utc: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec, top-of-hour UTC
+    old_value: Mapped[float] = mapped_column(Float, nullable=False)
+    new_value: Mapped[float] = mapped_column(Float, nullable=False)
+    observed_at: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec UTC
+
+    # The read pattern of the later quality slices is "revisions for one series+zone
+    # in a time window" — same shape as power_hourly's PK scan. New table, so
+    # create_all creates the index everywhere; no migrations.py retrofit needed.
+    __table_args__ = (
+        Index("ix_power_revision_series_zone_ts", "series_id", "zone_id", "ts_utc"),
+    )
+
+
+class IngestArrival(Base):
+    """Arrival log (Honest Record slice A1): ONE row per non-empty upsert batch
+    (per series+zone call through hourly_store.upsert_hourly), not per point.
+
+    A batch with nothing new and nothing changed still logs a row — it is
+    evidence the source was fetched, and later slices read arrival cadence as
+    fetch health ("no row" must mean "never polled", not "polled, unchanged").
+    min/max_ts_new span only the batch's NEW hours (NULL when n_new == 0);
+    frontier lag is derivable as observed_at − max_ts_new. Epoch seconds UTC
+    throughout, like power_hourly."""
+
+    __tablename__ = "ingest_arrival"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    zone_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_at: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec UTC
+    n_new: Mapped[int] = mapped_column(Integer, nullable=False)
+    n_changed: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_ts_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    max_ts_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
 class InstalledCapacity(Base):
     """ENTSO-E installed generation capacity per production type (A68/A33) — annual, per
     zone. Reference/context data (how much wind/solar/gas/etc. a zone has), not a time
