@@ -2,21 +2,12 @@ import { useState } from 'react'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import useZones from '../hooks/useZones'
+// The shared charter list (mirrors backend QUALITY_SERIES). The zone-level
+// pseudo-series is deliberately not offered here: it has no store series of
+// its own, so there is nothing for the ledger to restate.
+import { QUALITY_SERIES } from '../utils/qualitySeries'
 
 const API = '/api'
-
-// The charter series the quality engine tracks (backend/power/quality.py::
-// QUALITY_SERIES — a stable config tuple, so a mirrored list beats a fetch).
-// The zone-level pseudo-series is deliberately absent: it has no store series
-// of its own, so there is nothing for the ledger to restate.
-const QUALITY_SERIES = [
-  { key: 'load.actual', label: 'Load (actual)' },
-  { key: 'price.dayahead', label: 'Day-ahead price' },
-  { key: 'price.dayahead.qh', label: 'Day-ahead price · 15-min' },
-  { key: 'gen.B16', label: 'Solar generation' },
-  { key: 'gen.B18', label: 'Wind offshore generation' },
-  { key: 'gen.B19', label: 'Wind onshore generation' },
-]
 
 // Raw-ledger display cap — the API can return up to 20k rows per window and a
 // 20k-row DOM table helps nobody. The roll-up above the table is uncapped.
@@ -76,10 +67,11 @@ export default function RevisionsLedgerPanel() {
   const [showRaw, setShowRaw] = useState(false)
   const { zones } = useZones()
 
-  // Selector state lives in the URL → useFetchWithError invalidates `data` on
-  // every change (the #115 zone-coherence rule: never show stale other-pair data).
+  // All selector state lives in the URL, so the url IS the dependency —
+  // useFetchWithError invalidates `data` on every change (the #115
+  // zone-coherence rule: never show stale other-pair data).
   const url = `${API}/v1/quality/revisions?series=${encodeURIComponent(series)}&zone=${encodeURIComponent(zone)}&mature=${mature}`
-  const { data, loading, error } = useFetchWithError(url, { deps: [series, zone, mature] })
+  const { data, loading, error } = useFetchWithError(url)
 
   const rows = data?.data ?? []
   const restated = data?.restated_hours ?? []

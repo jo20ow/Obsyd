@@ -2,26 +2,9 @@ import { useMemo, useState } from 'react'
 import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import useZones from '../hooks/useZones'
+import { ZONE_SERIES_KEY, qualitySeriesLabel as seriesLabel } from '../utils/qualitySeries'
 
 const API = '/api'
-
-// The reserved zone-level pseudo-series (backend/power/quality.py::ZONE_SERIES_KEY):
-// cross-series rule flags only — completeness / revisions / lag are null by contract.
-const ZONE_SERIES_KEY = '_zone'
-
-// Human labels for the charter series (backend/power/quality.py::QUALITY_SERIES —
-// a stable config tuple, mirrored here like the fuel labels in utils/fuels.js).
-const SERIES_LABELS = {
-  'load.actual': 'Load (actual)',
-  'price.dayahead': 'Day-ahead price',
-  'price.dayahead.qh': 'Day-ahead price · 15-min',
-  'gen.B16': 'Solar generation',
-  'gen.B18': 'Wind offshore generation',
-  'gen.B19': 'Wind onshore generation',
-  [ZONE_SERIES_KEY]: 'zone-level checks',
-}
-
-const seriesLabel = (key) => SERIES_LABELS[key] || key
 
 // Initial zone-row cap — 37 zones in prod would push the ledger below the fold.
 const INITIAL_ZONE_ROWS = 12
@@ -130,8 +113,12 @@ function SeriesBreakdown({ series }) {
                 <>
                   <td className="px-2 py-1"><CompletenessBar ratio={s.completeness_30d} /></td>
                   <td className={`px-2 py-1 text-right num ${completenessTone(s.completeness_90d).text}`}>{fmtPct(s.completeness_90d)}</td>
+                  {/* No null-guards on this branch: for real series the API
+                      contract makes flags AND revisions plain ints (nulls exist
+                      only on the _zone branch above) — guarding one but not the
+                      other would just imply a contract that isn't there. */}
                   <td className={`px-2 py-1 text-right num ${s.flagged_days_30d > 0 ? 'text-neutral-300' : 'text-neutral-600'}`}>{s.flagged_days_30d}</td>
-                  <td className={`px-2 py-1 text-right num ${s.revisions_30d > 0 ? 'text-neutral-300' : 'text-neutral-600'}`}>{s.revisions_30d ?? '—'}</td>
+                  <td className={`px-2 py-1 text-right num ${s.revisions_30d > 0 ? 'text-neutral-300' : 'text-neutral-600'}`}>{s.revisions_30d}</td>
                   <td className="px-2 py-1 text-right text-neutral-500">{humanLag(s.arrival_lag_s)}</td>
                 </>
               )}
@@ -159,7 +146,10 @@ export default function DataQualityPanel() {
   const [expanded, setExpanded] = useState(() => new Set())
   const [showAll, setShowAll] = useState(false)
 
-  const zoneLabel = (key) => zoneList.find((z) => z.key === key)?.label || key
+  // key→label Map built once per zone-list load — a find() per row per render
+  // would rescan the 37-entry list for every visible zone.
+  const zoneLabels = useMemo(() => new Map(zoneList.map((z) => [z.key, z.label || z.key])), [zoneList])
+  const zoneLabel = (key) => zoneLabels.get(key) || key
 
   // Zone summary rows, worst 30d completeness first (problems float up).
   const rows = useMemo(() => {
