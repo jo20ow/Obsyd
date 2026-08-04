@@ -25,7 +25,8 @@ Rate limit: the ~120 req/min/IP budget applies to **every** `/api/v1` endpoint �
 data (`/series`, `/genmix`, `/snapshot`), reference (`/meta`, `/zones`, `/status`,
 `/capacity`, `/units`, `/series/catalog`) and the `/badge/*.svg` widgets alike.
 On top of that, the heavier scans — `/series`, `/genmix`, `/snapshot`,
-`/series/catalog`, `/status`, `/quality/summary`, `/quality/revisions` and
+`/series/catalog`, `/status`, `/quality/summary`, `/quality/revisions`,
+`/scoreboard/ranking`, `/scoreboard/profile` and
 `/api/power/units/history` — share a concurrency
 guard: at most 8 heavy queries run at once server-wide; an excess request gets an
 immediate HTTP 503 with a retry message rather than queueing.
@@ -138,6 +139,63 @@ unrecoverable), so `as_of` here is the newest arrival-log timestamp for the
 series+zone: the last moment the source was polled and could have restated
 something. All `/quality/*` responses carry `as_of`/`age_days`/`stale`, and all
 timestamps are ISO 8601 UTC like the rest of `/api/v1`.
+
+### The forecast scoreboard — `/api/v1/scoreboard/*`
+
+OBSYD **grades ENTSO-E's own published D-1 forecasts** (load, wind, solar, and
+the derived residual = load − wind − solar) against ENTSO-E's published actuals
+— it makes no forecast of its own. The two yardsticks are naive baselines built
+from published actuals alone: *persistence* (actual 24 h ago) and *seasonal*
+(actual 168 h ago); `skill_x = 1 − mae/mae_x` — positive means the published
+forecast beat the naive baseline.
+
+**Bias sign convention** (declared on the wire as `bias_convention`):
+`bias = mean(forecast − actual)` in MW — **positive = the published forecast
+leaned HIGH**. The older `/api/power/forecast-error` endpoint reports the
+**opposite** sign (`bias_mw = mean(actual − forecast)`) and stays unchanged for
+its readers.
+
+Aggregates over daily rows are **day-weighted by `n_hours`** (exact per-hour
+window means; rmse recombined quadratically); days whose baseline MAE is NULL
+drop out of the skill ratio only, never out of the headline mae. `mape` exists
+for `load` only (wind/solar hit honest zeros at night, residual crosses zero).
+All `/scoreboard/*` responses carry `as_of`/`age_days`/`stale`.
+
+### `GET /api/v1/scoreboard/summary`
+One zone's report card: per carried series (`load`/`residual`/`wind`/`solar`)
+the trailing **30/90/365-day** aggregates — `days_covered`, `n_hours`, `mae`,
+`rmse`, `bias`, `mape` (load), `skill_persistence`, `skill_seasonal`.
+`?zone=` *(required)* — unknown zones are HTTP 400 listing the valid keys; a
+zone with no scored days is HTTP 200 with `available:false`.
+
+### `GET /api/v1/scoreboard/ranking`
+All enabled zones ranked per series by the **comparable** metric, best (lowest
+error) first: `load` by MAPE (%); `wind`/`solar` by **nMAE** (100 × window MAE
+÷ A68 installed capacity of the matching technology — wind = onshore +
+offshore, each zone+type at its own latest A68 year); `residual` by absolute
+MAE with an explicit `caveat` (absolute MW — zones of different size are not
+comparable on it). Zones with scored days but **no A68 capacity** for the
+technology are listed unranked (`nmae_pct: null`, `rank: null`) with a
+`signposted` reason — never silently hidden. `?window=` one of `30|90|365`
+days (default 90; anything else is HTTP 400 listing the valid windows).
+Computed once per ~15 min per window (cached), heavy-guarded.
+
+### `GET /api/v1/scoreboard/monthly`
+UTC calendar-month aggregates for ONE zone+series over the full scored history,
+oldest first — has the published forecast been getting better or worse? Each
+row: `month` (`YYYY-MM`), `days`, `n_hours`, `mae`, `rmse`, `bias`, `mape`
+(load), `skill_persistence`, `skill_seasonal`. `?zone=&series=` *(both
+required)* — bad values are HTTP 400 listing the valid keys.
+
+### `GET /api/v1/scoreboard/profile`
+Forecast error by **hour of day (0–23, UTC)** for ONE zone+series over a
+trailing window: per bucket the mean absolute error, mean `bias` and `n`.
+Computed on-read from the canonical hourly store through the scoring engine's
+own pair table (wind's actual = `gen.B18`+`gen.B19` summed), so it can never
+grade different series than the scoreboard. Buckets are UTC — a zone's
+local-time features (morning ramp, solar noon) appear shifted by its offset.
+`?zone=&series=&window=` (`window` 1–365 days, default 90; out-of-range is
+HTTP 422). Heavy-guarded.
 
 ## Series keys
 
