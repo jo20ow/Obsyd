@@ -4,6 +4,8 @@ import CompactView from './components/CompactView'
 import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
+import DataQualityPanel from './components/DataQualityPanel'
+import RevisionsLedgerPanel from './components/RevisionsLedgerPanel'
 import EuropeDesk from './components/EuropeDesk'
 import { MAP_FALLBACK } from './components/MapFallback'
 import DurationCurvePanel from './components/DurationCurvePanel'
@@ -805,6 +807,12 @@ function Dashboard() {
             </ErrorBoundary>
             <ErrorBoundary name="coverage">
               <CoveragePanel />
+            </ErrorBoundary>
+            <ErrorBoundary name="data-quality">
+              <DataQualityPanel />
+            </ErrorBoundary>
+            <ErrorBoundary name="revisions-ledger">
+              <RevisionsLedgerPanel />
             </ErrorBoundary>
           </div>
         )}

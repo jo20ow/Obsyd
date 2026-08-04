@@ -20,6 +20,17 @@ const TERMS = [
   ['SCHED vs physical', 'which record a border is read from. SCHED = ENTSO-E’s scheduled commercial exchanges, resolved per bidding zone (the only grain that can see DK1 vs DK2); physical = the metered country-level flow.'],
 ]
 
+// The Honest-Record vocabulary (EXPLORE tab's DATA QUALITY + REVISIONS LEDGER
+// panels). Every term describes what the SOURCE published or restated — none
+// of it judges the data or the market.
+const QUALITY_TERMS = [
+  ['Completeness', 'the share of a UTC day’s expected intervals the source actually published (24 for hourly series, 96 for 15-min series), averaged over a 30/90-day window. A low day is hours the source has not (yet) published — a statement about the record, not the market.'],
+  ['Revision / restatement', 'the source re-published a DIFFERENT value for an hour it had already published, beyond float noise. “Mature” = observed more than 48 h after the hour it restates — settled data changed, not the routine provisional fill-in sources run for a day or two.'],
+  ['Arrival lag', 'the wall-clock gap between when a fetch arrived and the newest hour it delivered. Negative (“ahead”) for day-ahead series — the auction publishes tomorrow’s hours, so the data runs ahead of the clock.'],
+  ['Quality flag', 'a rule-based description of odd published data: solar reported in the dead of night, load flatlining at exact zero, an hourly step 8× larger than the series’ own trailing month. Each flag describes the feed, never the market.'],
+  ['Zone-level checks', 'quality checks that need several series at once — e.g. total generation below load while the zone exports. They appear as their own “zone-level checks” row, only on flagged days, with no completeness or lag of their own.'],
+]
+
 export default function HowToRead() {
   return (
     <Panel id="how-to-read" title="NEW HERE? HOW TO READ THIS" collapsible defaultCollapsed={true}>
@@ -31,6 +42,15 @@ export default function HowToRead() {
         </p>
         <dl className="space-y-2">
           {TERMS.map(([term, def]) => (
+            <div key={term} className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-x-3 gap-y-0.5">
+              <dt className="font-mono text-[11px] text-cyan-glow/90">{term}</dt>
+              <dd className="font-mono text-[11px] text-neutral-400 leading-snug">{def}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="pt-2 border-t border-border/40 font-mono text-[10px] text-neutral-500 tracking-wider">DATA QUALITY</div>
+        <dl className="space-y-2">
+          {QUALITY_TERMS.map(([term, def]) => (
             <div key={term} className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-x-3 gap-y-0.5">
               <dt className="font-mono text-[11px] text-cyan-glow/90">{term}</dt>
               <dd className="font-mono text-[11px] text-neutral-400 leading-snug">{def}</dd>
