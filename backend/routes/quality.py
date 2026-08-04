@@ -50,22 +50,22 @@ from backend.collectors.freshness import SPECS, freshness_meta
 from backend.database import get_db
 from backend.models.energy import IngestArrival, PowerRevision, QualityDaily, SeriesDim, ZoneDim
 from backend.power.hourly_store import REVISION_EXCLUDED_PREFIXES
-from backend.power.quality import QUALITY_SERIES, ZONE_SERIES_KEY
+from backend.power.quality import (
+    QUALITY_SERIES,
+    REVISION_MATURITY_S,  # noqa: F401 — re-export; canonical home is the engine
+    ZONE_SERIES_KEY,
+)
 from backend.power.zones import POWER_ZONES
 from backend.routes.api_v1 import _rate_limit  # same v1 per-IP budget — quality IS v1 traffic
 
 router = APIRouter(prefix="/api/v1/quality", tags=["v1"])
 
-#: READ-time maturity threshold for /revisions (the write path stores everything
-#: beyond epsilon; PowerRevision's docstring defers maturity to read time — this
-#: is that read side; the write-time epsilons REVISION_FLOOR/REVISION_REL_TOL
-#: live next to the write path in backend/power/hourly_store.py). A restatement
-#: observed more than 48 h AFTER the hour it restates changed settled data;
-#: anything earlier is the normal provisional fill-in window (ENTSO-E routinely
-#: re-publishes actuals for a day or two). 48 h is deliberately generous — a
-#: fill-in miscounted as a restatement would overstate the source's churn, and
-#: conservatism is this record's design constraint.
-REVISION_MATURITY_S = 48 * 3600
+# READ-time maturity threshold for /revisions: canonically defined (and
+# documented) in backend/power/quality.py::REVISION_MATURITY_S — the radar's
+# quality_major_restatement detector reads the same number, and the engine is
+# the one home both can import without pulling in the router stack. Re-exported
+# above so this module's name (used by tests/docs and the response payload)
+# keeps working.
 
 #: /revisions per-request row cap (MAX_SCAN_ROWS pattern from routes/api_v1):
 #: fetch cap+1 and refuse with a reason rather than silently truncate — a

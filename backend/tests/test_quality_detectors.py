@@ -141,6 +141,32 @@ def test_completeness_no_data_no_alerts(db_session):
     assert detect_completeness_drops(db_session) == []
 
 
+def test_completeness_exactly_half_suppressed(db_session):
+    # 12/24 is exactly the 0.5 ratio — the bar is strictly below.
+    _seed_quality(db_session, yesterday_present=12)
+    assert detect_completeness_drops(db_session) == []
+
+
+def test_completeness_norm_exactly_090_fires(db_session):
+    # 9/10 on every prior day → the trailing mean sits exactly at the 0.90
+    # threshold, which is inclusive (a 90%-complete series IS the near-complete
+    # case the rule exists for).
+    _seed_quality(db_session, yesterday_present=4, expected=10, norm_present=9)
+    assert len(detect_completeness_drops(db_session)) == 1
+
+
+def test_completeness_13_norm_days_silent(db_session):
+    # One day short of MIN_BASELINE_N — not a norm yet.
+    _seed_quality(db_session, yesterday_present=4, norm_days=13)
+    assert detect_completeness_drops(db_session) == []
+
+
+def test_completeness_14_norm_days_fires(db_session):
+    # Exactly MIN_BASELINE_N days of rows — the norm becomes trustworthy.
+    _seed_quality(db_session, yesterday_present=4, norm_days=14)
+    assert len(detect_completeness_drops(db_session)) == 1
+
+
 def test_completeness_folds_series_per_zone(db_session):
     """The backbone dedups on (rule, zone): two dropped series in one zone must
     come back as ONE result — worst offender leads the title, both are named."""
@@ -217,7 +243,7 @@ def test_restatement_critical_at_median_50pct(db_session):
 
 def test_restatement_immature_fill_in_silent(db_session):
     # Restated hours only 12h old — the normal provisional fill-in window
-    # (REVISION_MATURITY_S read-side threshold, routes/quality.py), not news.
+    # (REVISION_MATURITY_S read-side threshold, backend/power/quality.py), not news.
     _seed_revisions(db_session, hours=6, pct=30.0, hour_age_h=12)
     assert detect_major_restatements(db_session) == []
 
@@ -256,15 +282,89 @@ def test_restatement_no_data_no_alerts(db_session):
     assert detect_major_restatements(db_session) == []
 
 
+def test_restatement_maturity_boundary_is_strict(db_session):
+    """Exactly 48h between the hour and its observation is still fill-in (the
+    /revisions API's strict >, mirrored); one second beyond is settled data."""
+    from backend.power.quality import REVISION_MATURITY_S
+
+    sid = resolve_series_id(db_session, "load.actual")
+    zid = resolve_zone_id(db_session, "DE_LU")
+    now = int(datetime.now(timezone.utc).timestamp())
+    for i in range(3):
+        ts = now - REVISION_MATURITY_S - 2 * 3600 - i * 3600
+        db_session.add(PowerRevision(
+            series_id=sid, zone_id=zid, ts_utc=ts,
+            old_value=1000.0, new_value=1300.0,
+            observed_at=ts + REVISION_MATURITY_S,  # exactly at the threshold
+        ))
+    db_session.commit()
+    assert detect_major_restatements(db_session) == []
+
+    for r in db_session.query(PowerRevision).all():
+        r.observed_at += 1  # one second beyond — now mature
+    db_session.commit()
+    assert len(detect_major_restatements(db_session)) == 1
+
+
+def test_restatement_fraction_boundary_is_strict(db_session):
+    # Exactly 20% of the old value (1000→1200, well past the materiality
+    # floor) — the bar is "exceeds", not "meets".
+    _seed_revisions(db_session, hours=3, pct=20.0)
+    assert detect_major_restatements(db_session) == []
+
+
+def test_restatement_detail_caps_series_list(db_session):
+    # A backfill burst can restate many series of one zone at once; the detail
+    # names the top offenders and folds the rest instead of growing unbounded.
+    for i in range(8):
+        _seed_revisions(db_session, series=f"gen.B{i:02d}", hours=3 + i, pct=30.0)
+    r = detect_major_restatements(db_session)[0]
+    assert r.detail.count("hours of gen.B") == 6, "top offenders only"
+    assert "+2 more series" in r.detail
+    assert "gen.B07" in r.title, "the most-restated series leads"
+
+
 def test_restatement_zero_old_value_uses_floor(db_session):
-    # |new−old| is measured against max(|old|, floor) — an old value of exactly
-    # 0 must not divide-by-zero or manufacture an infinite percentage.
+    # The percentage is measured against max(|old|, floor) — an old value of
+    # exactly 0 must not divide-by-zero or manufacture an infinite percentage.
+    # new=200 clears the load.* materiality floor (50 MW), so only the
+    # denominator is under test here.
     _seed_revisions(db_session, hours=3, pct=0.0, old=0.0)
     for r in db_session.query(PowerRevision).all():
-        r.new_value = 5.0
+        r.new_value = 200.0
     db_session.commit()
     results = detect_major_restatements(db_session)
-    assert len(results) == 1  # 5.0 against the 1.0 floor = 500% — still finite
+    assert len(results) == 1  # 200 against the 1.0 denominator floor — finite, fires
+
+
+def test_restatement_downward_fires(db_session):
+    # Downward corrections are the COMMON real case (provisional generation
+    # revised down); the magnitude must be signless.
+    _seed_revisions(db_session, hours=3, pct=-30.0)
+    r = detect_major_restatements(db_session)[0]
+    assert r.severity == "warning" and "30%" in r.detail
+
+
+def test_restatement_immaterial_absolute_change_silent(db_session):
+    # 2→3 MW is 50% against the denominator floor but one megawatt of movement
+    # — the ledger's 0.5-unit write epsilon lets it through, the load.* 50 MW
+    # materiality floor must not. Percentages only get a voice once the change
+    # is material in the series' own unit.
+    _seed_revisions(db_session, hours=3, pct=50.0, old=2.0)
+    assert detect_major_restatements(db_session) == []
+
+
+def test_restatement_immaterial_price_change_silent(db_session):
+    # 2→3 EUR is 50% but one euro — below the price.* 5 EUR floor.
+    _seed_revisions(db_session, series="price.dayahead", hours=3, pct=50.0, old=2.0)
+    assert detect_major_restatements(db_session) == []
+
+
+def test_restatement_material_price_change_fires(db_session):
+    # 40→52 EUR: 12 EUR clears the price.* floor, 30% clears the fraction bar.
+    _seed_revisions(db_session, series="price.dayahead", hours=3, pct=30.0, old=40.0)
+    r = detect_major_restatements(db_session)[0]
+    assert r.severity == "warning" and "price.dayahead" in r.title
 
 
 # ─── registry + runner integration ────────────────────────────────────────────

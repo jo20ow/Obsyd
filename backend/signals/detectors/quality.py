@@ -13,9 +13,13 @@ zero extra delivery code, same feed, same RSS.
   against a handful of rows.
 * ``quality_major_restatement`` — the source re-published materially different
   values for several SETTLED hours of one series within the last 24 h. "Settled"
-  reuses the read-side maturity threshold of /api/v1/quality/revisions
-  (REVISION_MATURITY_S, routes/quality.py): restatements inside the routine
-  provisional fill-in window are not events.
+  reuses the read-side maturity threshold shared with /api/v1/quality/revisions
+  (REVISION_MATURITY_S, canonical home backend/power/quality.py): restatements
+  inside the routine provisional fill-in window are not events. "Materially" is
+  two floors deep: the change must clear an absolute per-series-family floor in
+  the series' own unit BEFORE its percentage is computed — the ledger's write
+  epsilon is only 0.5 units, and a percentage alone would let three 1-MW
+  re-publishes page someone.
 
 Sibling contract (base.py): DB reads only, cheap enough for the 5-minute
 runner, template text, descriptive never predictive — a low-completeness day
@@ -34,7 +38,7 @@ import statistics
 from datetime import datetime, timedelta, timezone
 
 from backend.models.energy import PowerRevision, QualityDaily, SeriesDim, ZoneDim
-from backend.power.quality import QUALITY_SERIES
+from backend.power.quality import QUALITY_SERIES, REVISION_MATURITY_S
 from backend.power.zones import POWER_ZONES
 from backend.signals.detectors.base import MIN_BASELINE_N, DetectorResult
 
@@ -155,11 +159,41 @@ RESTATE_MIN_FRACTION = 0.20
 #: The floor keeps a previous value near zero (a price crossing 0) from
 #: manufacturing an unbounded percentage; 1.0 in the series' own unit.
 RESTATE_DENOM_FLOOR = 1.0
+#: Materiality floor on the CHANGE ITSELF, per series family (longest story
+#: first): the ledger's write epsilon is only 0.5 units (hourly_store.
+#: REVISION_FLOOR), so a 2→3 MW re-publish is ledgered — and against the
+#: percentage machinery above it scores 50% (0→1.5 MW scores 150% via the
+#: denominator floor). Three such hours would page someone about nothing. A
+#: restatement must first be material in the series' OWN unit before its
+#: percentage is worth saying: 50 MW for MW-scale series (well under one
+#: mid-size unit, far above meter jitter), 5 EUR for prices (a sub-5-EUR move
+#: on a settled hour is rounding, not news), 10 units for anything unlisted
+#: (ntc.*, sched.*, imbalance.* …). STEP_JUMP_FLOORS' per-series-floor pattern
+#: (backend/power/quality.py), keyed by prefix because the family is what sets
+#: the unit scale.
+RESTATE_ABS_FLOORS: dict[str, float] = {
+    "load.": 50.0,
+    "gen.": 50.0,
+    "flow.": 50.0,
+    "price.": 5.0,
+}
+RESTATE_ABS_FLOOR_DEFAULT = 10.0
 #: ≥3 distinct hours of ONE series → warning; ≥12 hours or a ≥50% median
 #: change → critical.
 RESTATE_MIN_HOURS = 3
 RESTATE_CRIT_HOURS = 12
 RESTATE_CRIT_MEDIAN_PCT = 50.0
+#: Detail cap: name the top offenders, fold the rest. A backfill burst can
+#: restate dozens of series in one zone at once; the title already folds, and
+#: an unbounded detail would push kilobytes into every feed/RSS render.
+RESTATE_DETAIL_MAX_SERIES = 6
+
+
+def _abs_floor(series_key: str) -> float:
+    for prefix, floor in RESTATE_ABS_FLOORS.items():
+        if series_key.startswith(prefix):
+            return floor
+    return RESTATE_ABS_FLOOR_DEFAULT
 
 
 def _recent_revisions(db, cutoff_epoch: int) -> list:
@@ -201,12 +235,6 @@ def detect_major_restatements(db) -> list[DetectorResult]:
     """Zones where the source restated several settled hours of one series in
     the last 24 h. Distinct hours, not revision rows — an hour revised twice in
     the window is one restated hour, at its largest observed change."""
-    # Read-side maturity threshold shared with /api/v1/quality/revisions —
-    # imported at call time (the sibling-precedent for routes imports,
-    # detect_hydro_deviations) so the detector module never pulls the FastAPI
-    # router stack in at import time.
-    from backend.routes.quality import REVISION_MATURITY_S
-
     now = int(datetime.now(timezone.utc).timestamp())
     recent = _recent_revisions(db, now - RESTATE_WINDOW_S)
     if not recent:
@@ -233,7 +261,10 @@ def detect_major_restatements(db) -> list[DetectorResult]:
         zone, skey = zid_key.get(r.zone_id), sid_key.get(r.series_id)
         if zone is None or skey is None or zone not in POWER_ZONES:
             continue
-        frac = abs(r.new_value - r.old_value) / max(abs(r.old_value), RESTATE_DENOM_FLOOR)
+        delta = abs(r.new_value - r.old_value)
+        if delta < _abs_floor(skey):
+            continue  # immaterial in the series' own unit — no percentage worth saying
+        frac = delta / max(abs(r.old_value), RESTATE_DENOM_FLOOR)
         if frac <= RESTATE_MIN_FRACTION:
             continue
         pair = (zone, skey)
@@ -264,11 +295,14 @@ def detect_major_restatements(db) -> list[DetectorResult]:
         )
         worst = entries[0]
         newest = max(e["observed_at"] for e in entries)
+        shown = entries[:RESTATE_DETAIL_MAX_SERIES]
         parts = [
             f"{e['n_hours']} hours of {e['series']} restated by a median of "
             f"{e['median_pct']:.0f}% (largest {e['largest_pct']:.0f}%)"
-            for e in entries
+            for e in shown
         ]
+        if len(entries) > len(shown):
+            parts.append(f"+{len(entries) - len(shown)} more series")
         results.append(
             DetectorResult(
                 rule="quality_major_restatement",
@@ -281,8 +315,9 @@ def detect_major_restatements(db) -> list[DetectorResult]:
                     + (f" (+{len(entries) - 1} more series)" if len(entries) > 1 else "")
                 ),
                 detail=(
-                    "The source re-published different values for hours settled "
-                    "more than 48 h earlier, observed in the last 24 h: "
+                    f"The source re-published different values for hours settled "
+                    f"more than {REVISION_MATURITY_S // 3600} h earlier, observed "
+                    f"in the last {RESTATE_WINDOW_S // 3600} h: "
                     + "; ".join(parts)
                     + ". A restatement is the source revising its own "
                     "publication — described here, not judged."

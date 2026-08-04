@@ -74,6 +74,20 @@ QUALITY_SERIES: tuple[str, ...] = (
 #: this many days on either side — beyond that the zone doesn't carry the series.
 ACTIVITY_WINDOW_DAYS = 30
 
+# ── revision maturity (read side of the A1 ledger) ────────────────────────────
+#: A restatement observed more than this long AFTER the hour it restates changed
+#: SETTLED data; anything earlier is the normal provisional fill-in window
+#: (ENTSO-E routinely re-publishes actuals for a day or two). The write path
+#: stores everything beyond epsilon (REVISION_FLOOR/REVISION_REL_TOL, next to it
+#: in backend/power/hourly_store.py); maturity is a READ-time judgement —
+#: PowerRevision's docstring defers it here. Shared by /api/v1/quality/revisions
+#: (routes/quality.py re-exports this name) and the radar's
+#: quality_major_restatement detector; the engine is its canonical home so
+#: neither reader has to import the other. 48 h is deliberately generous — a
+#: fill-in miscounted as a restatement would overstate the source's churn, and
+#: conservatism is this record's design constraint.
+REVISION_MATURITY_S = 48 * 3600
+
 # ── pv_at_night ───────────────────────────────────────────────────────────────
 #: 22:00–01:00 UTC — dark in every enabled zone whose PV fleet is material
 #: (rationale in the module docstring). Hour 0 is the day's pre-dawn end of the
