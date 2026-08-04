@@ -6,7 +6,7 @@ const PILLARS = [
     label: '01',
     title: 'See the whole grid at a glance',
     body:
-      'Day-ahead prices at the market’s real 15-minute resolution, load & residual load, the generation mix, cross-border flows and a live generation-outage board — across 37 European bidding zones, plus Nordic & Alpine reservoir levels and the gas that fuels the marginal price. One desk, not a dozen ENTSO-E queries to reconcile by hand.',
+      'Day-ahead prices, load & residual load and the generation mix for 37 European bidding zones — hourly everywhere, at the market’s real 15-minute resolution where SDAC trades it — plus a live generation-outage board, cross-border flows, Nordic & Alpine reservoir levels and the gas that fuels the marginal price. One desk, not a dozen ENTSO-E queries to reconcile by hand.',
   },
   {
     label: '02',
@@ -71,10 +71,10 @@ export default function Landing() {
           <span className="text-cyan-glow">every zone, one desk, free.</span>
         </h1>
         <p className="text-sm sm:text-base text-neutral-400 max-w-2xl leading-relaxed mb-8">
-          A free European power desk: day-ahead prices, load & residual load, generation mix,
-          wind/solar and cross-border flows across 37 European bidding zones — plus tomorrow’s load & residual
+          A free European power desk: day-ahead prices, load & residual load, generation mix and
+          wind/solar for 37 European bidding zones — plus cross-border flows, tomorrow’s load & residual
           forecast and the gas that fuels the marginal price — from the official record (ENTSO-E,
-          Fraunhofer Energy-Charts, GIE), with a live anomaly radar. Descriptive, auditable, open
+          GIE) and Fraunhofer Energy-Charts, with a live anomaly radar. Descriptive, auditable, open
           source under AGPL-3.0 — run it yourself, or use the hosted cloud.
         </p>
 
@@ -141,7 +141,7 @@ export default function Landing() {
           </button>
           {glanceOpen && (
             <ul className="space-y-1.5 mt-2">
-              <li>· ENTSO-E — day-ahead prices (15-min), load, generation mix, outages, reservoirs &amp; forecasts (37 zones)</li>
+              <li>· ENTSO-E — day-ahead prices (15-min where traded), load, generation mix &amp; forecasts (37 zones); outages &amp; reservoirs where zones publish them</li>
               <li>· Fraunhofer Energy-Charts — cross-border physical power flows (CC BY 4.0)</li>
               <li>· GIE (AGSI/ALSI) + ENTSOG — European gas storage, LNG send-out &amp; pipeline flows</li>
               <li>· TTF / NG — the gas that sets the marginal power price (spark spread)</li>
@@ -293,7 +293,7 @@ export default function Landing() {
           Every number, straight into your <span className="text-cyan-glow">notebook</span>.
         </h2>
         <p className="text-[13px] text-neutral-400 max-w-2xl mb-7 leading-relaxed">
-          A free, versioned public API over the same official record — day-ahead prices at the
+          A free, versioned public API over the same sources — day-ahead prices down to the
           market&apos;s real 15-minute resolution, load, generation mix, cross-border flows. No key,
           no account. JSON, streamed CSV or Parquet — and a pandas client.
         </p>

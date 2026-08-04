@@ -1,6 +1,6 @@
 # OBSYD — the European electricity desk
 
-**One desk for the European power grid: day-ahead prices, load & residual load and generation mix across 37 bidding zones — hourly everywhere, 15-minute day-ahead where SDAC trades it (35 of 37 zones; CH and IE-SEM are hourly-only) — plus a live generation-outage board (where zones publish outages), country-level cross-border flows, reservoir levels for the 15 hydro zones, forecasts and the gas that fuels the marginal price — from the official record (ENTSO-E, Fraunhofer Energy-Charts, GIE).**
+**One desk for the European power grid: day-ahead prices, load & residual load and generation mix across 37 bidding zones — hourly everywhere, 15-minute day-ahead where SDAC trades it (35 of 37 zones; CH and IE-SEM are hourly-only) — plus a live generation-outage board (where zones publish outages), country-level cross-border flows, reservoir levels for the 15 hydro zones, forecasts and the gas that fuels the marginal price — from the official record (ENTSO-E, GIE) and Fraunhofer Energy-Charts.**
 
 [Live Demo](https://obsyd.dev) · [Free & open source](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
