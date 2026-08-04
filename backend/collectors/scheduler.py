@@ -437,6 +437,43 @@ async def _run_episodes_nightly():
         db.close()
 
 
+async def _run_forecast_scoreboard_nightly():
+    """Grade ENTSO-E's published day-ahead forecasts against the published
+    actuals, per (zone, series, day) — the Honest-Record scoreboard aggregate.
+
+    Recomputes the trailing 10 FINISHED days for every enabled zone: forecast
+    and actual revisions drift for days after first publication, and a full
+    re-score is records.py's doctrine (no incremental state to corrupt). Today
+    is not scored — a partial day's error would describe our polling, not the
+    forecast. Descriptive: OBSYD grades the TSOs' forecasts, it makes none.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.forecast_score import compute_and_store_range
+    from backend.power.zones import POWER_ZONES
+
+    db = SessionLocal()
+    try:
+        today = datetime.now(timezone.utc).date()
+        start = (today - timedelta(days=10)).isoformat()
+        end = (today - timedelta(days=1)).isoformat()
+        written = removed = 0
+        for zone_key in POWER_ZONES:
+            try:
+                result = compute_and_store_range(db, zone_key, start, end)
+                written += result["written"]
+                removed += result["removed"]
+            except Exception as exc:
+                db.rollback()
+                logger.error("forecast scoreboard [%s] failed: %s", zone_key, exc)
+        logger.info("forecast scoreboard nightly: %d rows written, %d retracted (%s..%s)",
+                    written, removed, start, end)
+    except Exception as exc:
+        logger.error("_run_forecast_scoreboard_nightly failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_outage_snapshot():
     """Write down how much capacity is offline RIGHT NOW, every hour.
 
@@ -613,6 +650,9 @@ def start_scheduler():
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical
     # store, no incremental state), and it wants the same freshly-ingested day underneath it.
     scheduler.add_job(_run_episodes_nightly, CronTrigger(hour=23, minute=50), id="episodes_nightly", **JOB_DEFAULTS)
+    # Forecast scoreboard: 23:58, after records + episodes — same derived-table doctrine
+    # (trailing-window recompute from the canonical store), wants the same fresh day.
+    scheduler.add_job(_run_forecast_scoreboard_nightly, CronTrigger(hour=23, minute=58), id="forecast_scoreboard_nightly", **JOB_DEFAULTS)
 
     # Energy prices (TTF for the spark spread, + power ticker): daily 22:15 UTC.
     scheduler.add_job(collect_energy_prices, CronTrigger(hour=22, minute=15), id="energy_prices_daily", **JOB_DEFAULTS)

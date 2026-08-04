@@ -20,6 +20,7 @@ from sqlalchemy import func
 
 from backend.models.energy import (
     EnergyPrice,
+    ForecastScoreDaily,
     PowerEpisode,
     PowerFlow,
     PowerGrid,
@@ -134,6 +135,9 @@ SPECS += [
     # Episodes are DERIVED, not ingested — so the probe asks whether the nightly recompute ran,
     # not whether a feed arrived. A silent episode engine looks exactly like a quiet Europe.
     FreshnessSpec("episodes", PowerEpisode, "updated_at", timedelta(days=2)),
+    # The forecast scoreboard is derived the same way (nightly re-score of ENTSO-E's published
+    # forecasts) — a silent scoring engine looks exactly like a scoreboard with nothing to say.
+    FreshnessSpec("forecast_scoreboard", ForecastScoreDaily, "updated_at", timedelta(days=2)),
     # /api/power/live (near-real-time TODAY). The intraday scheduler writes
     # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
     # would be the honest window for THIS probe alone — but test_outage_history.py

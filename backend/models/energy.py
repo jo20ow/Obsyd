@@ -564,3 +564,55 @@ class PowerEpisode(Base):
     __table_args__ = (
         UniqueConstraint("kind", "zone", "start_date", name="uq_power_episode_kind_zone_start"),
     )
+
+
+class ForecastScoreDaily(Base):
+    """Per-(zone, series, UTC-day) error metrics for ENTSO-E's published
+    day-ahead forecasts vs the published actuals — the persisted aggregate
+    behind the Honest-Record forecast scoreboard. Posture B: this GRADES the
+    TSOs' own forecasts; OBSYD forecasts nothing.
+
+    `series` is one of load | residual | wind | solar (the canonical pair table
+    in backend/power/forecast_score.py::FORECAST_PAIRS). `n_hours` counts hours
+    where both forecast and actual exist; the other metrics are means over that
+    set or a documented subset of it (see forecast_score.py).
+
+    Sign convention: `bias` = mean(forecast − actual) — positive means the
+    published forecast leaned HIGH. NOTE the /api/power/forecast-error endpoint
+    reports the OPPOSITE sign (mean(actual − forecast)), kept unchanged for its
+    existing readers.
+
+    `mape` is stored for the load pair only (percent; hours whose |actual| is
+    below the division floor are excluded) — NULL elsewhere. `mae_persistence`
+    / `mae_seasonal` are the MAEs of naive baselines built from actuals alone
+    (actual(t−24h) / actual(t−168h)), over the scored hours whose lagged actual
+    exists; NULL when none does. Skill (1 − mae/mae_baseline) is derived at
+    READ time — only the MAEs are stored, at full float precision, because
+    rounding here would compound into the read-time ratio.
+
+    Recomputed nightly over the trailing days (forecast/actual revisions
+    drift): recompute replaces the row in place (idempotent), and a day the
+    data no longer supports is deleted, not left to rot (episodes doctrine).
+    Auto-created by Base.metadata.create_all on startup like every sibling
+    table here.
+    """
+
+    __tablename__ = "forecast_score_daily"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    series: Mapped[str] = mapped_column(String, nullable=False)             # load | residual | wind | solar
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)   # YYYY-MM-DD (UTC day)
+    n_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    mae: Mapped[Optional[float]] = mapped_column(Float, nullable=True)      # MW
+    rmse: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # MW
+    bias: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # MW, forecast − actual
+    mape: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # %, load only
+    mae_persistence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # MW
+    mae_seasonal: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # MW
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow,
+                                                 onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("zone", "series", "date", name="uq_forecast_score_zone_series_date"),
+    )
