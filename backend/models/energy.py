@@ -298,9 +298,11 @@ class IngestArrival(Base):
     frontier lag is derivable as observed_at − max_ts_new. Epoch seconds UTC
     throughout, like power_hourly.
 
-    TODO: retention/pruning is owned by a later slice (hook into
-    backend/collectors/retention.py) — the log grows by one row per scheduled
-    fetch, unbounded until then."""
+    Retention: pruned to the trailing 90 days by the daily retention job
+    (backend/collectors/retention.py, INGEST_ARRIVAL_RETENTION_DAYS) — the log
+    grows by one row per scheduled fetch and is cadence evidence, not history.
+    The revision ledger (power_revision) is deliberately NEVER pruned: the
+    ledger is the product."""
 
     __tablename__ = "ingest_arrival"
 
@@ -615,4 +617,47 @@ class ForecastScoreDaily(Base):
 
     __table_args__ = (
         UniqueConstraint("zone", "series", "date", name="uq_forecast_score_zone_series_date"),
+    )
+
+
+class QualityDaily(Base):
+    """Per-(zone, series, UTC-day) data-quality aggregate: completeness plus
+    rule-based anomaly flags — the Honest-Record statement of what the published
+    data looks like. Posture B: every row DESCRIBES the source's output (hours
+    missing, physically implausible values); nothing here judges the market.
+
+    `hours_present`/`hours_expected` count the series' native intervals: 24 for
+    hourly series, 96 for `.qh` quarter-hour series (the column name keeps the
+    dominant hourly reading; see backend/power/quality.py::hours_expected).
+
+    `flags` is a JSON-encoded list of flag dicts
+    (`{"rule", "hours": [epoch ts], "detail": {...}}`) — Text-JSON, the project
+    convention (no native JSON type; see PowerPriceDaily.hourly_prices).
+    Zone-level rules (currently gen_below_load_exports) live under the reserved
+    series_key `_zone`; those rows carry hours_present = hours_expected = 0 and
+    exist ONLY on flagged days.
+
+    A day with no points still gets a row (hours_present=0) only while the
+    series shows activity in the surrounding 30 days — otherwise the zone
+    simply doesn't carry that series and a row would be noise. Recomputed
+    nightly over the trailing window: recompute replaces the row in place
+    (idempotent), and a day the data no longer supports is deleted, not left
+    to rot (episodes doctrine). Auto-created by Base.metadata.create_all on
+    startup like every sibling table here.
+    """
+
+    __tablename__ = "quality_daily"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    series_key: Mapped[str] = mapped_column(String, nullable=False)          # e.g. "load.actual", "_zone"
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)    # YYYY-MM-DD (UTC day)
+    hours_present: Mapped[int] = mapped_column(Integer, nullable=False)
+    hours_expected: Mapped[int] = mapped_column(Integer, nullable=False)
+    flags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")   # JSON list of flag dicts
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow,
+                                                 onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("zone", "series_key", "date", name="uq_quality_daily_zone_series_date"),
     )

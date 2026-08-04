@@ -27,6 +27,7 @@ from backend.models.energy import (
     PowerHourly,
     PowerOutage,
     PowerPriceDaily,
+    QualityDaily,
     SeriesDim,
     UnitGeneration,
 )
@@ -138,6 +139,9 @@ SPECS += [
     # The forecast scoreboard is derived the same way (nightly re-score of ENTSO-E's published
     # forecasts) — a silent scoring engine looks exactly like a scoreboard with nothing to say.
     FreshnessSpec("forecast_scoreboard", ForecastScoreDaily, "updated_at", timedelta(days=2)),
+    # Data-quality aggregates are derived the same way (nightly completeness + rule flags,
+    # backend/power/quality.py) — a silent quality engine looks exactly like clean data.
+    FreshnessSpec("quality_daily", QualityDaily, "updated_at", timedelta(days=2)),
     # /api/power/live (near-real-time TODAY). The intraday scheduler writes
     # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
     # would be the honest window for THIS probe alone — but test_outage_history.py
