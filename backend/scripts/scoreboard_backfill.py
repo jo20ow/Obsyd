@@ -59,4 +59,10 @@ if __name__ == "__main__":
     ap.add_argument("--end", default=yesterday, help="last UTC day inclusive (default: yesterday UTC)")
     ap.add_argument("--zones", nargs="*", default=list(POWER_ZONES))
     args = ap.parse_args()
+    # A typo'd zone must fail loudly, not no-op: the engine skips unknown zones
+    # quietly by design (that is how a 3-zone dev DB runs the 37-zone command),
+    # so `--zones DELU` would otherwise "succeed" with 0 rows written.
+    unknown = [z for z in args.zones if z not in POWER_ZONES]
+    if unknown:
+        ap.error(f"unknown zone(s): {', '.join(unknown)} — enabled zones: {', '.join(POWER_ZONES)}")
     backfill(args.start, args.end, args.zones)
