@@ -25,7 +25,7 @@ const PILLARS = [
 const STATS = [
   { label: 'European bidding zones', value: '37' },
   { label: 'day-ahead resolution (as traded)', value: '15 min' },
-  { label: 'official public-domain data', value: '100%' },
+  { label: 'open, redistributable sources', value: '100%' },
   { label: 'license', value: 'AGPL-3.0' },
 ]
 
