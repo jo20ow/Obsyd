@@ -4,11 +4,14 @@ import CompactView from './components/CompactView'
 import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
 import CoveragePanel from './components/CoveragePanel'
+import DataQualityPanel from './components/DataQualityPanel'
+import RevisionsLedgerPanel from './components/RevisionsLedgerPanel'
 import EuropeDesk from './components/EuropeDesk'
 import { MAP_FALLBACK } from './components/MapFallback'
 import DurationCurvePanel from './components/DurationCurvePanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
 import MarginalTechPanel from './components/MarginalTechPanel'
+import ForecastScoreboardPanel from './components/ForecastScoreboardPanel'
 import GenMixHistoryPanel from './components/GenMixHistoryPanel'
 import TrendsPanel from './components/TrendsPanel'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -767,6 +770,11 @@ function Dashboard() {
               </ErrorBoundary>
             </div>
             <div className="mt-3">
+              <ErrorBoundary name="forecast-scoreboard">
+                <ForecastScoreboardPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
+            <div className="mt-3">
               <ErrorBoundary name="power-capture">
                 <CapturePanel zone={energyZone} />
               </ErrorBoundary>
@@ -805,6 +813,12 @@ function Dashboard() {
             </ErrorBoundary>
             <ErrorBoundary name="coverage">
               <CoveragePanel />
+            </ErrorBoundary>
+            <ErrorBoundary name="data-quality">
+              <DataQualityPanel />
+            </ErrorBoundary>
+            <ErrorBoundary name="revisions-ledger">
+              <RevisionsLedgerPanel />
             </ErrorBoundary>
           </div>
         )}

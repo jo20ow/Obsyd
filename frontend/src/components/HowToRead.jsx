@@ -20,6 +20,29 @@ const TERMS = [
   ['SCHED vs physical', 'which record a border is read from. SCHED = ENTSO-E’s scheduled commercial exchanges, resolved per bidding zone (the only grain that can see DK1 vs DK2); physical = the metered country-level flow.'],
 ]
 
+// The Honest-Record vocabulary (EXPLORE tab's DATA QUALITY + REVISIONS LEDGER
+// panels). Every term describes what the SOURCE published or restated — none
+// of it judges the data or the market.
+const QUALITY_TERMS = [
+  ['Completeness', 'the share of a UTC day’s expected intervals the source actually published (24 for hourly series, 96 for 15-min series), averaged over a 30/90-day window. A low day is hours the source has not (yet) published — a statement about the record, not the market.'],
+  ['Revision / restatement', 'the source re-published a DIFFERENT value for an hour it had already published, beyond float noise. “Mature” = observed more than 48 h after the hour it restates — settled data changed, not the routine provisional fill-in sources run for a day or two.'],
+  ['Arrival lag', 'the wall-clock gap between when a fetch arrived and the newest hour it delivered. Negative (“ahead”) for day-ahead series — the auction publishes tomorrow’s hours, so the data runs ahead of the clock.'],
+  ['Quality flag', 'a rule-based description of odd published data: solar reported in the dead of night, load flatlining at exact zero, an hourly step 8× larger than the series’ own trailing month. Each flag describes the feed, never the market.'],
+  ['Zone-level checks', 'quality checks that need several series at once — e.g. total generation below load while the zone exports. They appear as their own “zone-level checks” row, only on flagged days, with no completeness or lag of their own.'],
+]
+
+// The forecast-scoreboard vocabulary (ANALYTICS tab). OBSYD grades ENTSO-E's
+// own published D-1 forecasts against its published actuals — it makes no
+// forecasts of its own, and every score states its sample.
+const SCOREBOARD_TERMS = [
+  ['What is graded', 'ENTSO-E’s own published day-ahead forecasts for load, residual load, wind and solar, compared against the actuals the same source later published. OBSYD makes no forecasts — it reports how the official ones fared.'],
+  ['MAE / RMSE', 'mean absolute error: the typical hourly miss in MW, direction ignored. RMSE punishes large misses harder — RMSE well above MAE means the errors are spiky, not steady.'],
+  ['Bias', 'mean(forecast − actual) in MW. Positive = the published forecast leaned high on average, negative = it leaned low. (The older forecast-error strip on the POWER tab states the same number with the opposite sign convention.)'],
+  ['MAPE / nMAE', 'the miss as a percentage. MAPE (% of the actual) works for load only — wind and solar hit honest zeros overnight, residual load crosses zero. Wind/solar rank by nMAE instead: MAE as % of the zone’s installed capacity (ENTSO-E A68), so a 500 MW miss in a 60 GW fleet doesn’t read like one in a 5 GW fleet.'],
+  ['Skill vs naive', '1 − MAE/MAE_naive against two no-model yardsticks built from published actuals alone: persistence (the actual at the same hour yesterday) and seasonal (same hour last week). Positive = the published forecast beat the yardstick; a forecast that trails persistence added no information that day.'],
+  ['n=', 'every score names the days (and hours) it is computed over — a 30-day skill over 6 days of data says so.'],
+]
+
 export default function HowToRead() {
   return (
     <Panel id="how-to-read" title="NEW HERE? HOW TO READ THIS" collapsible defaultCollapsed={true}>
@@ -31,6 +54,24 @@ export default function HowToRead() {
         </p>
         <dl className="space-y-2">
           {TERMS.map(([term, def]) => (
+            <div key={term} className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-x-3 gap-y-0.5">
+              <dt className="font-mono text-[11px] text-cyan-glow/90">{term}</dt>
+              <dd className="font-mono text-[11px] text-neutral-400 leading-snug">{def}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="pt-2 border-t border-border/40 font-mono text-[10px] text-neutral-500 tracking-wider">DATA QUALITY</div>
+        <dl className="space-y-2">
+          {QUALITY_TERMS.map(([term, def]) => (
+            <div key={term} className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-x-3 gap-y-0.5">
+              <dt className="font-mono text-[11px] text-cyan-glow/90">{term}</dt>
+              <dd className="font-mono text-[11px] text-neutral-400 leading-snug">{def}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="pt-2 border-t border-border/40 font-mono text-[10px] text-neutral-500 tracking-wider">FORECAST SCOREBOARD</div>
+        <dl className="space-y-2">
+          {SCOREBOARD_TERMS.map(([term, def]) => (
             <div key={term} className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-x-3 gap-y-0.5">
               <dt className="font-mono text-[11px] text-cyan-glow/90">{term}</dt>
               <dd className="font-mono text-[11px] text-neutral-400 leading-snug">{def}</dd>

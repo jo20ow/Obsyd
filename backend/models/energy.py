@@ -248,6 +248,88 @@ class PowerHourly(Base):
     __table_args__ = {"sqlite_with_rowid": False}
 
 
+class PowerRevision(Base):
+    """Revision ledger (Honest Record slice A1): one row per REAL value change
+    observed at the single hourly write path (backend/power/hourly_store.py).
+
+    "Real" = the (series, zone, hour) row already existed and the re-published
+    value moved beyond the float-noise epsilon (REVISION_FLOOR/REVISION_REL_TOL
+    in hourly_store). First-time arrivals are NOT revisions — they land in
+    ingest_arrival's n_new instead. Derived series (residual.*) are excluded at
+    write time: they restate whenever their inputs restate, so ledgering them
+    would double-count every upstream revision.
+
+    Forward-only by design: upstream re-fetches overwrite caches, so history
+    before deploy is unrecoverable — the ledger accrues from first write.
+    "Maturity" (real restatement vs normal provisional fill-in) is a READ-time
+    concern for a later slice; everything beyond epsilon is stored. Epsilon
+    caveat: the diff is against the CURRENT stored value, so successive
+    sub-epsilon steps can accumulate real movement without ever ledgering.
+
+    All timestamps follow power_hourly's convention: epoch seconds UTC.
+    `observed_at` is the ingest wall clock, `ts_utc` the hour that changed."""
+
+    __tablename__ = "power_revision"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    zone_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    ts_utc: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec, top-of-hour UTC
+    old_value: Mapped[float] = mapped_column(Float, nullable=False)
+    new_value: Mapped[float] = mapped_column(Float, nullable=False)
+    observed_at: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec UTC
+
+    # Every read (routes/quality.py) filters/aggregates on observed_at — the
+    # /revisions window rides it (and gets its ORDER BY observed_at free), and
+    # the summary's trailing-30d GROUP BY becomes a covering index scan instead
+    # of a full-table scan (measured ~924ms → 4-40ms at 2M rows). Nothing reads
+    # by ts_utc range, so observed_at is the third column — the exact shape
+    # ingest_arrival's index already has. New table: create_all creates this
+    # everywhere (the branch is undeployed, so prod gets it free). A LOCAL dev
+    # DB that already ran the earlier index needs a one-time
+    #   DROP INDEX ix_power_revision_series_zone_ts;
+    # (the stale index is harmless but dead weight — create_all never drops).
+    __table_args__ = (
+        Index("ix_power_revision_series_zone_observed", "series_id", "zone_id", "observed_at"),
+    )
+
+
+class IngestArrival(Base):
+    """Arrival log (Honest Record slice A1): ONE row per non-empty upsert batch
+    (per series+zone call through hourly_store.upsert_hourly), not per point.
+
+    A batch with nothing new and nothing changed still logs a row — it is
+    evidence the source was fetched, and later slices read arrival cadence as
+    fetch health ("no row" must mean "never polled", not "polled, unchanged").
+    min/max_ts_new span only the batch's NEW hours (NULL when n_new == 0);
+    frontier lag is derivable as observed_at − max_ts_new. Epoch seconds UTC
+    throughout, like power_hourly.
+
+    Retention: pruned to the trailing 90 days by the daily retention job
+    (backend/collectors/retention.py, INGEST_ARRIVAL_RETENTION_DAYS) — the log
+    grows by one row per scheduled fetch and is cadence evidence, not history.
+    The revision ledger (power_revision) is deliberately NEVER pruned: the
+    ledger is the product."""
+
+    __tablename__ = "ingest_arrival"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    zone_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_at: Mapped[int] = mapped_column(Integer, nullable=False)  # epoch sec UTC
+    n_new: Mapped[int] = mapped_column(Integer, nullable=False)
+    n_changed: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_ts_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    max_ts_new: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Arrival-cadence reads are "rows for one series+zone ordered by time" —
+    # without this they full-scan a table growing by ~10^4 rows/day. New table,
+    # so create_all creates it everywhere; no migrations.py retrofit needed.
+    __table_args__ = (
+        Index("ix_ingest_arrival_series_zone_observed", "series_id", "zone_id", "observed_at"),
+    )
+
+
 class InstalledCapacity(Base):
     """ENTSO-E installed generation capacity per production type (A68/A33) — annual, per
     zone. Reference/context data (how much wind/solar/gas/etc. a zone has), not a time
@@ -490,4 +572,99 @@ class PowerEpisode(Base):
 
     __table_args__ = (
         UniqueConstraint("kind", "zone", "start_date", name="uq_power_episode_kind_zone_start"),
+    )
+
+
+class ForecastScoreDaily(Base):
+    """Per-(zone, series, UTC-day) error metrics for ENTSO-E's published
+    day-ahead forecasts vs the published actuals — the persisted aggregate
+    behind the Honest-Record forecast scoreboard. Posture B: this GRADES the
+    TSOs' own forecasts; OBSYD forecasts nothing.
+
+    `series` is one of load | residual | wind | solar (the canonical pair table
+    in backend/power/forecast_score.py::FORECAST_PAIRS). `n_hours` counts hours
+    where both forecast and actual exist; the other metrics are means over that
+    set or a documented subset of it (see forecast_score.py).
+
+    Sign convention: `bias` = mean(forecast − actual) — positive means the
+    published forecast leaned HIGH. NOTE the /api/power/forecast-error endpoint
+    reports the OPPOSITE sign (mean(actual − forecast)), kept unchanged for its
+    existing readers.
+
+    `mape` is stored for the load pair only (percent; hours whose |actual| is
+    below the division floor are excluded) — NULL elsewhere. `mae_persistence`
+    / `mae_seasonal` are the MAEs of naive baselines built from actuals alone
+    (actual(t−24h) / actual(t−168h)), over the scored hours whose lagged actual
+    exists; NULL when none does. Skill (1 − mae/mae_baseline) is derived at
+    READ time — only the MAEs are stored, at full float precision, because
+    rounding here would compound into the read-time ratio.
+
+    Recomputed nightly over the trailing days (forecast/actual revisions
+    drift): recompute replaces the row in place (idempotent), and a day the
+    data no longer supports is deleted, not left to rot (episodes doctrine).
+    Auto-created by Base.metadata.create_all on startup like every sibling
+    table here.
+    """
+
+    __tablename__ = "forecast_score_daily"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    series: Mapped[str] = mapped_column(String, nullable=False)             # load | residual | wind | solar
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)   # YYYY-MM-DD (UTC day)
+    n_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    mae: Mapped[Optional[float]] = mapped_column(Float, nullable=True)      # MW
+    rmse: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # MW
+    bias: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # MW, forecast − actual
+    mape: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # %, load only
+    mae_persistence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # MW
+    mae_seasonal: Mapped[Optional[float]] = mapped_column(Float, nullable=True)     # MW
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow,
+                                                 onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("zone", "series", "date", name="uq_forecast_score_zone_series_date"),
+    )
+
+
+class QualityDaily(Base):
+    """Per-(zone, series, UTC-day) data-quality aggregate: completeness plus
+    rule-based anomaly flags — the Honest-Record statement of what the published
+    data looks like. Posture B: every row DESCRIBES the source's output (hours
+    missing, physically implausible values); nothing here judges the market.
+
+    `hours_present`/`hours_expected` count the series' native intervals: 24 for
+    hourly series, 96 for `.qh` quarter-hour series (the column name keeps the
+    dominant hourly reading; see backend/power/quality.py::hours_expected).
+
+    `flags` is a JSON-encoded list of flag dicts
+    (`{"rule", "hours": [epoch ts], "detail": {...}}`) — Text-JSON, the project
+    convention (no native JSON type; see PowerPriceDaily.hourly_prices).
+    Zone-level rules (currently gen_below_load_exports) live under the reserved
+    series_key `_zone`; those rows carry hours_present = hours_expected = 0 and
+    exist ONLY on flagged days.
+
+    A day with no points still gets a row (hours_present=0) only while the
+    series shows activity in the surrounding 30 days — otherwise the zone
+    simply doesn't carry that series and a row would be noise. Recomputed
+    nightly over the trailing window: recompute replaces the row in place
+    (idempotent), and a day the data no longer supports is deleted, not left
+    to rot (episodes doctrine). Auto-created by Base.metadata.create_all on
+    startup like every sibling table here.
+    """
+
+    __tablename__ = "quality_daily"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    zone: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    series_key: Mapped[str] = mapped_column(String, nullable=False)          # e.g. "load.actual", "_zone"
+    date: Mapped[str] = mapped_column(String, nullable=False, index=True)    # YYYY-MM-DD (UTC day)
+    hours_present: Mapped[int] = mapped_column(Integer, nullable=False)
+    hours_expected: Mapped[int] = mapped_column(Integer, nullable=False)
+    flags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")   # JSON list of flag dicts
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow,
+                                                 onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("zone", "series_key", "date", name="uq_quality_daily_zone_series_date"),
     )

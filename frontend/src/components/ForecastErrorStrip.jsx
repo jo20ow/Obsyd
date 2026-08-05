@@ -41,8 +41,28 @@ export default function ForecastErrorStrip({ zone = 'DE_LU' }) {
 
   return (
     <div className="px-4 py-2 border-t border-border/30 space-y-0.5">
-      <div className="font-mono text-[9px] text-neutral-600 tracking-wider uppercase">
-        Forecast vs actual · last 7 days · published TSO forecast, not ours
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-mono text-[9px] text-neutral-600 tracking-wider uppercase">
+          Forecast vs actual · last 7 days · published TSO forecast, not ours
+        </div>
+        {/* Cross-tab jump via the URL hash: App.jsx's hashchange listener is the
+            existing deep-link mechanism that switches the active tab for any hash
+            matching a TAB key — no prop threading through PowerLoadForecastPanel
+            needed. The delayed scroll waits for the ANALYTICS panels to mount;
+            if they haven't yet, scrollIntoView on a missing node is a no-op and
+            the user still lands on the right tab. */}
+        <a
+          href="#analytics"
+          onClick={() => {
+            setTimeout(() => {
+              document.getElementById('panel-forecast-scoreboard')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }, 250)
+          }}
+          className="shrink-0 font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+          title="Open the full forecast scoreboard on the ANALYTICS tab — MAE/RMSE/bias, skill vs naive baselines, all-zone ranking"
+        >
+          full scoreboard →
+        </a>
       </div>
       <Line label="Load" err={load} />
       <Line label="Wind" err={wind} />

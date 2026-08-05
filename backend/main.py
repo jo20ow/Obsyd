@@ -31,7 +31,9 @@ from backend.routes import metals as metals_routes
 from backend.routes import news as news_routes
 from backend.routes import portwatch as portwatch_routes
 from backend.routes import power as power_routes
+from backend.routes import quality as quality_routes
 from backend.routes import rates as rates_routes
+from backend.routes import scoreboard as scoreboard_routes
 from backend.routes import settings as settings_routes
 from backend.routes import signals as signals_routes
 from backend.routes import situation as situation_routes
@@ -192,6 +194,8 @@ app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)
 app.include_router(power_routes.router)
 app.include_router(api_v1.router)  # public data API v1 (/api/v1/series, catalog, meta)
+app.include_router(quality_routes.router)  # /api/v1/quality/* — Honest-Record read API
+app.include_router(scoreboard_routes.router)  # /api/v1/scoreboard/* — forecast scoreboard read API
 app.include_router(embed_routes.router)  # /api/v1/badge/*.svg — embeddable status badges
 app.include_router(situation_routes.router)
 app.include_router(watchlist_routes.router)

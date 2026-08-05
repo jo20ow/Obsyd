@@ -52,6 +52,7 @@ from backend.power.daily import share_is_claimable
 from backend.power.dunkelflaute import ABSOLUTE_THRESHOLD, TAIL_PERCENTILE
 from backend.power.energy_charts_flows import ATTRIBUTION
 from backend.power.entsoe_grid import PSR_LABELS
+from backend.power.forecast_score import FORECAST_PAIRS
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES
 from backend.signals.detectors.base import severity_from_zscore, trailing_zscore
 
@@ -1412,16 +1413,10 @@ def get_flows(
 
 
 # ─── Forecast error (free) ────────────────────────────────────────────────────
-
-#: forecast series → the series whose SUM is the realised counterpart.
-#: There is no wind.actual/solar.actual — realised wind/solar live in the
-#: generation mix (B18+B19 / B16), same derivation the residual ingest uses.
-_FORECAST_PAIRS: dict[str, tuple[str, list[str]]] = {
-    "load": ("load.forecast", ["load.actual"]),
-    "residual": ("residual.forecast", ["residual.actual"]),
-    "wind": ("wind.forecast", ["gen.B18", "gen.B19"]),
-    "solar": ("solar.forecast", ["gen.B16"]),
-}
+#
+# The canonical forecast→actual pair table is FORECAST_PAIRS in
+# backend/power/forecast_score.py (imported above) — shared with the nightly
+# forecast scoreboard so route and scoreboard can never grade different series.
 
 
 @router.get("/forecast-error")
@@ -1441,7 +1436,7 @@ def get_forecast_error(
     from backend.power.hourly_store import read_hourly
 
     resolved_zone = _resolve_zone(zone)
-    fc_key, actual_keys = _FORECAST_PAIRS[series]
+    fc_key, actual_keys = FORECAST_PAIRS[series]
     start_ts = int((datetime.utcnow() - timedelta(days=days)).timestamp())
 
     forecast = dict(read_hourly(db, fc_key, resolved_zone, start_ts))

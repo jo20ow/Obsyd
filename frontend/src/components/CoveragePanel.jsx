@@ -26,11 +26,22 @@ export default function CoveragePanel() {
           <span className="font-mono text-xs text-neutral-500 tracking-wider">DATA COVERAGE</span>
           <InfoPopover text="Exactly what is fresh and what is stale right now, per zone and source — measured on the DATA's own delivery date, not the write timestamp. The transparency answer to a black-box feed: we show our gaps." />
         </div>
-        {data && (
-          <span className={`font-mono text-[10px] font-bold ${data.healthy ? 'text-green-400' : 'text-amber-400'}`}>
-            {data.fresh_count}/{data.total} fresh
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {data && (
+            <span className={`font-mono text-[10px] font-bold ${data.healthy ? 'text-green-400' : 'text-amber-400'}`}>
+              {data.fresh_count}/{data.total} fresh
+            </span>
+          )}
+          {/* Cross-panel link to the quality matrix below — same
+              getElementById + scrollIntoView idiom as the Borders chip. */}
+          <button
+            onClick={() => document.getElementById('panel-data-quality')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            className="font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+            title="Completeness, quality flags, restatements and arrival lag per zone × series — further down this tab"
+          >
+            DATA QUALITY ↓
+          </button>
+        </div>
       </div>
 
       {loading && (

@@ -25,7 +25,9 @@ Rate limit: the ~120 req/min/IP budget applies to **every** `/api/v1` endpoint �
 data (`/series`, `/genmix`, `/snapshot`), reference (`/meta`, `/zones`, `/status`,
 `/capacity`, `/units`, `/series/catalog`) and the `/badge/*.svg` widgets alike.
 On top of that, the heavier scans — `/series`, `/genmix`, `/snapshot`,
-`/series/catalog`, `/status` and `/api/power/units/history` — share a concurrency
+`/series/catalog`, `/status`, `/quality/summary`, `/quality/revisions`,
+`/scoreboard/ranking`, `/scoreboard/profile` and
+`/api/power/units/history` — share a concurrency
 guard: at most 8 heavy queries run at once server-wide; an excess request gets an
 immediate HTTP 503 with a retry message rather than queueing.
 "Nothing found" (unknown series, empty window) is HTTP 200 with
@@ -87,6 +89,116 @@ Sources, licenses, attribution, enabled zones, available series, disclaimer.
 ### `GET /api/v1/status`
 Honest data coverage: per-zone and per-source freshness (measured on the data's own
 delivery date), and an overall `healthy` flag. "Here is exactly what is fresh and what is stale."
+
+### `GET /api/v1/quality/summary`
+The Honest-Record matrix over enabled zones × charter series (`load.actual`,
+`price.dayahead`, `price.dayahead.qh`, `gen.B16`/`B18`/`B19`, plus the reserved
+zone-level key `_zone`): per cell the trailing-30d/90d completeness (mean
+`hours_present/hours_expected` over days WITH quality rows), flagged days (30d),
+restatement count (30d) and the latest arrival lag in seconds (last fetch's
+wall-clock minus the newest hour it brought — **negative** for day-ahead series,
+whose frontier runs ahead of the clock). Series a zone doesn't carry are omitted;
+`_zone` cells appear only on flagged days. Computed once per ~15 min (cached),
+heavy-guarded. Descriptive: every number states what the source published.
+
+### `GET /api/v1/quality/series`
+Daily quality rows for ONE series+zone, newest first — the drill-down behind a
+summary cell — plus arrival-lag stats (median + p90) over the same window.
+
+| Param | Default | Notes |
+|-------|---------|-------|
+| `series` | *(required)* | one of the charter keys above, or `_zone` (zone-level flags) — anything else is HTTP 400 listing the valid keys |
+| `zone` | *(required)* | enabled bidding zone key — unknown zones are HTTP 400 listing the valid keys |
+| `days` | 90 | trailing window, max 365 |
+
+Each row: `date`, `hours_present`, `hours_expected`, `flags` (decoded list —
+`rule`, affected `hours` as ISO UTC, `detail`). Flags describe the published
+data (`zero_run`, `pv_at_night`, `step_jump`, `gen_below_load_exports`), never
+the market. A valid-but-empty combination is HTTP 200 with `available:false`.
+Note: the arrival-lag stats ride the arrival log, which is pruned to a trailing
+90 days — with `days` > 90 the quality rows cover the full window but the lag
+stats remain bounded by that retention.
+
+### `GET /api/v1/quality/revisions`
+The revision ledger for ONE series+zone: every time the source re-published a
+different value for an hour it had already published (beyond a float-noise
+epsilon), with `old_value`/`new_value`, `observed_at` and `delta_pct` — plus
+`restated_hours`, a roll-up of hours restated more than once
+(`n_revisions`, `last_change_pct`). `delta_pct` divides by the *absolute*
+previous value, so its sign is always the direction of movement (a negative
+price restated further down is a negative delta, not a sign flip). The roll-up
+is computed over the rows the `mature` filter left — toggling `mature` changes
+`restated_hours` too. Heavy-guarded, row-capped (20k/request).
+
+| Param | Default | Notes |
+|-------|---------|-------|
+| `series` | *(required)* | any catalog series key (see `/series/catalog`); derived `residual.*` series are not ledgered and answer `available:false` with the reason |
+| `zone` | *(required)* | enabled bidding zone key |
+| `days` | 30 | trailing window over `observed_at`, max 365 |
+| `mature` | `true` | `true`: only restatements observed >48 h after the hour they restate (settled data changed); `false`: include the routine provisional fill-in too |
+
+The ledger is forward-only (accrues from first deploy — history before that is
+unrecoverable), so `as_of` here is the newest arrival-log timestamp for the
+series+zone: the last moment the source was polled and could have restated
+something. All `/quality/*` responses carry `as_of`/`age_days`/`stale`, and all
+timestamps are ISO 8601 UTC like the rest of `/api/v1`.
+
+### The forecast scoreboard — `/api/v1/scoreboard/*`
+
+OBSYD **grades ENTSO-E's own published D-1 forecasts** (load, wind, solar, and
+the derived residual = load − wind − solar) against ENTSO-E's published actuals
+— it makes no forecast of its own. The two yardsticks are naive baselines built
+from published actuals alone: *persistence* (actual 24 h ago) and *seasonal*
+(actual 168 h ago); `skill_x = 1 − mae/mae_x` — positive means the published
+forecast beat the naive baseline.
+
+**Bias sign convention** (declared on the wire as `bias_convention`):
+`bias = mean(forecast − actual)` in MW — **positive = the published forecast
+leaned HIGH**. The older `/api/power/forecast-error` endpoint reports the
+**opposite** sign (`bias_mw = mean(actual − forecast)`) and stays unchanged for
+its readers.
+
+Aggregates over daily rows are **day-weighted by `n_hours`** (exact per-hour
+window means; rmse recombined quadratically); days whose baseline MAE is NULL
+drop out of the skill ratio only, never out of the headline mae. `mape` exists
+for `load` only (wind/solar hit honest zeros at night, residual crosses zero).
+All `/scoreboard/*` responses carry `as_of`/`age_days`/`stale`.
+
+### `GET /api/v1/scoreboard/summary`
+One zone's report card: per carried series (`load`/`residual`/`wind`/`solar`)
+the trailing **30/90/365-day** aggregates — `days_covered`, `n_hours`, `mae`,
+`rmse`, `bias`, `mape` (load), `skill_persistence`, `skill_seasonal`.
+`?zone=` *(required)* — unknown zones are HTTP 400 listing the valid keys; a
+zone with no scored days is HTTP 200 with `available:false`.
+
+### `GET /api/v1/scoreboard/ranking`
+All enabled zones ranked per series by the **comparable** metric, best (lowest
+error) first: `load` by MAPE (%); `wind`/`solar` by **nMAE** (100 × window MAE
+÷ A68 installed capacity of the matching technology — wind = onshore +
+offshore, each zone+type at its own latest A68 year); `residual` by absolute
+MAE with an explicit `caveat` (absolute MW — zones of different size are not
+comparable on it). Zones with scored days but **no A68 capacity** for the
+technology are listed unranked (`nmae_pct: null`, `rank: null`) with a
+`signposted` reason — never silently hidden. `?window=` one of `30|90|365`
+days (default 90; anything else is HTTP 400 listing the valid windows).
+Computed once per ~15 min per window (cached), heavy-guarded.
+
+### `GET /api/v1/scoreboard/monthly`
+UTC calendar-month aggregates for ONE zone+series over the full scored history,
+oldest first — has the published forecast been getting better or worse? Each
+row: `month` (`YYYY-MM`), `days`, `n_hours`, `mae`, `rmse`, `bias`, `mape`
+(load), `skill_persistence`, `skill_seasonal`. `?zone=&series=` *(both
+required)* — bad values are HTTP 400 listing the valid keys.
+
+### `GET /api/v1/scoreboard/profile`
+Forecast error by **hour of day (0–23, UTC)** for ONE zone+series over a
+trailing window: per bucket the mean absolute error, mean `bias` and `n`.
+Computed on-read from the canonical hourly store through the scoring engine's
+own pair table (wind's actual = `gen.B18`+`gen.B19` summed), so it can never
+grade different series than the scoreboard. Buckets are UTC — a zone's
+local-time features (morning ramp, solar noon) appear shifted by its offset.
+`?zone=&series=&window=` (`window` 1–365 days, default 90; out-of-range is
+HTTP 422). Heavy-guarded.
 
 ## Series keys
 
