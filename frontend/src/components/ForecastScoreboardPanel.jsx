@@ -213,7 +213,8 @@ function RankingTable({ name, block, zoneLabel, currentZone }) {
                 <td className="px-2 py-1 text-right">—</td>
                 <td className="px-2 py-1 whitespace-nowrap">{zoneLabel(r.zone)}</td>
                 <td colSpan={cols - 2} className="px-2 py-1 text-[9px] leading-snug">
-                  MAE {fmtMW(r.mae)} MW · {r.signposted}
+                  MAE {fmtMW(r.mae)} MW ·{' '}
+                  <span title={`${r.n_hours} scored hours`}>n={r.days_covered}d</span> · {r.signposted}
                 </td>
               </tr>
             ))}
@@ -331,7 +332,10 @@ export default function ForecastScoreboardPanel({ zone = 'DE_LU' }) {
           )}
           {rank?.available && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 px-3 pt-3 pb-1">
-              {SERIES_ORDER.filter((k) => rank.series?.[k]).map((k) => (
+              {/* Order by the known series first, then anything new the API adds —
+                  a fifth backend series must appear here without a frontend edit. */}
+              {[...SERIES_ORDER.filter((k) => rank.series?.[k]),
+                ...Object.keys(rank.series ?? {}).filter((k) => !SERIES_ORDER.includes(k))].map((k) => (
                 <RankingTable key={k} name={k} block={rank.series[k]} zoneLabel={zoneLabel} currentZone={zone} />
               ))}
             </div>
