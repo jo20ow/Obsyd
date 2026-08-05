@@ -39,10 +39,12 @@ def _seed_quality(
     expected=24,
     norm_days=30,
     norm_present=24,
+    days_ago=1,
 ):
-    """`norm_days` full prior days then yesterday with `yesterday_present` hours.
-    yesterday_present=None seeds only the norm (no row for yesterday)."""
-    y = _utc_yesterday()
+    """`norm_days` full prior days then the anchor day (`days_ago` before today,
+    default yesterday) with `yesterday_present` hours. yesterday_present=None
+    seeds only the norm (no row for the anchor day)."""
+    y = datetime.now(timezone.utc).date() - timedelta(days=days_ago)
     for o in range(1, norm_days + 1):
         db.add(QualityDaily(
             zone=zone, series_key=series, date=(y - timedelta(days=o)).isoformat(),
@@ -131,10 +133,26 @@ def test_completeness_above_threshold_suppressed(db_session):
 
 
 def test_completeness_missing_yesterday_row_is_silence(db_session):
-    # No quality row for yesterday (nightly job not run yet / series inactive)
-    # → nothing to describe → no alert. Absence is never turned into a claim.
+    # No quality row for yesterday (nightly job not run yet): the detector
+    # anchors on the newest recorded day instead — here that day is fully
+    # complete, so silence. Absence is never turned into a claim.
     _seed_quality(db_session, yesterday_present=None)
     assert detect_completeness_drops(db_session) == []
+
+
+def test_completeness_fires_without_a_yesterday_row(db_session):
+    """The race the anchor exists for: the nightly quality job (23:55 UTC on
+    day D) writes day D−1's rows minutes before "yesterday" rolls over to D —
+    for almost all of day D the literal calendar yesterday has no row yet (and
+    a job overrun past midnight would skip it entirely). The newest recorded
+    day ≤ yesterday is what gets judged, with an honest as_of."""
+    two_days_ago = (datetime.now(timezone.utc).date() - timedelta(days=2)).isoformat()
+    _seed_quality(db_session, yesterday_present=4, days_ago=2)  # no yesterday row at all
+    results = detect_completeness_drops(db_session)
+    assert len(results) == 1
+    r = results[0]
+    assert "4 of 24" in r.title
+    assert r.as_of == two_days_ago, "as_of names the day actually judged"
 
 
 def test_completeness_no_data_no_alerts(db_session):

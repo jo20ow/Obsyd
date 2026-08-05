@@ -5,12 +5,14 @@ record what the source published; these two detectors surface the days that
 record turns NEWSWORTHY, on the same Alert backbone as every other radar rule —
 zero extra delivery code, same feed, same RSS.
 
-* ``quality_completeness_drop`` — yesterday (the newest finished UTC day) a
-  charter series' published hours collapsed below half, in a zone+series that
-  is normally near-complete. The trailing norm is the guard rail twice over: a
-  chronically thin series is not news, and a freshly deployed / newly enabled
-  zone has no norm yet, so the detector stays silent instead of judging a day
-  against a handful of rows.
+* ``quality_completeness_drop`` — on the newest finished day the record HOLDS
+  (max quality_daily date ≤ the calendar yesterday; the nightly writer lands
+  the literal yesterday only minutes before midnight, so the calendar date
+  would be a race) a charter series' published hours collapsed below half, in
+  a zone+series that is normally near-complete. The trailing norm is the guard
+  rail twice over: a chronically thin series is not news, and a freshly
+  deployed / newly enabled zone has no norm yet, so the detector stays silent
+  instead of judging a day against a handful of rows.
 * ``quality_major_restatement`` — the source re-published materially different
   values for several SETTLED hours of one series within the last 24 h. "Settled"
   reuses the read-side maturity threshold shared with /api/v1/quality/revisions
@@ -35,7 +37,9 @@ interconnector_saturated precedent).
 from __future__ import annotations
 
 import statistics
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+
+from sqlalchemy import func
 
 from backend.models.energy import PowerRevision, QualityDaily, SeriesDim, ZoneDim
 from backend.power.quality import QUALITY_SERIES, REVISION_MATURITY_S
@@ -56,16 +60,34 @@ COMPLETENESS_MIN_NORM_DAYS = MIN_BASELINE_N
 
 
 def detect_completeness_drops(db) -> list[DetectorResult]:
-    """Zones where a normally-complete charter series lost most of yesterday.
+    """Zones where a normally-complete charter series lost most of the newest
+    finished day ON RECORD.
 
-    Judges only YESTERDAY (UTC) — today is partial by construction while the
-    day runs. A missing yesterday row is silence, not a drop: either the
-    nightly quality job has not covered the day yet or the series is inactive
-    there, and absence is never turned into a claim (no data → no alert).
+    The anchor is max(quality_daily.date) ≤ the calendar yesterday — NOT the
+    literal calendar yesterday: the nightly quality job (23:55 UTC on day D)
+    first writes day D−1's rows five minutes before "yesterday" rolls over to
+    D, so judging the literal date would race the writer's last five minutes
+    and silently skip the day whenever the job overruns midnight. Anchoring on
+    the newest recorded day gives every quality day a full 24 h detection
+    surface regardless of schedule timing; the backbone's (rule, zone) upsert
+    makes the re-fires idempotent, and as_of carries the anchored day — the
+    day actually judged — so the runner's staleness gate stays honest. Today
+    is never judged (partial by construction while the day runs; the ≤
+    yesterday cap enforces it). No quality rows at all → silence, not a claim
+    (no data → no alert).
     """
     yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
-    y_iso = yesterday.isoformat()
-    cut = (yesterday - timedelta(days=COMPLETENESS_NORM_DAYS)).isoformat()
+    y_iso = (
+        db.query(func.max(QualityDaily.date))
+        .filter(
+            QualityDaily.date <= yesterday.isoformat(),
+            QualityDaily.series_key.in_(QUALITY_SERIES),
+        )
+        .scalar()
+    )
+    if y_iso is None:
+        return []
+    cut = (date.fromisoformat(y_iso) - timedelta(days=COMPLETENESS_NORM_DAYS)).isoformat()
 
     # One indexed date-range scan for all zones; QUALITY_SERIES is the charter
     # list and never contains the reserved "_zone" pseudo-series (its rows carry

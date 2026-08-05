@@ -115,6 +115,9 @@ Each row: `date`, `hours_present`, `hours_expected`, `flags` (decoded list —
 `rule`, affected `hours` as ISO UTC, `detail`). Flags describe the published
 data (`zero_run`, `pv_at_night`, `step_jump`, `gen_below_load_exports`), never
 the market. A valid-but-empty combination is HTTP 200 with `available:false`.
+Note: the arrival-lag stats ride the arrival log, which is pruned to a trailing
+90 days — with `days` > 90 the quality rows cover the full window but the lag
+stats remain bounded by that retention.
 
 ### `GET /api/v1/quality/revisions`
 The revision ledger for ONE series+zone: every time the source re-published a
