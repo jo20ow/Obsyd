@@ -38,6 +38,14 @@ def _clear_dependency_overrides():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _zero_live_pacing(monkeypatch):
+    """Zero the live-path pacing so tests stay instant — the pacing behavior
+    itself is exercised by its own dedicated tests below."""
+    monkeypatch.setattr(flows, "LIVE_THROTTLE_SECONDS", 0.0)
+    monkeypatch.setattr(flows, "LIVE_RATE_LIMIT_BASE_SECONDS", 0.0)
+
+
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 _TODAY = date.today()
@@ -312,6 +320,99 @@ async def test_ingest_fetch_failure_graceful(db_session):
 
     # At least the DE borders were written
     assert result["written"] >= 1
+
+
+def _real_429():
+    """A 429 that carries a response object — the shape the live API actually
+    raises (response=None short-circuits the backoff by design)."""
+    import httpx
+
+    req = httpx.Request("GET", "https://api.energy-charts.info/cbpf")
+    return httpx.HTTPStatusError("429", request=req, response=httpx.Response(429, request=req))
+
+
+@pytest.mark.asyncio
+async def test_live_path_retries_a_real_429_then_succeeds(db_session):
+    """The live sweep retries a genuine 429 instead of dropping the country —
+    the failure that starved the sweep's tail of same-day flows since 2026-08-04."""
+    import httpx
+
+    from backend.power.energy_charts_flows import ingest_cbpf
+
+    day = "2026-06-01"
+    de_payload = _make_payload({"France": [2.0] * 96}, base_ts=1780272000)
+    calls = {"de": 0}
+
+    async def mock_fetch(country, start, end):
+        if country == "de":
+            calls["de"] += 1
+            if calls["de"] == 1:
+                raise _real_429()
+            return de_payload
+        raise httpx.HTTPStatusError("skip", request=None, response=None)
+
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        result = await ingest_cbpf(db_session, [day])
+
+    assert calls["de"] == 2  # one 429, one success
+    assert result["written"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_live_path_gives_up_after_bounded_attempts(db_session):
+    """Persistent 429s stop after LIVE_RATE_LIMIT_ATTEMPTS and the ingest
+    continues — a 30-minute scheduler job must never hang on one country."""
+    import httpx
+
+    from backend.power.energy_charts_flows import ingest_cbpf
+
+    calls = {"de": 0}
+
+    async def mock_fetch(country, start, end):
+        if country == "de":
+            calls["de"] += 1
+            raise _real_429()
+        raise httpx.HTTPStatusError("skip", request=None, response=None)
+
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        result = await ingest_cbpf(db_session, ["2026-06-01"])
+
+    assert calls["de"] == flows.LIVE_RATE_LIMIT_ATTEMPTS
+    assert result["written"] == 0  # nothing landed, nothing crashed
+
+
+@pytest.mark.asyncio
+async def test_live_path_paces_the_country_sweep(db_session, monkeypatch):
+    """Each successful live fetch is followed by one LIVE_THROTTLE_SECONDS pause
+    — the spacing that keeps the ~20-country sweep under the API's rate limit."""
+    import httpx
+
+    from backend.power.energy_charts_flows import ingest_cbpf
+
+    monkeypatch.setattr(flows, "LIVE_THROTTLE_SECONDS", 0.123)
+
+    class _RecordingAsyncio:
+        def __init__(self):
+            self.sleeps = []
+
+        async def sleep(self, seconds):
+            self.sleeps.append(seconds)
+
+    fake = _RecordingAsyncio()
+    monkeypatch.setattr(flows, "asyncio", fake)
+
+    de_payload = _make_payload({"France": [2.0] * 96}, base_ts=1780272000)
+
+    async def mock_fetch(country, start, end):
+        if country == "de":
+            return de_payload
+        raise httpx.HTTPStatusError("skip", request=None, response=None)
+
+    with patch("backend.power.energy_charts_flows.fetch_cbpf", side_effect=mock_fetch):
+        await ingest_cbpf(db_session, ["2026-06-01"])
+
+    # Exactly one pause per SUCCESSFUL fetch (failed countries raise before it).
+    assert fake.sleeps.count(0.123) == 1
 
 
 # ─── route tests ─────────────────────────────────────────────────────────────
