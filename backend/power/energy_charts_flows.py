@@ -57,6 +57,17 @@ CACHE_THROTTLE_SECONDS = 2.0
 RATE_LIMIT_ATTEMPTS = 6
 RATE_LIMIT_BASE_SECONDS = 30.0
 
+# The LIVE path needs the same discipline, scaled down: since ~2026-08-04 the
+# API 429s the tail of the ~20-country intraday sweep when the requests go out
+# back-to-back (958 warnings in one day of prod logs), which silently starved
+# GR/BG/HR/SI/SK/FI/CH of same-day flows. One second between countries plus a
+# short bounded backoff clears it; the backfill constants above are too heavy
+# for a 30-minute scheduler job (worst case 6 attempts × 30 s·2^n per country
+# would hold the job for minutes).
+LIVE_THROTTLE_SECONDS = 1.0
+LIVE_RATE_LIMIT_ATTEMPTS = 3
+LIVE_RATE_LIMIT_BASE_SECONDS = 5.0
+
 # Energy-Charts country names -> OBSYD zone codes.
 # "Germany" maps to DE_LU because the DE ENTSO-E bidding zone is the DE-LU
 # combined zone; Energy-Charts /cbpf for country=de covers this zone.
@@ -324,29 +335,38 @@ def _month_windows(start: date, end: date) -> list[tuple[date, date]]:
     return windows
 
 
-async def _fetch_with_rate_limit(country_code: str, start_iso: str, end_iso: str) -> dict:
-    """fetch_cbpf with HTTP-429 backoff for the backfill path.
+async def _fetch_with_rate_limit(
+    country_code: str,
+    start_iso: str,
+    end_iso: str,
+    *,
+    attempts: int = RATE_LIMIT_ATTEMPTS,
+    base_seconds: float = RATE_LIMIT_BASE_SECONDS,
+) -> dict:
+    """fetch_cbpf with HTTP-429 backoff (defaults = the heavy backfill profile).
 
     A month-sweep is hundreds of requests; without honouring the rate limit the
     2026-07-12 run "completed" in 20 s having skipped almost every country-month
     (ingest_cbpf logs per-country failures as warnings, so nothing retried).
-    Non-429 errors propagate immediately.
+    The live path passes the LIVE_* profile — bounded so a 30-minute scheduler
+    job can never hang for minutes on one country. Non-429 errors propagate
+    immediately.
     """
-    for attempt in range(RATE_LIMIT_ATTEMPTS):
+    for attempt in range(attempts):
         try:
             return await fetch_cbpf(country_code, start_iso, end_iso)
         except httpx.HTTPStatusError as exc:
             resp = exc.response
-            if resp is None or resp.status_code != 429 or attempt == RATE_LIMIT_ATTEMPTS - 1:
+            if resp is None or resp.status_code != 429 or attempt == attempts - 1:
                 raise
             retry_after = resp.headers.get("Retry-After", "")
             try:
                 wait = float(retry_after)
             except ValueError:
-                wait = RATE_LIMIT_BASE_SECONDS * (2**attempt)
+                wait = base_seconds * (2**attempt)
             logger.warning(
                 "energy_charts_flows: 429 for %s %s..%s — backing off %.0fs (attempt %d/%d)",
-                country_code, start_iso, end_iso, wait, attempt + 1, RATE_LIMIT_ATTEMPTS,
+                country_code, start_iso, end_iso, wait, attempt + 1, attempts,
             )
             await asyncio.sleep(wait)
     raise AssertionError("unreachable")  # loop always returns or raises
@@ -364,13 +384,24 @@ async def _fetch_range(
 
     Live path (use_cache=False): one direct request for the exact range — the
     scheduler's small rolling windows change intraday and must not be cached.
+    Since ~2026-08-04 the API 429s back-to-back sweeps, so the live request
+    rides the bounded LIVE_* backoff and is followed by a short pause that
+    spaces the per-country loop in ingest_cbpf.
     Backfill path (use_cache=True): month-chunked through raw_cache so a crashed
     or re-run backfill never re-hits the API. Only COMPLETED months are written
     to the cache — a current-month blob would freeze mid-month and starve later
     re-runs of the month's remainder.
     """
     if not use_cache:
-        return [await fetch_cbpf(country_code, start_date.isoformat(), end_date.isoformat())]
+        payload = await _fetch_with_rate_limit(
+            country_code,
+            start_date.isoformat(),
+            end_date.isoformat(),
+            attempts=LIVE_RATE_LIMIT_ATTEMPTS,
+            base_seconds=LIVE_RATE_LIMIT_BASE_SECONDS,
+        )
+        await asyncio.sleep(LIVE_THROTTLE_SECONDS)
+        return [payload]
 
     today = datetime.now(timezone.utc).date()
     payloads: list[dict] = []
