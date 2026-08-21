@@ -74,6 +74,10 @@ export default function CommandPalette({ onClose, tabs, setActiveTab, setEnergyZ
     }
     if (openSettings) cmds.push({ id: 'act:settings', label: 'Open settings', hint: 'action', run: () => openSettings() })
     cmds.push({ id: 'act:watchlist', label: 'Manage watchlist & alerts', hint: 'action', run: () => setActiveTab('alerts') })
+    // Full page navigations — correct here: the hand-rolled router reads
+    // window.location.pathname once at mount.
+    cmds.push({ id: 'act:apidocs', label: 'Open API docs & quickstart', hint: 'link', run: () => { window.location.href = '/docs' } })
+    cmds.push({ id: 'act:builder', label: 'Open chart builder', hint: 'link', run: () => { window.location.href = '/builder' } })
     if (authed) {
       for (const c of catalog) {
         cmds.push({
