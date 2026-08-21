@@ -49,7 +49,7 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-4 border-b border-border">
-        <div className="font-mono text-lg font-bold tracking-widest text-cyan-glow">OBSYD</div>
+        <a href="/" title="Back to the landing page" className="block font-mono text-lg font-bold tracking-widest text-cyan-glow hover:opacity-80 transition-opacity">OBSYD</a>
         <div className="font-mono text-[10px] text-neutral-600 tracking-wider">European Electricity Desk</div>
       </div>
 
@@ -98,6 +98,9 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
           <StatusDot label="FLOWS" ok={health?.power_flows ?? false} />
           <StatusDot label="OUTAGES" ok={health?.power_outages ?? false} />
           <StatusDot label="GAS" ok={health?.gas_balance ?? false} />
+        </div>
+        <div className="px-1 pt-1 font-mono text-[10px]">
+          <a href="/docs" className="text-neutral-500 hover:text-cyan-glow transition-colors">API docs ↗</a>
         </div>
         <div className="px-1 pt-2 font-mono text-[9px] text-neutral-700">
           <a href="/impressum" className="hover:text-neutral-500">Impressum</a>

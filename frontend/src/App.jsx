@@ -47,6 +47,7 @@ import DriversPanel from './components/DriversPanel'
 import ProductsPanel from './components/ProductsPanel'
 import Landing from './components/Landing'
 import LegalPage from './components/LegalPage'
+import DevDocsPage from './components/DevDocsPage'
 import CommandPalette from './components/CommandPalette'
 import EmbedPage from './components/embed/EmbedPage'
 import { useAuth } from './context/AuthContext'
@@ -199,6 +200,9 @@ function App() {
 
   if (pathname === '/impressum' || pathname === '/datenschutz') {
     return <LegalPage page={pathname.slice(1)} />
+  }
+  if (pathname === '/docs') {
+    return <DevDocsPage />
   }
   if (pathname === '/builder') {
     return <BuilderShell />

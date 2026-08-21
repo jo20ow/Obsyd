@@ -33,6 +33,47 @@ export function InfoPopover({ text, wide = false }) {
   )
 }
 
+// "API" chip: copies the panel's underlying JSON API URL — the CSV downloadUrl
+// minus its format param, absolutized against the current origin so it stays
+// correct on obsyd.dev and on a self-hosted instance alike.
+function ApiChip({ downloadUrl }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef(null)
+
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const copy = (e) => {
+    e.stopPropagation()
+    let apiUrl
+    try {
+      const u = new URL(downloadUrl, window.location.origin)
+      u.searchParams.delete('format')
+      apiUrl = u.toString()
+    } catch {
+      return
+    }
+    navigator.clipboard?.writeText(apiUrl).then(() => {
+      setCopied(true)
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
+
+  return (
+    <button
+      onClick={copy}
+      className={`font-mono text-[9px] tracking-wider border rounded px-1.5 py-0.5 transition-colors ${
+        copied
+          ? 'text-cyan-glow border-cyan-glow/40'
+          : 'text-neutral-500 border-border hover:text-cyan-glow hover:border-cyan-glow/40'
+      }`}
+      title="Copy this panel's JSON API URL"
+    >
+      {copied ? '✓ copied' : 'API'}
+    </button>
+  )
+}
+
 export default function Panel({ id, title, info, infoWide = false, collapsible = false, defaultCollapsed = false, expandSignal, headerRight, downloadUrl, freshness, children }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (!collapsible) return false
@@ -78,14 +119,17 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
         <div className="flex items-center gap-2 shrink-0">
           {freshness && <FreshnessCaption meta={freshness} />}
           {downloadUrl && (
-            <a
-              href={downloadUrl}
-              onClick={(e) => e.stopPropagation()}
-              className="font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
-              title="Download this panel's data as CSV"
-            >
-              ↓ CSV
-            </a>
+            <>
+              <a
+                href={downloadUrl}
+                onClick={(e) => e.stopPropagation()}
+                className="font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+                title="Download this panel's data as CSV (the same URL serves JSON or Parquet via format=)"
+              >
+                ↓ CSV
+              </a>
+              <ApiChip downloadUrl={downloadUrl} />
+            </>
           )}
           {headerRight}
           {collapsible && (

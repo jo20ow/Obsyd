@@ -45,6 +45,9 @@ export default function Landing() {
             <a href="#how" className="hover:text-neutral-200 hidden sm:inline">
               HOW IT WORKS
             </a>
+            <a href="/docs" className="hover:text-neutral-200">
+              API
+            </a>
             <a
               href="https://github.com/jo20ow/Obsyd"
               target="_blank"
@@ -315,10 +318,16 @@ export default function Landing() {
 
         <div className="flex flex-col sm:flex-row gap-3">
           <a
-            href="/api/docs"
+            href="/docs"
             className="px-6 py-3 text-[11px] tracking-wider bg-cyan-glow text-[#0a0a12] hover:bg-cyan-glow/90 transition-colors font-semibold text-center"
           >
-            Interactive API docs →
+            API docs &amp; quickstart →
+          </a>
+          <a
+            href="/api/docs"
+            className="px-6 py-3 text-[11px] tracking-wider border border-border text-neutral-400 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors text-center"
+          >
+            Swagger UI
           </a>
           <a
             href="https://pypi.org/project/obsyd/"
@@ -355,7 +364,7 @@ export default function Landing() {
             {' · '}
             <a href="/api/alerts/rss" className="text-cyan-glow hover:underline">Anomaly radar RSS</a>
             {' · '}
-            <a href="/api/docs" className="text-cyan-glow hover:underline">API</a>
+            <a href="/docs" className="text-cyan-glow hover:underline">API</a>
             {' · '}
             <a href="/impressum" className="text-neutral-500 hover:underline">Impressum</a>
             {' · '}
