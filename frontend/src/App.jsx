@@ -48,6 +48,7 @@ import ProductsPanel from './components/ProductsPanel'
 import Landing from './components/Landing'
 import LegalPage from './components/LegalPage'
 import DevDocsPage from './components/DevDocsPage'
+import { SectionLabel } from './components/doc/DocShell'
 import CommandPalette from './components/CommandPalette'
 import EmbedPage from './components/embed/EmbedPage'
 import { useAuth } from './context/AuthContext'
@@ -124,12 +125,8 @@ function Disclaimer() {
   )
 }
 
-// In-page section header for the grouped POWER tab (PRICES / GRID / FLOWS).
-function SectionLabel({ children }) {
-  return (
-    <div className="font-mono text-[12px] font-semibold text-neutral-400 pt-1">{children}</div>
-  )
-}
+// In-page section header for the grouped POWER tab (PRICES / GRID / FLOWS) —
+// the shared doc/DocShell SectionLabel (accent overline + small caps).
 
 // Smooth-scroll to an in-page section anchor (the POWER sub-nav).
 function scrollToSection(id) {

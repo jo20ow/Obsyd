@@ -120,3 +120,17 @@ html.light .recharts-default-tooltip {
 }
 html.light .recharts-default-tooltip .recharts-tooltip-label,
 html.light .recharts-default-tooltip .recharts-tooltip-item { color: #111827 !important; }
+
+/* --- Document typography (landing, /docs, legal) --- serif headings on a sans
+   body, scholarly measure. Handles TYPOGRAPHY only — colors stay with the
+   utility classes on the markup, so both themes keep working. */
+.prose-doc { font-size: 15px; line-height: 1.7; }
+.prose-doc > p { max-width: 65ch; }
+.prose-doc h1 {
+  font-family: var(--font-serif); font-weight: 600; font-size: 28px;
+  line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 1rem;
+}
+.prose-doc h2 {
+  font-family: var(--font-serif); font-weight: 600; font-size: 19px;
+  line-height: 1.35; margin: 1.75rem 0 0.5rem;
+}

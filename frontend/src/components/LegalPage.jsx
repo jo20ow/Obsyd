@@ -4,6 +4,8 @@
  * the site actually does — no generator boilerplate walls.
  */
 
+import DocShell from './doc/DocShell'
+
 const ADDRESS = (
   <p className="leading-relaxed">
     Johannes Weisser
@@ -23,20 +25,20 @@ const EMAIL = 'obsyd.dev@pm.me'
 function Impressum() {
   return (
     <>
-      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Impressum</h1>
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">
+      <h1 className="font-serif text-2xl font-semibold text-neutral-100 mb-6">Impressum</h1>
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">
         Anbieter (§ 5 DDG, § 18 Abs. 1 MStV)
       </h2>
       {ADDRESS}
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">Kontakt</h2>
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">Kontakt</h2>
       <p>
         E-Mail: <a className="text-cyan-glow" href={`mailto:${EMAIL}`}>{EMAIL}</a>
       </p>
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">
         Inhaltlich verantwortlich (§ 18 Abs. 2 MStV)
       </h2>
       <p>Johannes Weisser (Anschrift wie oben)</p>
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">Hinweise</h2>
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">Hinweise</h2>
       <p className="leading-relaxed">
         OBSYD ist ein kostenloses, quelloffenes (AGPL-3.0) Beobachtungswerkzeug für
         den europäischen Strommarkt. Alle Darstellungen sind deskriptiv und beruhen
@@ -51,15 +53,15 @@ function Impressum() {
 function Datenschutz() {
   return (
     <>
-      <h1 className="text-2xl font-bold text-neutral-100 mb-6">Datenschutzerklärung</h1>
+      <h1 className="font-serif text-2xl font-semibold text-neutral-100 mb-6">Datenschutzerklärung</h1>
 
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">Verantwortlicher</h2>
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">Verantwortlicher</h2>
       {ADDRESS}
       <p className="mt-2">
         E-Mail: <a className="text-cyan-glow" href={`mailto:${EMAIL}`}>{EMAIL}</a>
       </p>
 
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">
         1. Server-Logs (Hosting)
       </h2>
       <p className="leading-relaxed">
@@ -71,7 +73,7 @@ function Datenschutz() {
         auf einem Server in Deutschland (Frankfurt am Main).
       </p>
 
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">
         2. Reichweitenmessung (Plausible)
       </h2>
       <p className="leading-relaxed">
@@ -82,7 +84,7 @@ function Datenschutz() {
         aggregierte Nutzungsstatistik).
       </p>
 
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">
         3. Login per Magic-Link (optional)
       </h2>
       <p className="leading-relaxed">
@@ -98,14 +100,14 @@ function Datenschutz() {
         E-Mail-Adresse.
       </p>
 
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">4. Keine Weitergabe</h2>
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">4. Keine Weitergabe</h2>
       <p className="leading-relaxed">
         Eine Weitergabe personenbezogener Daten an Dritte findet über die genannten
         Auftragsverarbeiter hinaus nicht statt. Es findet keine automatisierte
         Entscheidungsfindung und kein Profiling statt.
       </p>
 
-      <h2 className="text-sm font-semibold text-neutral-200 mt-6 mb-2">5. Ihre Rechte</h2>
+      <h2 className="font-serif text-[16px] font-semibold text-neutral-200 mt-6 mb-2">5. Ihre Rechte</h2>
       <p className="leading-relaxed">
         Sie haben nach Maßgabe der Art. 15–21 DSGVO das Recht auf Auskunft,
         Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit
@@ -122,18 +124,10 @@ function Datenschutz() {
 
 export default function LegalPage({ page }) {
   return (
-    <div className="min-h-screen bg-surface text-neutral-400 text-[13px]">
-      <div className="max-w-2xl mx-auto px-5 py-12">
-        <a href="/" className="font-mono text-[11px] tracking-[3px] text-cyan-glow">
-          ← OBSYD
-        </a>
-        <div className="mt-8">{page === 'impressum' ? <Impressum /> : <Datenschutz />}</div>
-        <div className="mt-10 pt-4 border-t border-border text-[11px] text-neutral-600">
-          <a href="/impressum" className="hover:text-neutral-400">Impressum</a>
-          {' · '}
-          <a href="/datenschutz" className="hover:text-neutral-400">Datenschutz</a>
-        </div>
+    <DocShell maxWidth="max-w-2xl">
+      <div className="prose-doc text-[13px] text-neutral-400">
+        {page === 'impressum' ? <Impressum /> : <Datenschutz />}
       </div>
-    </div>
+    </DocShell>
   )
 }
