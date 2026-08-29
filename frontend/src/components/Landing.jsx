@@ -80,7 +80,7 @@ function LiveFigure() {
       <div className="max-w-5xl mx-auto px-5 py-12">
         <SectionLabel className="mb-5">LIVE FROM THE DESK</SectionLabel>
         <figure>
-          <p className="font-serif text-xl sm:text-2xl leading-relaxed text-neutral-200 max-w-3xl">
+          <p className="font-display text-xl sm:text-2xl leading-relaxed text-neutral-200 max-w-3xl">
             {lead}{moverText ? ' — ' : '. '}
             {moverText && <>{moverText}. </>}
             {spreadText && <>{spreadText} </>}
@@ -132,7 +132,7 @@ export default function Landing() {
       {/* HERO */}
       <section className="max-w-5xl mx-auto px-5 pt-16 pb-14 sm:pt-24 sm:pb-20">
         <SectionLabel className="mb-6">THE EUROPEAN ELECTRICITY DESK</SectionLabel>
-        <h1 className="font-serif text-4xl sm:text-5xl font-semibold tracking-tight text-neutral-100 leading-[1.15] mb-6 max-w-3xl">
+        <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight text-neutral-100 leading-[1.15] mb-6 max-w-3xl">
           The European power grid — every zone, one desk, free.
         </h1>
         <p className="text-[15px] text-neutral-400 max-w-2xl leading-relaxed mb-8">
@@ -164,14 +164,14 @@ export default function Landing() {
       {/* HOW IT WORKS */}
       <section id="how" className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
         <SectionLabel className="mb-4">HOW IT WORKS</SectionLabel>
-        <h2 className="font-serif text-2xl sm:text-3xl font-semibold text-neutral-100 mb-10">
+        <h2 className="font-display text-2xl sm:text-3xl font-semibold text-neutral-100 mb-10">
           See the situation. Catch the stress. Stay honest.
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-14">
           {PILLARS.map((p) => (
             <div key={p.title} className="border-t-2 border-border pt-4">
-              <div className="font-serif text-[17px] font-semibold text-neutral-100 mb-2 leading-snug">
+              <div className="font-display text-[17px] font-semibold text-neutral-100 mb-2 leading-snug">
                 {p.title}
               </div>
               <div className="text-[13px] text-neutral-500 leading-relaxed">{p.body}</div>
@@ -214,7 +214,7 @@ export default function Landing() {
         <div className="max-w-5xl mx-auto px-5 py-16 sm:py-20 grid grid-cols-1 md:grid-cols-2 gap-10">
           <div>
             <SectionLabel className="mb-4">WHY OBSYD</SectionLabel>
-            <h2 className="font-serif text-2xl font-semibold text-neutral-100 mb-5 leading-snug">
+            <h2 className="font-display text-2xl font-semibold text-neutral-100 mb-5 leading-snug">
               The official power record, turned into a desk.
             </h2>
             <p className="text-[13px] text-neutral-400 leading-relaxed max-w-lg">
@@ -246,7 +246,7 @@ export default function Landing() {
       {/* ENERGY WATCH */}
       <section className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
         <SectionLabel className="mb-4">YOUR ENERGY WATCH</SectionLabel>
-        <h2 className="font-serif text-2xl sm:text-3xl font-semibold text-neutral-100 mb-4">
+        <h2 className="font-display text-2xl sm:text-3xl font-semibold text-neutral-100 mb-4">
           Don&apos;t watch the desk. Let it watch for you.
         </h2>
         <p className="text-[13px] text-neutral-400 leading-relaxed max-w-2xl mb-10">
@@ -289,7 +289,7 @@ export default function Landing() {
       <section id="developers" className="border-y border-border bg-surface">
         <div className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
           <SectionLabel className="mb-4">FOR DEVELOPERS</SectionLabel>
-          <h2 className="font-serif text-2xl sm:text-3xl font-semibold text-neutral-100 mb-3">
+          <h2 className="font-display text-2xl sm:text-3xl font-semibold text-neutral-100 mb-3">
             Every number, straight into your notebook.
           </h2>
           <p className="text-[13px] text-neutral-400 max-w-2xl mb-7 leading-relaxed">
@@ -324,13 +324,13 @@ export default function Landing() {
       {/* PRICING */}
       <section id="pricing" className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
         <SectionLabel className="mb-4">PRICING</SectionLabel>
-        <h2 className="font-serif text-2xl sm:text-3xl font-semibold text-neutral-100 mb-8">
+        <h2 className="font-display text-2xl sm:text-3xl font-semibold text-neutral-100 mb-8">
           It&apos;s free. All of it.
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl">
           <div className="border border-border bg-surface rounded p-6">
             <div className="smallcaps text-[11px] text-neutral-500 mb-1">CLOUD</div>
-            <div className="font-serif text-3xl text-neutral-100 mb-1">€0</div>
+            <div className="font-display text-3xl text-neutral-100 mb-1">€0</div>
             <div className="text-[11px] text-neutral-500 mb-5">on obsyd.dev · no card, no account needed</div>
             <ul className="text-[12px] text-neutral-400 space-y-1.5">
               <li>· Full power desk + anomaly radar</li>
@@ -341,7 +341,7 @@ export default function Landing() {
           </div>
           <div className="border border-border bg-surface rounded p-6">
             <div className="smallcaps text-[11px] text-neutral-500 mb-1">SELF-HOST</div>
-            <div className="font-serif text-3xl text-neutral-100 mb-1">€0</div>
+            <div className="font-display text-3xl text-neutral-100 mb-1">€0</div>
             <div className="text-[11px] text-neutral-500 mb-5">AGPL-3.0 · your infra, your keys</div>
             <ul className="text-[12px] text-neutral-400 space-y-1.5">
               <li>· The exact same code, end to end</li>
@@ -357,7 +357,7 @@ export default function Landing() {
       <section id="cite" className="border-y border-border bg-surface">
         <div className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
           <SectionLabel className="mb-4">CITE OBSYD</SectionLabel>
-          <h2 className="font-serif text-2xl font-semibold text-neutral-100 mb-4">
+          <h2 className="font-display text-2xl font-semibold text-neutral-100 mb-4">
             Citable, like the record it reads.
           </h2>
           <p className="text-[13px] text-neutral-400 max-w-2xl mb-6 leading-relaxed">
