@@ -69,6 +69,7 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A65/A69 · published day-ahead forecasts"
       id="power-load-forecast"
       freshness={data}
       title="LOAD FORECAST vs ACTUAL // ENTSO-E"

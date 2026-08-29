@@ -3,6 +3,8 @@ import { POLL_FAST_MS } from '../utils/poll'
 import { InfoPopover } from './Panel'
 import PanelTakeaway from './PanelTakeaway'
 import ReferenceBand from './ReferenceBand'
+import { StaleChip } from './FreshnessCaption'
+import { ZONE_STATE } from '../utils/zoneState'
 import { zPhrase, residualPhrase } from '../utils/takeaway'
 
 const API = '/api'
@@ -18,27 +20,16 @@ const stateLegend = (baselineDays) =>
   'ELEVATED: ≥2σ, or a Dunkelflaute (wind+solar under 15% of load AND in the bottom 2% of this zone\'s own same-month record) / negative-price flag. ' +
   'CALM: within ~2σ and no flags.'
 
-// Descriptive desk state → colour. Posture B: this is "how far from normal",
-// not a forecast. CALM / ELEVATED / STRESSED come straight from the backend.
-const STATE_STYLE = {
-  CALM: { text: 'text-green-glow', dot: 'bg-green-glow', border: 'border-green-500/30' },
-  ELEVATED: { text: 'text-yellow-400', dot: 'bg-yellow-400', border: 'border-yellow-500/30' },
-  STRESSED: { text: 'text-red-400', dot: 'bg-red-400', border: 'border-red-500/30' },
-}
+// Descriptive desk state → colour comes from the ONE canonical map in
+// utils/zoneState.js (this file used to carry a private duplicate).
 
 // Per-component age tag: each metric carries its own freshness so a fresh
 // day-ahead price can never make a days-old residual/renewables figure look
-// current (the backend flags each block separately).
+// current (the backend flags each block separately). Shared StaleChip so the
+// desk speaks one staleness vocabulary.
 function StaleTag({ comp }) {
   if (!comp?.stale) return null
-  return (
-    <span
-      className="font-mono text-[8px] tracking-wide text-orange-400 border border-orange-500/30 rounded px-1 py-px ml-1.5 align-middle"
-      title={`Latest data ${comp.as_of} — this series may be stalled`}
-    >
-      {comp.age_days}d old
-    </span>
-  )
+  return <StaleChip asOf={comp.as_of} ageDays={comp.age_days} dense className="ml-1.5 align-middle" />
 }
 
 function Metric({ label, value, sub, color, band, comp }) {
@@ -71,7 +62,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
   if (error && !data) {
     return (
       <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
-        <div className="font-mono text-[10px] text-red-400">POWER SITUATION // FETCH ERROR</div>
+        <div className="font-mono text-[10px] text-red-400 smallcaps">POWER SITUATION · FETCH ERROR</div>
       </div>
     )
   }
@@ -90,7 +81,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
   if (!data?.available) {
     return (
       <div className="border border-border bg-surface rounded px-4 py-5">
-        <div className="font-mono text-[10px] text-neutral-600 tracking-wider">// POWER SITUATION</div>
+        <div className="font-mono text-[10px] text-neutral-600 smallcaps">POWER SITUATION</div>
         <div className="font-mono text-xs text-neutral-500 mt-2">
           No power data for {data?.zone_label || zone} yet — check back shortly.
         </div>
@@ -98,7 +89,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
     )
   }
 
-  const st = STATE_STYLE[data.state] || STATE_STYLE.CALM
+  const st = ZONE_STATE[data.state] || ZONE_STATE.CALM
   const { price, grid, spark, flags = [] } = data
 
   const priceColor = price.z != null && Math.abs(price.z) >= 2 ? st.text : 'text-neutral-200'
@@ -114,7 +105,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
       {/* Header bar: label + zone + state */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[10px] text-neutral-500 tracking-wider">// POWER SITUATION</span>
+          <span className="font-mono text-[10px] text-neutral-500 smallcaps">POWER SITUATION</span>
           <span className="font-mono text-[10px] text-cyan-glow px-1.5 py-0.5 border border-cyan-glow/20 rounded">
             {data.zone_label}
           </span>
@@ -129,14 +120,7 @@ export default function PowerSituationHeader({ zone = 'DE_LU' }) {
             (() => {
               const worst = Math.max(
                 ...[price, grid, spark].filter((c) => c?.stale).map((c) => c.age_days ?? 0), 0)
-              return (
-                <span
-                  className="font-mono text-[9px] tracking-wide text-orange-400 border border-orange-500/30 rounded px-1 py-0.5"
-                  title="At least one series is lagging — see the metric tags below"
-                >
-                  STALE · {worst}d
-                </span>
-              )
+              return <StaleChip asOf={data.as_of} ageDays={worst} />
             })()
           ) : (
             data.as_of && <span className="font-mono text-[9px] text-neutral-600 hidden sm:inline">{data.as_of}</span>

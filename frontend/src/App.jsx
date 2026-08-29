@@ -117,6 +117,22 @@ const DEFAULT_TAB = 'europe'
 // Page heading per section ("Live monitoring" title on the content).
 const PAGE_TITLES = { europe: 'Live monitoring', energy: 'Power', analytics: 'Analytics', gas: 'Gas', explore: 'Data explorer', alerts: 'Alerts' }
 
+// Desk footer: the provenance + citability line that used to live only on the
+// marketing pages — sources, DOI, API, and the path to the reading guide.
+function DeskFooter({ onHowToRead }) {
+  return (
+    <div className="mt-6 px-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-mono text-[9px] text-neutral-600">
+      <span>Sources: ENTSO-E Transparency · Fraunhofer Energy-Charts (CC BY 4.0) · GIE</span>
+      <span>·</span>
+      <a href="/#cite" className="hover:text-cyan-glow">Cite this desk — DOI 10.5281/zenodo.21699869</a>
+      <span>·</span>
+      <a href="/docs" className="hover:text-cyan-glow">API docs</a>
+      <span>·</span>
+      <button onClick={onHowToRead} className="hover:text-cyan-glow">How to read this desk</button>
+    </div>
+  )
+}
+
 function Disclaimer() {
   return (
     <footer className="mt-4 mb-4 px-4 text-center font-mono text-[9px] text-neutral-700 leading-relaxed max-w-2xl mx-auto">
@@ -358,7 +374,7 @@ function Dashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="border border-red-500/30 bg-red-500/5 p-6 max-w-md">
-          <div className="text-red-400 font-mono text-xs mb-2">// CONNECTION ERROR</div>
+          <div className="text-red-400 font-mono text-xs mb-2 smallcaps">CONNECTION ERROR</div>
           <div className="text-red-300 font-mono text-sm">{error}</div>
           <div className="text-neutral-500 font-mono text-xs mt-3">
             The data API is not responding — usually temporary. Self-hosting? Check that the
@@ -745,7 +761,7 @@ function Dashboard() {
         {activeTab === 'analytics' && (
           <>
             <div className="mb-2">
-              <span className="font-mono text-[10px] text-neutral-600 tracking-wider">// ANALYTICS · deep history · {energyZone}</span>
+              <span className="font-mono text-[10px] text-neutral-600 smallcaps">ANALYTICS · deep history · {energyZone}</span>
             </div>
             <ErrorBoundary name="duration-curve">
               <DurationCurvePanel zone={energyZone} />
@@ -855,6 +871,12 @@ function Dashboard() {
       </div>
 
         {/* ===== FOOTER ===== */}
+        <DeskFooter
+          onHowToRead={() => {
+            goToTab('europe')
+            setTimeout(() => scrollToSection('panel-how-to-read'), 150)
+          }}
+        />
         <Disclaimer />
       </main>
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
 import FreshnessCaption from './FreshnessCaption'
+import Provenance from './Provenance'
 
 export function InfoPopover({ text, wide = false }) {
   const [open, setOpen] = useState(false)
@@ -62,7 +63,7 @@ function ApiChip({ downloadUrl }) {
   return (
     <button
       onClick={copy}
-      className={`font-mono text-[9px] tracking-wider border rounded px-1.5 py-0.5 transition-colors ${
+      className={`font-code text-[9px] tracking-wider border rounded px-1.5 py-0.5 transition-colors ${
         copied
           ? 'text-cyan-glow border-cyan-glow/40'
           : 'text-neutral-500 border-border hover:text-cyan-glow hover:border-cyan-glow/40'
@@ -74,7 +75,7 @@ function ApiChip({ downloadUrl }) {
   )
 }
 
-export default function Panel({ id, title, info, infoWide = false, collapsible = false, defaultCollapsed = false, expandSignal, headerRight, downloadUrl, freshness, children }) {
+export default function Panel({ id, title, info, infoWide = false, collapsible = false, defaultCollapsed = false, expandSignal, headerRight, downloadUrl, freshness, source, children }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (!collapsible) return false
     try {
@@ -111,7 +112,7 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
         }`}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[11px] font-semibold text-neutral-300 truncate">
+          <span className="font-mono text-[12px] font-medium smallcaps text-neutral-400 truncate">
             {title}
           </span>
           {info && <InfoPopover text={info} wide={infoWide} />}
@@ -123,7 +124,7 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
               <a
                 href={downloadUrl}
                 onClick={(e) => e.stopPropagation()}
-                className="font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+                className="font-code text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
                 title="Download this panel's data as CSV (the same URL serves JSON or Parquet via format=)"
               >
                 ↓ CSV
@@ -144,6 +145,11 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
         </div>
       </div>
       {!collapsed && children}
+      {/* Visible provenance line (was buried in ⓘ popovers) — pass the exact
+          source claim, e.g. "ENTSO-E A44 · day-ahead auction". */}
+      {!collapsed && source && (
+        <Provenance source={source} className="px-4 py-1.5 border-t border-border/40" />
+      )}
     </div>
   )
 }

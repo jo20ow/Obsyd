@@ -19,20 +19,26 @@
  * `age_days` is optional throughout: /power/overview rows carry `stale` and
  * `as_of` but no age, and "STALE · nulld" is worse than an unqualified STALE.
  */
+// The ONE stale badge — same vocabulary wherever a lagging feed is flagged
+// (panel headers, the situation hero's per-metric tags, the overview matrix).
+export function StaleChip({ asOf, ageDays, dense = false, className = '' }) {
+  return (
+    <span
+      className={`shrink-0 font-mono tracking-wide text-orange-400 border border-orange-500/30 rounded ${
+        dense ? 'text-[8px] px-1 py-px' : 'text-[9px] px-1.5 py-0.5'
+      } ${className}`}
+      title={`Latest data ${asOf ?? 'unknown'} (UTC)${ageDays != null ? ` — ${ageDays}d old` : ''}, this feed may be stalled`}
+    >
+      STALE{ageDays != null ? ` · ${ageDays}d` : ''}
+    </span>
+  )
+}
+
 export default function FreshnessCaption({ meta, dense = false }) {
   if (!meta?.as_of) return null
 
   if (meta.stale) {
-    return (
-      <span
-        className={`shrink-0 font-mono tracking-wide text-orange-400 border border-orange-500/30 rounded ${
-          dense ? 'text-[8px] px-1 py-px' : 'text-[9px] px-1.5 py-0.5'
-        }`}
-        title={`Latest data ${meta.as_of} (UTC)${meta.age_days != null ? ` — ${meta.age_days}d old` : ''}, this feed may be stalled`}
-      >
-        STALE{meta.age_days != null ? ` · ${meta.age_days}d` : ''}
-      </span>
-    )
+    return <StaleChip asOf={meta.as_of} ageDays={meta.age_days} dense={dense} />
   }
 
   return (

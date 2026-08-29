@@ -133,6 +133,7 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A84 · aFRR/mFRR balancing energy prices"
       id="power-balancing"
       freshness={data}
       title={`BALANCING · ${zl}`}

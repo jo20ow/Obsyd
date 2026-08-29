@@ -192,6 +192,7 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="Fraunhofer Energy-Charts (CC BY 4.0)"
       id="cross-border-flows"
       freshness={data}
       title={`CROSS-BORDER FLOWS · ${zl}`}

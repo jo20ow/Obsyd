@@ -82,6 +82,7 @@ export default function ImbalancePanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A85 · imbalance settlement prices"
       id="power-imbalance"
       freshness={data}
       title={`IMBALANCE PRICE · ${zl}`}

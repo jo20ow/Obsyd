@@ -46,6 +46,7 @@ export default function ProductsPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A44 · derived base/peak products"
       id="power-products"
       title={`BASE / PEAK · ${data?.zone_label ?? zone}`}
       info={data?.note || 'Base, Peak and Off-peak on the CET delivery day.'}

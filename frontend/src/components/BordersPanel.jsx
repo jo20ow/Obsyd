@@ -178,6 +178,7 @@ export default function BordersPanel({ focus }) {
 
   return (
     <Panel
+      source="ENTSO-E A44 spreads · A61 NTC · Fraunhofer Energy-Charts flows (CC BY 4.0)"
       id="power-borders"
       title="BORDERS · PRICE CONVERGENCE & CONGESTION"
       info={<BordersLegend eps={data?.coupled_eps_eur} />}

@@ -53,6 +53,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A75 · actual generation per production type"
       id="generation-mix"
       freshness={data}
       title={`GENERATION MIX · ${zoneLabel}`}
