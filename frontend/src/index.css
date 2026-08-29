@@ -15,9 +15,12 @@
      so this token stays the single lever — pointing it at the sans flips the whole
      app from one place. Numbers stay column-aligned via tabular-nums on body. */
   --font-mono: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  /* Display serif for headlines, document h2s and the desk's narrative lede —
-     bundled Source Serif 4 variable (OFL, self-hosted via @fontsource, no CDN). */
-  --font-serif: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+  /* Display face for headlines, document h2s and the desk's narrative lede.
+     Owner call 2026-08-29: NO serif — data-infrastructure sites (FRED, IEA,
+     Eurostat) are all-sans; hierarchy comes from weight/size, not a second
+     family. Same system stack as --font-mono, kept as its own token so the
+     display tier stays independently swappable. */
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   /* REAL monospace — code blocks, .num data cells, chart axis ticks. System
      stack, zero bytes shipped. (--font-mono is the sans lever, not actual mono.) */
   --font-code: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
@@ -127,10 +130,10 @@ html.light .recharts-default-tooltip .recharts-tooltip-item { color: #111827 !im
 .prose-doc { font-size: 15px; line-height: 1.7; }
 .prose-doc > p { max-width: 65ch; }
 .prose-doc h1 {
-  font-family: var(--font-serif); font-weight: 600; font-size: 28px;
+  font-family: var(--font-display); font-weight: 700; font-size: 27px;
   line-height: 1.25; letter-spacing: -0.01em; margin: 0 0 1rem;
 }
 .prose-doc h2 {
-  font-family: var(--font-serif); font-weight: 600; font-size: 19px;
+  font-family: var(--font-display); font-weight: 600; font-size: 17px;
   line-height: 1.35; margin: 1.75rem 0 0.5rem;
 }

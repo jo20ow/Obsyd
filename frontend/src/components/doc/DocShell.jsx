@@ -4,7 +4,7 @@
  * language lives. Multi-export file, following the Panel.jsx pattern.
  *
  * All colors come from tokens/utility classes so both themes keep working;
- * typography leans on --font-serif (headings/wordmark) and --font-code (code).
+ * typography leans on --font-display (headings/wordmark) and --font-code (code).
  */
 
 const GITHUB = 'https://github.com/jo20ow/Obsyd'
@@ -12,7 +12,7 @@ const GITHUB = 'https://github.com/jo20ow/Obsyd'
 // Serif small-caps wordmark — the brand mark on every document page.
 export function Wordmark({ href = '/', back = false }) {
   return (
-    <a href={href} className="font-serif smallcaps text-[17px] font-semibold tracking-wide text-cyan-glow hover:opacity-80 transition-opacity">
+    <a href={href} className="font-display smallcaps text-[17px] font-semibold tracking-wide text-cyan-glow hover:opacity-80 transition-opacity">
       {back ? '← Obsyd' : 'Obsyd'}
     </a>
   )

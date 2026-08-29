@@ -61,7 +61,7 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-4 border-b border-border">
-        <a href="/" title="Back to the landing page" className="block font-serif smallcaps text-xl font-semibold tracking-wide text-cyan-glow hover:opacity-80 transition-opacity">OBSYD</a>
+        <a href="/" title="Back to the landing page" className="block font-display smallcaps text-xl font-semibold tracking-wide text-cyan-glow hover:opacity-80 transition-opacity">OBSYD</a>
         <div className="font-mono text-[10px] text-neutral-600 tracking-wider">European Electricity Desk</div>
       </div>
 

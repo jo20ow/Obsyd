@@ -26,7 +26,7 @@ export default function NarrativeHero() {
         <span className="w-1 h-4 rounded-full bg-cyan-glow" />
         <h2 className="font-mono text-[13px] font-semibold text-neutral-300">Europe right now</h2>
       </div>
-      <p className="font-serif text-[15px] leading-relaxed text-neutral-400">
+      <p className="font-display text-[15px] leading-relaxed text-neutral-400">
         <span className="text-neutral-200 font-medium">{lead}{moverText ? ' — ' : '. '}</span>
         {moverText && <>{moverText}. </>}
         {spreadText && <>{spreadText} </>}

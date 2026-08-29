@@ -46,7 +46,7 @@ export default function DevDocsPage() {
     <DocShell>
       {/* HEADER */}
       <SectionLabel className="mb-5">API &amp; DEVELOPER DOCS</SectionLabel>
-      <h1 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight text-neutral-100 leading-tight mb-4">
+      <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-neutral-100 leading-tight mb-4">
         The European power record, one request away.
       </h1>
       <p className="text-[14px] text-neutral-400 leading-relaxed max-w-2xl mb-6">
