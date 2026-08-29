@@ -6,7 +6,7 @@ import { InfoPopover } from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import useSeriesFrame, { MAX_SERIES_ROWS } from '../hooks/useSeriesFrame'
 import { useViewState } from '../context/ViewStateContext'
-import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 const DEFAULT_SERIES = 'price.dayahead'
@@ -16,7 +16,7 @@ const DEFAULT_RESOLUTION = 'daily'
 // when a sibling row is removed. Row 0/1 keep the original Explorer's
 // cyan/violet; the rest reuse ZoneCompareChart's pink/green/indigo plus the
 // old Δ-spread amber, so a hue already means something elsewhere on the desk.
-const ROW_COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#4ade80', '#fbbf24', '#818cf8']
+const ROW_COLORS = ['accent', '#a78bfa', '#f472b6', '#4ade80', '#fbbf24', '#818cf8']
 
 // Module-level (stable reference) fallbacks for before the catalog loads.
 const FALLBACK_SERIES = [{ key: DEFAULT_SERIES, unit: 'EUR/MWh', label: 'Day-ahead price · hourly', group: 'price' }]
@@ -198,6 +198,9 @@ function SeriesPicker({ value, onChange, seriesList, groups }) {
 
 export default function SeriesExplorer() {
   const { zone, setZone, range } = useViewState()  // primary zone + range = the global spine
+  const ct = useChartTheme()
+  // Row 0's 'accent' sentinel resolves per theme; the rest are literal hexes.
+  const resolveColor = (c) => (c === 'accent' ? ct.accent : c)
 
   // Parsed ONCE at mount: either the current `rows=` format, or a legacy
   // `s=`/`vs=` link (old shared Explorer URLs) — never both. `primaryZone` is
@@ -376,7 +379,7 @@ export default function SeriesExplorer() {
       <div className="px-4 py-2.5 border-b border-border/50 space-y-1.5">
         {rows.map((row, i) => (
           <div key={row.id} className="flex flex-wrap items-center gap-1.5">
-            <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: ROW_COLORS[i % ROW_COLORS.length] }} />
+            <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: resolveColor(ROW_COLORS[i % ROW_COLORS.length]) }} />
             <SeriesPicker
               value={row.series}
               onChange={(key) => (i === 0 ? setPrimarySeries(key) : updateExtraRow(i - 1, { series: key }))}
@@ -476,7 +479,7 @@ export default function SeriesExplorer() {
               ) : (
                 visibleRows.map((r) => (
                   <span key={r.key} className="flex items-center gap-1">
-                    <span className="inline-block w-2 h-0.5" style={{ background: r.color }} />
+                    <span className="inline-block w-2 h-0.5" style={{ background: resolveColor(r.color) }} />
                     <span>{rowLabel(r, seriesList, zoneList)}{r.unit ? ` (${r.unit})` : ''}</span>
                     {r.error && (
                       <span className="text-red-400" title={r.error}>fetch error</span>
@@ -492,11 +495,11 @@ export default function SeriesExplorer() {
             </div>
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={showSpread ? spreadFrame : frame} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                <XAxis dataKey="t" tickFormatter={fmtT} tick={{ fontSize: 8, fill: '#737373' }} minTickGap={40} />
-                <YAxis yAxisId="left" tick={{ fontSize: 8, fill: '#737373' }} width={44} domain={['auto', 'auto']} />
+                <CartesianGrid {...ct.grid} />
+                <XAxis dataKey="t" tickFormatter={fmtT} tick={ct.tick} minTickGap={40} />
+                <YAxis yAxisId="left" tick={ct.tick} width={44} domain={['auto', 'auto']} />
                 {!showSpread && rightUnit && (
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 8, fill: '#737373' }} width={44} domain={['auto', 'auto']} />
+                  <YAxis yAxisId="right" orientation="right" tick={ct.tick} width={44} domain={['auto', 'auto']} />
                 )}
                 <Tooltip {...CHART_TOOLTIP_PROPS} labelFormatter={fmtT}
                   formatter={(v, name) => {
@@ -511,7 +514,7 @@ export default function SeriesExplorer() {
                   </>
                 ) : (
                   visibleRows.map((r) => (
-                    <Line key={r.key} yAxisId={r.axis} type="monotone" dataKey={r.key} stroke={r.color} dot={false} strokeWidth={1.4} connectNulls isAnimationActive={false} />
+                    <Line key={r.key} yAxisId={r.axis} type="monotone" dataKey={r.key} stroke={resolveColor(r.color)} dot={false} strokeWidth={1.4} connectNulls isAnimationActive={false} />
                   ))
                 )}
               </LineChart>

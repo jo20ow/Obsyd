@@ -5,7 +5,7 @@ import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -41,6 +41,7 @@ export default function GasDemandPanel() {
   const { range } = useViewState()
   const demand = useFetchWithError(`${API}/gas/demand?days=${rangeDays(range)}`, { deps: [range] })
   const power = useFetchWithError(`${API}/gas/power-burn?days=${rangeDays(range)}`, { deps: [range] })
+  const ct = useChartTheme()
 
   const loading = demand.loading || power.loading
   const error = demand.error // demand is the required source; power may be unavailable
@@ -97,9 +98,9 @@ export default function GasDemandPanel() {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={70}>
                 <AreaChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
-                  <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
-                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={28} />
+                  <CartesianGrid {...ct.grid} />
+                  <XAxis dataKey="date" tick={ct.tick} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
+                  <YAxis tick={ct.tick} width={28} />
                   <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, name) => [`${Math.round(v).toLocaleString()} GWh`, name]} labelFormatter={fmtDate} />
                   <Area type="monotone" dataKey="power" stackId="1" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.15} strokeWidth={1} dot={false} />
                   <Area type="monotone" dataKey="heat" stackId="1" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.12} strokeWidth={1} dot={false} />

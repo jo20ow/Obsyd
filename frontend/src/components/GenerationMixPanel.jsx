@@ -6,7 +6,7 @@ import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 import { fuelColor, sortFuels } from '../utils/fuels'
 
 const API = '/api'
@@ -15,6 +15,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
   const { range } = useViewState()
   const url = `${API}/power/generation-mix?days=${rangeDays(range)}&zone=${zone}`
   const { data, loading, error } = useFetchWithError(url, { deps: [zone, range], pollMs: POLL_SLOW_MS })
+  const ct = useChartTheme()
 
   if (error)
     return (
@@ -100,16 +101,16 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={160}>
                 <AreaChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <CartesianGrid {...ct.grid} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     tickFormatter={fmtDate}
                     interval="preserveStartEnd"
                     minTickGap={60}
                   />
                   <YAxis
-                    tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     width={36}
                     tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />

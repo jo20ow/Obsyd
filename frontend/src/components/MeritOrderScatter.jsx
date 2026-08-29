@@ -7,12 +7,13 @@ import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 const MAX_POINTS = 4000
 
 export default function MeritOrderScatter({ zone = 'DE_LU' }) {
+  const ct = useChartTheme()
   const { range } = useViewState()
   const start = rangeStart(range)
 
@@ -71,14 +72,14 @@ export default function MeritOrderScatter({ zone = 'DE_LU' }) {
         <div className="px-2 pt-2 pb-1">
           <ResponsiveContainer width="100%" height={220}>
             <ScatterChart margin={{ top: 5, right: 12, left: 0, bottom: 12 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis type="number" dataKey="x" name="Residual" unit=" GW" tick={{ fontSize: 8, fill: '#737373' }}
+              <CartesianGrid {...ct.grid} />
+              <XAxis type="number" dataKey="x" name="Residual" unit=" GW" tick={ct.tick}
                 label={{ value: 'Residual load (GW)', position: 'insideBottom', offset: -4, fontSize: 8, fill: '#737373' }} />
-              <YAxis type="number" dataKey="y" name="Price" unit=" €" tick={{ fontSize: 8, fill: '#737373' }} width={40} />
+              <YAxis type="number" dataKey="y" name="Price" unit=" €" tick={ct.tick} width={40} />
               <ReferenceLine y={0} stroke="#444" />
               <Tooltip {...CHART_TOOLTIP_PROPS} cursor={{ strokeDasharray: '3 3' }}
                 formatter={(v, n) => [n === 'Price' ? `${Number(v).toFixed(1)} €/MWh` : `${Number(v).toFixed(1)} GW`, n]} />
-              <Scatter data={points} fill="#22d3ee" fillOpacity={0.35} />
+              <Scatter data={points} fill={ct.accent} fillOpacity={0.35} />
             </ScatterChart>
           </ResponsiveContainer>
         </div>

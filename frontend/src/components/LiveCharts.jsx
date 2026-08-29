@@ -15,7 +15,7 @@ const CORE = ['DE_LU', 'FR', 'NL', 'BE', 'ES', 'AT']
 const MAX_COMPARE = 3
 
 const SECTIONS = [
-  { key: 'prices', label: 'Prices', kind: 'series', series: 'price.dayahead', unit: '€/MWh', scale: 1, color: '#22d3ee' },
+  { key: 'prices', label: 'Prices', kind: 'series', series: 'price.dayahead', unit: '€/MWh', scale: 1, color: 'accent' },
   { key: 'mix', label: 'Fuel Mix', kind: 'mix' },
   { key: 'load', label: 'Load', kind: 'series', series: 'load.actual', unit: 'GW', scale: 1 / 1000, color: '#a78bfa' },
   { key: 'residual', label: 'Residual', kind: 'series', series: 'residual.actual', unit: 'GW', scale: 1 / 1000, color: '#f59e0b' },

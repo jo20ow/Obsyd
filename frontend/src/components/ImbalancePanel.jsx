@@ -11,7 +11,7 @@ import {
   Tooltip,
   ReferenceLine,
 } from 'recharts'
-import { fmtTs, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtTs, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -52,6 +52,7 @@ export default function ImbalancePanel({ zone = 'DE_LU' }) {
     deps: [zone, res],
     pollMs: POLL_SLOW_MS,
   })
+  const ct = useChartTheme()
 
   const zl = zoneLabel(zone)
 
@@ -111,11 +112,11 @@ export default function ImbalancePanel({ zone = 'DE_LU' }) {
                 <XAxis
                   dataKey="x"
                   tickFormatter={fmtTs}
-                  tick={{ fontSize: 9, fill: '#525252' }}
+                  tick={ct.tick}
                   minTickGap={60}
                 />
                 <YAxis
-                  tick={{ fontSize: 9, fill: '#525252' }}
+                  tick={ct.tick}
                   width={44}
                   tickFormatter={(v) => `${v}`}
                 />
@@ -128,7 +129,7 @@ export default function ImbalancePanel({ zone = 'DE_LU' }) {
                 <Line
                   type="stepAfter"
                   dataKey="price"
-                  stroke="#22d3ee"
+                  stroke={ct.accent}
                   strokeWidth={1}
                   dot={false}
                   isAnimationActive={false}

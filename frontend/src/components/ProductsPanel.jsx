@@ -4,7 +4,7 @@ import { POLL_SLOW_MS } from '../utils/poll'
 import {
   ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -19,6 +19,7 @@ export default function ProductsPanel({ zone = 'DE_LU' }) {
   const { data, loading, error } = useFetchWithError(
     `${API}/power/products?zone=${zone}&days=30`, { deps: [zone], pollMs: POLL_SLOW_MS },
   )
+  const ct = useChartTheme()
 
   if (error) {
     return (
@@ -73,9 +74,9 @@ export default function ProductsPanel({ zone = 'DE_LU' }) {
           <div className="px-2 pt-3">
             <ResponsiveContainer width="100%" height={170}>
               <ComposedChart data={chart} margin={{ top: 4, right: 8, bottom: 2, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 8, fill: '#737373' }} minTickGap={50} />
-                <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={40} />
+                <CartesianGrid {...ct.grid} />
+                <XAxis dataKey="date" tickFormatter={fmtDate} tick={ct.tick} minTickGap={50} />
+                <YAxis tick={ct.tick} width={40} />
                 <ReferenceLine y={0} stroke="#444" />
                 <Tooltip
                   contentStyle={CHART_TOOLTIP_STYLE}
@@ -86,7 +87,7 @@ export default function ProductsPanel({ zone = 'DE_LU' }) {
                   dot={false} isAnimationActive={false} />
                 <Line type="monotone" dataKey="peak" name="peak" stroke="#fbbf24" strokeWidth={1.4}
                   dot={false} connectNulls={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="off" name="off-peak" stroke="#22d3ee" strokeWidth={1}
+                <Line type="monotone" dataKey="off" name="off-peak" stroke={ct.accent} strokeWidth={1}
                   dot={false} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>

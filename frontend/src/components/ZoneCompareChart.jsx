@@ -3,7 +3,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS, fmtDate } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, fmtDate, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -29,7 +29,8 @@ function fmtHourAxis(iso) {
 // per-request row cap). One request per zone, well inside the cap.
 const HOURLY_LOOKBACK_DAYS = 3
 
-export default function ZoneCompareChart({ title, series, zone, compare = [], unit, scale = 1, color = '#22d3ee', labelFor, resolution = 'daily' }) {
+export default function ZoneCompareChart({ title, series, zone, compare = [], unit, scale = 1, color = 'accent', labelFor, resolution = 'daily' }) {
+  const ct = useChartTheme()
   const { range } = useViewState()
   const hourly = resolution === 'hourly'
   const start = hourly
@@ -76,7 +77,7 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
 
   const loading = responses.slice(0, zones.length).some((r) => r.loading)
   const failedZones = zones.filter((z, i) => responses[i].error && !responses[i].data)
-  const colorOf = (z, i) => (i === 0 ? color : COMPARE_COLORS[(i - 1) % COMPARE_COLORS.length])
+  const colorOf = (z, i) => (i === 0 ? (color === 'accent' ? ct.accent : color) : COMPARE_COLORS[(i - 1) % COMPARE_COLORS.length])
   const label = (z) => (labelFor ? labelFor(z) : z)
 
   return (
@@ -134,9 +135,9 @@ export default function ZoneCompareChart({ title, series, zone, compare = [], un
         <div className="px-1 py-2">
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="t" tickFormatter={fmtAxis} tick={{ fontSize: 9, fill: '#737373' }} minTickGap={hourly ? 60 : 40} />
-              <YAxis tick={{ fontSize: 9, fill: '#737373' }} width={40} domain={['auto', 'auto']} />
+              <CartesianGrid {...ct.grid} />
+              <XAxis dataKey="t" tickFormatter={fmtAxis} tick={ct.tick} minTickGap={hourly ? 60 : 40} />
+              <YAxis tick={ct.tick} width={40} domain={['auto', 'auto']} />
               <Tooltip
                 {...CHART_TOOLTIP_PROPS}
                 labelFormatter={fmtAxis}

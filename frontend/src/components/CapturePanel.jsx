@@ -5,7 +5,7 @@ import { POLL_SLOW_MS } from '../utils/poll'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, Legend,
 } from 'recharts'
-import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 import { fuelColor } from '../utils/fuels'
 
 const API = '/api'
@@ -41,6 +41,7 @@ function readStrikeParam() {
  * it per bidding zone.
  */
 export default function CapturePanel({ zone = 'DE_LU' }) {
+  const ct = useChartTheme()
   const { data, loading, error } = useFetchWithError(
     `${API}/power/capture?zone=${zone}&months=36`, { deps: [zone], pollMs: POLL_SLOW_MS },
   )
@@ -229,9 +230,9 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
               </div>
               <ResponsiveContainer width="100%" height={170}>
                 <LineChart data={chart} margin={{ top: 4, right: 8, bottom: 2, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                  <XAxis dataKey="month" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={40} />
-                  <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={34}
+                  <CartesianGrid {...ct.grid} />
+                  <XAxis dataKey="month" tick={ct.tick} minTickGap={40} />
+                  <YAxis tick={ct.tick} width={34}
                     tickFormatter={(v) => chartMode === 'price' ? `€${v.toFixed(0)}` : `×${v.toFixed(1)}`} />
                   {chartMode === 'vf' ? (
                     // Baseload itself. Everything below this line earned less than the base product.

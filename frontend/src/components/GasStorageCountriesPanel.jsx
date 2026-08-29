@@ -6,7 +6,7 @@ import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -27,6 +27,7 @@ export default function GasStorageCountriesPanel() {
   const { data, loading, error } = useFetchWithError(
     `${API}/gas/storage/countries?days=${rangeDays(range)}`, { deps: [range] },
   )
+  const ct = useChartTheme()
 
   if (error) {
     return (
@@ -105,7 +106,7 @@ export default function GasStorageCountriesPanel() {
                               className="h-1.5 rounded-sm"
                               style={{
                                 width: `${Math.max(0, Math.min(100, pct))}%`,
-                                background: pct < 30 ? '#fb923c' : '#22d3ee',
+                                background: pct < 30 ? '#fb923c' : ct.accent,
                                 opacity: 0.75,
                               }}
                             />
@@ -137,14 +138,14 @@ export default function GasStorageCountriesPanel() {
               </div>
               <ResponsiveContainer width="100%" height={130}>
                 <LineChart data={shown} margin={{ top: 4, right: 8, bottom: 2, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                  <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 8, fill: '#737373' }} minTickGap={50} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 8, fill: '#737373' }} width={30}
+                  <CartesianGrid {...ct.grid} />
+                  <XAxis dataKey="date" tickFormatter={fmtDate} tick={ct.tick} minTickGap={50} />
+                  <YAxis domain={[0, 100]} tick={ct.tick} width={30}
                     tickFormatter={(v) => `${v}%`} />
                   <ReferenceLine y={30} stroke="#fb923c" strokeDasharray="4 4" strokeOpacity={0.4} />
                   <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelFormatter={fmtDate}
                     formatter={(v) => [v == null ? '—' : `${Number(v).toFixed(1)}%`, 'fill']} />
-                  <Line type="monotone" dataKey="fill_pct" stroke="#22d3ee" strokeWidth={1.4}
+                  <Line type="monotone" dataKey="fill_pct" stroke={ct.accent} strokeWidth={1.4}
                     dot={false} connectNulls isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>

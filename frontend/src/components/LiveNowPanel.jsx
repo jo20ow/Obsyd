@@ -6,7 +6,7 @@ import { POLL_FAST_MS } from '../utils/poll'
 import {
   ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { fmtHour, fmtTs, CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fmtHour, fmtTs, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 import { fuelColor, fuelLabel, sortFuels } from '../utils/fuels'
 
 const API = '/api'
@@ -43,6 +43,7 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
   const [view, setView] = useState('generation')
   const url = `${API}/power/live?zone=${zone}`
   const { data, loading, error } = useFetchWithError(url, { deps: [zone], pollMs: POLL_FAST_MS })
+  const ct = useChartTheme()
 
   // A transient poll failure must not blank a chart that already has good (if
   // slightly stale) data — mirrors PowerSituationHeader/OutagePanel/GenMixHistoryPanel.
@@ -157,15 +158,15 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={200}>
                 <ComposedChart data={genRows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <CartesianGrid {...ct.grid} />
                   <XAxis
                     dataKey="hour"
                     tickFormatter={fmtHour}
-                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     interval={2}
                   />
                   <YAxis
-                    tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     width={36}
                     tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />
@@ -193,7 +194,7 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                     type="monotone"
                     dataKey="load"
                     name="load"
-                    stroke="#e5e7eb"
+                    stroke={ct.ink}
                     strokeWidth={1.5}
                     dot={false}
                     isAnimationActive={false}
@@ -202,7 +203,7 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                     type="monotone"
                     dataKey="load_fc"
                     name="load forecast"
-                    stroke="#e5e7eb"
+                    stroke={ct.ink}
                     strokeDasharray="4 3"
                     strokeWidth={1}
                     dot={false}
@@ -225,21 +226,21 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={160}>
                 <ComposedChart data={priceRows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <CartesianGrid {...ct.grid} />
                   <XAxis
                     dataKey="hour"
                     tickFormatter={fmtHour}
-                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     interval={2}
                   />
-                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={36} />
+                  <YAxis tick={ct.tick} width={36} />
                   <ReferenceLine y={0} stroke="#2a2a3a" strokeDasharray="2 2" />
                   {nowHour != null && (
                     <ReferenceLine
                       x={nowHour}
-                      stroke="#22d3ee"
+                      stroke={ct.accent}
                       strokeDasharray="3 3"
-                      label={{ value: 'now', position: 'insideTop', fill: '#22d3ee', fontSize: 9 }}
+                      label={{ value: 'now', position: 'insideTop', fill: ct.accent, fontSize: 9 }}
                     />
                   )}
                   <Tooltip
@@ -250,8 +251,8 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                   <Area
                     type="stepAfter"
                     dataKey="price"
-                    stroke="#22d3ee"
-                    fill="#22d3ee"
+                    stroke={ct.accent}
+                    fill={ct.accent}
                     fillOpacity={0.08}
                     strokeWidth={1.5}
                     dot={<NegativeHourDot />}

@@ -1,9 +1,11 @@
 @import "tailwindcss";
 
 @theme {
-  /* Accent is a de-neoned teal (was neon cyan #00e5ff). Token name kept — ~350
-     `*-cyan-glow` usages flip from here; html.light overrides it darker for white. */
-  --color-cyan-glow: #2dd4bf;
+  /* Accent is an academic ink-blue (2026-08 institutional redesign; was teal
+     #2dd4bf, before that neon cyan #00e5ff). Token name kept — ~350
+     `*-cyan-glow` usages flip from here; html.light overrides it darker for white.
+     Dark value is a lifted, slightly desaturated step of the light ink-blue. */
+  --color-cyan-glow: #7aa5e8;
   --color-green-glow: #34d399;
   --color-surface: #0f1115;
   --color-surface-light: #171a21;
@@ -13,6 +15,12 @@
      so this token stays the single lever — pointing it at the sans flips the whole
      app from one place. Numbers stay column-aligned via tabular-nums on body. */
   --font-mono: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Display serif for headlines, document h2s and the desk's narrative lede —
+     bundled Source Serif 4 variable (OFL, self-hosted via @fontsource, no CDN). */
+  --font-serif: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+  /* REAL monospace — code blocks, .num data cells, chart axis ticks. System
+     stack, zero bytes shipped. (--font-mono is the sans lever, not actual mono.) */
+  --font-code: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
 }
 
 .scrollbar-hidden { scrollbar-width: none; }
@@ -30,13 +38,18 @@
 .text-\[11px\] { font-size: 13px; line-height: 1.5; }
 .text-\[12px\] { font-size: 13px; line-height: 1.5; }
 
-/* Softer, more modern corners app-wide; pills keep rounded-full. */
-.rounded { border-radius: 0.5rem; }
+/* Squarer corners app-wide (institutional, not app-y); pills keep rounded-full. */
+.rounded { border-radius: 0.375rem; }
 
 /* Obsyd identity: crisp monospace + tabular figures for DATA values on the sans UI
    (a clean-UI + terminal-numbers signature that reads more "analyst desk" than
    an all-round sans). Applied via `.num` to numeric cells/values. */
-.num { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.num { font-family: var(--font-code); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+/* Section labels: small caps instead of letterspaced ALL-CAPS eyebrows. Applied
+   to UPPERCASE source strings — font-variant-caps restyles without changing
+   textContent, so text-matching harnesses (verify-zone-coherence) stay green. */
+.smallcaps { font-variant-caps: all-small-caps; letter-spacing: 0.04em; }
 
 body {
   margin: 0;
@@ -62,14 +75,14 @@ body {
    the rules below then handle the hardcoded neutral/near-black utilities and the
    recharts gridlines that don't read from tokens. */
 html.light {
-  --color-cyan-glow: #0d9488;   /* de-neoned teal, readable on white */
-  --color-green-glow: #16a34a;
+  --color-cyan-glow: #1d4ed8;   /* academic ink-blue, 6.7:1 on white */
+  --color-green-glow: #15803d;  /* darkened for white (was #16a34a at 3.3:1) */
   --color-surface: #ffffff;
-  --color-surface-light: #f1f3f7;
-  --color-border: #e5e7eb;
+  --color-surface-light: #f3f3f1;  /* warmed */
+  --color-border: #e5e4e0;         /* warmed */
 }
 html.light body {
-  background-color: #f6f7f9;
+  background-color: #fbfbfa;  /* paper, not cool gray */
   color: #111827;
 }
 /* Neutral text scale, inverted for a light background. */
@@ -88,10 +101,14 @@ html.light .bg-\[\#06060a\] { background-color: #ffffff; }
 html.light .bg-neutral-800 { background-color: #eef1f6; }
 html.light .bg-neutral-900 { background-color: #f3f4f7; }
 /* Light-palette accents that are too pale on white → darker equivalents. */
-html.light .text-cyan-300 { color: #0f766e; }
-html.light .text-cyan-400 { color: #0d9488; }
+html.light .text-cyan-300 { color: #1e40af; }
+html.light .text-cyan-400 { color: #1d4ed8; }
 html.light .text-violet-300 { color: #6d28d9; }
 html.light .text-amber-300 { color: #b45309; }
+/* Semantic state text (C/E/S vocabulary) — the raw Tailwind values fail contrast
+   on white (yellow-400 ~1.8:1, red-400 ~3:1). Hues stay, ink darkens. */
+html.light .text-yellow-400 { color: #a16207; }
+html.light .text-red-400 { color: #dc2626; }
 /* Chart gridlines are drawn with a white-alpha stroke (invisible on white). */
 html.light .recharts-cartesian-grid line { stroke: #0000000f; }
 /* Recharts tooltips carry a dark inline contentStyle → force light in light theme. */

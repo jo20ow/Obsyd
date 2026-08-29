@@ -7,18 +7,19 @@ import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 const MAX_POINTS = 2000
 
 const METRICS = {
-  price: { key: 'price.dayahead', label: 'Day-ahead price', unit: '€/MWh', scale: 1, color: '#22d3ee' },
+  price: { key: 'price.dayahead', label: 'Day-ahead price', unit: '€/MWh', scale: 1, color: 'accent' },
   residual: { key: 'residual.actual', label: 'Residual load', unit: 'GW', scale: 1 / 1000, color: '#a78bfa' },
 }
 
 export default function DurationCurvePanel({ zone = 'DE_LU' }) {
   const [metric, setMetric] = useState('price')
+  const ct = useChartTheme()
   const { range } = useViewState()
   const m = METRICS[metric]
   const start = rangeStart(range)
@@ -81,14 +82,14 @@ export default function DurationCurvePanel({ zone = 'DE_LU' }) {
         <div className="px-2 pt-2 pb-1">
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={curve} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="pct" tick={{ fontSize: 8, fill: '#737373' }} unit="%" type="number" domain={[0, 100]} />
-              <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={40} />
+              <CartesianGrid {...ct.grid} />
+              <XAxis dataKey="pct" tick={ct.tick} unit="%" type="number" domain={[0, 100]} />
+              <YAxis tick={ct.tick} width={40} />
               {metric === 'price' && <ReferenceLine y={0} stroke="#444" />}
               <Tooltip {...CHART_TOOLTIP_PROPS}
                 labelFormatter={(p) => `${p}% of hours`}
                 formatter={(v) => [`${Number(v).toFixed(1)} ${m.unit}`, m.label]} />
-              <Area type="monotone" dataKey="v" stroke={m.color} fill={m.color} fillOpacity={0.08} strokeWidth={1.5} dot={false} />
+              <Area type="monotone" dataKey="v" stroke={m.color === 'accent' ? ct.accent : m.color} fill={m.color === 'accent' ? ct.accent : m.color} fillOpacity={0.08} strokeWidth={1.5} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
           <div className="px-2 font-mono text-[8px] text-neutral-700">x = % of hours in range (sorted high→low)</div>

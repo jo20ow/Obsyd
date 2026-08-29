@@ -5,13 +5,14 @@ import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
 export default function GasStoragePanel() {
   const { range } = useViewState()
   const { data, loading, error } = useFetchWithError(`${API}/gas/storage?days=${rangeDays(range)}`, { deps: [range] })
+  const ct = useChartTheme()
 
   if (error)
     return (
@@ -53,11 +54,11 @@ export default function GasStoragePanel() {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={70}>
                 <AreaChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
-                  <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
-                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={24} domain={[0, 100]} />
+                  <CartesianGrid {...ct.grid} />
+                  <XAxis dataKey="date" tick={ct.tick} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
+                  <YAxis tick={ct.tick} width={24} domain={[0, 100]} />
                   <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v) => [`${Number(v).toFixed(1)}%`, 'Fill']} labelFormatter={fmtDate} />
-                  <Area type="monotone" dataKey="fill_pct" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.06} strokeWidth={1.5} dot={false} />
+                  <Area type="monotone" dataKey="fill_pct" stroke={ct.accent} fill={ct.accent} fillOpacity={0.06} strokeWidth={1.5} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
