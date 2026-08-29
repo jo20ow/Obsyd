@@ -33,3 +33,6 @@ STATUS_REPORT.md
 CLAUDE.md
 /docs/launch-posts.md
 /docs/superpowers/
+
+# Claude Code local session config (permissions, worktrees) — machine-local
+.claude/
