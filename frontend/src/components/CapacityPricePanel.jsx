@@ -105,6 +105,7 @@ export default function CapacityPricePanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A15 · balancing capacity tenders"
       id="power-capacity-prices"
       freshness={data}
       title={`CAPACITY PRICES · ${zl}`}

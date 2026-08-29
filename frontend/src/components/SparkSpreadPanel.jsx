@@ -47,6 +47,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A44 power · TTF gas"
       id="spark-spread"
       freshness={data}
       title={`SPARK SPREAD · ${zoneLabel} · CCGT MARGIN`}

@@ -36,7 +36,7 @@ export default function RecordChip({ zone = 'DE_LU' }) {
 
   return (
     <div className="border border-yellow-500/30 bg-yellow-500/5 rounded px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span className="font-mono text-[9px] font-bold tracking-widest text-yellow-400">⚡ NEW RECORD</span>
+      <span className="font-mono text-[10px] font-semibold smallcaps text-yellow-400">NEW RECORD</span>
       {fresh.slice(0, 2).map((r) => (
         <span key={`${r.series}-${r.kind}`} className="font-mono text-[10px] text-neutral-300">
           {fmt(r)}

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { InfoPopover } from './Panel'
+import { StaleChip } from './FreshnessCaption'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../utils/poll'
 import { ZONE_STATE, STATE_ORDER, zColor, metricGlossary } from '../utils/zoneState'
@@ -145,7 +146,7 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
                   <td className={`${edgeX} py-2 text-neutral-200 whitespace-nowrap`}>
                     {z.zone_label}
                     {sel && <span className="text-cyan-glow"> ‹</span>}
-                    {z.stale && <span className="text-orange-400/70 text-[8px]"> stale</span>}
+                    {z.stale && <StaleChip asOf={z.as_of} dense className="ml-1" />}
                   </td>
                   {/* Compact swaps the word for the dot + its letter. The letter
                       is the accessibility carrier (colour alone fails red-green

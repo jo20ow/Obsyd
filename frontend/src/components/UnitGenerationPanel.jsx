@@ -74,6 +74,7 @@ export default function UnitGenerationPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A73 · per-unit actual generation"
       id="unit-generation"
       title="PLANT OUTPUT · LATEST PUBLISHED READINGS"
       freshness={data}

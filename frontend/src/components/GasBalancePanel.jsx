@@ -58,6 +58,7 @@ export default function GasBalancePanel() {
 
   return (
     <Panel
+      source="GIE AGSI · ENTSOG · ENTSO-E power burn"
       id="gas-balance"
       freshness={data}
       title="EU GAS BALANCE · RESIDUAL"

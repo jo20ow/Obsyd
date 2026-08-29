@@ -58,6 +58,7 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A44 · day-ahead auction prices"
       id="power-day-ahead"
       freshness={data}
       title={`POWER DAY-AHEAD · ${zoneLabel}`}

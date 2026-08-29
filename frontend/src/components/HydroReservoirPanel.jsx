@@ -70,6 +70,7 @@ export default function HydroReservoirPanel({ zone = null }) {
 
   return (
     <Panel
+      source="ENTSO-E A72 · weekly reservoir filling"
       id="hydro-reservoirs"
       title={zone == null ? 'HYDRO RESERVOIRS · WEEKLY FILLING' : `HYDRO RESERVOIR · ${zones[0]?.zone_label ?? zone}`}
       freshness={data}

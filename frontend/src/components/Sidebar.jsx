@@ -22,6 +22,18 @@ function Icon({ name }) {
   }
 }
 
+// Utility-row icons in the same linear style as the nav <Icon/>s — replaces
+// the ☾/☀/⚙ pictographs (the last emoji-adjacent glyphs in the shell).
+function UtilIcon({ name }) {
+  const p = { width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round', style: { display: 'inline-block', verticalAlign: '-1px' } }
+  switch (name) {
+    case 'moon': return (<svg {...p}><path d="M13.5 9.8A5.7 5.7 0 016.2 2.5a5.7 5.7 0 107.3 7.3z" /></svg>)
+    case 'sun': return (<svg {...p}><circle cx="8" cy="8" r="3" /><line x1="8" y1="1.5" x2="8" y2="3" /><line x1="8" y1="13" x2="8" y2="14.5" /><line x1="1.5" y1="8" x2="3" y2="8" /><line x1="13" y1="8" x2="14.5" y2="8" /><line x1="3.5" y1="3.5" x2="4.6" y2="4.6" /><line x1="11.4" y1="11.4" x2="12.5" y2="12.5" /><line x1="3.5" y1="12.5" x2="4.6" y2="11.4" /><line x1="11.4" y1="4.6" x2="12.5" y2="3.5" /></svg>)
+    case 'sliders': return (<svg {...p}><line x1="2.5" y1="5" x2="13.5" y2="5" /><line x1="2.5" y1="11" x2="13.5" y2="11" /><circle cx="6" cy="5" r="1.6" fill="currentColor" stroke="none" /><circle cx="10" cy="11" r="1.6" fill="currentColor" stroke="none" /></svg>)
+    default: return null
+  }
+}
+
 function StatusDot({ label, ok }) {
   return (
     <div className="flex items-center gap-1.5 font-mono text-[10px]">
@@ -49,7 +61,7 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-4 border-b border-border">
-        <a href="/" title="Back to the landing page" className="block font-mono text-lg font-bold tracking-widest text-cyan-glow hover:opacity-80 transition-opacity">OBSYD</a>
+        <a href="/" title="Back to the landing page" className="block font-serif smallcaps text-xl font-semibold tracking-wide text-cyan-glow hover:opacity-80 transition-opacity">OBSYD</a>
         <div className="font-mono text-[10px] text-neutral-600 tracking-wider">European Electricity Desk</div>
       </div>
 
@@ -82,14 +94,18 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
             title="Toggle light / dark theme"
             className="font-mono text-[10px] px-2 py-1 rounded border border-border text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
           >
-            {theme === 'light' ? '☾ Dark' : '☀ Light'}
+            <span className="inline-flex items-center gap-1.5">
+              {theme === 'light' ? <><UtilIcon name="moon" /> Dark</> : <><UtilIcon name="sun" /> Light</>}
+            </span>
           </button>
           <button
             onClick={onOpenSettings}
             title="Settings"
             className="font-mono text-[10px] px-2 py-1 rounded border border-border text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
           >
-            ⚙ Settings
+            <span className="inline-flex items-center gap-1.5">
+              <UtilIcon name="sliders" /> Settings
+            </span>
           </button>
         </div>
         <div className="px-1"><AuthButton /></div>

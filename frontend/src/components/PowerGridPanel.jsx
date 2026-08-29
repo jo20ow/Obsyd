@@ -56,6 +56,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      source="ENTSO-E A65 load · A75 generation"
       id="power-grid"
       freshness={data}
       title={`RESIDUAL LOAD · ${zoneLabel}`}
