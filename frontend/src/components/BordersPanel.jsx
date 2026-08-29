@@ -5,7 +5,7 @@ import { POLL_SLOW_MS } from '../utils/poll'
 import {
   ResponsiveContainer, ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ReferenceLine, CartesianGrid,
 } from 'recharts'
-import { fmtTs, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtTs, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -70,6 +70,7 @@ function SpreadChart({ a, b }) {
   const { data, loading } = useFetchWithError(
     `${API}/power/spread?a=${a}&b=${b}&days=14`, { deps: [a, b] },
   )
+  const ct = useChartTheme()
   if (loading && !data) {
     return <div className="px-4 py-6 font-mono text-[10px] text-neutral-600 animate-pulse">Loading border…</div>
   }
@@ -92,10 +93,10 @@ function SpreadChart({ a, b }) {
       </div>
       <ResponsiveContainer width="100%" height={180}>
         <ComposedChart data={rows} margin={{ top: 4, right: 8, bottom: 2, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-          <XAxis dataKey="x" tickFormatter={fmtTs} tick={{ fontSize: 8, fill: '#737373' }} minTickGap={70} />
-          <YAxis yAxisId="s" tick={{ fontSize: 8, fill: '#737373' }} width={40} />
-          <YAxis yAxisId="f" orientation="right" tick={{ fontSize: 8, fill: '#525252' }} width={34} />
+          <CartesianGrid {...ct.grid} />
+          <XAxis dataKey="x" tickFormatter={fmtTs} tick={ct.tick} minTickGap={70} />
+          <YAxis yAxisId="s" tick={ct.tick} width={40} />
+          <YAxis yAxisId="f" orientation="right" tick={ct.tick} width={34} />
           <ReferenceLine yAxisId="s" y={0} stroke="#444" />
           <Tooltip
             contentStyle={CHART_TOOLTIP_STYLE}

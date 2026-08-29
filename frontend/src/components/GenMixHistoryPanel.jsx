@@ -6,12 +6,13 @@ import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 import { fuelColor, sortFuels } from '../utils/fuels'
 
 const API = '/api'
 
 export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
+  const ct = useChartTheme()
   const { range } = useViewState()
   // Monthly buckets need >= 1y to be meaningful, so a short global range floors here.
   const start = rangeStart(range, 365)
@@ -53,9 +54,9 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
         <div className="px-2 pt-2 pb-1">
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={chart} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="t" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={30} />
-              <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={34} unit="" />
+              <CartesianGrid {...ct.grid} />
+              <XAxis dataKey="t" tick={ct.tick} minTickGap={30} />
+              <YAxis tick={ct.tick} width={34} unit="" />
               <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
               <Legend wrapperStyle={{ fontSize: 8, fontFamily: 'monospace' }} iconSize={7} />
               {fuels.map((f) => (

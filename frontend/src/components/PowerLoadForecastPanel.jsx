@@ -5,12 +5,12 @@ import useFetchWithError from '../hooks/useFetchWithError'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, fmtHour, CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fmtDate, fmtHour, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
 const COLOR_FORECAST = '#a78bfa' // violet — the forward view
-const COLOR_ACTUAL = '#22d3ee'   // cyan — realised
+// realised/actual series uses the theme accent (ct.accent)
 
 export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
   const url = `${API}/power/load-forecast?days=30&zone=${zone}`
@@ -19,6 +19,7 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
   // Fetched alongside; the toggle swaps which series is charted.
   const { data: hourlyData } = useFetchWithError(`${API}/power/load-forecast/hourly?zone=${zone}`, { deps: [zone] })
   const [view, setView] = useState('daily')
+  const ct = useChartTheme()
 
   if (error)
     return (
@@ -71,7 +72,7 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
       id="power-load-forecast"
       freshness={data}
       title="LOAD FORECAST vs ACTUAL // ENTSO-E"
-      info="ENTSO-E day-ahead forecasts (processType A01): total load (A65) and wind+solar (A69). The headline is tomorrow's RESIDUAL load = load − wind − solar — the demand dispatchable plants must cover, and the quantity that most drives the day-ahead price. DAILY view tracks the load forecast (violet) vs realised (cyan) — the gap is the forecast error. HOURLY view shows tomorrow's residual shape (evening ramp, midday solar trough, Dunkelflaute windows). Descriptive — higher residual tends to firm prices, but this is not a price call."
+      info="ENTSO-E day-ahead forecasts (processType A01): total load (A65) and wind+solar (A69). The headline is tomorrow's RESIDUAL load = load − wind − solar — the demand dispatchable plants must cover, and the quantity that most drives the day-ahead price. DAILY view tracks the load forecast (violet) vs realised (blue) — the gap is the forecast error. HOURLY view shows tomorrow's residual shape (evening ramp, midday solar trough, Dunkelflaute windows). Descriptive — higher residual tends to firm prices, but this is not a price call."
       collapsible
       headerRight={<span className="font-mono text-[9px] text-neutral-600">ENTSO-E</span>}
     >
@@ -134,9 +135,9 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
           <div className="px-2 pt-2 pb-1">
             <ResponsiveContainer width="100%" height={160}>
               <AreaChart data={hourly} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                <XAxis dataKey="hour" tickFormatter={fmtHour} tick={{ fontSize: 8, fill: '#737373' }} interval={2} />
-                <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={34} unit="" />
+                <CartesianGrid {...ct.grid} />
+                <XAxis dataKey="hour" tickFormatter={fmtHour} tick={ct.tick} interval={2} />
+                <YAxis tick={ct.tick} width={34} unit="" />
                 <Tooltip {...CHART_TOOLTIP_PROPS} labelFormatter={(h) => `${fmtHour(h)} UTC`}
                   formatter={(v, n) => [v != null ? `${Number(v).toFixed(1)} GW` : '—',
                     { residual: 'Residual', load: 'Load', wind: 'Wind', solar: 'Solar' }[n] ?? n]} />
@@ -151,13 +152,13 @@ export default function PowerLoadForecastPanel({ zone = 'DE_LU' }) {
           <div className="px-2 pt-3 pb-1">
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={chart} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                <XAxis dataKey="date" tickFormatter={fmtDate} tick={{ fontSize: 9, fill: '#737373' }} minTickGap={24} />
-                <YAxis tick={{ fontSize: 9, fill: '#737373' }} width={34} domain={['auto', 'auto']} unit="" />
+                <CartesianGrid {...ct.grid} />
+                <XAxis dataKey="date" tickFormatter={fmtDate} tick={ct.tick} minTickGap={24} />
+                <YAxis tick={ct.tick} width={34} domain={['auto', 'auto']} unit="" />
                 <Tooltip {...CHART_TOOLTIP_PROPS} labelFormatter={fmtDate}
                   formatter={(v, n) => [v != null ? `${v.toFixed(1)} GW` : '—', n === 'forecast' ? 'Forecast' : 'Actual']} />
                 <Line type="monotone" dataKey="forecast" stroke={COLOR_FORECAST} dot={false} strokeWidth={1.5} connectNulls />
-                <Line type="monotone" dataKey="actual" stroke={COLOR_ACTUAL} dot={false} strokeWidth={1.5} connectNulls />
+                <Line type="monotone" dataKey="actual" stroke={ct.accent} dot={false} strokeWidth={1.5} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>

@@ -12,15 +12,14 @@ import {
   Tooltip,
   ReferenceLine,
 } from 'recharts'
-import { fmtTs, CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fmtTs, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
 // Colors mirror the house up/secondary convention (PowerGridPanel's
 // wind/solar pair, PowerLoadForecastPanel's actual/forecast pair): the
-// established default price-line cyan for the first series, amber for the
+// established default price-line accent for the first series, amber for the
 // second. Direction is never color-alone — arrows + a legend carry identity too.
-const COLOR_UP = '#22d3ee'
 const COLOR_DOWN = '#fbbf24'
 
 function zoneLabel(zone) {
@@ -55,8 +54,8 @@ function fmtDirPrice(price, direction) {
   return `${arrow} ${sign}€${Math.abs(price).toFixed(1)}`.trim()
 }
 
-function dirColor(direction) {
-  return direction === 'down' ? COLOR_DOWN : direction === 'up' ? COLOR_UP : '#a3a3a3'
+function dirColor(direction, accent) {
+  return direction === 'down' ? COLOR_DOWN : direction === 'up' ? accent : '#a3a3a3'
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -90,6 +89,7 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
     deps: [zone, product],
     pollMs: POLL_SLOW_MS,
   })
+  const ct = useChartTheme()
 
   // A transient poll failure must not blank a chart that already has good (if
   // slightly stale) data — mirrors LiveNowPanel/PowerSituationHeader.
@@ -147,7 +147,7 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
         <div className="flex items-center gap-2">
           <ProductToggle product={product} onChange={setProduct} />
           {data?.available && latest?.price != null && (
-            <span className="font-mono text-[10px] font-bold" style={{ color: dirColor(latest.direction) }}>
+            <span className="font-mono text-[10px] font-bold" style={{ color: dirColor(latest.direction, ct.accent) }}>
               {fmtDirPrice(latest.price, latest.direction)}
             </span>
           )}
@@ -183,11 +183,11 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
                 <XAxis
                   dataKey="t"
                   tickFormatter={fmtTs}
-                  tick={{ fontSize: 9, fill: '#525252' }}
+                  tick={ct.tick}
                   minTickGap={60}
                 />
                 <YAxis
-                  tick={{ fontSize: 9, fill: '#525252' }}
+                  tick={ct.tick}
                   width={44}
                   tickFormatter={(v) => `${v}`}
                 />
@@ -211,9 +211,9 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
                   type="stepAfter"
                   dataKey="up"
                   name="up-regulation"
-                  stroke={COLOR_UP}
+                  stroke={ct.accent}
                   strokeWidth={1}
-                  dot={{ r: 1.5, strokeWidth: 0, fill: COLOR_UP }}
+                  dot={{ r: 1.5, strokeWidth: 0, fill: ct.accent }}
                   isAnimationActive={false}
                 />
                 <Line
@@ -228,7 +228,7 @@ export default function BalancingPanel({ zone = 'DE_LU' }) {
               </LineChart>
             </ResponsiveContainer>
             <div className="flex items-center justify-center gap-4 mt-1 font-mono text-[8px] text-neutral-600">
-              <span style={{ color: COLOR_UP }}>▬ up-regulation (↑)</span>
+              <span style={{ color: ct.accent }}>▬ up-regulation (↑)</span>
               <span style={{ color: COLOR_DOWN }}>▬ down-regulation (↓)</span>
             </div>
           </div>

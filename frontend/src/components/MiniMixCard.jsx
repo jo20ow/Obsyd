@@ -3,7 +3,7 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 import { fuelColor, sortFuels } from '../utils/fuels'
 
 const API = '/api'
@@ -11,6 +11,7 @@ const API = '/api'
 // Compact stacked generation mix per zone for the Live grid (Fuel Mix section).
 // Daily resolution, floored to 90d so the stack has shape; GW.
 export default function MiniMixCard({ title, zone, height = 120 }) {
+  const ct = useChartTheme()
   const { range } = useViewState()
   const start = rangeStart(range, 90)
   const url = `${API}/v1/genmix?zone=${zone}&start=${start}&resolution=daily`
@@ -43,9 +44,9 @@ export default function MiniMixCard({ title, zone, height = 120 }) {
         <div className="px-1 py-2">
           <ResponsiveContainer width="100%" height={height}>
             <AreaChart data={chart} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="t" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={30} />
-              <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={30} />
+              <CartesianGrid {...ct.grid} />
+              <XAxis dataKey="t" tick={ct.tick} minTickGap={30} />
+              <YAxis tick={ct.tick} width={30} />
               <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
               {fuels.map((f) => (
                 <Area key={f} type="monotone" dataKey={f} stackId="1" stroke={fuelColor(f)} fill={fuelColor(f)} fillOpacity={0.6} strokeWidth={0.5} />

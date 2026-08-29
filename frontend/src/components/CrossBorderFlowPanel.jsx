@@ -13,18 +13,17 @@ import {
   Tooltip,
   ReferenceLine,
 } from 'recharts'
-import { fmtDate, fmtTs, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, fmtTs, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
-// Color palette: green = export, orange = import, neutral = near-zero
-const COLOR_EXPORT = '#22d3ee'  // cyan – net exporter
+// Color palette: accent = export, orange = import, neutral = near-zero
 const COLOR_IMPORT = '#fb923c'  // orange – net importer
 const COLOR_ZERO   = '#94a3b8'  // slate – near-zero or missing
 
-function borderColor(netMw) {
+function borderColor(netMw, accent) {
   if (netMw == null) return COLOR_ZERO
-  if (netMw > 0) return COLOR_EXPORT
+  if (netMw > 0) return accent  // net exporter
   if (netMw < 0) return COLOR_IMPORT
   return COLOR_ZERO
 }
@@ -39,8 +38,9 @@ function zoneLabel(zone) {
 // Each border = one sparkline + headline bar. Grain-agnostic: `spark` is
 // [{x, net_mw}] with x either a date string (daily) or an ISO timestamp (hourly).
 function BorderRow({ label, netMw, direction, spark, xFormatter, utilPct = null }) {
+  const ct = useChartTheme()
   const absGW = netMw != null ? Math.abs(netMw / 1000).toFixed(2) : '—'
-  const color = borderColor(netMw)
+  const color = borderColor(netMw, ct.accent)
 
   // Bar width: scale relative to ±10 GW max visible (more borders → larger range)
   const MAX_BAR_GW = 10
@@ -195,7 +195,7 @@ export default function CrossBorderFlowPanel({ zone = 'DE_LU' }) {
       id="cross-border-flows"
       freshness={data}
       title={`CROSS-BORDER FLOWS · ${zl}`}
-      info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Positive = net export in the shown direction. Green = net exporter, orange = net importer. DAILY shows daily means over the selected window; HOURLY shows the last 72 hours from the canonical hourly store. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
+      info={`Net physical electricity flows across ${zl}'s real interconnectors with its neighbours — sorted by magnitude. Positive = net export in the shown direction. Blue = net exporter, orange = net importer. DAILY shows daily means over the selected window; HOURLY shows the last 72 hours from the canonical hourly store. Source: Fraunhofer ISE Energy-Charts (CC BY 4.0).`}
       collapsible
       headerRight={
         <div className="flex items-center gap-2">

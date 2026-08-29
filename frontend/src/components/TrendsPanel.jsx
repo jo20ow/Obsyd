@@ -7,11 +7,12 @@ import PanelTakeaway from './PanelTakeaway'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
 export default function TrendsPanel({ zone = 'DE_LU' }) {
+  const ct = useChartTheme()
   const { range } = useViewState()
   // Monthly aggregates need >= 1y to be meaningful, so a short global range floors here.
   const start = rangeStart(range, 365)
@@ -88,10 +89,10 @@ export default function TrendsPanel({ zone = 'DE_LU' }) {
         <div className="px-2 pt-2 pb-1">
           <ResponsiveContainer width="100%" height={220}>
             <ComposedChart data={rows} margin={{ top: 5, right: 6, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="t" tick={{ fontSize: 8, fill: '#737373' }} minTickGap={30} />
-              <YAxis yAxisId="l" tick={{ fontSize: 8, fill: '#737373' }} width={30} />
-              <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 8, fill: '#737373' }} width={30} unit="%" domain={[0, 100]} />
+              <CartesianGrid {...ct.grid} />
+              <XAxis dataKey="t" tick={ct.tick} minTickGap={30} />
+              <YAxis yAxisId="l" tick={ct.tick} width={30} />
+              <YAxis yAxisId="r" orientation="right" tick={ct.tick} width={30} unit="%" domain={[0, 100]} />
               <Tooltip {...CHART_TOOLTIP_PROPS}
                 formatter={(v, n) => [n === 'renewShare' ? `${v}%` : v, n === 'negHours' ? 'Neg-price h' : 'Renewables']} />
               <Legend wrapperStyle={{ fontSize: 8, fontFamily: 'monospace' }} iconSize={7} />

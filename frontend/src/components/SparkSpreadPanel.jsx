@@ -5,7 +5,7 @@ import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
@@ -15,6 +15,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
   const { data, loading, error } = useFetchWithError(
     `${API}/power/spark-spread?days=${rangeDays(range)}&zone=${zone}`, { deps: [zone, range] },
   )
+  const ct = useChartTheme()
   const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
 
   // The spark-spread route is public now; a 401/403 shouldn't occur, but treat
@@ -107,16 +108,16 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={120}>
                 <AreaChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <CartesianGrid {...ct.grid} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     tickFormatter={fmtDate}
                     interval="preserveStartEnd"
                     minTickGap={60}
                   />
                   <YAxis
-                    tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     width={30}
                   />
                   <Tooltip

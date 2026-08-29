@@ -5,8 +5,8 @@ import { useState, useEffect } from 'react'
 // `unit` is mandatory context, not decoration: TTF quotes in EUR/MWh while
 // Henry-Hub NG quotes in USD/MMBtu — bare numbers side by side are unreadable.
 const TICKERS = [
-  { key: 'TTF', label: 'TTF', unit: '€/MWh', color: 'text-pink-400' },
-  { key: 'NG', label: 'NG', unit: '$/MMBtu', color: 'text-purple-400' },
+  { key: 'TTF', label: 'TTF', unit: '€/MWh' },
+  { key: 'NG', label: 'NG', unit: '$/MMBtu' },
 ]
 
 export default function PriceTicker() {
@@ -53,7 +53,7 @@ export default function PriceTicker() {
           <div key={t.key} className="flex items-center gap-1 shrink-0">
             {i > 0 && <span className="text-neutral-800 mx-1">|</span>}
             <span className="font-mono text-[10px] text-neutral-500">{t.label}</span>
-            <span className={`font-mono text-xs font-bold ${t.color}`}>
+            <span className="num text-xs font-bold text-neutral-200">
               {price != null ? price.toFixed(2) : '--'}
             </span>
             <span className="font-mono text-[9px] text-neutral-600">{t.unit}</span>

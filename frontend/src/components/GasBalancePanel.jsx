@@ -7,7 +7,7 @@ import {
   ResponsiveContainer, AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
@@ -40,6 +40,7 @@ export default function GasBalancePanel() {
   const { range } = useViewState()
   const { data, loading, error } = useFetchWithError(`${API}/gas/balance?days=${rangeDays(range)}`, { deps: [range] })
   const [view, setView] = useState('residual') // 'residual' | 'decomp'
+  const ct = useChartTheme()
 
   if (error)
     return (
@@ -99,23 +100,23 @@ export default function GasBalancePanel() {
             {view === 'residual' && rows.length > 1 && (
               <ResponsiveContainer width="100%" height={140}>
                 <AreaChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
-                  <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
-                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={34} />
+                  <CartesianGrid {...ct.grid} />
+                  <XAxis dataKey="date" tick={ct.tick} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
+                  <YAxis tick={ct.tick} width={34} />
                   <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v) => [`${Math.round(v).toLocaleString()} GWh`, 'residual']} labelFormatter={fmtDate} />
                   <ReferenceLine y={0} stroke="#444" />
-                  <Area type="monotone" dataKey="residual" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.05} strokeWidth={1.5} dot={<FlagDot />} activeDot={{ r: 3 }} />
+                  <Area type="monotone" dataKey="residual" stroke={ct.accent} fill={ct.accent} fillOpacity={0.05} strokeWidth={1.5} dot={<FlagDot />} activeDot={{ r: 3 }} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
             {view === 'decomp' && rows.length > 1 && (
               <ResponsiveContainer width="100%" height={140}>
                 <LineChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
-                  <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
-                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={34} />
+                  <CartesianGrid {...ct.grid} />
+                  <XAxis dataKey="date" tick={ct.tick} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
+                  <YAxis tick={ct.tick} width={34} />
                   <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, name) => [`${Math.round(v).toLocaleString()} GWh`, name]} labelFormatter={fmtDate} />
-                  <Line type="monotone" dataKey="implied_delta" name="implied ΔStorage" stroke="#22d3ee" strokeWidth={1.5} dot={false} />
+                  <Line type="monotone" dataKey="implied_delta" name="implied ΔStorage" stroke={ct.accent} strokeWidth={1.5} dot={false} />
                   <Line type="monotone" dataKey="actual_delta" name="actual ΔStorage" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
                 </LineChart>
               </ResponsiveContainer>

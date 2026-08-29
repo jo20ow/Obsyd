@@ -1,5 +1,42 @@
 // Shared chart helpers for the EU gas panels.
 
+import { useTheme } from '../context/ThemeContext'
+
+// Real monospace for axis ticks (mirrors index.css --font-code; SVG text can't
+// read CSS custom properties as attribute values, so the stack is repeated here).
+const CODE_FONT = "ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace"
+
+// Theme-aware chart neutrals. Recharts axes/grids take inline SVG props, which
+// CSS (and therefore the html.light overrides) cannot reach — so the values live
+// here as plain objects and components re-render on theme change via the hook.
+// Per the dataviz method: grid hairline + recessive (one step off the surface),
+// tick text in muted ink tokens (never a series color), real mono tabular digits.
+// `accent` is the single-series stroke matching --color-cyan-glow per theme
+// (inline SVG attrs can't resolve var(--…) either).
+export const CHART_THEME = {
+  dark: {
+    grid: { stroke: '#262a33', strokeOpacity: 0.6, vertical: false },
+    tick: { fontSize: 10, fill: '#8b8fa3', fontFamily: CODE_FONT },
+    axisLine: { stroke: '#262a33' },
+    accent: '#7aa5e8',
+    ink: '#e5e7eb',
+  },
+  light: {
+    grid: { stroke: '#e9e8e4', vertical: false },
+    tick: { fontSize: 10, fill: '#6b7280', fontFamily: CODE_FONT },
+    axisLine: { stroke: '#d9d8d3' },
+    accent: '#1d4ed8',
+    ink: '#374151',
+  },
+}
+
+// Usage: const ct = useChartTheme()
+//   <CartesianGrid {...ct.grid} /> · tick={ct.tick} · axisLine={ct.axisLine}
+export function useChartTheme() {
+  const { theme } = useTheme()
+  return CHART_THEME[theme === 'light' ? 'light' : 'dark']
+}
+
 // Delivery-date labels are UTC dates. Without an explicit timeZone the browser
 // renders UTC midnight in local time, which shifts every label a day backwards
 // for viewers west of UTC.

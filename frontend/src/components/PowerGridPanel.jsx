@@ -6,13 +6,12 @@ import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
 
 // Color palette for the stacked areas
-const COLOR_WIND   = '#22d3ee' // cyan
 const COLOR_SOLAR  = '#fbbf24' // amber
 const COLOR_RESID  = '#94a3b8' // slate (dispatchable)
 const COLOR_DUNKEL = '#f87171' // red-400
@@ -27,6 +26,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
   const { range } = useViewState()
   const url = `${API}/power/grid?days=${rangeDays(range)}&zone=${zone}`
   const { data, loading, error } = useFetchWithError(url, { deps: [zone, range], pollMs: POLL_SLOW_MS })
+  const ct = useChartTheme()
 
   if (error)
     return (
@@ -49,7 +49,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
     : null
 
   const isDunkel = latest?.dunkelflaute === true
-  const headerColor = isDunkel ? COLOR_DUNKEL : '#22d3ee'
+  const headerColor = isDunkel ? COLOR_DUNKEL : ct.accent
 
   // Readable label: prefer what the API returns, fall back to zone prop
   const zoneLabel = data?.zone === 'DE_LU' ? 'DE-LU' : (data?.zone ?? zone)
@@ -109,16 +109,16 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={120}>
                 <AreaChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <CartesianGrid {...ct.grid} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     tickFormatter={fmtDate}
                     interval="preserveStartEnd"
                     minTickGap={60}
                   />
                   <YAxis
-                    tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     width={36}
                     tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />
@@ -133,8 +133,8 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
                     dataKey="wind_mw"
                     name="wind"
                     stackId="load"
-                    stroke={COLOR_WIND}
-                    fill={COLOR_WIND}
+                    stroke={ct.accent}
+                    fill={ct.accent}
                     fillOpacity={0.18}
                     strokeWidth={1}
                     dot={false}
@@ -167,7 +167,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
 
               {/* Legend */}
               <div className="flex items-center justify-center gap-4 mt-1 font-mono text-[8px] text-neutral-600">
-                <span style={{ color: COLOR_WIND }}>▬ wind</span>
+                <span style={{ color: ct.accent }}>▬ wind</span>
                 <span style={{ color: COLOR_SOLAR }}>▬ solar</span>
                 <span style={{ color: COLOR_RESID }}>▬ residual (dispatchable)</span>
                 <span style={{ color: COLOR_DUNKEL }}>● Dunkelflaute</span>

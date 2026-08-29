@@ -7,7 +7,7 @@ import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, fmtHour, CHART_TOOLTIP_STYLE } from '../utils/chart'
+import { fmtDate, fmtHour, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -29,6 +29,7 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
   // so the hourly view is a smoothed picture of what the market actually cleared.
   const { data: qhData } = useFetchWithError(`${API}/power/day-ahead/hourly?zone=${zone}&resolution=qh`, { deps: [zone] })
   const [view, setView] = useState('daily')
+  const ct = useChartTheme()
 
   if (error)
     return (
@@ -135,13 +136,13 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={120}>
                 <AreaChart data={qh} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <CartesianGrid {...ct.grid} />
                   <XAxis
                     dataKey="time"
-                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     interval={7}
                   />
-                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={30} />
+                  <YAxis tick={ct.tick} width={30} />
                   <Tooltip
                     contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(v) => [`${Number(v).toFixed(1)} €/MWh`, '15-min']}
@@ -152,12 +153,12 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
                   <Area
                     type="stepAfter"
                     dataKey="price"
-                    stroke="#22d3ee"
-                    fill="#22d3ee"
+                    stroke={ct.accent}
+                    fill={ct.accent}
                     fillOpacity={0.06}
                     strokeWidth={1}
                     dot={false}
-                    activeDot={{ r: 3, fill: '#22d3ee' }}
+                    activeDot={{ r: 3, fill: ct.accent }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -166,14 +167,14 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={120}>
                 <AreaChart data={hourly} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                  <CartesianGrid {...ct.grid} />
                   <XAxis
                     dataKey="hour"
                     tickFormatter={fmtHour}
-                    tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                    tick={ct.tick}
                     interval={2}
                   />
-                  <YAxis tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }} width={30} />
+                  <YAxis tick={ct.tick} width={30} />
                   <Tooltip
                     contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(v) => [`${Number(v).toFixed(1)} €/MWh`, 'Hourly']}
@@ -182,12 +183,12 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
                   <Area
                     type="monotone"
                     dataKey="price"
-                    stroke="#22d3ee"
-                    fill="#22d3ee"
+                    stroke={ct.accent}
+                    fill={ct.accent}
                     fillOpacity={0.06}
                     strokeWidth={1.5}
                     dot={false}
-                    activeDot={{ r: 3, fill: '#22d3ee' }}
+                    activeDot={{ r: 3, fill: ct.accent }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -197,16 +198,16 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
               <div className="px-2 py-2">
                 <ResponsiveContainer width="100%" height={70}>
                   <AreaChart data={rows} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                    <CartesianGrid {...ct.grid} />
                     <XAxis
                       dataKey="date"
-                      tick={{ fontSize: 8, fill: '#555', fontFamily: 'monospace' }}
+                      tick={ct.tick}
                       tickFormatter={fmtDate}
                       interval="preserveStartEnd"
                       minTickGap={60}
                     />
                     <YAxis
-                      tick={{ fontSize: 8, fill: '#55556688', fontFamily: 'monospace' }}
+                      tick={ct.tick}
                       width={30}
                     />
                     <Tooltip
@@ -217,12 +218,12 @@ export default function PowerDayAheadPanel({ zone = 'DE_LU' }) {
                     <Area
                       type="monotone"
                       dataKey="close"
-                      stroke="#22d3ee"
-                      fill="#22d3ee"
+                      stroke={ct.accent}
+                      fill={ct.accent}
                       fillOpacity={0.06}
                       strokeWidth={1.5}
                       dot={<NegativeDot />}
-                      activeDot={{ r: 3, fill: '#22d3ee' }}
+                      activeDot={{ r: 3, fill: ct.accent }}
                     />
                   </AreaChart>
                 </ResponsiveContainer>

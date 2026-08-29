@@ -11,7 +11,7 @@ import {
   YAxis,
   Tooltip,
 } from 'recharts'
-import { fmtTs, CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fmtTs, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -20,8 +20,8 @@ const API = '/api'
 // BalancingPanel's own up/down convention (cyan/amber) so the two capacity+activation panels
 // share one mental model; mFRR gets its own cool/warm pair so all 5 lines stay distinguishable.
 const PRODUCTS = [
-  { key: 'fcr', label: 'FCR', color: '#e5e5e5' },
-  { key: 'afrr_pos', label: 'aFRR ↑', color: '#22d3ee' },
+  { key: 'fcr', label: 'FCR', color: 'ink' },
+  { key: 'afrr_pos', label: 'aFRR ↑', color: 'accent' },
   { key: 'afrr_neg', label: 'aFRR ↓', color: '#fbbf24' },
   { key: 'mfrr_pos', label: 'mFRR ↑', color: '#e879f9' },
   { key: 'mfrr_neg', label: 'mFRR ↓', color: '#a3e635' },
@@ -64,6 +64,8 @@ export default function CapacityPricePanel({ zone = 'DE_LU' }) {
     deps: [zone],
     pollMs: POLL_SLOW_MS,
   })
+  const ct = useChartTheme()
+  const resolveColor = (c) => (c === 'accent' ? ct.accent : c === 'ink' ? ct.ink : c)
 
   // A transient poll failure must not blank a chart that already has good (if slightly
   // stale) data — mirrors BalancingPanel/LiveNowPanel.
@@ -144,11 +146,11 @@ export default function CapacityPricePanel({ zone = 'DE_LU' }) {
                 <XAxis
                   dataKey="t"
                   tickFormatter={fmtTs}
-                  tick={{ fontSize: 9, fill: '#525252' }}
+                  tick={ct.tick}
                   minTickGap={60}
                 />
                 <YAxis
-                  tick={{ fontSize: 9, fill: '#525252' }}
+                  tick={ct.tick}
                   width={44}
                   tickFormatter={(v) => `${v}`}
                 />
@@ -167,7 +169,7 @@ export default function CapacityPricePanel({ zone = 'DE_LU' }) {
                     type="stepAfter"
                     dataKey={p.key}
                     name={p.label}
-                    stroke={p.color}
+                    stroke={resolveColor(p.color)}
                     strokeWidth={1.25}
                     dot={false}
                     hide={hidden.has(p.key)}
@@ -182,7 +184,7 @@ export default function CapacityPricePanel({ zone = 'DE_LU' }) {
                   key={p.key}
                   onClick={() => toggle(p.key)}
                   className="transition-opacity"
-                  style={{ color: p.color, opacity: hidden.has(p.key) ? 0.35 : 1 }}
+                  style={{ color: resolveColor(p.color), opacity: hidden.has(p.key) ? 0.35 : 1 }}
                   title={hidden.has(p.key) ? `Show ${p.label}` : `Hide ${p.label}`}
                 >
                   ▬ {p.label}

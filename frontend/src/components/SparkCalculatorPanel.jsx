@@ -5,7 +5,7 @@ import { POLL_SLOW_MS } from '../utils/poll'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_PROPS } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 
 const API = '/api'
 
@@ -48,6 +48,7 @@ export default function SparkCalculatorPanel({ zone = 'DE_LU' }) {
   const { data, loading, error } = useFetchWithError(
     url, { deps: [zone, efficiency], pollMs: POLL_SLOW_MS },
   )
+  const ct = useChartTheme()
 
   // The slider's displayed position: whatever the user chose, else the backend's own default
   // once it's known, else a placeholder while the very first request is in flight.
@@ -151,10 +152,10 @@ export default function SparkCalculatorPanel({ zone = 'DE_LU' }) {
             <div className="px-2 py-2">
               <ResponsiveContainer width="100%" height={160}>
                 <LineChart data={rows} margin={{ top: 4, right: 8, bottom: 2, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                  <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#737373' }}
+                  <CartesianGrid {...ct.grid} />
+                  <XAxis dataKey="date" tick={ct.tick}
                     tickFormatter={fmtDate} minTickGap={50} />
-                  <YAxis tick={{ fontSize: 8, fill: '#737373' }} width={34} />
+                  <YAxis tick={ct.tick} width={34} />
                   <ReferenceLine y={0} stroke="#525252" strokeDasharray="4 4" />
                   <Tooltip
                     {...CHART_TOOLTIP_PROPS}
