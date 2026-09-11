@@ -209,40 +209,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* HONEST SCOPE */}
-      <section className="border-y border-border bg-surface">
-        <div className="max-w-5xl mx-auto px-5 py-16 sm:py-20 grid grid-cols-1 md:grid-cols-2 gap-10">
-          <div>
-            <SectionLabel className="mb-4">WHY OBSYD</SectionLabel>
-            <h2 className="font-display text-2xl font-semibold text-neutral-100 mb-5 leading-snug">
-              The official power record, turned into a desk.
-            </h2>
-            <p className="text-[13px] text-neutral-400 leading-relaxed max-w-lg">
-              OBSYD doesn&apos;t match Montel, EPEX or a Bloomberg terminal on intraday or
-              settlement-grade data — it can&apos;t, and it doesn&apos;t pretend to. What it does is
-              turn the free, official European power record — ENTSO-E, Fraunhofer Energy-Charts, GIE —
-              into one auditable, legible desk, and watch it for you, so you stop wiring up a dozen
-              ENTSO-E queries by hand.
-            </p>
-          </div>
-          <div className="border border-border rounded p-5 text-[12px] text-neutral-500 leading-relaxed self-start">
-            <div className="smallcaps text-[11px] text-neutral-500 mb-3">NOT FOR</div>
-            <ul className="space-y-2">
-              <li>· Intraday or settlement-grade trade execution</li>
-              <li>· Desks already paying for Montel / EPEX / Bloomberg</li>
-              <li>· Non-power commodities — oil flows, shipping, metals (that&apos;s a separate tool)</li>
-            </ul>
-            <div className="smallcaps text-[11px] text-neutral-500 mt-5 mb-3">MADE FOR</div>
-            <ul className="space-y-2">
-              <li>· Power traders &amp; energy-risk analysts without a Montel/Bloomberg seat</li>
-              <li>· Utilities &amp; industrials tracking prices, residual load and grid stress</li>
-              <li>· Researchers &amp; journalists needing one honest source for the EU power picture</li>
-              <li>· Anyone who wants to read the signal code, not trust it blindly</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
       {/* ENERGY WATCH */}
       <section className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
         <SectionLabel className="mb-4">YOUR ENERGY WATCH</SectionLabel>
