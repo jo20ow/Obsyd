@@ -324,33 +324,13 @@ export default function Landing() {
       {/* PRICING */}
       <section id="pricing" className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
         <SectionLabel className="mb-4">PRICING</SectionLabel>
-        <h2 className="font-display text-2xl sm:text-3xl font-semibold text-neutral-100 mb-8">
+        <h2 className="font-display text-2xl sm:text-3xl font-semibold text-neutral-100 mb-4">
           It&apos;s free. All of it.
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl">
-          <div className="border border-border bg-surface rounded p-6">
-            <div className="smallcaps text-[11px] text-neutral-500 mb-1">CLOUD</div>
-            <div className="font-display text-3xl text-neutral-100 mb-1">€0</div>
-            <div className="text-[11px] text-neutral-500 mb-5">on obsyd.dev · no card, no account needed</div>
-            <ul className="text-[12px] text-neutral-400 space-y-1.5">
-              <li>· Full power desk + anomaly radar</li>
-              <li>· Day-ahead, residual load, generation mix, cross-border flows, forecasts</li>
-              <li>· Watchlist, custom alerts</li>
-              <li>· Everything unlocked, no limits</li>
-            </ul>
-          </div>
-          <div className="border border-border bg-surface rounded p-6">
-            <div className="smallcaps text-[11px] text-neutral-500 mb-1">SELF-HOST</div>
-            <div className="font-display text-3xl text-neutral-100 mb-1">€0</div>
-            <div className="text-[11px] text-neutral-500 mb-5">AGPL-3.0 · your infra, your keys</div>
-            <ul className="text-[12px] text-neutral-400 space-y-1.5">
-              <li>· The exact same code, end to end</li>
-              <li>· Bring your own API keys</li>
-              <li>· No usage limits</li>
-              <li>· You handle updates + ops</li>
-            </ul>
-          </div>
-        </div>
+        <p className="text-[13px] text-neutral-400 max-w-2xl leading-relaxed">
+          Desk, radar, API — everything on obsyd.dev is unlocked. No card, no account, no limits.
+          The same code self-hosts under AGPL-3.0 with your own keys.
+        </p>
       </section>
 
       {/* CITE */}
