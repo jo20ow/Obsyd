@@ -51,6 +51,10 @@ export function buildArcs(borders, pal) {
       // gradient alone was not readable without hovering.
       hasDirection: !noFlow,
       arrowColor: [...rgb, informative ? 245 : 170],
+      // Which zone each (post-flip) endpoint belongs to — the endpoint-click
+      // disambiguation in makeFlowArcsLayer's onClick needs it.
+      sourceZone: flip ? b.zone_b : b.zone_a,
+      targetZone: flip ? b.zone_a : b.zone_b,
       // Deterministic ±8° fan so parallel Benelux/Nordic arcs do not stack.
       tilt: ((i % 3) - 1) * 8,
     })
@@ -98,7 +102,17 @@ export function makeFlowArrowsLayer({ arcs }) {
   })
 }
 
-export function makeFlowArcsLayer({ arcs, pal, onBorderSelect }) {
+// Every arc STARTS and ENDS at a zone centroid, so up to six arcs converge on
+// the exact pixel a user aims at when they click "the middle of France" — and
+// because the arcs render above the choropleth, the pick always returned a
+// BORDER there and zone-clicking the map was effectively impossible (owner
+// report 2026-09-11, reproduced headless: with flows on, no centroid click ever
+// selected a zone). Disambiguation: a pick within ENDPOINT_PX of either arc
+// endpoint means the ZONE that endpoint stands on; only a pick out on the bow
+// means the border itself.
+const ENDPOINT_PX = 20
+
+export function makeFlowArcsLayer({ arcs, pal, onBorderSelect, onZoneSelect }) {
   return new ArcLayer({
     id: 'border-arcs',
     data: arcs,
@@ -115,7 +129,22 @@ export function makeFlowArcsLayer({ arcs, pal, onBorderSelect }) {
     widthMaxPixels: ARC_MAX_PX,
     getHeight: 0.4,
     getTilt: (d) => d.tilt,
-    onClick: ({ object }) => { if (object) onBorderSelect?.(object.zone_a, object.zone_b) },
+    onClick: (info) => {
+      const d = info.object
+      if (!d) return
+      const vp = info.viewport
+      if (vp && onZoneSelect) {
+        const [sx, sy] = vp.project(d.source)
+        const [tx, ty] = vp.project(d.target)
+        const ds = Math.hypot(info.x - sx, info.y - sy)
+        const dt = Math.hypot(info.x - tx, info.y - ty)
+        if (Math.min(ds, dt) < ENDPOINT_PX) {
+          onZoneSelect(ds <= dt ? d.sourceZone : d.targetZone)
+          return
+        }
+      }
+      onBorderSelect?.(d.zone_a, d.zone_b)
+    },
     updateTriggers: {
       getSourceColor: [arcs], getTargetColor: [arcs], getWidth: [arcs],
       getTilt: [arcs], getSourcePosition: [arcs], getTargetPosition: [arcs],

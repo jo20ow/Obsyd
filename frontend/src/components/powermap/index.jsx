@@ -131,7 +131,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
     // Shared identity inputs + the active fill's own tail (e.g. the scale for price).
     const fillColorTriggers = [fill, effRows, ...(fillDef.triggers?.(fillCtx) ?? []), theme]
     const arcLayer = overlays.flows && atLatest && arcs.length > 0
-      ? makeFlowArcsLayer({ arcs, pal, onBorderSelect })
+      ? makeFlowArcsLayer({ arcs, pal, onBorderSelect, onZoneSelect })
       : null
     // Rides directly above its arcs, same gate: chevrons without arcs (or the
     // reverse) would claim directions the map is not currently drawing.
