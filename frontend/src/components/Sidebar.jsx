@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import AuthButton from './AuthButton'
-import SettingsPanel from './SettingsPanel'
 import { useTheme } from '../context/ThemeContext'
 
 // Left rail: brand, section nav, then utilities (⌘K, theme,
 // settings, auth, collector health). Section keys mirror the TABS array; labels are
-// friendlier here (europe → "Live"). Reuses AuthButton + SettingsPanel + useTheme.
+// friendlier here (europe → "Live"). Reuses useTheme. Settings + login buttons
+// were removed 2026-09-11 (owner: keep the chrome slim) — auth stays reachable
+// inline where a gated feature (alert rules / watchlist) asks for it.
 
 const LABELS = { europe: 'Live', energy: 'Power', analytics: 'Analytics', gas: 'Gas', explore: 'Explore', alerts: 'Alerts' }
 
@@ -43,7 +43,7 @@ function StatusDot({ label, ok }) {
   )
 }
 
-function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSettings }) {
+function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette }) {
   const { theme, toggle } = useTheme()
   const [health, setHealth] = useState(null)
 
@@ -98,17 +98,7 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
               {theme === 'light' ? <><UtilIcon name="moon" /> Dark</> : <><UtilIcon name="sun" /> Light</>}
             </span>
           </button>
-          <button
-            onClick={onOpenSettings}
-            title="Settings"
-            className="font-mono text-[10px] px-2 py-1 rounded border border-border text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <UtilIcon name="sliders" /> Settings
-            </span>
-          </button>
         </div>
-        <div className="px-1"><AuthButton /></div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pt-1">
           <StatusDot label="PRICES" ok={health?.price_qh ?? false} />
           <StatusDot label="FLOWS" ok={health?.power_flows ?? false} />
@@ -129,14 +119,12 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette, onOpenSett
 }
 
 export default function Sidebar({ tabs, activeTab, onNavigate, onOpenPalette, open, onClose }) {
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const content = (
     <SidebarContent
       tabs={tabs}
       activeTab={activeTab}
       onNavigate={onNavigate}
       onOpenPalette={onOpenPalette}
-      onOpenSettings={() => setSettingsOpen(true)}
     />
   )
   return (
@@ -154,7 +142,6 @@ export default function Sidebar({ tabs, activeTab, onNavigate, onOpenPalette, op
           </div>
         </div>
       )}
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
   )
 }
