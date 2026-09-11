@@ -9,8 +9,11 @@ import ZoneCompareChart from './ZoneCompareChart'
 // different y-axes looked comparable and were not; the fuel mix stays side by side, because a
 // stacked area cannot be laid over another).
 //
-// The zone is the global one (ViewState), so the whole desk turns together. Comparisons live in
-// the URL (?cmp=FR,NL) — a chart worth showing someone is worth linking to.
+// The zone: a `zone` prop wins, else the global one (ViewState). The Live tab passes its
+// focusZone — the map/table "look" — so everything on THAT page turns together with a map
+// click (owner report 2026-09-11: clicking FR on the map left the charts below on BE);
+// nothing here writes back to the global zone or localStorage, a look stays a look.
+// Comparisons live in the URL (?cmp=FR,NL) — a chart worth showing someone is worth linking to.
 const CORE = ['DE_LU', 'FR', 'NL', 'BE', 'ES', 'AT']
 const MAX_COMPARE = 3
 
@@ -27,11 +30,12 @@ function readCompare() {
   return raw ? raw.split(',').filter(Boolean).slice(0, MAX_COMPARE) : []
 }
 
-export default function LiveCharts() {
+export default function LiveCharts({ zone: zoneProp }) {
   const [section, setSection] = useState('prices')
   const [resolution, setResolution] = useState('daily')  // series view: daily trend vs today's hourly shape
   const [compare, setCompare] = useState(readCompare)
-  const { zone } = useViewState()
+  const { zone: globalZone } = useViewState()
+  const zone = zoneProp || globalZone
   const { zones } = useZones()
 
   const keys = new Set(zones.map((z) => z.key))

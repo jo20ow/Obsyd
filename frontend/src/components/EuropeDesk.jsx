@@ -193,7 +193,10 @@ export default function EuropeDesk({ energyZone, setEnergyZone, goToTab }) {
         <HydroReservoirPanel />
       </ErrorBoundary>
       <ErrorBoundary name="live-charts">
-        <LiveCharts />
+        {/* Follows the LOOK (focusZone), not the global zone: on this page the
+            map, the table and these charts must agree on what you are looking
+            at. Still never writes back — see the focusZone comment above. */}
+        <LiveCharts zone={focusZone} />
       </ErrorBoundary>
       <ErrorBoundary name="how-to-read">
         <HowToRead />
