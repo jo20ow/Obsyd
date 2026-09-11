@@ -1,4 +1,4 @@
-import { ArcLayer } from '@deck.gl/layers'
+import { ArcLayer, TextLayer } from '@deck.gl/layers'
 import { ZONE_COORDS, ARC_MAX_PX, ARC_CONTEXT_MAX_PX, UTIL_MID, UTIL_HIGH, arcWidth } from '../constants'
 
 // One arc per border, carrying the WHOLE border object (the tooltip reads its
@@ -46,11 +46,56 @@ export function buildArcs(borders, pal) {
       width: noFlow ? 1 : informative ? arcWidth(mw) : Math.min(arcWidth(mw), ARC_CONTEXT_MAX_PX),
       sourceColor: [...rgb, sourceAlpha],
       targetColor: [...rgb, targetAlpha],
+      // Chevron inputs: only arcs with a real reading claim a direction, and
+      // the glyph is solid — it exists precisely because the faint→solid
+      // gradient alone was not readable without hovering.
+      hasDirection: !noFlow,
+      arrowColor: [...rgb, informative ? 245 : 170],
       // Deterministic ±8° fan so parallel Benelux/Nordic arcs do not stack.
       tilt: ((i % 3) - 1) * 8,
     })
   })
   return out
+}
+
+// Direction chevron: one ▶ near the importer end of every arc that carries a
+// flow reading (owner feedback 2026-09-11: the faint→solid gradient forces a
+// hover to learn the direction — the chevron says it without one). It sits at
+// 88% of the CHORD, angled along it; the arc's bow (getHeight 0.4, tilt ±8°)
+// deviates little that close to the endpoint, so the glyph reads as riding the
+// line. Not pickable — the arc underneath keeps hover and click.
+const ARROW_T = 0.88
+const arrowPosition = (d) => [
+  d.source[0] + (d.target[0] - d.source[0]) * ARROW_T,
+  d.source[1] + (d.target[1] - d.source[1]) * ARROW_T,
+]
+// Chord bearing in screen terms: east is +x, north is +y, and the longitude
+// leg shrinks by cos(lat) — without that correction every northern arrow
+// points visibly off its arc.
+const arrowAngle = (d) => {
+  const dx = (d.target[0] - d.source[0]) *
+    Math.cos((((d.source[1] + d.target[1]) / 2) * Math.PI) / 180)
+  return (Math.atan2(d.target[1] - d.source[1], dx) * 180) / Math.PI
+}
+
+export function makeFlowArrowsLayer({ arcs }) {
+  return new TextLayer({
+    id: 'border-arc-arrows',
+    data: arcs.filter((d) => d.hasDirection),
+    pickable: false,
+    billboard: false, // rotate in the map plane, not toward the camera
+    getPosition: arrowPosition,
+    getText: () => '▶',
+    getColor: (d) => d.arrowColor,
+    getAngle: arrowAngle,
+    getSize: (d) => Math.max(9, Math.min(14, 7 + d.width * 1.2)),
+    sizeUnits: 'pixels',
+    fontFamily: 'sans-serif',
+    characterSet: ['▶'], // default atlas is ASCII-only; without this the glyph is a tofu box
+    updateTriggers: {
+      getPosition: [arcs], getColor: [arcs], getAngle: [arcs], getSize: [arcs],
+    },
+  })
 }
 
 export function makeFlowArcsLayer({ arcs, pal, onBorderSelect }) {
