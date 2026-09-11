@@ -17,7 +17,7 @@ export default function FlowArcLegend({ pal, atLatest }) {
       <span><span style={{ color: rgbCss(pal.arc.proxy) }}>■</span> no NTC (p95)</span>
       <span><span style={{ color: rgbCss(pal.arc.none) }}>■</span> no reading</span>
       <span>grey = context (thin)</span>
-      <span>solid end = importer</span>
+      <span>▶ points at the importer</span>
       {!atLatest && <span className="text-neutral-500">hidden while scrubbing — arcs show latest only</span>}
     </LegendRow>
   )

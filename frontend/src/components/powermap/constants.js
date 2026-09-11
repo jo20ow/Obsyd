@@ -16,6 +16,19 @@ export const ZONE_COORDS = {
 
 export const INITIAL_VIEW = { longitude: 9, latitude: 54, zoom: 3.1, minZoom: 2.5, maxZoom: 6 }
 
+// The camera is deck-owned but CAGED: minZoom/maxZoom ride in the view state,
+// and clampViewState (wired to DeckGL's onViewStateChange) pins the CENTER so
+// Europe can never be dragged fully off-screen — before this you could pan to
+// blank ocean and the map showed nothing at all. Bounds are generous on
+// purpose: every zone centroid (Tromsø to Sicily) stays reachable at maxZoom.
+export const VIEW_BOUNDS = { lonMin: -10, lonMax: 30, latMin: 36, latMax: 66 }
+export const clampViewState = (vs) => ({
+  ...vs,
+  longitude: Math.min(VIEW_BOUNDS.lonMax, Math.max(VIEW_BOUNDS.lonMin, vs.longitude)),
+  latitude: Math.min(VIEW_BOUNDS.latMax, Math.max(VIEW_BOUNDS.latMin, vs.latitude)),
+  zoom: Math.min(INITIAL_VIEW.maxZoom, Math.max(INITIAL_VIEW.minZoom, vs.zoom)),
+})
+
 // ── Cross-border flow arcs ────────────────────────────────────────────────────
 // Width encodes |latest flow|: √ scale (a 4× flow reads 2× wide — GW differences
 // stay legible without 5-GW borders drowning 300-MW ones), capped at 5 GW / 6 px,

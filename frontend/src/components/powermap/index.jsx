@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import DeckGL from '@deck.gl/react'
 import { useTheme } from '../../context/ThemeContext'
 import { PALETTES } from './palettes'
-import { ZONE_COORDS, INITIAL_VIEW, DESK_COLUMN_H } from './constants'
+import { ZONE_COORDS, INITIAL_VIEW, DESK_COLUMN_H, clampViewState } from './constants'
 import { collectWeekValues, makeQuantileScale } from './scales'
 import { FILLS } from './fills'
 import useMapData from './useMapData'
@@ -10,7 +10,7 @@ import { makeTooltip } from './tooltip'
 import { makeZonesLayer, makeContextZonesLayer } from './layers/zonesLayer'
 import { makeSelectionLayers } from './layers/selectionLayer'
 import { makeLabelsLayer } from './layers/labelsLayer'
-import { buildArcs, makeFlowArcsLayer } from './layers/flowArcsLayer'
+import { buildArcs, makeFlowArcsLayer, makeFlowArrowsLayer } from './layers/flowArcsLayer'
 import { makePointsLayer } from './layers/pointsLayer'
 import { buildOutagePaths, makeOutageLayers, outageTooltip } from './layers/outageLayer'
 import { FlowArcLegend, OutageLegend } from './legends'
@@ -133,6 +133,9 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
     const arcLayer = overlays.flows && atLatest && arcs.length > 0
       ? makeFlowArcsLayer({ arcs, pal, onBorderSelect })
       : null
+    // Rides directly above its arcs, same gate: chevrons without arcs (or the
+    // reverse) would claim directions the map is not currently drawing.
+    const arrowLayer = arcLayer ? makeFlowArrowsLayer({ arcs }) : null
     // Deliberately NOT gated on `atLatest`, unlike the arcs: an outage is a
     // WINDOW, so "this line is out right now" stays true whichever past hour
     // the choropleth is painting. The legend says so while scrubbing.
@@ -158,7 +161,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
         makeContextZonesLayer(zonesLayer, { pal, theme }),
         ...selectionLayers,
         ...outageLayers,
-        ...(arcLayer ? [arcLayer] : []),
+        ...(arcLayer ? [arcLayer, arrowLayer] : []),
         makePointsLayer({ points, pointFill, pal, theme, fillColorTriggers, onZoneClick: onZoneSelect }),
       ]
     }
@@ -168,7 +171,7 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
     // Labels ride ABOVE the outage chords (they carry an outline halo and are
     // not pickable, so they stay readable without stealing a hover).
     const base = [zonesLayer, ...selectionLayers, ...outageLayers, ...(labels ? [labels] : [])]
-    return arcLayer ? [...base, arcLayer] : base
+    return arcLayer ? [...base, arcLayer, arrowLayer] : base
   }, [geo, view, fill, fillDef, fillCtx, effRows, points, theme, arcs, outagePaths, overlays, atLatest, onBorderSelect, onZoneSelect, selectedZone, pal])
 
   const getTooltip = useMemo(
@@ -232,11 +235,14 @@ export default function PowerMap({ onBorderSelect, onZoneSelect, selectedZone, t
             single-finger VERTICAL panning of the map on touch: pinch to zoom and
             drag sideways instead. Scrolling past the map beats panning in it. */}
         {/* initialViewState = deck.gl owns the camera; nothing in the app moves
-            it. See "Selecting a zone" in the module docblock for the limit this
-            leaves and why it was left. */}
+            it — onViewStateChange only CLAMPS what the user did (center + zoom
+            caged to Europe, see clampViewState in constants.js), it never
+            steers. See "Selecting a zone" in the module docblock for the limit
+            this leaves and why it was left. */}
         <DeckGL
           initialViewState={INITIAL_VIEW}
           controller={true}
+          onViewStateChange={({ viewState }) => clampViewState(viewState)}
           touchAction="pan-y"
           layers={layers}
           getTooltip={getTooltip}
