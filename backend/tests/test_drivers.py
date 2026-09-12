@@ -7,7 +7,7 @@ driver invented where the data is absent.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,9 +41,10 @@ def _client(db):
 # Real baselines have variance; a constant one has no z at all (and that case is
 # pinned separately below). The default seed therefore wobbles.
 def _seed(db, zone="DE_LU", days=60, *, price=lambda i: 60.0 + (i % 7), load=50_000.0,
-          wind=lambda i: 10_000.0 + (i % 5) * 400, solar=lambda i: 5_000.0 + (i % 3) * 200):
+          wind=lambda i: 10_000.0 + (i % 5) * 400, solar=lambda i: 5_000.0 + (i % 3) * 200,
+          today=_TODAY):
     for i in range(days):
-        d = (_TODAY - timedelta(days=days - 1 - i)).isoformat()
+        d = (today - timedelta(days=days - 1 - i)).isoformat()
         w, s = wind(i), solar(i)
         db.add(PowerGrid(date=d, zone=zone, load_mw=load, wind_mw=w, solar_mw=s,
                          residual_mw=load - w - s))
@@ -143,7 +144,11 @@ def test_empty_zone_is_honest(db_session):
 
 
 def test_route(db_session):
-    _seed(db_session)
+    # The ROUTE derives today from the real UTC clock (compute_drivers' default),
+    # so this seed must anchor there too — a fixed _TODAY drifted out of the
+    # baseline window as real time moved on and failed this test from 2026-09-12
+    # (the same wall-clock lesson as PR #111, one layer up).
+    _seed(db_session, today=datetime.now(timezone.utc).date())
     body = _client(db_session).get("/api/power/drivers?zone=DE_LU").json()
     assert body["available"] is True
     assert "no driver is claimed to have caused the price" in body["note"]
