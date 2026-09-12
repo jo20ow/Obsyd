@@ -46,6 +46,7 @@ SERIES_LABELS: dict[str, str] = {
     # GB (Elexon): MID is a traded-volume-weighted market index, NOT a
     # day-ahead auction — the label must never let the two be confused.
     "price.negative_hours": "Negative-price hours · per day",
+    "spread.da_imbalance": "Imbalance − day-ahead spread",
     "price.ida1.qh": "Intraday auction IDA1 · 15-min",
     "price.ida2.qh": "Intraday auction IDA2 · 15-min",
     "price.ida3.qh": "Intraday auction IDA3 · 15-min",
@@ -69,7 +70,7 @@ _RESERVE_PRODUCT_LABELS: dict[str, str] = {"fcr": "FCR", "afrr": "aFRR", "mfrr":
 # (a future series prefix) sorts after these, keyed by its own group key.
 GROUP_ORDER: list[str] = [
     "price", "imbalance", "load", "residual", "generation", "wind", "solar",
-    "gen", "consumption", "co2", "capture", "congestion", "flow", "sched", "ntc", "hydro",
+    "gen", "consumption", "co2", "capture", "congestion", "spread", "flow", "sched", "ntc", "hydro",
     "balancing", "capacity", "outage", "netpos",
 ]
 GROUP_LABELS: dict[str, str] = {
@@ -85,6 +86,7 @@ GROUP_LABELS: dict[str, str] = {
     "co2": "Carbon intensity (estimated)",
     "capture": "Capture prices & value factors (monthly)",
     "congestion": "Congestion-management costs (DE, monthly)",
+    "spread": "Spreads (derived)",
     "flow": "Cross-border flows (hourly)",
     "sched": "Scheduled commercial exchange (hourly)",
     "ntc": "Day-ahead NTC (offered capacity)",

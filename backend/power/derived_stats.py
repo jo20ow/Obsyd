@@ -89,3 +89,34 @@ def store_capture(db: Session, zone: str, months: int = 3, *, today: date | None
         if factors:
             written += upsert_hourly(db, f"capture.{psr}.factor", zone, factors, unit="ratio")
     return written
+
+
+# ── day-ahead vs imbalance spread ─────────────────────────────────────────────
+
+SPREAD_SERIES = "spread.da_imbalance"
+
+
+def store_da_imbalance_spread(db: Session, zone: str, start_ts: int | None = None,
+                              end_ts: int | None = None) -> int:
+    """imbalance.price − price.dayahead per hour → spread.da_imbalance.
+
+    The European reading of gridstatus' DART spread: what an hour of being OUT
+    of balance cost versus having bought it a day ahead. Positive = the
+    imbalance settlement was dearer than the auction. Only hours where BOTH
+    legs exist are written — a spread with one leg missing is not a spread,
+    and GB (no day-ahead auction feed) therefore has none by construction.
+    Both legs are EUR for every zone that has both, so no currency mixing.
+    """
+    from backend.power.hourly_store import read_hourly
+
+    da = dict(read_hourly(db, "price.dayahead", zone, start_ts, end_ts))
+    if not da:
+        return 0
+    points = [
+        (ts, imb - da[ts])
+        for ts, imb in read_hourly(db, "imbalance.price", zone, start_ts, end_ts)
+        if ts in da
+    ]
+    if not points:
+        return 0
+    return upsert_hourly(db, SPREAD_SERIES, zone, points, unit="EUR/MWh")

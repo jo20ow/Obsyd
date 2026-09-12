@@ -413,20 +413,26 @@ async def _run_derived_stats_nightly():
     recompute, per-zone isolation, the records doctrine throughout."""
     from datetime import datetime, timedelta, timezone
 
-    from backend.power.derived_stats import store_capture, store_negative_hours
+    from backend.power.derived_stats import (
+        store_capture,
+        store_da_imbalance_spread,
+        store_negative_hours,
+    )
     from backend.power.zones import POWER_ZONES
 
     start_day = (datetime.now(timezone.utc).date() - timedelta(days=10)).isoformat()
     db = SessionLocal()
     try:
-        neg = cap = 0
+        neg = cap = spr = 0
+        window_ts = int((datetime.now(timezone.utc) - timedelta(days=10)).timestamp())
         for zone in POWER_ZONES:
             try:
                 neg += store_negative_hours(db, zone, start_day=start_day)
                 cap += store_capture(db, zone, months=3)
+                spr += store_da_imbalance_spread(db, zone, start_ts=window_ts)
             except Exception as exc:
                 logger.error("derived stats %s failed: %s", zone, exc)
-        logger.info("derived stats nightly: %d negative-hour points, %d capture points", neg, cap)
+        logger.info("derived stats nightly: %d negative-hour, %d capture, %d spread points", neg, cap, spr)
     except Exception as exc:
         logger.error("_run_derived_stats_nightly failed: %s", exc)
     finally:

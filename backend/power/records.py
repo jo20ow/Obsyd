@@ -28,6 +28,8 @@ RECORD_SERIES = [
     "imbalance.price.qh",
     "load.actual",
     "residual.actual",
+    # The dearest hour to be short on record (and the deepest inversion).
+    "spread.da_imbalance",
     # The daily negative-hours count: "most negative day on record" per zone.
     "price.negative_hours",
     # GB's honest price series (MID; no day-ahead auction feed exists for GB).
@@ -61,6 +63,10 @@ CO2_MAX_PLAUSIBLE = 900.0
 
 
 def _bounds(series_key: str) -> tuple[float, float]:
+    # The spread inherits the imbalance leg's plausible range — its extremes
+    # ARE imbalance extremes measured against a bounded auction price.
+    if series_key.startswith("spread."):
+        return IMBALANCE_MIN_PLAUSIBLE, IMBALANCE_MAX_PLAUSIBLE
     # Before the generic price. branch: a day has at most 24 negative hours,
     # and the price band would happily celebrate a 4000 here.
     if series_key == "price.negative_hours":

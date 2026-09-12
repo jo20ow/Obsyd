@@ -123,3 +123,52 @@ def test_catalog_and_freshness_wiring():
     assert "capture" in GROUP_LABELS
     keys = {s.key for s in SPECS}
     assert {"negative_hours_series", "capture_series"} <= keys
+
+
+# ─── da-imbalance spread ─────────────────────────────────────────────────────
+
+
+def test_spread_needs_both_legs_and_signs_correctly(db_session):
+    from backend.power.derived_stats import SPREAD_SERIES, store_da_imbalance_spread
+
+    t0 = int(datetime(2026, 5, 1, tzinfo=timezone.utc).timestamp())
+    upsert_hourly(db_session, "price.dayahead", "DE_LU",
+                  [(t0, 100.0), (t0 + 3600, 100.0)], unit="EUR/MWh")
+    upsert_hourly(db_session, "imbalance.price", "DE_LU",
+                  [(t0, 350.0), (t0 + 7200, 999.0)], unit="EUR/MWh")  # hour 2: no DA leg
+    assert store_da_imbalance_spread(db_session, "DE_LU") == 1
+    assert read_hourly(db_session, SPREAD_SERIES, "DE_LU") == [(t0, 250.0)]
+    assert any(SPREAD_SERIES.startswith(p) for p in REVISION_EXCLUDED_PREFIXES)
+
+
+def test_spread_records_use_the_imbalance_band():
+    from backend.power.records import RECORD_SERIES, _bounds
+
+    assert "spread.da_imbalance" in RECORD_SERIES
+    assert _bounds("spread.da_imbalance") == (-20_000.0, 20_000.0)
+
+
+# ─── duration curves ─────────────────────────────────────────────────────────
+
+
+def test_duration_curve_is_monotone_and_percentiles_consistent(db_session):
+    from datetime import timedelta as _td
+
+    from backend.power.duration import compute_duration
+
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    pts = [(int((now - _td(hours=i)).timestamp()), float(i % 100)) for i in range(1, 24 * 30 + 1)]
+    upsert_hourly(db_session, "price.dayahead", "DE_LU", pts, unit="EUR/MWh")
+    out = compute_duration(db_session, "DE_LU", "price", days=60)
+    assert out["available"] is True
+    vals = [c["value"] for c in out["curve"]]
+    assert vals == sorted(vals, reverse=True)          # exceedance curve is monotone
+    assert out["curve"][0]["value"] == max(v for _, v in pts)
+    assert out["percentiles"]["p50"] == out["curve"][50]["value"]
+
+
+def test_duration_refuses_fragments_and_unknown_series(db_session):
+    from backend.power.duration import compute_duration
+
+    assert compute_duration(db_session, "DE_LU", "price", 365)["available"] is False
+    assert "series must be" in compute_duration(db_session, "DE_LU", "nope", 365)["reason"]

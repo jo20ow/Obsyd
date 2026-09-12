@@ -45,7 +45,7 @@ REVISION_REL_TOL = 0.001
 # inputs (load/wind/solar) restate, and co2.* whenever the mix restates, so
 # ledgering them would double-count every upstream revision. Their arrival
 # rows are still written.
-REVISION_EXCLUDED_PREFIXES = ("residual.", "co2.", "capture.", "price.negative_hours")
+REVISION_EXCLUDED_PREFIXES = ("residual.", "co2.", "capture.", "price.negative_hours", "spread.")
 
 
 def _get_or_create_id(db: Session, model, key: str, **extra) -> int:
