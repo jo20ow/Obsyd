@@ -234,6 +234,8 @@ def test_normalize_date_handles_both_yearly_formats():
     assert normalize_date("15-DEC-2020") == "2020-12-15"
     assert normalize_date("2026-01-01") == "2026-01-01"
     assert normalize_date("2026-01-01T00:00:00") == "2026-01-01"
+    assert normalize_date("01-Jan-23") == "2023-01-01"   # the third spelling, found live
+    assert normalize_date("31-Dec-22") == "2022-12-31"
 
 
 def test_parse_embedded_accepts_indicator_less_yearly_rows():

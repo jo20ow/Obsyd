@@ -105,11 +105,19 @@ async def _query(client: httpx.AsyncClient, sql: str) -> list[dict]:
 
 
 def normalize_date(raw: str) -> str:
-    """'01-JAN-2019' (old yearly files) or ISO → 'YYYY-MM-DD'."""
-    raw = str(raw)[:11].strip()
-    if len(raw) >= 10 and raw[2] == "-" and raw[6] == "-":
-        return datetime.strptime(raw[:11], "%d-%b-%Y").strftime("%Y-%m-%d")
-    return raw[:10]
+    """The yearly files have drifted through THREE date spellings over the
+    years — ISO, '01-JAN-2019', and '01-Jan-23' — so this tries the known
+    formats explicitly instead of sniffing separators (the sniff missed the
+    two-digit-year form and let it crash period_to_utc downstream)."""
+    raw = str(raw).strip()[:11]
+    if raw[:4].isdigit():
+        return raw[:10]  # ISO, possibly with a time tail
+    for fmt in ("%d-%b-%Y", "%d-%b-%y"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    raise ValueError(f"unrecognised NESO settlement date: {raw!r}")
 
 
 def period_to_utc(settlement_date: str, period: int) -> datetime:
