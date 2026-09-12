@@ -131,11 +131,14 @@ async def fetch_day(client: httpx.AsyncClient, day: str, *, overwrite: bool = Fa
                                publishDateTimeFrom=f"{day}T00:00Z",
                                publishDateTimeTo=f"{nxt}T01:00Z")
 
+    # The raw cache buckets by (source, key, MONTH) — the key must carry the
+    # DAY or every day of a month reads day one's blob (the bug the first GB
+    # backfill shipped with: one real day per month, silently).
     return {
-        "mid": await fetch_or_cache("elexon", "mid", d, mid, overwrite=overwrite),
-        "demand": await fetch_or_cache("elexon", "demand", d, demand, overwrite=overwrite),
-        "sysprice": await fetch_or_cache("elexon", "sysprice", d, sysprice, overwrite=overwrite),
-        "fuelinst": await fetch_or_cache("elexon", "fuelinst", d, fuelinst, overwrite=overwrite),
+        "mid": await fetch_or_cache("elexon", f"mid-{day}", d, mid, overwrite=overwrite),
+        "demand": await fetch_or_cache("elexon", f"demand-{day}", d, demand, overwrite=overwrite),
+        "sysprice": await fetch_or_cache("elexon", f"sysprice-{day}", d, sysprice, overwrite=overwrite),
+        "fuelinst": await fetch_or_cache("elexon", f"fuelinst-{day}", d, fuelinst, overwrite=overwrite),
     }
 
 
@@ -259,6 +262,10 @@ async def ingest_elexon(db: Session, days: list[str], *, overwrite: bool = False
 
     # Daily rows for finished days only — a day that is not over is not a day.
     for day in days_to_derive(set(days) & (load_by_day.keys() | gen_by_day.keys())):
+        # A day whose parses all came back empty is not a day — writing a
+        # PowerGrid row of Nones for it would pollute the daily history.
+        if not load_by_day.get(day) and not gen_by_day.get(day):
+            continue
         # B10 (PS generation) STAYS in the daily mix — entsoe_grid keeps it for
         # every other zone too (only CONSUMPTION keys are excluded there); the
         # CO₂ engine does its own storage exclusion downstream.
