@@ -153,6 +153,12 @@ SPECS += [
     # GB's grid/load freshness rides the ordinary power_grid:GB spec below.
     FreshnessSpec("elexon_gb", PowerPriceDaily, "", timedelta(days=2),
                   hourly_series="price.mid"),
+    # NESO embedded estimates ride INSIDE the elexon ingest but are their own
+    # upstream — a dead NESO feed silently downgrades GB to metered-only, which
+    # is exactly the failure this probe exists to surface. solar.embedded.est
+    # is written by that feed alone (gen.B16 would also match other zones' A75).
+    FreshnessSpec("neso_embedded", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="solar.embedded.est"),
     # /api/power/live (near-real-time TODAY). The intraday scheduler writes
     # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
     # would be the honest window for THIS probe alone — but test_outage_history.py

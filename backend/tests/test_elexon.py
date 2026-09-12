@@ -115,7 +115,12 @@ async def test_ingest_writes_series_and_daily_rows(db_session, monkeypatch):
                                   for f, g in (("CCGT", 8000), ("WIND", 6000), ("NUCLEAR", 4000))]},
         }
 
+    async def no_embedded(client, days, *, overwrite=False):
+        return {}  # metered-only pass — the NESO fold has its own test below
+
     monkeypatch.setattr(elexon, "fetch_day", fake_fetch_day)
+    import backend.power.neso as neso_mod
+    monkeypatch.setattr(neso_mod, "fetch_embedded", no_embedded)
     result = await elexon.ingest_elexon(db_session, [DAY])
     assert result["daily_rows"] == 1
 
@@ -155,3 +160,68 @@ async def test_cache_keys_carry_the_day(monkeypatch):
         await elexon.fetch_day(client, "2026-03-02")
     assert len(seen) == 8 and len(set(seen)) == 8
     assert all("2026-03-0" in k for k in seen)
+
+
+# ─── NESO embedded estimates (backend/power/neso.py) ─────────────────────────
+
+
+def test_period_to_utc_handles_bst_and_dst_days():
+    from backend.power.neso import period_to_utc
+
+    # Winter (GMT): period 1 of Jan 15 starts at midnight UTC
+    assert period_to_utc("2026-01-15", 1).isoformat() == "2026-01-15T00:00:00+00:00"
+    # Summer (BST): period 1 of Jul 1 starts at 23:00 UTC the evening before
+    assert period_to_utc("2026-07-01", 1).isoformat() == "2026-06-30T23:00:00+00:00"
+    # DST-start day (2026-03-29, 46 periods): the day ENDS at 23:00 UTC —
+    # period 46 is the last half hour, 22:30 UTC
+    assert period_to_utc("2026-03-29", 46).isoformat() == "2026-03-29T22:30:00+00:00"
+
+
+def test_parse_embedded_filters_forecasts_and_means_halves():
+    from backend.power.neso import parse_embedded
+
+    recs = [
+        {"SETTLEMENT_DATE": "2026-01-15", "SETTLEMENT_PERIOD": 1,
+         "EMBEDDED_WIND_GENERATION": 2000, "EMBEDDED_SOLAR_GENERATION": 0,
+         "FORECAST_ACTUAL_INDICATOR": "A"},
+        {"SETTLEMENT_DATE": "2026-01-15", "SETTLEMENT_PERIOD": 2,
+         "EMBEDDED_WIND_GENERATION": 3000, "EMBEDDED_SOLAR_GENERATION": 0,
+         "FORECAST_ACTUAL_INDICATOR": "A"},
+        {"SETTLEMENT_DATE": "2026-01-15", "SETTLEMENT_PERIOD": 3,
+         "EMBEDDED_WIND_GENERATION": 9999, "EMBEDDED_SOLAR_GENERATION": 9999,
+         "FORECAST_ACTUAL_INDICATOR": "F"},  # forecast row — never an outturn
+    ]
+    out = parse_embedded(recs)
+    assert out == {"2026-01-15": {0: {"wind": 2500.0, "solar": 0.0}}}
+
+
+@pytest.mark.asyncio
+async def test_ingest_folds_embedded_into_load_wind_and_solar(db_session, monkeypatch):
+    """The single-writer contract: with NESO data present, load = INDO +
+    embedded, B19 = metered + embedded wind, B16 = embedded solar — and the
+    residual still equals INDO − metered wind (the terms cancel)."""
+    async def fake_fetch_day(client, day, *, overwrite=False):
+        hh = lambda h, m: f"{day}T{h:02d}:{m:02d}:00Z"  # noqa: E731
+        return {
+            "mid": {"data": []},
+            "demand": {"data": [{"startTime": hh(h, 0), "initialDemandOutturn": 20000}
+                                for h in range(24)]},
+            "sysprice": {"data": []},
+            "fuelinst": {"data": [{"startTime": hh(h, 0), "fuelType": "WIND", "generation": 5000}
+                                  for h in range(24)]},
+        }
+
+    async def fake_embedded(client, days, *, overwrite=False):
+        return {d: {h: {"wind": 1000.0, "solar": 3000.0} for h in range(24)} for d in days}
+
+    monkeypatch.setattr(elexon, "fetch_day", fake_fetch_day)
+    import backend.power.neso as neso_mod
+    monkeypatch.setattr(neso_mod, "fetch_embedded", fake_embedded)
+    await elexon.ingest_elexon(db_session, [DAY])
+
+    assert {v for _, v in read_hourly(db_session, "load.actual", "GB")} == {24000.0}
+    assert {v for _, v in read_hourly(db_session, "gen.B19", "GB")} == {6000.0}
+    assert {v for _, v in read_hourly(db_session, "gen.B16", "GB")} == {3000.0}
+    assert {v for _, v in read_hourly(db_session, "solar.embedded.est", "GB")} == {3000.0}
+    # residual = 24000 − 6000 − 3000 = 15000 = INDO(20000) − metered wind(5000)
+    assert {v for _, v in read_hourly(db_session, "residual.actual", "GB")} == {15000.0}

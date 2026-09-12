@@ -39,6 +39,8 @@ ATTRIBUTION = [
     # carry it verbatim (backend/power/elexon.py).
     {"source": "Elexon (BMRS)", "for": "Great Britain: MID price, demand, fuel mix, system prices",
      "license": "free incl. commercial reuse — \"Contains BMRS data © Elexon Limited copyright and database right\""},
+    {"source": "NESO Data Portal", "for": "Great Britain: embedded wind/solar estimates",
+     "license": "NESO Open Data Licence — free incl. commercial reuse with attribution"},
 ]
 DISCLAIMER = (
     "Descriptive market observation from free official records — not investment advice, "
