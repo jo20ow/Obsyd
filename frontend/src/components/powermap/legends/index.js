@@ -18,5 +18,6 @@
 export { default as PriceScaleLegend } from './PriceScaleLegend'
 export { default as StateLegend } from './StateLegend'
 export { default as TechLegend } from './TechLegend'
+export { default as Co2Legend } from './Co2Legend'
 export { default as FlowArcLegend } from './FlowArcLegend'
 export { default as OutageLegend } from './OutageLegend'

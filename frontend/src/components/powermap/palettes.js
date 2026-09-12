@@ -41,6 +41,12 @@ export const PALETTES = {
     // (≥8 target); amber↔orange normal ΔE 11.2 is adjacent-ordinal-step
     // territory and is relieved by the worded legend + exact util % in the
     // tooltip. The grays are MEANT to read gray.
+    // CO₂-intensity fill: ABSOLUTE sequential ramp (green → yellow → brown,
+    // the carbon-map convention), anchors at 0 / 300 / 650+ g/kWh. Lightness
+    // is monotone along the ramp (dark surface: bright→dark), which is what
+    // makes a multi-hue sequential CVD-legible — order survives even where
+    // green/yellow hues collapse. Exact values ride the tooltip and labels.
+    co2: { clean: [74, 222, 128], mid: [250, 204, 21], dirty: [124, 45, 18] },
     arc: { low: [34, 211, 238], mid: [251, 191, 36], high: [251, 146, 60], proxy: [148, 163, 184], none: [100, 116, 139] },
     // Transmission-outage overlay (A78): ONE reserved alarm hue for the rare
     // FORCED event, and a deliberately near-achromatic neutral for the routine
@@ -98,6 +104,9 @@ export const PALETTES = {
     // amber-700 vs orange-700 at deutan ΔE 0.1 / normal 4.1 on #f4f5f7 —
     // indistinguishable. amber-600 lifts the pair to deutan 11.3 / normal
     // 12.7 (CVD target met; adjacent ordinal steps, legend + tooltip relieve).
+    // CO₂ ramp, light theme: same anchors, darker steps so the monotone
+    // lightness runs light→dark on the light surface (see dark block's note).
+    co2: { clean: [22, 163, 74], mid: [202, 138, 4], dirty: [67, 20, 7] },
     arc: { low: [8, 145, 178], mid: [217, 119, 6], high: [194, 65, 12], proxy: [100, 116, 139], none: [148, 163, 184] },
     // Same two roles, inverted for the light surface: the alarm hue darkens
     // (fuchsia-800) and the neutral goes DARK too (stone-700) — a pale

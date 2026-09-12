@@ -13,6 +13,10 @@ const EMPTY = []
 // fill-specific data goes through this seam, not into another component.
 const EXTRA_BY_FILL = {
   tech: `${API}/power/marginal/overview`,
+  // The derived co2.intensity series, every zone in one request. 12h window:
+  // the series trails the mix by the gen lag plus one 3-hourly recompute, so
+  // each zone's newest computed hour sits comfortably inside it.
+  co2: `${API}/v1/snapshot?series=co2.intensity.lifecycle&hours=12`,
 }
 
 // The four shared data feeds behind the map, plus the active fill's own one

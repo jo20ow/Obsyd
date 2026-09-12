@@ -27,6 +27,7 @@ import PowerGridPanel from './components/PowerGridPanel'
 import PowerLoadForecastPanel from './components/PowerLoadForecastPanel'
 import SparkSpreadPanel from './components/SparkSpreadPanel'
 import GenerationMixPanel from './components/GenerationMixPanel'
+import Co2Panel from './components/Co2Panel'
 import CrossBorderFlowPanel from './components/CrossBorderFlowPanel'
 import RegionPills from './components/RegionPills'
 import RangeSelector from './components/RangeSelector'
@@ -713,6 +714,10 @@ function Dashboard() {
               </ErrorBoundary>
               <ErrorBoundary name="generation-mix">
                 <GenerationMixPanel zone={energyZone} />
+              </ErrorBoundary>
+              {/* What the mix above EMITS, per the derived co2.intensity.* series. */}
+              <ErrorBoundary name="power-co2">
+                <Co2Panel zone={energyZone} />
               </ErrorBoundary>
               {/* Zone-desk hydro: renders only for zones that HAVE A72 reservoirs
                   (structural absence elsewhere, not a data gap). */}

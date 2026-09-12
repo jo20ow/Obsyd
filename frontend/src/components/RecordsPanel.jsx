@@ -13,6 +13,7 @@ const SERIES_LABELS = {
   'imbalance.price.qh': 'Imbalance quarter-hour',
   'load.actual': 'Load hour',
   'residual.actual': 'Residual-load hour',
+  'co2.intensity.lifecycle': 'CO₂ intensity hour (est.)',
 }
 
 /**
@@ -51,7 +52,7 @@ export default function RecordsPanel({ zone = 'DE_LU' }) {
     <Panel
       id="power-records"
       title={`ALL-TIME RECORDS · ${zl}`}
-      info="All-time extremes per series for this zone — highest/lowest day-ahead hour, quarter-hour, load and residual load — recomputed nightly from the canonical hourly store. 'All-time' means within our coverage (deep history varies by zone). FRESH marks records set in the last 7 days. Descriptive archive facts."
+      info="All-time extremes per series for this zone — highest/lowest day-ahead hour, quarter-hour, load, residual load and estimated CO₂ intensity (cleanest/dirtiest hour) — recomputed nightly from the canonical hourly store. 'All-time' means within our coverage (deep history varies by zone). FRESH marks records set in the last 7 days. Descriptive archive facts."
       collapsible
     >
       {loading && !data ? (

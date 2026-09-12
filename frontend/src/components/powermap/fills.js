@@ -1,6 +1,7 @@
-import { PriceScaleLegend, StateLegend, TechLegend } from './legends'
+import { Co2Legend, PriceScaleLegend, StateLegend, TechLegend } from './legends'
 import { fmtTs } from './constants'
 import { techIndex, techRgb } from './tech'
+import { co2Color, snapshotLatest } from './scales'
 
 // Fill registry — one entry per choropleth fill mode, carrying the FULL
 // per-fill contract so a new fill lands purely additively here;
@@ -135,6 +136,48 @@ export const FILLS = [
       return lines
     },
     // The payload's identity: repaint once the lazy overview lands.
+    triggers: ({ extra }) => [extra],
+  },
+  {
+    key: 'co2',
+    label: 'CO₂ g/kWh',
+    info: (
+      'Estimated carbon intensity of each zone\'s OWN generation: the published mix times '
+      + 'per-technology emission factors (IPCC AR5 lifecycle medians via Electricity Maps) — '
+      + 'production-based, so imports are not traced, and an estimate, not a measurement. '
+      + 'ABSOLUTE green→brown scale (50 is clean everywhere, 650 is coal everywhere); each zone '
+      + 'colours its own newest computed hour — hover for the exact value and that hour.'
+    ),
+    // Latest-only like the tech fill: the map feed carries a 12h window purely
+    // to find each zone's newest computed hour, not a scrubbable matrix.
+    scrub: false,
+    labelText: (p, { extra }) => {
+      const r = snapshotLatest(extra, p.zone)
+      return r == null ? null : `${p.label} ${Math.round(r.value)}`
+    },
+    // Extremes survive the collision cull — the coal zone and the near-zero
+    // zone are the two labels the fill exists to show. g/kWh tops out well
+    // under deck.gl's 1000 priority cap, so the value is its own rank.
+    labelPriority: (p, { extra }) => Math.round(snapshotLatest(extra, p.zone)?.value ?? 0),
+    getColor: (zone, { extra, pal }) => {
+      const r = snapshotLatest(extra, zone)
+      // No computed hour in the window (feed loading / errored / zone without
+      // a mix) → the validated no-data slate; the gap shows, the legend says why.
+      return r == null ? pal.noData : co2Color(r.value, pal)
+    },
+    alpha: { zone: 225, point: 240 },
+    Legend: Co2Legend,
+    tooltipLines: (zone, { extra }) => {
+      const r = snapshotLatest(extra, zone)
+      if (r == null) return ['CO₂ intensity: no data']
+      const lines = [`CO₂ (est.) · ${Math.round(r.value)} g/kWh lifecycle`]
+      // Zones derive at different speeds (mixed-timestamp hazard): the hour
+      // rides per zone, and one older than the 3-hourly cadence plus the gen
+      // lag says so instead of passing yesterday's colour off as now.
+      const age_h = r.ts_utc ? (Date.now() - Date.parse(r.ts_utc)) / 3.6e6 : null
+      lines.push(`computed for ${fmtTs(r.ts_utc)} UTC${age_h != null && age_h > 6 ? ' · ⚠ lagging' : ''}`)
+      return lines
+    },
     triggers: ({ extra }) => [extra],
   },
 ]

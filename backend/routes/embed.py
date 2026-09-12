@@ -1,6 +1,6 @@
 """Embeddable SVG badges — tiny, dependency-free status images for READMEs/dashboards.
 
-GET /api/v1/badge/{zone}/{metric}.svg   metric in {price, load}
+GET /api/v1/badge/{zone}/{metric}.svg   metric in {price, load, co2}
 
 Template-based f-string SVG (no cairosvg/matplotlib/pillow — one more dependency for a
 20x220px pill is not worth it). Reads go through the SAME bounded paths every other v1
@@ -32,7 +32,7 @@ from backend.routes.api_v1 import _rate_limit  # same v1 per-IP budget — badge
 
 router = APIRouter(prefix="/api/v1/badge", tags=["embed"])
 
-VALID_METRICS = {"price", "load"}
+VALID_METRICS = {"price", "load", "co2"}
 
 #: A viewer's browser/bot refetches an <img> on its own schedule — 15 min matches the
 #: ~30-min ingest cadence closely enough without hammering us on every README render.
@@ -136,6 +136,8 @@ def badge(
 
     metric=price  -> latest PowerPriceDaily mean (EUR/MWh) + its delivery date.
     metric=load   -> latest published load.actual hourly point (GW) + its UTC hour.
+    metric=co2    -> latest co2.intensity.lifecycle hourly point (gCO2eq/kWh, estimated —
+                     the "(est.)" travels in the badge text on purpose) + its UTC hour.
 
     Unknown zone/metric or genuinely no data yet: a neutral grey "no data" pill,
     HTTP 200 (see module docstring — badges must never break a README). A transient
@@ -159,6 +161,20 @@ def badge(
             if row is None:
                 return _svg_response(_no_data_badge(f"{zone_label} · no data"))
             text = f"{zone_label} day-ahead · {_fmt_eur_per_mwh(row.mean_price)} · {row.date}"
+            return _svg_response(_ok_badge(text))
+
+        if metric == "co2":
+            # Derived from the mix, so it trails load by the gen lag plus one
+            # 3-hourly recompute — a wider lookback than load keeps the badge
+            # green through that lag without serving anything stale-r than 12 h.
+            now = datetime.now(timezone.utc)
+            start_ts = int(now.timestamp()) - 12 * 3600
+            points = read_hourly(db, "co2.intensity.lifecycle", zone, start_ts=start_ts, max_rows=24)
+            if not points:
+                return _svg_response(_no_data_badge(f"{zone_label} · no data"))
+            ts, value = points[-1]
+            hh = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%H:%M")
+            text = f"{zone_label} CO₂ (est.) · {round(value)} g/kWh · {hh} UTC"
             return _svg_response(_ok_badge(text))
 
         # metric == "load"

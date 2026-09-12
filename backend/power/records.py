@@ -28,6 +28,9 @@ RECORD_SERIES = [
     "imbalance.price.qh",
     "load.actual",
     "residual.actual",
+    # Cleanest/dirtiest hour on record — derived like residual.actual, and worth
+    # a headline for the same reason negative residuals are.
+    "co2.intensity.lifecycle",
 ]
 
 # Plausible bands per series family (guard, not physics).
@@ -44,6 +47,11 @@ LOAD_MIN_PLAUSIBLE = 100.0
 # Negative residual load is REAL (renewables exceeding load) and exactly the
 # kind of record worth surfacing — the old 0-floor silently discarded it.
 RESIDUAL_MIN_PLAUSIBLE = -100_000.0
+# CO₂ intensity is a bounded ratio by construction: it cannot exceed the largest
+# factor in the table (820 lifecycle) or go below the smallest (11, pure onshore
+# wind) — anything outside is an ingest artifact upstream, not a record.
+CO2_MIN_PLAUSIBLE = 0.0
+CO2_MAX_PLAUSIBLE = 900.0
 
 
 def _bounds(series_key: str) -> tuple[float, float]:
@@ -55,6 +63,8 @@ def _bounds(series_key: str) -> tuple[float, float]:
         return LOAD_MIN_PLAUSIBLE, MW_MAX_PLAUSIBLE
     if series_key.startswith("residual."):
         return RESIDUAL_MIN_PLAUSIBLE, MW_MAX_PLAUSIBLE
+    if series_key.startswith("co2."):
+        return CO2_MIN_PLAUSIBLE, CO2_MAX_PLAUSIBLE
     return MW_MIN_PLAUSIBLE, MW_MAX_PLAUSIBLE
 
 
