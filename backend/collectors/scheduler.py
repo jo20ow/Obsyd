@@ -371,6 +371,40 @@ async def _run_capacity_monthly():
         db.close()
 
 
+async def _run_smard_congestion():
+    """German congestion-management costs (backend/power/smard.py). Weekly:
+    the data is monthly with a 3-4 month lag, and every fetch re-reads the
+    whole history, so a restated month heals on the next run."""
+    from backend.power.smard import ingest_congestion_costs
+
+    db = SessionLocal()
+    try:
+        await ingest_congestion_costs(db, overwrite=True)
+    except Exception as exc:
+        logger.error("_run_smard_congestion failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _run_ida_prices():
+    """Intraday-auction prices (entsoe_ida.py), fetched after each of the three
+    daily SIDC auctions. Current month + next-day's month (the last evening of
+    a month clears into the next month's window)."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.entsoe_ida import ingest_ida
+
+    today = datetime.now(timezone.utc).date()
+    months = sorted({today.replace(day=1), (today + timedelta(days=1)).replace(day=1)})
+    db = SessionLocal()
+    try:
+        await ingest_ida(db, months, overwrite=True)
+    except Exception as exc:
+        logger.error("_run_ida_prices failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_derived_stats_nightly():
     """Mirror the derived statistics series (backend/power/derived_stats.py):
     the daily negative-hours count over a trailing window (absorbs price
@@ -770,6 +804,9 @@ def start_scheduler():
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
     # 23:42, deliberately BEFORE records at 23:45: the negative-hours series
     # must carry today's mirror before the records job crowns extremes on it.
+    # After each SIDC auction (IDA3 ~10:00, IDA1 ~13/14:00, IDA2 ~21:00 UTC).
+    scheduler.add_job(_run_ida_prices, CronTrigger(hour="10,14,21", minute=40), id="ida_prices_3x", **JOB_DEFAULTS)
+    scheduler.add_job(_run_smard_congestion, CronTrigger(day_of_week="wed", hour=8, minute=20), id="smard_congestion_weekly", **JOB_DEFAULTS)
     scheduler.add_job(_run_derived_stats_nightly, CronTrigger(hour=23, minute=42), id="derived_stats_nightly", **JOB_DEFAULTS)
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical

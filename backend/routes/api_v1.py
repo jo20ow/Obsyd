@@ -41,6 +41,8 @@ ATTRIBUTION = [
      "license": "free incl. commercial reuse — \"Contains BMRS data © Elexon Limited copyright and database right\""},
     {"source": "NESO Data Portal", "for": "Great Britain: embedded wind/solar estimates",
      "license": "NESO Open Data Licence — free incl. commercial reuse with attribution"},
+    {"source": "Bundesnetzagentur | SMARD.de", "for": "German congestion-management costs (monthly)",
+     "license": "CC BY 4.0"},
 ]
 DISCLAIMER = (
     "Descriptive market observation from free official records — not investment advice, "
