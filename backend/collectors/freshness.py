@@ -167,6 +167,16 @@ SPECS += [
                   hourly_series="price.negative_hours"),
     FreshnessSpec("capture_series", PowerPriceDaily, "", timedelta(days=45),
                   hourly_series="capture.B16.factor"),
+    # Intraday auctions (entsoe_ida.py) — TP submission is voluntary and today
+    # essentially Spain-only; IDA1 clears daily, so a 2-day window is honest
+    # for the one zone that publishes.
+    FreshnessSpec("ida_prices", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="price.ida1.qh"),
+    # SMARD congestion costs are monthly WITH a 3-4 month publication lag (the
+    # newest point is legitimately a season old) — 150d flags only a feed that
+    # missed a whole publication cycle.
+    FreshnessSpec("smard_congestion", PowerPriceDaily, "", timedelta(days=150),
+                  hourly_series="congestion.cost.security"),
     # /api/power/live (near-real-time TODAY). The intraday scheduler writes
     # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
     # would be the honest window for THIS probe alone — but test_outage_history.py
