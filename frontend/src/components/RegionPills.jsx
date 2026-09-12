@@ -4,8 +4,8 @@ import { useViewState } from '../context/ViewStateContext'
 
 // Region strip: "Everywhere" (all-zones overview) + a few core
 // zones as pills + the full ZoneSelector as a "more" dropdown, so it stays compact
-// while scaling to all 37 zones. Drives the global ViewState zone.
-const CORE = ['DE_LU', 'FR', 'NL', 'BE', 'ES', 'AT', 'PL']
+// while scaling to every zone. Drives the global ViewState zone.
+const CORE = ['DE_LU', 'FR', 'NL', 'BE', 'ES', 'AT', 'PL', 'GB']
 
 function Pill({ active, onClick, children }) {
   return (

@@ -35,6 +35,10 @@ ATTRIBUTION = [
      "license": "free reuse with attribution (ENTSO-E terms)"},
     {"source": "Fraunhofer Energy-Charts", "for": "cross-border physical flows", "license": "CC BY 4.0"},
     {"source": "GIE (AGSI/ALSI)", "for": "gas storage & LNG", "license": "free reuse with attribution"},
+    # The exact attribution string is a licence CONDITION, not a courtesy —
+    # carry it verbatim (backend/power/elexon.py).
+    {"source": "Elexon (BMRS)", "for": "Great Britain: MID price, demand, fuel mix, system prices",
+     "license": "free incl. commercial reuse — \"Contains BMRS data © Elexon Limited copyright and database right\""},
 ]
 DISCLAIMER = (
     "Descriptive market observation from free official records — not investment advice, "
@@ -311,7 +315,7 @@ def get_production_units(
     NOT the installed fleet. A71/A33 lists only units above ENTSO-E's ~100 MW publication
     threshold: DE-LU reports 52 GW here against 295 GW of A68 installed capacity. It is a
     different population, not a smaller sample — but it IS the population the A77 outages are
-    drawn from, and unlike A68 it exists for all 37 zones.
+    drawn from, and unlike A68 it exists for every ENTSO-E-served zone.
     """
     from backend.models.energy import ProductionUnit
     from backend.power.entsoe_grid import PSR_LABELS

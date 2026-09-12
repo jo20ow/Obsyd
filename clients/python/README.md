@@ -2,7 +2,7 @@
 
 A pandas client for the [OBSYD](https://obsyd.dev) public data API — a free
 a free European power desk over the official European power record (ENTSO-E, Energy-Charts
-CC BY 4.0, GIE). 37 bidding zones, day-ahead prices at the market's real 15-minute
+CC BY 4.0, GIE). 38 bidding zones, day-ahead prices at the market's real 15-minute
 resolution, load/residual load, generation mix, cross-border flows. Descriptive,
 not a forecast. AGPL-3.0. No API key.
 

@@ -35,7 +35,7 @@ from backend.models.gas import GasBalance, GasStorageCountry
 from backend.models.prices import EIAPrice, FREDSeries
 from backend.models.sentiment import GDELTVolume
 from backend.models.vessels import VesselPosition
-from backend.power.zones import POWER_ZONES
+from backend.power.zones import ENTSOE_ZONES, POWER_ZONES
 
 
 @dataclass(frozen=True)
@@ -147,6 +147,12 @@ SPECS += [
     # series' own newest hour, which trails the mix by at most one 3-hourly job run.
     FreshnessSpec("co2_intensity", PowerPriceDaily, "", timedelta(days=2),
                   hourly_series="co2.intensity.lifecycle"),
+    # GB rides Elexon, not ENTSO-E (backend/power/elexon.py). price.mid is the
+    # probe — one series that only the Elexon collector writes, so this answers
+    # "is the GB feed alive" the way ntc.CH answers it for the NTC collector.
+    # GB's grid/load freshness rides the ordinary power_grid:GB spec below.
+    FreshnessSpec("elexon_gb", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="price.mid"),
     # /api/power/live (near-real-time TODAY). The intraday scheduler writes
     # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
     # would be the honest window for THIS probe alone — but test_outage_history.py
@@ -191,9 +197,12 @@ SPECS += [
 
 # Per-enabled-zone day-ahead + grid freshness (was DE_LU-hardcoded — every enabled
 # zone is now monitored). Keys are suffixed with the zone, e.g. "power_dayahead:FR".
-for _z in POWER_ZONES:
+# Day-ahead is ENTSO-E-only: GB has no auction feed (price.mid instead, probed
+# below via its own elexon spec) — a power_dayahead:GB probe would be born red.
+for _z in ENTSOE_ZONES:
     SPECS.append(FreshnessSpec(f"power_dayahead:{_z}", PowerPriceDaily, "date", timedelta(days=2),
                                is_date_string=True, filter_col="zone", filter_val=_z))
+for _z in POWER_ZONES:
     # not_null_col="load_mw": the grid probe follows LOAD, not row existence.
     # ingest_grid writes a row whenever A75 generation arrives, so wind-only rows
     # kept /api/v1/status green for IE_SEM while its A65 load feed had been dead

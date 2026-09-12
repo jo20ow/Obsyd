@@ -43,6 +43,11 @@ SERIES_LABELS: dict[str, str] = {
     # Derived, estimated — the "(est.)" is part of the label on purpose: these
     # are technology-average factors over the published mix, not measurements
     # (methodology + factor table: backend/power/co2.py).
+    # GB (Elexon): MID is a traded-volume-weighted market index, NOT a
+    # day-ahead auction — the label must never let the two be confused.
+    "price.mid": "GB market index (MID) · hourly",
+    "price.mid.hh": "GB market index (MID) · half-hourly",
+    "imbalance.price.hh": "Imbalance price · half-hourly (GB)",
     "co2.intensity.lifecycle": "CO₂ intensity · lifecycle (est.)",
     "co2.intensity.direct": "CO₂ intensity · direct (est.)",
 }

@@ -157,6 +157,10 @@ async def run_backfill(
     for zone in zones if zone_sources else []:
         cfg = POWER_ZONES[zone]
         eic = cfg["eic"]
+        if not eic:
+            # GB: Elexon-served (eic=None) — every source in this script is
+            # ENTSO-E; its backfill lives in backend/scripts/elexon_backfill.py.
+            continue
         for m_start, m_end in windows:
             days = _daterange(m_start, m_end)
             tag = f"{zone} {m_start:%Y-%m}"

@@ -28,6 +28,10 @@ RECORD_SERIES = [
     "imbalance.price.qh",
     "load.actual",
     "residual.actual",
+    # GB's honest price series (MID; no day-ahead auction feed exists for GB).
+    # The price.-prefix bounds apply — MID spikes like any imbalance-adjacent
+    # price, and 4000 is the same guard, in GBP.
+    "price.mid",
     # Cleanest/dirtiest hour on record — derived like residual.actual, and worth
     # a headline for the same reason negative residuals are.
     "co2.intensity.lifecycle",

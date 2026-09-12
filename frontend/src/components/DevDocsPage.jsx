@@ -51,7 +51,7 @@ export default function DevDocsPage() {
       </h1>
       <p className="text-[14px] text-neutral-400 leading-relaxed max-w-2xl mb-6">
         A free, versioned public API over the canonical European power record — day-ahead prices,
-        load, generation mix, forecasts, cross-border flows and more for 37 bidding zones. No key,
+        load, generation mix, forecasts, cross-border flows and more for 38 bidding zones. No key,
         no account, no registration.
       </p>
       <div className="flex flex-wrap gap-2 mb-14">

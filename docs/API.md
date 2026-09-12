@@ -212,6 +212,8 @@ HTTP 422). Heavy-guarded.
 | `gen.<PSR>` | Actual generation by ENTSO-E production type (e.g. `gen.B16` solar, `gen.B18`/`B19` wind) | MW |
 | `imbalance.price` | Imbalance / balancing price, hourly mean (single-TSO zones; DE-LU via country EIC) | EUR/MWh |
 | `price.dayahead.qh` / `imbalance.price.qh` | Raw 15-minute auction / imbalance steps (SDAC trades quarter-hours since 2025-10) | EUR/MWh |
+| `price.mid` / `price.mid.hh` | **GB only** — Elexon Market Index (MID, APX provider): the volume-weighted price of GB short-term trades, hourly / raw half-hourly. Deliberately NOT `price.dayahead`: GB's day-ahead auctions (N2EX/EPEX) are licensed and not redistributable, so GB carries no auction series at all — MID is the honest free price signal. Attribution condition: "Contains BMRS data © Elexon Limited copyright and database right" | GBP/MWh |
+| `imbalance.price.hh` | **GB only** — raw half-hourly system price (single-price settlement); the hourly mean rides the ordinary `imbalance.price` key | GBP/MWh |
 | `generation.forecast` | Day-ahead total generation forecast (A71) | MW |
 | `consumption.<PSR>` | Consumption of consumption-type PSRs (e.g. pumped-storage pumping) | MW |
 | `flow.<ZONE>` | Cross-border physical flow to `<ZONE>`, stored under the FROM zone; positive = FROM exports | MW |
@@ -308,5 +310,8 @@ top of `/api/v1/series` instead, keep the "Attribution & license" note below in
 view somewhere.
 
 ## Attribution & license
-Attribute ENTSO-E, Fraunhofer Energy-Charts (CC BY 4.0) and GIE. The service and its
+Attribute ENTSO-E, Fraunhofer Energy-Charts (CC BY 4.0) and GIE. GB data additionally
+carries Elexon's licence condition — reproduce the string
+"Contains BMRS data © Elexon Limited copyright and database right" wherever you
+republish GB series. The service and its
 source are AGPL-3.0 — self-host freely; network use requires publishing source changes.

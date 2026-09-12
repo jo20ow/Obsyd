@@ -27,15 +27,22 @@ def test_original_three_zones_metadata_unchanged():
 
 def test_registry_is_full_and_consistent():
     assert len(ZONE_REGISTRY) >= 27
-    # every entry carries the required fields
+    # Non-ENTSO-E zones carry eic=None BY DESIGN (GB/Elexon) — the invariant is
+    # not "every zone has an EIC" any more, it is "eic-less zones are exactly
+    # the named non-ENTSO-E ones, and everyone else's fields are complete".
+    NON_ENTSOE = {"GB"}
     for key, meta in ZONE_REGISTRY.items():
-        assert meta["eic"], key
-        assert meta["price_symbol"], key
+        if key in NON_ENTSOE:
+            assert meta["eic"] is None and meta["price_symbol"] is None, key
+        else:
+            assert meta["eic"], key
+            assert meta["price_symbol"], key
         assert meta["label"], key
         assert "ec_country" in meta, key
-    # price symbols + EICs are unique across the registry
-    symbols = [m["price_symbol"] for m in ZONE_REGISTRY.values()]
-    eics = [m["eic"] for m in ZONE_REGISTRY.values()]
+    # price symbols + EICs are unique across the ENTSO-E family
+    entsoe = [m for k, m in ZONE_REGISTRY.items() if k not in NON_ENTSOE]
+    symbols = [m["price_symbol"] for m in entsoe]
+    eics = [m["eic"] for m in entsoe]
     assert len(symbols) == len(set(symbols))
     assert len(eics) == len(set(eics))
 

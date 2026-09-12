@@ -138,7 +138,10 @@ NTC_BORDER_SET: frozenset[tuple[str, str]] = frozenset(NTC_BORDERS)
 #: The one zone ENTSO-E publishes no scheduled exchange for. Named, not silently absent —
 #: a zone that simply fails to appear looks like a bug; a zone that is listed here as
 #: unbordered is a fact about the data.
-ZONES_WITHOUT_BORDERS = ("IE_SEM",)
+ZONES_WITHOUT_BORDERS = ("IE_SEM", "GB")
+# GB joined 2026-09-12: not an ENTSO-E zone at all (Elexon-served, eic=None) —
+# its interconnector flows exist only as the country-level flow.GB series from
+# Energy-Charts, never as A09 scheduled exchanges.
 
 
 def directed_pairs() -> list[tuple[str, str]]:
