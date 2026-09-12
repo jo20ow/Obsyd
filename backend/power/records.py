@@ -28,6 +28,8 @@ RECORD_SERIES = [
     "imbalance.price.qh",
     "load.actual",
     "residual.actual",
+    # The daily negative-hours count: "most negative day on record" per zone.
+    "price.negative_hours",
     # GB's honest price series (MID; no day-ahead auction feed exists for GB).
     # The price.-prefix bounds apply — MID spikes like any imbalance-adjacent
     # price, and 4000 is the same guard, in GBP.
@@ -59,6 +61,10 @@ CO2_MAX_PLAUSIBLE = 900.0
 
 
 def _bounds(series_key: str) -> tuple[float, float]:
+    # Before the generic price. branch: a day has at most 24 negative hours,
+    # and the price band would happily celebrate a 4000 here.
+    if series_key == "price.negative_hours":
+        return 0.0, 24.0
     if series_key.startswith("imbalance."):
         return IMBALANCE_MIN_PLAUSIBLE, IMBALANCE_MAX_PLAUSIBLE
     if series_key.startswith("price."):

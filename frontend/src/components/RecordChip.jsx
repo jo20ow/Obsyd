@@ -10,6 +10,7 @@ const SERIES_LABEL = {
   'load.actual': 'load',
   'residual.actual': 'residual load',
   'co2.intensity.lifecycle': 'CO₂ intensity (est.)',
+  'price.negative_hours': 'negative hours/day',
 }
 
 function fmt(r) {

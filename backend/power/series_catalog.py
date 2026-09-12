@@ -45,6 +45,7 @@ SERIES_LABELS: dict[str, str] = {
     # (methodology + factor table: backend/power/co2.py).
     # GB (Elexon): MID is a traded-volume-weighted market index, NOT a
     # day-ahead auction — the label must never let the two be confused.
+    "price.negative_hours": "Negative-price hours · per day",
     "price.mid": "GB market index (MID) · hourly",
     "wind.embedded.est": "GB embedded wind (NESO estimate)",
     "solar.embedded.est": "GB embedded solar (NESO estimate)",
@@ -63,7 +64,7 @@ _RESERVE_PRODUCT_LABELS: dict[str, str] = {"fcr": "FCR", "afrr": "aFRR", "mfrr":
 # (a future series prefix) sorts after these, keyed by its own group key.
 GROUP_ORDER: list[str] = [
     "price", "imbalance", "load", "residual", "generation", "wind", "solar",
-    "gen", "consumption", "co2", "flow", "sched", "ntc", "hydro",
+    "gen", "consumption", "co2", "capture", "flow", "sched", "ntc", "hydro",
     "balancing", "capacity", "outage", "netpos",
 ]
 GROUP_LABELS: dict[str, str] = {
@@ -77,6 +78,7 @@ GROUP_LABELS: dict[str, str] = {
     "gen": "Generation mix (per fuel)",
     "consumption": "Consumption (pumped storage)",
     "co2": "Carbon intensity (estimated)",
+    "capture": "Capture prices & value factors (monthly)",
     "flow": "Cross-border flows (hourly)",
     "sched": "Scheduled commercial exchange (hourly)",
     "ntc": "Day-ahead NTC (offered capacity)",
@@ -119,6 +121,12 @@ def series_label(key: str) -> str:
         # DIRECTED arrow, unlike flow./sched. above: ntc.<TO> under <FROM> is one
         # direction's offered capacity, never netted (see entsoe_ntc.py).
         return f"Day-ahead NTC → {_zone_label(key[len('ntc.'):])}"
+    if key.startswith("capture."):
+        # capture.<PSR>.<price|factor> — monthly derived (backend/power/derived_stats.py)
+        parts = key.split(".")
+        if len(parts) == 3:
+            metric = {"price": "capture price", "factor": "value factor"}.get(parts[2], parts[2])
+            return f"Capture · {PSR_LABELS.get(parts[1], parts[1])} · {metric}"
     if key.startswith("gen."):
         code = key[len("gen."):]
         return f"Generation · {PSR_LABELS.get(code, code)}"

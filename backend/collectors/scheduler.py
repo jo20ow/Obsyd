@@ -371,6 +371,34 @@ async def _run_capacity_monthly():
         db.close()
 
 
+async def _run_derived_stats_nightly():
+    """Mirror the derived statistics series (backend/power/derived_stats.py):
+    the daily negative-hours count over a trailing window (absorbs price
+    restatements) and the monthly capture series over the last three months
+    (a finished month can still restate while its prices do). Full-window
+    recompute, per-zone isolation, the records doctrine throughout."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.derived_stats import store_capture, store_negative_hours
+    from backend.power.zones import POWER_ZONES
+
+    start_day = (datetime.now(timezone.utc).date() - timedelta(days=10)).isoformat()
+    db = SessionLocal()
+    try:
+        neg = cap = 0
+        for zone in POWER_ZONES:
+            try:
+                neg += store_negative_hours(db, zone, start_day=start_day)
+                cap += store_capture(db, zone, months=3)
+            except Exception as exc:
+                logger.error("derived stats %s failed: %s", zone, exc)
+        logger.info("derived stats nightly: %d negative-hour points, %d capture points", neg, cap)
+    except Exception as exc:
+        logger.error("_run_derived_stats_nightly failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_records_nightly():
     """Recompute all-time records per series × zone (SQL min/max over
     power_hourly). Runs after the nightly power ingest so a record day is
@@ -740,6 +768,9 @@ def start_scheduler():
     # jobs; 4 runs/day x ~8 ENTSO-E requests is trivial on the shared token.
     scheduler.add_job(_run_unit_generation, CronTrigger(hour="3,9,15,21", minute=40), id="unit_generation_6h", **JOB_DEFAULTS)
     # All-time records: nightly at 23:45, after the 22:30 power ingest.
+    # 23:42, deliberately BEFORE records at 23:45: the negative-hours series
+    # must carry today's mirror before the records job crowns extremes on it.
+    scheduler.add_job(_run_derived_stats_nightly, CronTrigger(hour=23, minute=42), id="derived_stats_nightly", **JOB_DEFAULTS)
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical
     # store, no incremental state), and it wants the same freshly-ingested day underneath it.

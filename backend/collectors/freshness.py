@@ -159,6 +159,14 @@ SPECS += [
     # is written by that feed alone (gen.B16 would also match other zones' A75).
     FreshnessSpec("neso_embedded", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="solar.embedded.est"),
+    # Derived stats (backend/power/derived_stats.py), nightly job. The daily
+    # negative-hours mirror trails its source by one nightly at most; the
+    # monthly capture series' NEWEST POINT is legitimately weeks old (a month
+    # exists once it is over) — 45d mirrors capture.py's own STALE_AFTER_DAYS.
+    FreshnessSpec("negative_hours_series", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="price.negative_hours"),
+    FreshnessSpec("capture_series", PowerPriceDaily, "", timedelta(days=45),
+                  hourly_series="capture.B16.factor"),
     # /api/power/live (near-real-time TODAY). The intraday scheduler writes
     # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
     # would be the honest window for THIS probe alone — but test_outage_history.py
