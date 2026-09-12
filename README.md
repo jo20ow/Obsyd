@@ -48,7 +48,10 @@ A free, versioned HTTP API over the canonical power record: `GET /api/v1/series?
 Shipped since the first cut: imbalance prices (A85, incl. Germany's reBAP via the country EIC),
 installed capacity (A68), hydro reservoirs (A72), the generation-outage board (A77,
 revision-aware), hourly cross-border flows, all-time records, Parquet export, the
-pip-installable Python client, and the non-EU neighbour zones (CH, NO, SE).
+pip-installable Python client, the non-EU neighbour zones (CH, NO, SE), and an
+estimated hourly CO₂ intensity per zone (`co2.intensity.lifecycle`/`.direct` —
+published emission factors over the generation mix; methodology and every factor's
+source in `backend/power/co2.py`).
 
 Investigated and deliberately deferred (with their blockers), not silently dropped:
 

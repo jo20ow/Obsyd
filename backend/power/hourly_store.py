@@ -42,9 +42,10 @@ REVISION_FLOOR = 0.5
 REVISION_REL_TOL = 0.001
 
 # Derived series are not revision-ledgered: residual.* restates whenever its
-# inputs (load/wind/solar) restate, so ledgering it would double-count every
-# upstream revision. Their arrival rows are still written.
-REVISION_EXCLUDED_PREFIXES = ("residual.",)
+# inputs (load/wind/solar) restate, and co2.* whenever the mix restates, so
+# ledgering them would double-count every upstream revision. Their arrival
+# rows are still written.
+REVISION_EXCLUDED_PREFIXES = ("residual.", "co2.")
 
 
 def _get_or_create_id(db: Session, model, key: str, **extra) -> int:

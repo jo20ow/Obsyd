@@ -387,6 +387,35 @@ async def _run_records_nightly():
         db.close()
 
 
+async def _run_co2_intensity():
+    """Recompute the derived CO₂-intensity series (backend/power/co2.py) over a
+    trailing 10-day window for every enabled zone. 10 days generously covers the
+    mix's observed restatement horizon (the quality layer records A75 restating
+    settled hours days later); full-window recompute is the records.py doctrine —
+    a restated input is absorbed by simply covering it again. Per-zone try/except:
+    one zone's bad window must not silence the other 36."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.co2 import compute_and_store_range
+    from backend.power.zones import POWER_ZONES
+
+    end = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    start = end - timedelta(days=10)
+    db = SessionLocal()
+    try:
+        written = 0
+        for zone in POWER_ZONES:
+            try:
+                written += compute_and_store_range(db, zone, int(start.timestamp()), int(end.timestamp()))
+            except Exception as exc:
+                logger.error("co2 intensity %s failed: %s", zone, exc)
+        logger.info("co2 intensity: %d hours refreshed across %d zones", written, len(POWER_ZONES))
+    except Exception as exc:
+        logger.error("_run_co2_intensity failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_outages():
     """Refresh the rolling generation-unavailability (ENTSO-E A77) AND transmission-
     infrastructure-unavailability (A78) windows for all enabled zones/borders. Every
@@ -673,6 +702,10 @@ def start_scheduler():
     scheduler.add_job(_run_outage_snapshot, CronTrigger(minute=45), id="outage_snapshot_hourly", **JOB_DEFAULTS)
     # Activated balancing energy (aFRR/mFRR, A83/A84): hourly, same-day activation signal.
     scheduler.add_job(_run_balancing, CronTrigger(minute=20), id="balancing_hourly", **JOB_DEFAULTS)
+    # Derived CO₂ intensity rides the mix: every 3 h keeps today's hours fresh
+    # (the freshness spec allows 2 days; this stays far inside it), the 10-day
+    # window inside the job absorbs A75 restatements.
+    scheduler.add_job(_run_co2_intensity, CronTrigger(hour="*/3", minute=35), id="co2_intensity_3h", **JOB_DEFAULTS)
     # Procured balancing-capacity prices (FCR/aFRR/mFRR, A15): daily 11:30 UTC — comfortably
     # after all three TSO publication windows (FCR ~08:30, aFRR ~09:30, mFRR ~11:00
     # Europe/Berlin, i.e. UTC+1/+2 — see docs/findings/2026-07-20-regelleistung-capacity-prices.md).

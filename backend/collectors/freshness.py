@@ -142,6 +142,11 @@ SPECS += [
     # Data-quality aggregates are derived the same way (nightly completeness + rule flags,
     # backend/power/quality.py) — a silent quality engine looks exactly like clean data.
     FreshnessSpec("quality_daily", QualityDaily, "updated_at", timedelta(days=2)),
+    # CO₂ intensity is DERIVED from the gen.* mix (backend/power/co2.py), so like the
+    # other derived probes this asks whether the recompute is keeping up — via the
+    # series' own newest hour, which trails the mix by at most one 3-hourly job run.
+    FreshnessSpec("co2_intensity", PowerPriceDaily, "", timedelta(days=2),
+                  hourly_series="co2.intensity.lifecycle"),
     # /api/power/live (near-real-time TODAY). The intraday scheduler writes
     # load.actual every ~30 min and ENTSO-E's own publication lag is ~1-2h, so 6h
     # would be the honest window for THIS probe alone — but test_outage_history.py

@@ -40,6 +40,11 @@ SERIES_LABELS: dict[str, str] = {
     "outage.offline": "Outages · capacity offline",
     "outage.forced": "Outages · forced offline",
     "netpos.dayahead": "Net position · day-ahead",
+    # Derived, estimated — the "(est.)" is part of the label on purpose: these
+    # are technology-average factors over the published mix, not measurements
+    # (methodology + factor table: backend/power/co2.py).
+    "co2.intensity.lifecycle": "CO₂ intensity · lifecycle (est.)",
+    "co2.intensity.direct": "CO₂ intensity · direct (est.)",
 }
 
 #: aFRR/mFRR product-code -> display name, shared by the balancing.*/capacity.* pattern
@@ -51,7 +56,7 @@ _RESERVE_PRODUCT_LABELS: dict[str, str] = {"fcr": "FCR", "afrr": "aFRR", "mfrr":
 # (a future series prefix) sorts after these, keyed by its own group key.
 GROUP_ORDER: list[str] = [
     "price", "imbalance", "load", "residual", "generation", "wind", "solar",
-    "gen", "consumption", "flow", "sched", "ntc", "hydro",
+    "gen", "consumption", "co2", "flow", "sched", "ntc", "hydro",
     "balancing", "capacity", "outage", "netpos",
 ]
 GROUP_LABELS: dict[str, str] = {
@@ -64,6 +69,7 @@ GROUP_LABELS: dict[str, str] = {
     "solar": "Solar",
     "gen": "Generation mix (per fuel)",
     "consumption": "Consumption (pumped storage)",
+    "co2": "Carbon intensity (estimated)",
     "flow": "Cross-border flows (hourly)",
     "sched": "Scheduled commercial exchange (hourly)",
     "ntc": "Day-ahead NTC (offered capacity)",
