@@ -12,18 +12,23 @@ string below must travel with the data.
 
 WHAT MAPS, AND WHAT HONESTLY CANNOT
 -----------------------------------
-  * load.actual        ← demand outturn INDO (Initial National Demand Outturn),
-                         half-hourly → hourly mean. INDO is national demand as
-                         GB defines it; like every zone's A65 it inherits its
-                         TSO's demand definition, no adjustment is invented.
+  * load.actual        ← INDO (Initial National Demand Outturn, half-hourly →
+                         hourly mean) PLUS NESO's embedded wind/solar estimates
+                         (backend/power/neso.py): INDO is net of what the
+                         distribution-connected fleet generates, so the sum is
+                         the A65-comparable true national demand. If the NESO
+                         feed is down for a pass, the day lands metered-only
+                         (visible: no gen.B16 hours) and the next overwrite
+                         pass upgrades it.
   * gen.<PSR>          ← FUELINST (5-min MW by fuel type) → hourly means, fuel
                          types mapped onto ENTSO-E PSR codes (table below) so
                          the mix panel, the coverage math and the CO₂-intensity
-                         engine work for GB unchanged. TRANSMISSION-CONNECTED
-                         only: embedded solar/wind are invisible to FUELINST —
-                         gen.B16 does not exist for GB, and the CO₂ estimate is
-                         documented as overstated at sunny middays until the
-                         NESO embedded-estimate follow-up lands.
+                         engine work for GB unchanged. FUELINST is
+                         transmission-metered only; the embedded fleet arrives
+                         via NESO's estimates — gen.B19 = metered + embedded
+                         wind, gen.B16 = embedded solar (estimates, and
+                         labelled as such; raw components published as
+                         wind.embedded.est / solar.embedded.est).
   * imbalance.price    ← settlement system price (single price since P305),
                          half-hourly → hourly mean; raw halves as
                          imbalance.price.hh (the .qh precedent, GB's cadence).
@@ -221,11 +226,19 @@ def parse_fuelinst(payload: dict, day: str) -> dict[str, dict[int, float]]:
 async def ingest_elexon(db: Session, days: list[str], *, overwrite: bool = False) -> dict:
     """Fetch + parse + upsert every GB series for the given UTC days, plus the
     PowerGrid/PowerGenMix daily rows for the finished ones. Idempotent."""
+    from backend.power.neso import fetch_embedded
+
     written = {"hours": 0, "daily_rows": 0}
     load_by_day: dict[str, dict[int, float]] = {}
     gen_by_day: dict[str, dict[str, dict[int, float]]] = {}
 
     async with httpx.AsyncClient(timeout=90) as client:
+        embedded: dict = {}
+        try:
+            embedded = await fetch_embedded(client, days, overwrite=overwrite)
+        except Exception as exc:
+            # Metered-only degradation, never a dead pass — see docstring.
+            logger.error("elexon: NESO embedded feed failed, metered-only pass: %s", exc)
         for day in days:
             try:
                 raw = await fetch_day(client, day, overwrite=overwrite)
@@ -237,6 +250,24 @@ async def ingest_elexon(db: Session, days: list[str], *, overwrite: bool = False
             demand_hourly = parse_demand(raw["demand"], day)
             imb_hourly, imb_raw = parse_system_prices(raw["sysprice"], day)
             gen = parse_fuelinst(raw["fuelinst"], day)
+
+            # Fold NESO's embedded estimates in BEFORE anything derived is
+            # written: load becomes true demand, B19 gains embedded wind, B16
+            # comes into existence. Residual stays INDO − metered wind either
+            # way (the terms enter both sides — see neso.py's proof).
+            emb = embedded.get(day, {})
+            if emb:
+                emb_wind = {h: v["wind"] for h, v in emb.items()}
+                emb_solar = {h: v["solar"] for h, v in emb.items()}
+                for h, v in emb.items():
+                    if h in demand_hourly:
+                        demand_hourly[h] += v["wind"] + v["solar"]
+                b19 = gen.setdefault("B19", {})
+                for h, w in emb_wind.items():
+                    b19[h] = b19.get(h, 0.0) + w
+                gen["B16"] = emb_solar
+                upsert_day_hours(db, "wind.embedded.est", ZONE, {day: emb_wind}, unit="MW")
+                upsert_day_hours(db, "solar.embedded.est", ZONE, {day: emb_solar}, unit="MW")
 
             if mid_hourly:
                 written["hours"] += upsert_day_hours(db, "price.mid", ZONE, {day: mid_hourly}, unit="GBP/MWh")
@@ -250,10 +281,15 @@ async def ingest_elexon(db: Session, days: list[str], *, overwrite: bool = False
                 upsert_hourly(db, "imbalance.price.hh", ZONE, imb_raw, unit="GBP/MWh")
             for psr, hours in gen.items():
                 upsert_day_hours(db, f"gen.{psr}", ZONE, {day: hours}, unit="MW")
-            # residual = load − wind − solar; GB's solar leg is structurally
-            # absent (embedded) ⇒ 0, the rebuild_residual_actual rule.
+            # residual = load − wind − solar (the rebuild_residual_actual rule;
+            # an absent leg is 0). With NESO folded in this provably reduces to
+            # INDO − metered wind — the embedded terms cancel.
             wind = gen.get("B19", {})
-            resid = {h: v - wind.get(h, 0.0) for h, v in demand_hourly.items()}
+            solar = gen.get("B16", {})
+            resid = {
+                h: v - wind.get(h, 0.0) - solar.get(h, 0.0)
+                for h, v in demand_hourly.items()
+            }
             if resid:
                 upsert_day_hours(db, "residual.actual", ZONE, {day: resid}, unit="MW")
 

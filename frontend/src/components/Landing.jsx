@@ -40,6 +40,12 @@ const SOURCES = [
     license: 'Free incl. commercial, with attribution',
   },
   {
+    source: 'NESO Data Portal',
+    what: 'Great Britain: embedded wind & solar estimates (distribution-connected fleet)',
+    cadence: 'Half-hourly',
+    license: 'NESO Open Data Licence',
+  },
+  {
     source: 'Fraunhofer Energy-Charts',
     what: 'Physical cross-border power flows',
     cadence: 'Hourly',

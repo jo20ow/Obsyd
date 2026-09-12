@@ -46,6 +46,8 @@ SERIES_LABELS: dict[str, str] = {
     # GB (Elexon): MID is a traded-volume-weighted market index, NOT a
     # day-ahead auction — the label must never let the two be confused.
     "price.mid": "GB market index (MID) · hourly",
+    "wind.embedded.est": "GB embedded wind (NESO estimate)",
+    "solar.embedded.est": "GB embedded solar (NESO estimate)",
     "price.mid.hh": "GB market index (MID) · half-hourly",
     "imbalance.price.hh": "Imbalance price · half-hourly (GB)",
     "co2.intensity.lifecycle": "CO₂ intensity · lifecycle (est.)",
