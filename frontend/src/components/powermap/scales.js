@@ -124,3 +124,32 @@ export function makeQuantileScale(vals, pal) {
     negShare, // CDF position of 0 € — the legend's zero marker; > 0 ⇔ negatives exist
   }
 }
+
+// ── CO₂ intensity: ABSOLUTE two-segment ramp ─────────────────────────────────
+// Deliberately NOT a quantile scale (unlike price): g/kWh has meaningful
+// absolute anchors — 50 is clean in every zone and 650 is coal in every zone —
+// and a rank scale would repaint "clean" as relative, which for a carbon map
+// is exactly the lie to avoid. Anchors match the palette's co2 ramp
+// (clean 0 → mid 300 → dirty 650+); values above 650 clamp to the dirty pole
+// (the ratio itself cannot exceed the largest factor, 820).
+export const CO2_MID_G = 300
+export const CO2_MAX_G = 650
+
+export function co2Color(v, pal) {
+  if (v == null) return null
+  if (v <= CO2_MID_G) return lerp(pal.co2.clean, pal.co2.mid, Math.max(0, v) / CO2_MID_G)
+  return lerp(pal.co2.mid, pal.co2.dirty, Math.min(1, (v - CO2_MID_G) / (CO2_MAX_G - CO2_MID_G)))
+}
+
+// Latest non-null reading per zone from a /api/v1/snapshot payload
+// ({timestamps, zones: {Z: [v, …]}}) → {value, ts_utc} | null. Zones publish
+// (and derive) at different speeds, so each zone's newest computed hour is its
+// own — the mixed-timestamp hazard the tooltip must disclose per zone.
+export function snapshotLatest(extra, zone) {
+  const col = extra?.zones?.[zone]
+  if (!col) return null
+  for (let i = col.length - 1; i >= 0; i--) {
+    if (col[i] != null) return { value: col[i], ts_utc: extra.timestamps?.[i] }
+  }
+  return null
+}

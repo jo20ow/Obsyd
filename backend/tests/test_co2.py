@@ -144,3 +144,88 @@ def test_catalog_and_freshness_wiring():
     assert "co2" in GROUP_LABELS
     spec = next(s for s in SPECS if s.key == "co2_intensity")
     assert spec.hourly_series == SERIES_LIFECYCLE
+
+
+# ─── the other surfaces: records, badge, desk route ──────────────────────────
+
+
+def test_records_crown_cleanest_and_dirtiest_hour(db_session):
+    """co2.intensity.lifecycle is in RECORD_SERIES; the plausibility band must
+    drop artifact points (the ratio cannot exceed the largest factor, so a 5000
+    can only be an upstream ingest artifact — never a record)."""
+    from backend.power.records import CO2_MAX_PLAUSIBLE, RECORD_SERIES, compute_records
+
+    assert SERIES_LIFECYCLE in RECORD_SERIES
+    _seed(db_session, "gen.B04", {0: 1000.0})            # pure gas hour → 490
+    _seed(db_session, "gen.B19", {1: 1000.0})            # pure wind hour → 11
+    compute_and_store_range(db_session, "DE_LU", _T0, _END)
+    upsert_hourly(db_session, SERIES_LIFECYCLE, "DE_LU",
+                  [(_T0 + 5 * 3600, CO2_MAX_PLAUSIBLE + 1)])  # simulated artifact
+
+    rows = compute_records(db_session)
+    co2 = {r.kind: r for r in rows if r.series_key == SERIES_LIFECYCLE and r.zone == "DE_LU"}
+    assert co2["max"].value == 490.0   # the artifact was ignored, not celebrated
+    assert co2["min"].value == 11.0
+
+
+def _client(db):
+    from fastapi.testclient import TestClient
+
+    from backend.database import get_db
+    from backend.main import app
+
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app)
+
+
+def test_badge_serves_co2_and_greys_out_without_data(db_session):
+    import re
+    from datetime import timedelta
+
+    now_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    ts = int((now_hour - timedelta(hours=1)).timestamp())
+    upsert_hourly(db_session, SERIES_LIFECYCLE, "DE_LU", [(ts, 278.4)], unit="gCO2eq/kWh")
+    c = _client(db_session)
+    try:
+        ok = c.get("/api/v1/badge/DE_LU/co2.svg")
+        assert ok.status_code == 200
+        assert "278 g/kWh" in ok.text and "(est.)" in ok.text
+        empty = c.get("/api/v1/badge/FR/co2.svg")
+        assert empty.status_code == 200 and "no data" in empty.text
+        # aria-label stays a safely quoted attribute even for this metric
+        assert re.search(r'aria-label="[^"]*g/kWh[^"]*"', ok.text)
+    finally:
+        from backend.main import app
+
+        app.dependency_overrides.clear()
+
+
+def test_desk_route_serves_hourly_pairs_with_freshness(db_session):
+    from datetime import timedelta
+
+    now_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    t = int((now_hour - timedelta(hours=2)).timestamp())
+    _points = [(t, 300.0), (t + 3600, 150.0)]
+    upsert_hourly(db_session, "gen.B04", "DE_LU", [(t, 600.0), (t + 3600, 150.0)], unit="MW")
+    upsert_hourly(db_session, "gen.B19", "DE_LU", [(t, 400.0), (t + 3600, 850.0)], unit="MW")
+    compute_and_store_range(db_session, "DE_LU", t, t + 2 * 3600)
+
+    c = _client(db_session)
+    try:
+        body = c.get("/api/power/co2?zone=DE_LU&hours=24").json()
+        assert body["available"] is True
+        assert body["unit"] == "gCO2eq/kWh"
+        assert len(body["hourly"]) == 2
+        assert body["latest"]["lifecycle"] < body["hourly"][0]["lifecycle"]  # windier hour is cleaner
+        assert body["latest"]["direct"] is not None
+        assert "Estimated" in body["note"]
+        assert body["stale"] is False
+
+        # FR is enabled but unseeded (an out-of-registry zone would _resolve_zone
+        # back to the default and answer with DE_LU's data instead).
+        empty = c.get("/api/power/co2?zone=FR").json()
+        assert empty["available"] is False
+    finally:
+        from backend.main import app
+
+        app.dependency_overrides.clear()

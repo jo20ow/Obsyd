@@ -2808,6 +2808,59 @@ def get_hydro(db: Session = Depends(get_db)):
     }
 
 
+# ─── CO₂ intensity (free, estimated) ─────────────────────────────────────────
+
+
+@router.get("/co2")
+def get_co2(zone: str = "DE_LU", hours: int = 168, db: Session = Depends(get_db)):
+    """Estimated CO₂ intensity of the zone's own generation — the co2.intensity.*
+    derived series (backend/power/co2.py: published mix × IPCC/Electricity-Maps
+    factors), served in the desk's shape. Descriptive, technology-average,
+    production-based; the note says so because the panel must too. Free tier."""
+    from backend.power.co2 import SERIES_DIRECT, SERIES_LIFECYCLE, UNIT
+    from backend.power.hourly_store import read_hourly
+
+    zone = _resolve_zone(zone)
+    hours = max(24, min(hours, 744))  # same window cap as /units/history
+    start_ts = int(datetime.now(timezone.utc).timestamp()) - hours * 3600
+    lifecycle = read_hourly(db, SERIES_LIFECYCLE, zone, start_ts=start_ts, max_rows=1500)
+    direct = {ts: v for ts, v in read_hourly(db, SERIES_DIRECT, zone, start_ts=start_ts, max_rows=1500)}
+    if not lifecycle:
+        return {
+            "available": False,
+            "zone": zone,
+            "reason": "No CO₂ intensity computed for this zone yet.",
+        }
+    hourly = [
+        {
+            "ts_utc": _dt.fromtimestamp(ts, tz=timezone.utc).isoformat(),
+            "lifecycle": round(v, 1),
+            "direct": round(direct[ts], 1) if ts in direct else None,
+        }
+        for ts, v in lifecycle
+    ]
+    latest_ts, latest_v = lifecycle[-1]
+    as_of = _dt.fromtimestamp(latest_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+    return {
+        "available": True,
+        "zone": zone,
+        "zone_label": POWER_ZONES.get(zone, {}).get("label", zone),
+        "unit": UNIT,
+        "latest": {
+            "ts_utc": _dt.fromtimestamp(latest_ts, tz=timezone.utc).isoformat(),
+            "lifecycle": round(latest_v, 1),
+            "direct": round(direct[latest_ts], 1) if latest_ts in direct else None,
+        },
+        "hourly": hourly,
+        "note": (
+            "Estimated: published generation mix × per-technology emission factors "
+            "(IPCC AR5 lifecycle medians / operational set via Electricity Maps, AGPL). "
+            "Production-based — imports not traced. Methodology: backend/power/co2.py."
+        ),
+        **_freshness(as_of, datetime.utcnow().date(), 2),
+    }
+
+
 # ─── Generation mix (free) ────────────────────────────────────────────────────
 
 

@@ -9,6 +9,7 @@ const SERIES_LABEL = {
   'imbalance.price.qh': 'imbalance settlement',
   'load.actual': 'load',
   'residual.actual': 'residual load',
+  'co2.intensity.lifecycle': 'CO₂ intensity (est.)',
 }
 
 function fmt(r) {
