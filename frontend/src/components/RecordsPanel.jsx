@@ -14,6 +14,7 @@ const SERIES_LABELS = {
   'load.actual': 'Load hour',
   'residual.actual': 'Residual-load hour',
   'co2.intensity.lifecycle': 'CO₂ intensity hour (est.)',
+  'price.negative_hours': 'Negative hours in a day',
 }
 
 /**
