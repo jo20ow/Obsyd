@@ -134,3 +134,24 @@ async def test_ingest_writes_series_and_daily_rows(db_session, monkeypatch):
     # idempotent: a second run overwrites in place, no duplicate daily rows
     await elexon.ingest_elexon(db_session, [DAY])
     assert db_session.query(PowerGrid).filter_by(zone="GB", date=DAY).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_keys_carry_the_day(monkeypatch):
+    """The raw cache buckets by (source, key, MONTH): a day-less key hands every
+    later day of the month day one's blob. Regression guard for the first GB
+    backfill's one-real-day-per-month bug."""
+    import httpx
+
+    seen: list[str] = []
+
+    async def fake_cache(source, key, dt, coro, *, overwrite=False):
+        seen.append(key)
+        return {"data": []}
+
+    monkeypatch.setattr(elexon, "fetch_or_cache", fake_cache)
+    async with httpx.AsyncClient() as client:
+        await elexon.fetch_day(client, "2026-03-01")
+        await elexon.fetch_day(client, "2026-03-02")
+    assert len(seen) == 8 and len(set(seen)) == 8
+    assert all("2026-03-0" in k for k in seen)
