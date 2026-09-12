@@ -12,7 +12,11 @@ import argparse
 import logging
 
 from backend.database import SessionLocal
-from backend.power.derived_stats import store_capture, store_negative_hours
+from backend.power.derived_stats import (
+    store_capture,
+    store_da_imbalance_spread,
+    store_negative_hours,
+)
 from backend.power.zones import POWER_ZONES
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -33,9 +37,10 @@ def run(*, dry_run: bool) -> None:
                 continue
             neg = store_negative_hours(db, zone)
             cap = store_capture(db, zone, months=CAPTURE_MONTHS)
+            spr = store_da_imbalance_spread(db, zone)
             total_neg += neg
-            total_cap += cap
-            logger.info("%s: %d negative-hour points, %d capture points", zone, neg, cap)
+            total_cap += cap + spr
+            logger.info("%s: %d negative-hour, %d capture, %d spread points", zone, neg, cap, spr)
     finally:
         db.close()
     logger.info("derived stats backfill done: %d + %d points", total_neg, total_cap)

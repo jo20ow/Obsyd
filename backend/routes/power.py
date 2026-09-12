@@ -2808,6 +2808,19 @@ def get_hydro(db: Session = Depends(get_db)):
     }
 
 
+# ─── Duration curves (free, compute-on-read) ─────────────────────────────────
+
+
+@router.get("/duration")
+def get_duration(zone: str = "DE_LU", series: str = "price", days: int = 365,
+                 db: Session = Depends(get_db)):
+    """Price / residual-load duration curve over a trailing window — the
+    distribution view of the store (backend/power/duration.py). Free tier."""
+    from backend.power.duration import compute_duration
+
+    return compute_duration(db, _resolve_zone(zone), series, days)
+
+
 # ─── CO₂ intensity (free, estimated) ─────────────────────────────────────────
 
 

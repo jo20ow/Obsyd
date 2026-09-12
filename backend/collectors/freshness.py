@@ -165,6 +165,8 @@ SPECS += [
     # exists once it is over) — 45d mirrors capture.py's own STALE_AFTER_DAYS.
     FreshnessSpec("negative_hours_series", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="price.negative_hours"),
+    FreshnessSpec("spread_series", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="spread.da_imbalance"),
     FreshnessSpec("capture_series", PowerPriceDaily, "", timedelta(days=45),
                   hourly_series="capture.B16.factor"),
     # Intraday auctions (entsoe_ida.py) — TP submission is voluntary and today
