@@ -72,22 +72,44 @@ UPDATE_RESOURCE = "177f6fa4-ae49-4182-81ea-0c6b35f26ca6"
 _LONDON = ZoneInfo("Europe/London")
 
 
-def _sql(resource: str, start_day: str, end_day: str) -> str:
+#: The yearly resources are NOT schema-uniform: the older ones (2019…) carry no
+#: FORECAST_ACTUAL_INDICATOR column (selecting it answers 409 "undefined
+#: column") and store SETTLEMENT_DATE as text like "01-JAN-2019" — a WHERE
+#: range on that text is meaningless. So yearly resources are fetched WHOLE
+#: (≈17.5k rows, one query per year, well under CKAN's row cap) with the
+#: minimal column set, and the date formats are normalised in the parser. The
+#: rolling update resource is ISO-dated and needs the indicator (it mixes 'A'
+#: actuals with 14 days of 'F' forecasts).
+_BASE_COLS = ('"SETTLEMENT_DATE","SETTLEMENT_PERIOD","EMBEDDED_WIND_GENERATION",'
+              '"EMBEDDED_SOLAR_GENERATION"')
+
+
+def _sql_year(resource: str) -> str:
+    return f'SELECT {_BASE_COLS} FROM "{resource}"'
+
+
+def _sql_update(resource: str, start_day: str, end_day: str) -> str:
     return (
-        'SELECT "SETTLEMENT_DATE","SETTLEMENT_PERIOD","EMBEDDED_WIND_GENERATION",'
-        '"EMBEDDED_SOLAR_GENERATION","FORECAST_ACTUAL_INDICATOR" '
-        f'FROM "{resource}" '
+        f'SELECT {_BASE_COLS},"FORECAST_ACTUAL_INDICATOR" FROM "{resource}" '
         f"WHERE \"SETTLEMENT_DATE\" >= '{start_day}' AND \"SETTLEMENT_DATE\" <= '{end_day}'"
     )
 
 
-async def _query(client: httpx.AsyncClient, resource: str, start_day: str, end_day: str) -> list[dict]:
-    r = await client.get(SQL_URL, params={"sql": _sql(resource, start_day, end_day)}, timeout=60)
+async def _query(client: httpx.AsyncClient, sql: str) -> list[dict]:
+    r = await client.get(SQL_URL, params={"sql": sql}, timeout=120)
     r.raise_for_status()
     payload = r.json()
     if not payload.get("success"):
         raise RuntimeError(f"NESO datastore error: {payload.get('error')}")
     return payload["result"]["records"]
+
+
+def normalize_date(raw: str) -> str:
+    """'01-JAN-2019' (old yearly files) or ISO → 'YYYY-MM-DD'."""
+    raw = str(raw)[:11].strip()
+    if len(raw) >= 10 and raw[2] == "-" and raw[6] == "-":
+        return datetime.strptime(raw[:11], "%d-%b-%Y").strftime("%Y-%m-%d")
+    return raw[:10]
 
 
 def period_to_utc(settlement_date: str, period: int) -> datetime:
@@ -109,7 +131,7 @@ def parse_embedded(records: list[dict]) -> dict[str, dict[int, dict[str, float]]
         w, s_ = row.get("EMBEDDED_WIND_GENERATION"), row.get("EMBEDDED_SOLAR_GENERATION")
         if w is None and s_ is None:
             continue
-        ts = period_to_utc(str(row["SETTLEMENT_DATE"]), int(row["SETTLEMENT_PERIOD"]))
+        ts = period_to_utc(normalize_date(row["SETTLEMENT_DATE"]), int(row["SETTLEMENT_PERIOD"]))
         acc[(ts.strftime("%Y-%m-%d"), ts.hour)].append((float(w or 0), float(s_ or 0)))
     out: dict[str, dict[int, dict[str, float]]] = defaultdict(dict)
     for (day, hour), vals in acc.items():
@@ -123,38 +145,34 @@ def parse_embedded(records: list[dict]) -> dict[str, dict[int, dict[str, float]]
 async def fetch_embedded(client: httpx.AsyncClient, days: list[str], *, overwrite: bool = False) -> dict:
     """{utc_day: {hour: {"wind","solar"}}} for the requested UTC days.
 
-    Yearly resources first (settled history), the rolling update resource for
-    whatever they don't cover yet. Queried with a one-day margin on each side:
-    a UTC day borrows up to two local periods from the neighbouring settlement
-    days. Cached per month like every other raw payload — the cache key carries
-    the resource AND month (the elexon cache-key lesson, applied on arrival)."""
+    Yearly resources are fetched whole and cached once per year (anchor date =
+    Jan 1, so every month batch of a backfill hits the same blob); the rolling
+    update resource fills whatever the settled files don't carry yet, queried
+    per day-range. A one-day margin covers the UTC day borrowing up to two
+    local periods from neighbouring settlement days."""
     if not days:
         return {}
     lo = (date.fromisoformat(min(days)) - timedelta(days=1)).isoformat()
     hi = (date.fromisoformat(max(days)) + timedelta(days=1)).isoformat()
 
     records: list[dict] = []
-    seen_days: set[str] = set()
-    for year in sorted({int(d[:4]) for d in (lo, hi)} | {int(d[:4]) for d in days}):
+    for year in sorted({int(d[:4]) for d in (lo, hi)}):
         resource = YEARLY_RESOURCES.get(year)
         if not resource:
             continue
 
-        async def q(res=resource, a=max(lo, f"{year}-01-01"), b=min(hi, f"{year}-12-31")):
-            return {"records": await _query(client, res, a, b)}
+        async def q(res=resource):
+            return {"records": await _query(client, _sql_year(res))}
 
-        got = await fetch_or_cache(
-            "neso", f"embedded-{year}-{lo}-{hi}", date.fromisoformat(min(days)), q,
-            overwrite=overwrite,
-        )
+        got = await fetch_or_cache("neso", f"embedded-{year}", date(year, 1, 1), q,
+                                   overwrite=overwrite)
         records.extend(got["records"])
-    seen_days = {str(r["SETTLEMENT_DATE"])[:10] for r in records}
 
-    # Recent tail the settled files don't carry yet → the rolling update feed.
+    seen_days = {normalize_date(r["SETTLEMENT_DATE"]) for r in records}
     missing = [d for d in days if d not in seen_days]
     if missing:
         async def qu():
-            return {"records": await _query(client, UPDATE_RESOURCE, min(missing), hi)}
+            return {"records": await _query(client, _sql_update(UPDATE_RESOURCE, min(missing), hi))}
 
         got = await fetch_or_cache(
             "neso", f"embedded-upd-{min(missing)}-{hi}", date.fromisoformat(min(missing)), qu,

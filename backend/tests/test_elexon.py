@@ -225,3 +225,24 @@ async def test_ingest_folds_embedded_into_load_wind_and_solar(db_session, monkey
     assert {v for _, v in read_hourly(db_session, "solar.embedded.est", "GB")} == {3000.0}
     # residual = 24000 − 6000 − 3000 = 15000 = INDO(20000) − metered wind(5000)
     assert {v for _, v in read_hourly(db_session, "residual.actual", "GB")} == {15000.0}
+
+
+def test_normalize_date_handles_both_yearly_formats():
+    from backend.power.neso import normalize_date
+
+    assert normalize_date("01-JAN-2019") == "2019-01-01"
+    assert normalize_date("15-DEC-2020") == "2020-12-15"
+    assert normalize_date("2026-01-01") == "2026-01-01"
+    assert normalize_date("2026-01-01T00:00:00") == "2026-01-01"
+
+
+def test_parse_embedded_accepts_indicator_less_yearly_rows():
+    """The old yearly files carry no FORECAST_ACTUAL_INDICATOR — absence must
+    mean 'actual', not 'dropped'."""
+    from backend.power.neso import parse_embedded
+
+    out = parse_embedded([
+        {"SETTLEMENT_DATE": "01-JAN-2019", "SETTLEMENT_PERIOD": 1,
+         "EMBEDDED_WIND_GENERATION": 1200, "EMBEDDED_SOLAR_GENERATION": 0},
+    ])
+    assert out == {"2019-01-01": {0: {"wind": 1200.0, "solar": 0.0}}}
