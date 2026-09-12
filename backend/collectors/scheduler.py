@@ -120,13 +120,13 @@ async def _run_power_daily():
     cross-border flows, then the DE-LU spark spread."""
     from backend.power.entsoe_grid import ingest_grid, ingest_load_forecast
     from backend.power.entsoe_prices import ingest_day_ahead
-    from backend.power.zones import POWER_ZONES
+    from backend.power.zones import ENTSOE_ZONES
 
     db = SessionLocal()
     try:
         days = _power_recent_days(7)
 
-        for zone_key, zone_cfg in POWER_ZONES.items():
+        for zone_key, zone_cfg in ENTSOE_ZONES.items():
             try:
                 result = await ingest_day_ahead(
                     db, days,
@@ -257,12 +257,12 @@ async def _run_power_intraday():
     filling in hour by hour instead of only after the nightly run. Day-ahead prices and
     forecasts don't change intraday and stay on the daily / midday jobs."""
     from backend.power.entsoe_grid import ingest_grid
-    from backend.power.zones import POWER_ZONES
+    from backend.power.zones import ENTSOE_ZONES
 
     db = SessionLocal()
     try:
         days = _intraday_days()
-        for zone_key, zone_cfg in POWER_ZONES.items():
+        for zone_key, zone_cfg in ENTSOE_ZONES.items():
             try:
                 await ingest_grid(db, days, eic=zone_cfg["eic"], zone=zone_key, overwrite=True)
             except Exception as exc:
@@ -285,13 +285,13 @@ async def _run_power_prices_midday():
     from datetime import datetime, timedelta, timezone
 
     from backend.power.entsoe_prices import ingest_day_ahead
-    from backend.power.zones import POWER_ZONES
+    from backend.power.zones import ENTSOE_ZONES
 
     today = datetime.now(timezone.utc).date()
     days = [today.isoformat(), (today + timedelta(days=1)).isoformat()]
     db = SessionLocal()
     try:
-        for zone_key, zone_cfg in POWER_ZONES.items():
+        for zone_key, zone_cfg in ENTSOE_ZONES.items():
             try:
                 await ingest_day_ahead(
                     db, days, eic=zone_cfg["eic"],
@@ -317,13 +317,13 @@ async def _run_power_prices_afternoon():
     from datetime import datetime, timedelta, timezone
 
     from backend.power.entsoe_prices import ingest_day_ahead
-    from backend.power.zones import POWER_ZONES
+    from backend.power.zones import ENTSOE_ZONES
 
     today = datetime.now(timezone.utc).date()
     days = [today.isoformat(), (today + timedelta(days=1)).isoformat()]
     db = SessionLocal()
     try:
-        for zone_key, zone_cfg in POWER_ZONES.items():
+        for zone_key, zone_cfg in ENTSOE_ZONES.items():
             try:
                 await ingest_day_ahead(
                     db, days, eic=zone_cfg["eic"],
@@ -343,12 +343,12 @@ async def _run_capacity_monthly():
     from datetime import datetime, timezone
 
     from backend.power.entsoe_capacity import ingest_installed_capacity
-    from backend.power.zones import POWER_ZONES
+    from backend.power.zones import ENTSOE_ZONES
 
     year = datetime.now(timezone.utc).year
     db = SessionLocal()
     try:
-        for zone_key, cfg in POWER_ZONES.items():
+        for zone_key, cfg in ENTSOE_ZONES.items():
             try:
                 await ingest_installed_capacity(db, year, eic=cfg["eic"], zone=zone_key, overwrite=True)
             except Exception as exc:
@@ -383,6 +383,25 @@ async def _run_records_nightly():
         logger.info("records nightly: %d rows refreshed", len(records))
     except Exception as exc:
         logger.error("_run_records_nightly failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _run_elexon():
+    """GB via Elexon (backend/power/elexon.py): MID price, demand, fuel mix,
+    system prices — every ~30 min like the ENTSO-E intraday job, covering
+    today + yesterday with overwrite so late settlement values are absorbed."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.power.elexon import ingest_elexon
+
+    today = datetime.now(timezone.utc).date()
+    days = [(today - timedelta(days=1)).isoformat(), today.isoformat()]
+    db = SessionLocal()
+    try:
+        await ingest_elexon(db, days, overwrite=True)
+    except Exception as exc:
+        logger.error("_run_elexon failed: %s", exc)
     finally:
         db.close()
 
@@ -576,12 +595,12 @@ async def _run_balancing():
     deliberate once-a-day "has A83 come back?" probe.
     """
     from backend.power.entsoe_balancing import ingest_balancing
-    from backend.power.zones import POWER_ZONES
+    from backend.power.zones import ENTSOE_ZONES
 
     db = SessionLocal()
     try:
         days = _intraday_days()
-        for zone_key in POWER_ZONES:
+        for zone_key in ENTSOE_ZONES:
             try:
                 result = await ingest_balancing(
                     db, days, zone=zone_key, overwrite=True, overwrite_volumes=False
@@ -706,6 +725,10 @@ def start_scheduler():
     # (the freshness spec allows 2 days; this stays far inside it), the 10-day
     # window inside the job absorbs A75 restatements.
     scheduler.add_job(_run_co2_intensity, CronTrigger(hour="*/3", minute=35), id="co2_intensity_3h", **JOB_DEFAULTS)
+    # GB (Elexon) rides the same ~30-min cadence as the ENTSO-E intraday job,
+    # offset so the two never fetch at the same instant. :25/:55 also puts a GB
+    # refresh right before the :35 CO₂ recompute every third hour.
+    scheduler.add_job(_run_elexon, CronTrigger(minute="25,55"), id="elexon_gb_30min", **JOB_DEFAULTS)
     # Procured balancing-capacity prices (FCR/aFRR/mFRR, A15): daily 11:30 UTC — comfortably
     # after all three TSO publication windows (FCR ~08:30, aFRR ~09:30, mFRR ~11:00
     # Europe/Berlin, i.e. UTC+1/+2 — see docs/findings/2026-07-20-regelleistung-capacity-prices.md).

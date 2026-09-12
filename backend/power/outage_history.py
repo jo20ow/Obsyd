@@ -50,7 +50,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from backend.power.hourly_store import upsert_hourly
-from backend.power.zones import POWER_ZONES
+from backend.power.zones import ENTSOE_ZONES
 from backend.signals.detectors.power import latest_outage_revisions
 
 #: All published unavailability, planned and forced.
@@ -91,7 +91,9 @@ def snapshot_outages(db: Session, *, now: datetime | None = None) -> dict:
 
     written = 0
     zones_with_outages = 0
-    for zone in POWER_ZONES:
+    # ENTSO-E subset: GB (Elexon-served) has no A77 feed, and writing it
+    # outage.offline = 0 would claim knowledge the recorder does not have.
+    for zone in ENTSOE_ZONES:
         rows = latest_outage_revisions(db, zone, ending_after=at_iso)
         if not rows:
             continue

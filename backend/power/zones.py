@@ -71,6 +71,16 @@ ZONE_REGISTRY: dict[str, dict] = {
     "SE2": {"eic": "10Y1001A1001A45N", "price_symbol": "POWER_SE2", "label": "SE2", "ec_country": None},
     "SE3": {"eic": "10Y1001A1001A46L", "price_symbol": "POWER_SE3", "label": "SE3", "ec_country": None},
     "SE4": {"eic": "10Y1001A1001A47J", "price_symbol": "POWER_SE4", "label": "SE4", "ec_country": None},
+    # Great Britain — the first NON-ENTSO-E zone, served by Elexon/BMRS
+    # (backend/power/elexon.py; the old "GB → not added" note above is history).
+    # eic=None is the capability switch: every ENTSO-E iteration walks
+    # ENTSOE_ZONES below and never sees GB. price_symbol=None: GB's day-ahead
+    # auctions are licensed — it has price.mid instead, honestly labelled.
+    # ec_country stays None ON PURPOSE: flow.GB already exists as a
+    # counterparty series from the Energy-Charts country ingest, and giving GB
+    # an ec_country would re-plumb that ingest's BASE_COUNTRIES — a separate,
+    # deliberate change if ever wanted.
+    "GB": {"eic": None, "price_symbol": None, "label": "GB", "ec_country": None},
 }
 
 
@@ -85,6 +95,12 @@ ENABLED_ZONES: list[str] = _parse_enabled(settings.enabled_zones)
 
 # The zones the app actually serves. Same shape/metadata as before for DE_LU/FR/NL.
 POWER_ZONES: dict[str, dict] = {k: ZONE_REGISTRY[k] for k in ENABLED_ZONES}
+
+# The ENTSO-E-served subset: every collector in the entsoe_* family iterates
+# THIS dict (an eic is its query key, unconditionally). GB carries eic=None and
+# is fed by backend/power/elexon.py instead — the nullable-capability pattern
+# ec_country established, applied to the EIC.
+ENTSOE_ZONES: dict[str, dict] = {k: v for k, v in POWER_ZONES.items() if v.get("eic")}
 
 # Default zone: DE_LU when enabled, else the first enabled zone.
 DEFAULT_ZONE = "DE_LU" if "DE_LU" in POWER_ZONES else ENABLED_ZONES[0]

@@ -1,6 +1,6 @@
 # OBSYD — the European electricity desk
 
-**One desk for the European power grid: day-ahead prices, load & residual load and generation mix across 37 bidding zones — hourly everywhere, 15-minute day-ahead where SDAC trades it (35 of 37 zones; CH and IE-SEM are hourly-only) — plus a live generation-outage board (where zones publish outages), country-level cross-border flows, reservoir levels for the 15 hydro zones, forecasts and the gas that fuels the marginal price — from the official record (ENTSO-E, GIE) and Fraunhofer Energy-Charts.**
+**One desk for the European power grid: day-ahead prices, load & residual load and generation mix across 38 bidding zones — hourly everywhere, 15-minute day-ahead where SDAC trades it (35 of 38 zones; CH and IE-SEM are hourly-only, and GB has no day-ahead auction feed at all — it carries Elexon's half-hourly MID index instead) — plus a live generation-outage board (where zones publish outages), country-level cross-border flows, reservoir levels for the 15 hydro zones, forecasts and the gas that fuels the marginal price — from the official record (ENTSO-E, Elexon, GIE) and Fraunhofer Energy-Charts.**
 
 [Live Demo](https://obsyd.dev) · [Free & open source](#cloud-hosting-or-self-host) · [AGPL-3.0](LICENSE)
 
@@ -19,8 +19,8 @@ OBSYD is open source under AGPL-3.0 and **completely free** — there is no paid
 
 ## Features
 
-- **37 European bidding zones** — 27 EU bidding zones + 10 more (CH, NO1–5, SE1–4); the Baltic zones (EE/LV/LT) are not yet enabled (config-only via `ENABLED_ZONES`)
-- **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load and forecasts per zone; imbalance prices for 35 of 37 zones (history depth varies by zone — the deepest imbalance series start in 2021)
+- **38 European bidding zones** — 27 EU bidding zones + 11 more (CH, NO1–5, SE1–4, and GB via Elexon/BMRS — the first non-ENTSO-E zone); the Baltic zones (EE/LV/LT) are not yet enabled (config-only via `ENABLED_ZONES`)
+- **Hourly resolution, 5 years of history** — day-ahead price, actual load, generation by fuel, residual load and forecasts per zone; imbalance prices for 36 of 38 zones (history depth varies by zone — the deepest imbalance series start in 2021)
 - **Imbalance prices** — 15-min settlement prices → hourly, per zone (DE-LU included: the combined reBAP is served under the country EIC)
 - **Installed capacity** — generation capacity by fuel per zone (ENTSO-E A68), annual context
 - **Near-real-time** — actual load/generation/flows refresh every 30 min; today fills in hour by hour (the honest ~1h ceiling of free ENTSO-E data)

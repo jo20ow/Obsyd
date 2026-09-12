@@ -12,7 +12,7 @@ const PILLARS = [
   {
     title: 'See the whole grid at a glance',
     body:
-      'Day-ahead prices, load & residual load and the generation mix for 37 European bidding zones — hourly everywhere, at the market’s real 15-minute resolution where SDAC trades it — plus a live generation-outage board, cross-border flows, Nordic & Alpine reservoir levels and the gas that fuels the marginal price. One desk, not a dozen ENTSO-E queries to reconcile by hand.',
+      'Day-ahead prices, load & residual load and the generation mix for 38 European bidding zones — hourly everywhere, at the market’s real 15-minute resolution where SDAC trades it — plus a live generation-outage board, cross-border flows, Nordic & Alpine reservoir levels and the gas that fuels the marginal price. One desk, not a dozen ENTSO-E queries to reconcile by hand.',
   },
   {
     title: 'Catch grid stress as it happens',
@@ -29,9 +29,15 @@ const PILLARS = [
 const SOURCES = [
   {
     source: 'ENTSO-E Transparency Platform',
-    what: 'Day-ahead prices, load, generation mix & forecasts, plant outages, hydro reservoirs — 37 bidding zones',
+    what: 'Day-ahead prices, load, generation mix & forecasts, plant outages, hydro reservoirs — 37 of 38 bidding zones',
     cadence: 'Hourly · 15-min where SDAC trades it',
     license: 'Free reuse with attribution',
+  },
+  {
+    source: 'Elexon (BMRS)',
+    what: 'Great Britain: demand, fuel mix, MID market index & system prices',
+    cadence: 'Half-hourly · 5-min fuel mix',
+    license: 'Free incl. commercial, with attribution',
   },
   {
     source: 'Fraunhofer Energy-Charts',
@@ -137,9 +143,9 @@ export default function Landing() {
         </h1>
         <p className="text-[15px] text-neutral-400 max-w-2xl leading-relaxed mb-8">
           A free European power desk: day-ahead prices, load &amp; residual load, generation mix and
-          wind/solar for 37 European bidding zones — plus cross-border flows, tomorrow’s load &amp;
+          wind/solar for 38 European bidding zones — plus cross-border flows, tomorrow’s load &amp;
           residual forecast and the gas that fuels the marginal price — from the official record
-          (ENTSO-E, GIE) and Fraunhofer Energy-Charts, with a live anomaly radar. Descriptive,
+          (ENTSO-E, Elexon, GIE) and Fraunhofer Energy-Charts, with a live anomaly radar. Descriptive,
           auditable, open source under AGPL-3.0 — run it yourself, or use the hosted cloud.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 mb-6">

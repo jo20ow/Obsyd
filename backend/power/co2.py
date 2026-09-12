@@ -46,7 +46,7 @@ than hidden in a fallback:
     lignite somewhat — plant-level lignite runs above 820 direct).
   * B03 Coal-derived gas → coal class (its carbon enters with the coal, the
     same reasoning marginal.py uses to price it off coal).
-  * B07 Oil shale → oil class (no producer among the 37 zones; documented
+  * B07 Oil shale → oil class (no producer among the served zones; documented
     understatement if one ever appears).
   * B08 Peat → coal class (the most coal-like fuel; no IPCC/EM class).
   * B15 Other renewable → biomass class (in ENTSO-E practice predominantly
