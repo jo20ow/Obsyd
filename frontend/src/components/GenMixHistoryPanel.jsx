@@ -6,8 +6,9 @@ import Panel from './Panel'
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
+import { useChartTheme } from '../utils/chart'
 import { fuelColor, sortFuels } from '../utils/fuels'
+import MultiTip from './ChartTip'
 
 const API = '/api'
 
@@ -57,7 +58,7 @@ export default function GenMixHistoryPanel({ zone = 'DE_LU' }) {
               <CartesianGrid {...ct.grid} />
               <XAxis dataKey="t" tick={ct.tick} minTickGap={30} />
               <YAxis tick={ct.tick} width={34} unit="" />
-              <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
+              <Tooltip content={<MultiTip />} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
               <Legend wrapperStyle={{ fontSize: 8, fontFamily: 'monospace' }} iconSize={7} />
               {fuels.map((f) => (
                 <Area key={f} type="monotone" dataKey={f} stackId="1" stroke={fuelColor(f)}

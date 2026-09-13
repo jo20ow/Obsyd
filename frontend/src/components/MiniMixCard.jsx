@@ -3,7 +3,8 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import useFetchWithError from '../hooks/useFetchWithError'
 import { useViewState } from '../context/ViewStateContext'
 import { rangeStart } from '../utils/ranges'
-import { CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
+import { useChartTheme } from '../utils/chart'
+import MultiTip from './ChartTip'
 import { fuelColor, sortFuels } from '../utils/fuels'
 
 const API = '/api'
@@ -47,7 +48,7 @@ export default function MiniMixCard({ title, zone, height = 120 }) {
               <CartesianGrid {...ct.grid} />
               <XAxis dataKey="t" tick={ct.tick} minTickGap={30} />
               <YAxis tick={ct.tick} width={30} />
-              <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
+              <Tooltip content={<MultiTip />} formatter={(v, n) => [`${Number(v).toFixed(1)} GW`, n]} />
               {fuels.map((f) => (
                 <Area key={f} type="monotone" dataKey={f} stackId="1" stroke={fuelColor(f)} fill={fuelColor(f)} fillOpacity={0.6} strokeWidth={0.5} />
               ))}

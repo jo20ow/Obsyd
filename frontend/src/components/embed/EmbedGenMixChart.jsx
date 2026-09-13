@@ -3,7 +3,8 @@ import {
 } from 'recharts'
 import useFetchWithError from '../../hooks/useFetchWithError'
 import { POLL_FAST_MS } from '../../utils/poll'
-import { fmtHour, fmtTs, CHART_TOOLTIP_PROPS } from '../../utils/chart'
+import { fmtHour, fmtTs } from '../../utils/chart'
+import MultiTip from '../ChartTip'
 import { fuelColor, fuelLabel, sortFuels } from '../../utils/fuels'
 import EmbedFrame from './EmbedFrame'
 import EmbedUnknownCard from './EmbedUnknownCard'
@@ -88,7 +89,7 @@ export default function EmbedGenMixChart({ zone }) {
               tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
             />
             <Tooltip
-              {...CHART_TOOLTIP_PROPS}
+              content={<MultiTip />}
               formatter={(v, name) => [v == null ? '—' : `${Math.round(v).toLocaleString()} MW`, fuelLabel(name)]}
               labelFormatter={(h) => `${fmtHour(h)} UTC`}
             />
