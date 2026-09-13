@@ -445,6 +445,27 @@ def _coverage_by_series(db: Session) -> list[dict]:
     return out
 
 
+@router.get("/ask")
+def ask(
+    q: str = Query("", max_length=200, description="e.g. 'compare negative hours in Finland 2019 to 2025'"),
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_rate_limit),
+    _g: None = Depends(heavy_query_guard),
+    _user: dict = Depends(require_pro),
+):
+    """The question box: a DETERMINISTIC parser + declared per-metric
+    aggregation over the store (backend/power/ask.py) — no LLM, by standing
+    rule. Unparseable questions fail visibly with suggestions; the answer
+    echoes its full interpretation and names coverage gaps. PREMIUM preview.
+    An empty q returns the examples (the panel's mount probe)."""
+    from backend.power.ask import EXAMPLES, answer
+
+    if not q.strip():
+        return {"available": False, "examples": EXAMPLES,
+                "hint": "Ask one metric for one or more zones over a time range."}
+    return answer(db, q)
+
+
 @router.get("/archive")
 def archive_manifest(_rl: None = Depends(_rate_limit), _user: dict = Depends(require_pro)):
     """The bulk archive's manifest: every prebuilt Parquet file (one per series
