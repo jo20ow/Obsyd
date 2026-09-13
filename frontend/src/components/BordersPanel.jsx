@@ -36,9 +36,10 @@ function Chip({ kind }) {
 // The full prose definitions live in HOW TO READ; the API keeps its note.
 function BordersLegend({ eps }) {
   const rows = [
-    // Fallback mirrors backend COUPLED_EPS_EUR (0.5) — only shown in the brief
-    // window before /power/borders delivers the real value.
-    ['Coupled', `share of hours the two zones cleared at the same price (within €${eps ?? 0.5}/MWh).`],
+    // Fallback mirrors backend COUPLED_EPS_EUR (1.0 = ACER's full-convergence
+    // band) — only shown in the brief window before /power/borders delivers
+    // the real value.
+    ['Coupled', `share of hours the two zones cleared at the same price (within €${eps ?? 1}/MWh — ACER's full-convergence band).`],
     ['Ø spread', 'mean absolute day-ahead spread over the window (€/MWh).'],
     ['Now', 'the latest hour’s spread; the expensive side is named. “coupled” = below the threshold.'],
     ['At rail', 'share of hours the flow sat at or above this border’s own 95th percentile over the last year.'],

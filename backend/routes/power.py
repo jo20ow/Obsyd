@@ -1767,6 +1767,28 @@ def get_borders(
     return compute_borders(db, days=days)
 
 
+@router.get("/convergence")
+def get_convergence(
+    days: int = Query(365, ge=30, le=1095),
+    db: Session = Depends(get_db),
+    _guard: None = Depends(heavy_query_guard),
+):
+    """Day-ahead price convergence per border in ACER's MMR bands (full ≤1 /
+    moderate 1–10 / low >10 EUR/MWh, % of hours), aggregated exactly from the
+    stored daily conv.* series (backend/power/convergence.py). Free tier,
+    descriptive. Behind heavy_query_guard: a 3-year window reads ~250k daily
+    rows across 63 borders."""
+    from backend.power.convergence import compute_convergence
+
+    out = compute_convergence(db, days=days)
+    if not out.get("available"):
+        return out
+    return {
+        **out,
+        **_freshness(out.get("as_of"), datetime.now(timezone.utc).date(), max_age_days=3),
+    }
+
+
 @router.get("/spread")
 def get_spread(
     a: str = Query(..., description="Zone A, e.g. DE_LU"),

@@ -6,6 +6,7 @@ import PowerOverviewMatrix from './PowerOverviewMatrix'
 import ZoneDetailCard from './ZoneDetailCard'
 import InsightsStrip from './InsightsStrip'
 import BordersPanel from './BordersPanel'
+import ConvergencePanel from './ConvergencePanel'
 import HydroReservoirPanel from './HydroReservoirPanel'
 import LiveCharts from './LiveCharts'
 import HowToRead from './HowToRead'
@@ -188,6 +189,12 @@ export default function EuropeDesk({ energyZone, setEnergyZone, goToTab }) {
           expensive; only the borders show whether the market is coupled. */}
       <ErrorBoundary name="borders">
         <BordersPanel focus={borderFocus} />
+      </ErrorBoundary>
+      {/* The structural companion: ACER-band convergence over a long window
+          (stored daily conv.* series), where BordersPanel is the 30-day
+          operational view. */}
+      <ErrorBoundary name="convergence">
+        <ConvergencePanel />
       </ErrorBoundary>
       <ErrorBoundary name="hydro">
         <HydroReservoirPanel />

@@ -410,9 +410,12 @@ async def _run_derived_stats_nightly():
     the daily negative-hours count over a trailing window (absorbs price
     restatements) and the monthly capture series over the last three months
     (a finished month can still restate while its prices do). Full-window
-    recompute, per-zone isolation, the records doctrine throughout."""
+    recompute, per-zone isolation, the records doctrine throughout. The
+    convergence bands (backend/power/convergence.py) ride the same job —
+    per-border, not per-zone, so they run once after the zone loop."""
     from datetime import datetime, timedelta, timezone
 
+    from backend.power.convergence import store_convergence
     from backend.power.derived_stats import (
         store_capture,
         store_da_imbalance_spread,
@@ -420,7 +423,8 @@ async def _run_derived_stats_nightly():
     )
     from backend.power.zones import POWER_ZONES
 
-    start_day = (datetime.now(timezone.utc).date() - timedelta(days=10)).isoformat()
+    today = datetime.now(timezone.utc).date()
+    start_day = (today - timedelta(days=10)).isoformat()
     db = SessionLocal()
     try:
         neg = cap = spr = 0
@@ -432,7 +436,14 @@ async def _run_derived_stats_nightly():
                 spr += store_da_imbalance_spread(db, zone, start_ts=window_ts)
             except Exception as exc:
                 logger.error("derived stats %s failed: %s", zone, exc)
-        logger.info("derived stats nightly: %d negative-hour, %d capture, %d spread points", neg, cap, spr)
+        # +1: the day-ahead auction has already published tomorrow's hours.
+        try:
+            conv = store_convergence(db, today - timedelta(days=10), today + timedelta(days=1))
+        except Exception as exc:
+            conv = 0
+            logger.error("derived stats convergence failed: %s", exc)
+        logger.info("derived stats nightly: %d negative-hour, %d capture, %d spread, %d convergence points",
+                    neg, cap, spr, conv)
     except Exception as exc:
         logger.error("_run_derived_stats_nightly failed: %s", exc)
     finally:

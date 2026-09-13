@@ -46,10 +46,13 @@ from sqlalchemy.orm import Session
 from backend.models.energy import PowerHourly, SeriesDim, ZoneDim
 from backend.power.zones import POWER_ZONES
 
-#: Two zones "cleared together" when their day-ahead prices differ by less than
-#: this. Not 0.00: SDAC publishes to the cent, and a rounding cent is not a
-#: market split.
-COUPLED_EPS_EUR = 0.5
+#: Two zones "cleared together" when their day-ahead prices differ by no more
+#: than this. Not 0.00: SDAC publishes to the cent, and a rounding cent is not a
+#: market split. 1.0 is ACER's "full price convergence" band (MMR 2024, ≤1
+#: EUR/MWh) — since the convergence index (backend/power/convergence.py) adopted
+#: the regulator-canonical bands, this layer uses the SAME edge so the desk has
+#: ONE convergence vocabulary, not a house threshold beside a cited one.
+COUPLED_EPS_EUR = 1.0
 
 #: A flow is "at the rail" at or above this percentile of the border's OWN
 #: |flow| history. We hold no NTC — and in flow-based regions ENTSO-E publishes
@@ -86,9 +89,11 @@ def border_metrics(
     abs_spreads = [abs(s) for s in spreads]
     n = len(hours)
 
-    coupled = sum(1 for s in abs_spreads if s < COUPLED_EPS_EUR)
+    # Inclusive edge, matching ACER's "full convergence ≤ 1 EUR/MWh" exactly
+    # (convergence.py::band_counts uses the same comparison).
+    coupled = sum(1 for s in abs_spreads if s <= COUPLED_EPS_EUR)
     split = [(t, prices_a[t] - prices_b[t]) for t in hours
-             if abs(prices_a[t] - prices_b[t]) >= COUPLED_EPS_EUR]
+             if abs(prices_a[t] - prices_b[t]) > COUPLED_EPS_EUR]
 
     # Counter-price: power physically flows FROM the expensive zone TO the cheap
     # one. Only meaningful in hours the zones actually cleared apart.
@@ -459,7 +464,7 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
             "label": f"{POWER_ZONES[a]['label']}↔{POWER_ZONES[b]['label']}",
             "flow_source": source,
             "expensive_side": (
-                None if m["latest_spread"] is None or abs(m["latest_spread"]) < COUPLED_EPS_EUR
+                None if m["latest_spread"] is None or abs(m["latest_spread"]) <= COUPLED_EPS_EUR
                 else (a if m["latest_spread"] > 0 else b)
             ),
             **m,
@@ -490,7 +495,9 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
         "superseded_aggregate_flows": superseded,
         "note": (
             "Convergence = share of hours the two zones cleared within "
-            f"{COUPLED_EPS_EUR} EUR/MWh. 'At the rail' = flow at or above this border's own "
+            f"{COUPLED_EPS_EUR} EUR/MWh — ACER's 'full price convergence' band (MMR 2024; "
+            "band breakdown per border: /api/power/convergence). "
+            "'At the rail' = flow at or above this border's own "
             "95th percentile over the last year. Where ENTSO-E publishes a day-ahead NTC "
             "(A61), utilization = |flow| ÷ NTC in the flow's direction "
             "(capacity_source 'ntc'); elsewhere — the flow-based Core region and the "

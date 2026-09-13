@@ -169,6 +169,12 @@ SPECS += [
                   hourly_series="spread.da_imbalance"),
     FreshnessSpec("capture_series", PowerPriceDaily, "", timedelta(days=45),
                   hourly_series="capture.B16.factor"),
+    # Convergence bands (backend/power/convergence.py), nightly derived job.
+    # conv.hours.FR is the probe: written for the DE_LU–FR border (and BE–FR,
+    # CH–FR, ES–FR) by that job alone — a dead job goes stale within a day of
+    # the negative-hours mirror doing the same.
+    FreshnessSpec("convergence_series", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="conv.hours.FR"),
     # Intraday auctions (entsoe_ida.py) — TP submission is voluntary and today
     # essentially Spain-only; IDA1 clears daily, so a 2-day window is honest
     # for the one zone that publishes.
