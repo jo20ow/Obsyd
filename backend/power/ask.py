@@ -83,11 +83,21 @@ METRICS: list[dict] = [
      "series": ["spread.tb1"], "agg": "sum", "unit": "EUR/MW", "phrases": ["tb1"]},
     {"id": "tb4", "label": "Top-bottom spread TB4 (4h)",
      "series": ["spread.tb4"], "agg": "sum", "unit": "EUR/MW", "phrases": ["tb4"]},
+    # Yearly grain computes the GENERATION-WEIGHTED annual factor from raw
+    # hours (capture_psr below) — an unweighted mean of monthly factors
+    # overweights winter (tiny volumes, factor near 1) and reads too high.
+    # Monthly grain keeps reading the stored exact monthly factors.
     {"id": "capture_solar", "label": "Solar capture factor",
      "series": ["capture.B16.factor"], "agg": "mean", "unit": "ratio",
+     "capture_psr": "B16",
      "combine_note": "unweighted mean of monthly value factors",
      "phrases": ["solar capture factor", "solar capture", "capture factor",
                  "capture rate", "kannibalisierung", "capture"]},
+    {"id": "capture_wind", "label": "Wind onshore capture factor",
+     "series": ["capture.B19.factor"], "agg": "mean", "unit": "ratio",
+     "capture_psr": "B19",
+     "combine_note": "unweighted mean of monthly value factors",
+     "phrases": ["wind capture factor", "wind capture"]},
     {"id": "hydro", "label": "Hydro reservoir filling",
      "series": ["hydro.reservoir"], "agg": "mean", "unit": "MWh",
      "phrases": ["hydro reservoir", "reservoir", "füllstand", "speicherfüllstand"]},
@@ -277,6 +287,50 @@ def _aggregate(db: Session, series_key: str, zone: str, fmt: str, agg: str,
     return {p: (float(v), int(n)) for p, v, n in rows if v is not None}
 
 
+#: Generation-weighted capture factor per YEAR, from raw hours — the number
+#: the market means by an annual value factor. The join follows capture.py's
+#: id-first rule; guards mirror its spirit (a fragment of a year is not a
+#: year: at least ~3 months of daylight generation and half a year of prices).
+_CAPTURE_YEAR_SQL = """
+SELECT strftime('%Y', g.ts_utc, 'unixepoch') AS y,
+       SUM(p.value * g.value) / SUM(g.value) AS capture,
+       COUNT(*) AS n
+  FROM power_hourly g
+  JOIN power_hourly p
+    ON p.ts_utc = g.ts_utc AND p.series_id = :pid AND p.zone_id = :zid
+ WHERE g.series_id = :gid AND g.zone_id = :zid
+   AND g.ts_utc >= :a AND g.ts_utc < :b
+ GROUP BY y
+"""
+_BASELOAD_YEAR_SQL = """
+SELECT strftime('%Y', ts_utc, 'unixepoch') AS y, AVG(value) AS bl, COUNT(*) AS n
+  FROM power_hourly
+ WHERE series_id = :pid AND zone_id = :zid AND ts_utc >= :a AND ts_utc < :b
+ GROUP BY y
+"""
+_MIN_GEN_HOURS_YEAR = 1000
+_MIN_PRICE_HOURS_YEAR = 24 * 180
+
+
+def _capture_factor_yearly(db: Session, psr: str, zone: str,
+                           start_ts: int | None, end_ts: int) -> dict[str, tuple[float, int]]:
+    pid = db.query(SeriesDim.id).filter(SeriesDim.key == "price.dayahead").scalar()
+    gid = db.query(SeriesDim.id).filter(SeriesDim.key == f"gen.{psr}").scalar()
+    zid = db.query(ZoneDim.id).filter(ZoneDim.key == zone).scalar()
+    if pid is None or gid is None or zid is None:
+        return {}
+    params = {"pid": pid, "gid": gid, "zid": zid,
+              "a": start_ts if start_ts is not None else 0, "b": end_ts}
+    capture = {y: (float(c), int(n))
+               for y, c, n in db.execute(text(_CAPTURE_YEAR_SQL), params).all()
+               if c is not None and n >= _MIN_GEN_HOURS_YEAR}
+    baseload = {y: float(bl)
+                for y, bl, n in db.execute(text(_BASELOAD_YEAR_SQL),
+                                           {k: params[k] for k in ("pid", "zid", "a", "b")}).all()
+                if bl and bl > 0 and n >= _MIN_PRICE_HOURS_YEAR}
+    return {y: (c / baseload[y], n) for y, (c, n) in capture.items() if y in baseload}
+
+
 def _oldest(db: Session, series_key: str, zone: str) -> int | None:
     sid = db.query(SeriesDim.id).filter(SeriesDim.key == series_key).scalar()
     zid = db.query(ZoneDim.id).filter(ZoneDim.key == zone).scalar()
@@ -305,6 +359,27 @@ def _zone_label(z: str) -> str:
     return ZONE_REGISTRY[z]["label"] if z in ZONE_REGISTRY else z
 
 
+def _coverage_note(label: str, oldest: int | None, year_from: int | None,
+                   year_to: int, monthly: bool) -> str | None:
+    """The honesty line about the record's left edge: years asked for but
+    missing are named, and a FIRST year that starts mid-year is called
+    partial (the owner audit that forced this: a '2018' bar that was really
+    Oct–Dec 2018 wore a full year's label)."""
+    if oldest is None:
+        return None
+    first = datetime.fromtimestamp(oldest, tz=UTC)
+    parts = []
+    if year_from is not None and first.year > year_from:
+        parts.append(f"{year_from}–{first.year - 1} not on record")
+    if (not monthly and (first.month, first.day) != (1, 1)
+            and (year_from is None or first.year >= year_from)
+            and first.year <= year_to):
+        parts.append(f"{first.year} is a partial year")
+    if not parts:
+        return None
+    return f"{label}: record starts {first.date()} — " + "; ".join(parts) + "."
+
+
 def answer_structured(db: Session, metric_id: str, zones: list[str],
                       year_from: int | None, year_to: int | None,
                       *, now: datetime | None = None) -> dict:
@@ -331,6 +406,7 @@ def answer_structured(db: Session, metric_id: str, zones: list[str],
 
     coverage: list[str] = []
     fuels_mode = metric.get("columns") == "fuels"
+    weighted_capture = False
 
     if fuels_mode:
         # One place; each fuel the zone reports becomes a column.
@@ -350,32 +426,39 @@ def answer_structured(db: Session, metric_id: str, zones: list[str],
         column_labels = {c: PSR_LABELS.get(c, c) for c in per_col}
         oldest = min((o for o in (_oldest(db, f"gen.{c}", zone) for c in per_col)
                       if o is not None), default=None)
-        if oldest is not None and year_from is not None:
-            first = datetime.fromtimestamp(oldest, tz=UTC)
-            if first.year > year_from:
-                coverage.append(f"{_zone_label(zone)}: record starts {first.date()} — "
-                                f"{year_from}–{first.year - 1} not on record.")
+        note = _coverage_note(_zone_label(zone), oldest, year_from, year_to, monthly)
+        if note:
+            coverage.append(note)
         display_zones = [zone]
     else:
         per_col = {}
+        # Capture factors: the YEARLY figure is generation-weighted from raw
+        # hours (see _capture_factor_yearly); monthly keeps the stored exact
+        # monthly factors.
+        weighted_capture = bool(metric.get("capture_psr")) and not monthly
+        oldest_series = ([f"gen.{metric['capture_psr']}"] if weighted_capture
+                         else metric["series"])
         for zone in zones:
-            combined: dict[str, tuple[float, int]] = {}
-            for skey in metric["series"]:
-                for p, (v, n) in _aggregate(db, skey, zone, fmt, metric["agg"],
-                                            start_ts, end_ts).items():
-                    pv, pn = combined.get(p, (0.0, 0))
-                    combined[p] = (pv + v, max(pn, n))
+            if weighted_capture:
+                combined = _capture_factor_yearly(db, metric["capture_psr"], zone,
+                                                  start_ts, end_ts)
+            else:
+                combined = {}
+                for skey in metric["series"]:
+                    for p, (v, n) in _aggregate(db, skey, zone, fmt, metric["agg"],
+                                                start_ts, end_ts).items():
+                        pv, pn = combined.get(p, (0.0, 0))
+                        combined[p] = (pv + v, max(pn, n))
             if combined:
                 per_col[zone] = combined
-            oldest = min((o for o in (_oldest(db, s, zone) for s in metric["series"])
+            oldest = min((o for o in (_oldest(db, s, zone) for s in oldest_series)
                           if o is not None), default=None)
             if oldest is None:
                 coverage.append(f"{_zone_label(zone)}: no {metric['label']} data on record.")
-            elif year_from is not None:
-                first = datetime.fromtimestamp(oldest, tz=UTC)
-                if first.year > year_from:
-                    coverage.append(f"{_zone_label(zone)}: record starts {first.date()} — "
-                                    f"{year_from}–{first.year - 1} not on record.")
+            else:
+                note = _coverage_note(_zone_label(zone), oldest, year_from, year_to, monthly)
+                if note:
+                    coverage.append(note)
         column_labels = {z: _zone_label(z) for z in zones}
         display_zones = zones
 
@@ -427,7 +510,11 @@ def answer_structured(db: Session, metric_id: str, zones: list[str],
         "download_url": download,
         "note": ("Descriptive aggregation of the published record — "
                  + ("totals per period. " if metric["agg"] == "sum" else "mean level per period. ")
-                 + (metric.get("combine_note", "") and f"Composite: {metric['combine_note']}. ")
+                 + ("Generation-weighted annual factor (Σ price·gen ÷ Σ gen, ÷ the year's "
+                    "baseload mean) — an unweighted mean of monthly factors would overweight "
+                    "winter and read higher. "
+                    if weighted_capture else
+                    (metric.get("combine_note", "") and f"Composite: {metric['combine_note']}. "))
                  + "Not a forecast."),
     }
 
