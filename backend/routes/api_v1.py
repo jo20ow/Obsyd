@@ -29,7 +29,10 @@ from backend.premium import PREMIUM_DETAIL, is_premium_series
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
-MAX_JSON_POINTS = 100_000  # beyond this, JSON is refused with a "use format=csv" hint
+MAX_JSON_POINTS = 120_000  # beyond this, JSON is refused with a "use format=csv" hint
+# (120k, not 100k: the desk's MAX range spans the 2015 backfill floor — a
+# gapless hourly decade is ~105k points, and the duration-curve panel must
+# not silently lose its deepest zones to this cap. ~6 MB JSON worst case.)
 MAX_SCAN_ROWS = 1_500_000  # per-request row cap on a single-series read (csv/parquet too)
 DEFAULT_WINDOW_DAYS = 30
 RATE_PER_MIN = 120  # per-IP requests/minute for the data API

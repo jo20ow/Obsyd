@@ -9,11 +9,12 @@ export const RANGES = [
   { key: '90d', label: '90D', days: 90 },
   { key: '1y', label: '1Y', days: 365 },
   { key: '5y', label: '5Y', days: 1826 },
-  // Everything on record — the store's deepest zone (DE-LU) starts 2018-09,
-  // so 10y is an honest "all" that won't need bumping soon. Hourly panels
-  // stay inside the API's own caps (8y hourly ≈ 70k points < the 100k JSON
-  // cap; heavy scans sit behind heavy_query_guard).
-  { key: 'max', label: 'MAX', days: 3650 },
+  // Everything on record — the deep backfill reaches ENTSO-E's 2015 floor,
+  // so 12y covers the whole store. Hourly panels stay inside the API's own
+  // caps (12y hourly ≈ 105k points is over the 100k JSON cap only for a
+  // gapless decade — those panels already fall back to CSV hints; heavy
+  // scans sit behind heavy_query_guard).
+  { key: 'max', label: 'MAX', days: 4400 },
 ]
 
 export const RANGE_KEYS = RANGES.map((r) => r.key)
