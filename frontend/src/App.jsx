@@ -110,6 +110,11 @@ const TABS = [
   { key: 'energy', label: 'POWER', primary: true },
   { key: 'analytics', label: 'ANALYTICS', primary: true },
   { key: 'gas', label: 'GAS', primary: true },
+  // Premium preview: listed in the sidebar/palette only for pro sessions
+  // (visibleTabs below); staying in TABS keeps the #ask hash valid so a pro
+  // deep-link survives the auth round-trip. Non-pro guessing the hash is
+  // bounced back to the default tab — no teaser, nothing broken.
+  { key: 'ask', label: 'ASK', primary: true },
   { key: 'explore', label: 'EXPLORE', primary: true },
   { key: 'alerts', label: 'ALERTS', primary: true },
 ]
@@ -119,7 +124,7 @@ const TABS = [
 const DEFAULT_TAB = 'europe'
 
 // Page heading per section ("Live monitoring" title on the content).
-const PAGE_TITLES = { europe: 'Live monitoring', energy: 'Power', analytics: 'Analytics', gas: 'Gas', explore: 'Data explorer', alerts: 'Alerts' }
+const PAGE_TITLES = { europe: 'Live monitoring', energy: 'Power', analytics: 'Analytics', gas: 'Gas', ask: 'Ask the data', explore: 'Data explorer', alerts: 'Alerts' }
 
 // Desk footer: the provenance + citability line that used to live only on the
 // marketing pages — sources, DOI, API, and the path to the reading guide.
@@ -296,8 +301,17 @@ function Dashboard() {
   }, [])
 
   // Terminal command palette (⌘K / Ctrl-K toggles it). First global key handler.
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [paletteOpen, setPaletteOpen] = useState(false)
+
+  // Premium preview: the ASK tab is listed only for pro sessions; a non-pro
+  // who guesses the #ask hash is bounced to the default tab once auth settles
+  // (no teaser, nothing rendered half-broken).
+  const isPro = user?.tier === 'pro'
+  const visibleTabs = isPro ? TABS : TABS.filter((t) => t.key !== 'ask')
+  useEffect(() => {
+    if (activeTab === 'ask' && !authLoading && !isPro) setActiveTab(DEFAULT_TAB)
+  }, [activeTab, authLoading, isPro])
   useEffect(() => {
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
@@ -409,7 +423,7 @@ function Dashboard() {
     <div className="min-h-screen lg:flex">
       {/* ===== LEFT SIDEBAR (nav + utilities) ===== */}
       <Sidebar
-        tabs={TABS}
+        tabs={visibleTabs}
         activeTab={activeTab}
         onNavigate={(k) => { goToTab(k); setSidebarOpen(false) }}
         onOpenPalette={() => setPaletteOpen(true)}
@@ -841,12 +855,15 @@ function Dashboard() {
         )}
 
         {/* EXPLORE TAB — interactive query over the public data API (/api/v1/series) */}
+        {/* ASK TAB — premium preview; AskBox itself re-probes (defense in depth). */}
+        {activeTab === 'ask' && (
+          <ErrorBoundary name="ask">
+            <AskBox />
+          </ErrorBoundary>
+        )}
+
         {activeTab === 'explore' && (
           <div className="space-y-3">
-            {/* Premium preview: renders null for non-pro sessions (mount probe). */}
-            <ErrorBoundary name="ask">
-              <AskBox />
-            </ErrorBoundary>
             <ErrorBoundary name="series-explorer">
               <SeriesExplorer />
             </ErrorBoundary>
@@ -905,7 +922,7 @@ function Dashboard() {
       {paletteOpen && (
         <CommandPalette
           onClose={() => setPaletteOpen(false)}
-          tabs={TABS}
+          tabs={visibleTabs}
           setActiveTab={goToTab}
           setEnergyZone={setEnergyZone}
           authed={!!user?.authenticated}
