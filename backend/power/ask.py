@@ -98,7 +98,16 @@ METRICS: list[dict] = [
     {"id": "da_imbalance", "label": "Imbalance − day-ahead spread",
      "series": ["spread.da_imbalance"], "agg": "mean", "unit": "EUR/MWh",
      "phrases": ["imbalance spread", "da imbalance spread"]},
+    # Columns = FUELS (one zone), not zones: the mix is a multi-series
+    # question by nature. `series` resolves dynamically (every gen.<PSR> the
+    # zone has) — see answer_structured.
+    {"id": "mix", "label": "Generation mix (per fuel)",
+     "series": [], "columns": "fuels", "agg": "mean", "unit": "MW",
+     "phrases": ["generation mix", "energy mix", "power mix", "strommix",
+                 "erzeugungsmix", "mix"]},
 ]
+
+METRIC_BY_ID = {m["id"]: m for m in METRICS}
 
 # ─── zone name table ─────────────────────────────────────────────────────────
 
@@ -217,6 +226,36 @@ def parse_query(q: str) -> dict:
 
 _AGG_SQL = {"sum": "SUM(value)", "mean": "AVG(value)"}
 
+#: English display names for the filter UI's place list (the German synonyms
+#: stay parse-only). Countries first, then individual zones from the registry.
+_PLACE_NAMES = [
+    "Austria", "Belgium", "Bulgaria", "Croatia", "Czechia", "Denmark",
+    "Finland", "France", "Germany", "Great Britain", "Greece", "Hungary",
+    "Ireland", "Italy", "Netherlands", "Norway", "Poland", "Portugal",
+    "Romania", "Slovakia", "Slovenia", "Spain", "Sweden", "Switzerland",
+]
+
+
+def filter_options(*, now: datetime | None = None) -> dict:
+    """What the filter UI can offer — metrics, places, year bounds. The metric
+    table stays the single source; the UI never hardcodes it."""
+    now = now or datetime.now(UTC)
+    places = [
+        {"label": n, "zones": _COUNTRY_ZONES[n.lower()]} for n in _PLACE_NAMES
+    ] + [
+        {"label": meta["label"], "zones": [k]} for k, meta in ZONE_REGISTRY.items()
+    ]
+    return {
+        "metrics": [
+            {"id": m["id"], "label": m["label"], "unit": m["unit"],
+             "aggregation": "total per period" if m["agg"] == "sum" else "mean per period",
+             "columns": m.get("columns", "zones")}
+            for m in METRICS
+        ],
+        "places": places,
+        "years": {"min": 2015, "max": now.year},
+    }
+
 
 def _aggregate(db: Session, series_key: str, zone: str, fmt: str, agg: str,
                start_ts: int | None, end_ts: int) -> dict[str, tuple[float, int]]:
@@ -262,14 +301,27 @@ def _fmt_value(v: float, unit: str) -> str:
     return f"{v:,.1f} {unit}"
 
 
-def answer(db: Session, q: str, *, now: datetime | None = None) -> dict:
-    parsed = parse_query(q)
-    if not parsed["ok"]:
-        return {"available": False, "query": q, **{k: v for k, v in parsed.items() if k != "ok"}}
+def _zone_label(z: str) -> str:
+    return ZONE_REGISTRY[z]["label"] if z in ZONE_REGISTRY else z
 
+
+def answer_structured(db: Session, metric_id: str, zones: list[str],
+                      year_from: int | None, year_to: int | None,
+                      *, now: datetime | None = None) -> dict:
+    """The core answerer — the filter UI calls this directly; the text parser
+    (answer below) delegates here. Columns are ZONES for ordinary metrics and
+    FUELS for the mix (one place at a time)."""
     now = now or datetime.now(UTC)
-    metric, zones = parsed["metric"], parsed["zones"]
-    year_from, year_to = parsed["year_from"], parsed["year_to"]
+    metric = METRIC_BY_ID.get(metric_id)
+    if metric is None:
+        return {"available": False, "problem": "metric",
+                "message": f"Unknown metric {metric_id!r}.",
+                "known_metrics": [m["id"] for m in METRICS]}
+    zones = [z for z in zones if z in ZONE_REGISTRY][:8]
+    if not zones:
+        return {"available": False, "problem": "zone",
+                "message": "No known zone given.", "examples": EXAMPLES}
+    year_to = min(year_to or now.year, now.year)
 
     monthly = year_from == year_to and year_from is not None
     fmt = "%Y-%m" if monthly else "%Y"
@@ -277,67 +329,102 @@ def answer(db: Session, q: str, *, now: datetime | None = None) -> dict:
                 if year_from is not None else None)
     end_ts = int(datetime(year_to + 1, 1, 1, tzinfo=UTC).timestamp())
 
-    per_zone: dict[str, dict[str, tuple[float, int]]] = {}
     coverage: list[str] = []
-    for zone in zones:
-        combined: dict[str, tuple[float, int]] = {}
-        for skey in metric["series"]:
-            for p, (v, n) in _aggregate(db, skey, zone, fmt, metric["agg"],
-                                        start_ts, end_ts).items():
-                pv, pn = combined.get(p, (0.0, 0))
-                combined[p] = (pv + v, max(pn, n))
-        if combined:
-            per_zone[zone] = combined
-        # Coverage honesty: years asked for that predate the record are named.
-        oldest = min((o for o in (_oldest(db, s, zone) for s in metric["series"])
-                      if o is not None), default=None)
-        label = ZONE_REGISTRY[zone]["label"] if zone in ZONE_REGISTRY else zone
-        if oldest is None:
-            coverage.append(f"{label}: no {metric['label']} data on record.")
-        else:
-            first = datetime.fromtimestamp(oldest, tz=UTC)
-            if year_from is not None and first.year > year_from:
-                coverage.append(
-                    f"{label}: record starts {first.date()} — "
-                    f"{year_from}–{first.year - 1} not on record."
-                )
+    fuels_mode = metric.get("columns") == "fuels"
 
-    if not per_zone:
-        return {"available": False, "query": q,
-                "message": "Question understood, but no data in that window.",
-                "interpreted": _echo(metric, zones, year_from, year_to, monthly),
+    if fuels_mode:
+        # One place; each fuel the zone reports becomes a column.
+        zone = zones[0]
+        if len(zones) > 1:
+            coverage.append(
+                f"The mix answers one place at a time — showing {_zone_label(zone)}."
+            )
+        gen_keys = [k for (k,) in db.query(SeriesDim.key)
+                    .filter(SeriesDim.key.like("gen.%")).order_by(SeriesDim.key).all()]
+        per_col: dict[str, dict[str, tuple[float, int]]] = {}
+        for key in gen_keys:
+            agg = _aggregate(db, key, zone, fmt, metric["agg"], start_ts, end_ts)
+            if agg:
+                per_col[key.removeprefix("gen.")] = agg
+        from backend.power.entsoe_grid import PSR_LABELS
+        column_labels = {c: PSR_LABELS.get(c, c) for c in per_col}
+        oldest = min((o for o in (_oldest(db, f"gen.{c}", zone) for c in per_col)
+                      if o is not None), default=None)
+        if oldest is not None and year_from is not None:
+            first = datetime.fromtimestamp(oldest, tz=UTC)
+            if first.year > year_from:
+                coverage.append(f"{_zone_label(zone)}: record starts {first.date()} — "
+                                f"{year_from}–{first.year - 1} not on record.")
+        display_zones = [zone]
+    else:
+        per_col = {}
+        for zone in zones:
+            combined: dict[str, tuple[float, int]] = {}
+            for skey in metric["series"]:
+                for p, (v, n) in _aggregate(db, skey, zone, fmt, metric["agg"],
+                                            start_ts, end_ts).items():
+                    pv, pn = combined.get(p, (0.0, 0))
+                    combined[p] = (pv + v, max(pn, n))
+            if combined:
+                per_col[zone] = combined
+            oldest = min((o for o in (_oldest(db, s, zone) for s in metric["series"])
+                          if o is not None), default=None)
+            if oldest is None:
+                coverage.append(f"{_zone_label(zone)}: no {metric['label']} data on record.")
+            elif year_from is not None:
+                first = datetime.fromtimestamp(oldest, tz=UTC)
+                if first.year > year_from:
+                    coverage.append(f"{_zone_label(zone)}: record starts {first.date()} — "
+                                    f"{year_from}–{first.year - 1} not on record.")
+        column_labels = {z: _zone_label(z) for z in zones}
+        display_zones = zones
+
+    if not per_col:
+        return {"available": False,
+                "message": "Understood, but no data in that window.",
+                "interpreted": _echo(metric, display_zones, year_from, year_to, monthly),
                 "coverage": coverage}
 
-    periods = sorted({p for zc in per_zone.values() for p in zc})
+    columns = list(per_col)
+    periods = sorted({p for c in per_col.values() for p in c})
     rows = [
-        {"period": p,
-         **{z: round(per_zone[z][p][0], 2) for z in zones if p in per_zone.get(z, {})}}
+        {"period": p, **{c: round(per_col[c][p][0], 2) for c in columns if p in per_col[c]}}
         for p in periods
     ]
 
     # The takeaway sentence uses complete periods only — the running year/month
     # is a fragment wearing a period's label.
     current = now.strftime(fmt)
-    sentence = _sentence(metric, zones, per_zone,
-                         [p for p in periods if p < current] or periods)
+    complete = [p for p in periods if p < current] or periods
+    if fuels_mode:
+        sentence = _sentence_fuels(display_zones[0], per_col, column_labels,
+                                   complete, metric["unit"])
+    else:
+        sentence = _sentence(metric, columns, per_col, complete)
 
-    primary = metric["series"][0]
+    if fuels_mode:
+        download = (f"/api/v1/genmix?zone={display_zones[0]}"
+                    + (f"&start={year_from}-01-01" if year_from else "")
+                    + f"&end={year_to + 1}-01-01&resolution=monthly&format=csv")
+    else:
+        primary = metric["series"][0]
+        download = (f"/api/v1/series?series={primary}&zone={columns[0]}"
+                    + (f"&start={year_from}-01-01" if year_from else "")
+                    + f"&end={year_to + 1}-01-01&format=csv")
+
     return {
         "available": True,
-        "query": q,
-        "interpreted": _echo(metric, zones, year_from, year_to, monthly),
+        "interpreted": _echo(metric, display_zones, year_from, year_to, monthly),
         "unit": metric["unit"],
         "agg": metric["agg"],
-        "zone_labels": {z: ZONE_REGISTRY[z]["label"] for z in zones if z in ZONE_REGISTRY},
+        "columns": columns,
+        "column_labels": column_labels,
+        "column_kind": "fuels" if fuels_mode else "zones",
         "rows": rows,
         "sentence": sentence,
         "coverage": coverage,
         "partial_period": current if any(p == current for p in periods) else None,
-        "download_url": (
-            f"/api/v1/series?series={primary}&zone={zones[0]}"
-            + (f"&start={year_from}-01-01" if year_from else "")
-            + f"&end={year_to + 1}-01-01&format=csv"
-        ),
+        "download_url": download,
         "note": ("Descriptive aggregation of the published record — "
                  + ("totals per period. " if metric["agg"] == "sum" else "mean level per period. ")
                  + (metric.get("combine_note", "") and f"Composite: {metric['combine_note']}. ")
@@ -345,10 +432,22 @@ def answer(db: Session, q: str, *, now: datetime | None = None) -> dict:
     }
 
 
+def answer(db: Session, q: str, *, now: datetime | None = None) -> dict:
+    """Text front-end for the same answerer — kept for the API and the tests;
+    the app's filter UI calls answer_structured directly."""
+    parsed = parse_query(q)
+    if not parsed["ok"]:
+        return {"available": False, "query": q,
+                **{k: v for k, v in parsed.items() if k != "ok"}}
+    out = answer_structured(db, parsed["metric"]["id"], parsed["zones"],
+                            parsed["year_from"], parsed["year_to"], now=now)
+    return {"query": q, **out}
+
+
 def _echo(metric: dict, zones: list[str], year_from, year_to, monthly: bool) -> dict:
     return {
         "metric": metric["label"],
-        "series": metric["series"],
+        "series": metric["series"] or ["gen.<PSR>"],
         "zones": zones,
         "from": year_from,
         "to": year_to,
@@ -363,13 +462,12 @@ def _sentence(metric: dict, zones: list[str], per_zone: dict, periods: list[str]
         return ""
     unit = metric["unit"]
     z0 = zones[0]
-    label0 = ZONE_REGISTRY[z0]["label"] if z0 in ZONE_REGISTRY else z0
     zc = per_zone.get(z0, {})
     have = [p for p in periods if p in zc]
     if not have:
         return ""
     latest = have[-1]
-    parts = [f"{label0}: {_fmt_value(zc[latest][0], unit)} in {latest}"]
+    parts = [f"{_zone_label(z0)}: {_fmt_value(zc[latest][0], unit)} in {latest}"]
     if len(have) > 1:
         first = have[0]
         parts.append(f"vs {_fmt_value(zc[first][0], unit)} in {first}")
@@ -379,6 +477,30 @@ def _sentence(metric: dict, zones: list[str], per_zone: dict, periods: list[str]
     if len(zones) > 1:
         others = [z for z in zones[1:] if latest in per_zone.get(z, {})][:2]
         for z in others:
-            zl = ZONE_REGISTRY[z]["label"] if z in ZONE_REGISTRY else z
-            parts.append(f"{zl}: {_fmt_value(per_zone[z][latest][0], unit)} in {latest}")
+            parts.append(f"{_zone_label(z)}: {_fmt_value(per_zone[z][latest][0], unit)} in {latest}")
+    return " · ".join(parts) + "."
+
+
+def _sentence_fuels(zone: str, per_col: dict, labels: dict, periods: list[str],
+                    unit: str) -> str:
+    """Top fuels in the latest complete period, with the change since the
+    first period for the leader — the mix question in one line."""
+    if not periods:
+        return ""
+    latest = periods[0] if len(periods) == 1 else periods[-1]
+    latest_vals = sorted(
+        ((c, per_col[c][latest][0]) for c in per_col if latest in per_col[c]),
+        key=lambda cv: -cv[1],
+    )
+    if not latest_vals:
+        return ""
+    top = latest_vals[:3]
+    parts = [f"{_zone_label(zone)} {latest}: "
+             + ", ".join(f"{labels.get(c, c)} {_fmt_value(v, unit)}" for c, v in top)]
+    first = periods[0]
+    lead = top[0][0]
+    if first != latest and first in per_col.get(lead, {}):
+        parts.append(
+            f"{labels.get(lead, lead)} was {_fmt_value(per_col[lead][first][0], unit)} in {first}"
+        )
     return " · ".join(parts) + "."
