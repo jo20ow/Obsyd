@@ -71,7 +71,6 @@ def test_records_band_caps_at_a_real_day():
 def _seed_capture_month(db, zone="DE_LU"):
     """One full month of hourly prices + solar generation: price 100 all hours,
     solar 1000 MW in hours 10-14 at price 40 — capture 40, baseload computed."""
-    month_hours = []
     t0 = int(datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp())
     prices, solar = [], []
     for day in range(30):
