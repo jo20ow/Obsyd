@@ -70,7 +70,8 @@ _RESERVE_PRODUCT_LABELS: dict[str, str] = {"fcr": "FCR", "afrr": "aFRR", "mfrr":
 # (a future series prefix) sorts after these, keyed by its own group key.
 GROUP_ORDER: list[str] = [
     "price", "imbalance", "load", "residual", "generation", "wind", "solar",
-    "gen", "consumption", "co2", "capture", "congestion", "spread", "flow", "sched", "ntc", "hydro",
+    "gen", "consumption", "co2", "capture", "congestion", "spread", "conv",
+    "flow", "sched", "ntc", "hydro",
     "balancing", "capacity", "outage", "netpos",
 ]
 GROUP_LABELS: dict[str, str] = {
@@ -82,6 +83,7 @@ GROUP_LABELS: dict[str, str] = {
     "wind": "Wind",
     "solar": "Solar",
     "gen": "Generation mix (per fuel)",
+    "conv": "Price convergence per border (daily, ACER bands)",
     "consumption": "Consumption (pumped storage)",
     "co2": "Carbon intensity (estimated)",
     "capture": "Capture prices & value factors (monthly)",
@@ -135,6 +137,19 @@ def series_label(key: str) -> str:
         if len(parts) == 3:
             metric = {"price": "capture price", "factor": "value factor"}.get(parts[2], parts[2])
             return f"Capture · {PSR_LABELS.get(parts[1], parts[1])} · {metric}"
+    if key.startswith("conv."):
+        # conv.<metric>.<COUNTERPARTY> — daily convergence bands per border
+        # (backend/power/convergence.py), stored under the border's sorted-first
+        # zone like flow./sched.
+        parts = key.split(".", 2)
+        if len(parts) == 3:
+            metric = {
+                "full": "full-convergence hours (≤€1)",
+                "low": "low-convergence hours (>€10)",
+                "hours": "priced hours",
+                "spread": "mean |spread|",
+            }.get(parts[1], parts[1])
+            return f"Convergence ↔ {_zone_label(parts[2])} · {metric}"
     if key.startswith("gen."):
         code = key[len("gen."):]
         return f"Generation · {PSR_LABELS.get(code, code)}"
