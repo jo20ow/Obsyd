@@ -47,9 +47,10 @@ export default function TbSpreadPanel({ zone = 'DE_LU' }) {
   const { data: resp, loading, error } = useFetchWithError(url, { deps: [n, zone, start] })
 
   const { rows, stats } = useMemo(() => {
+    // /api/v1/series rows carry `datetime_utc` (not the desk endpoints' ts_utc)
     const pts = (resp?.data || [])
       .filter((p) => p.value != null)
-      .map((p) => ({ x: p.ts_utc, v: p.value }))
+      .map((p) => ({ x: p.datetime_utc, v: p.value }))
     if (!pts.length) return { rows: [], stats: null }
     const total = pts.reduce((s, p) => s + p.v, 0)
     return {
