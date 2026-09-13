@@ -141,7 +141,11 @@ def series_label(key: str) -> str:
         # capture.<PSR>.<price|factor> — monthly derived (backend/power/derived_stats.py)
         parts = key.split(".")
         if len(parts) == 3:
-            metric = {"price": "capture price", "factor": "value factor"}.get(parts[2], parts[2])
+            metric = {
+                "price": "capture price",
+                "price_floor0": "capture price (negatives floored at €0)",
+                "factor": "value factor",
+            }.get(parts[2], parts[2])
             return f"Capture · {PSR_LABELS.get(parts[1], parts[1])} · {metric}"
     if key.startswith("conv."):
         # conv.<metric>.<COUNTERPARTY> — daily convergence bands per border

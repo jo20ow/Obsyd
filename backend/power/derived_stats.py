@@ -78,15 +78,23 @@ def store_capture(db: Session, zone: str, months: int = 3, *, today: date | None
         if psr not in CAPTURE_FUELS:  # defensive: the engine defines the universe
             continue
         prices = []
+        floors = []
         factors = []
         for row in fuel["data"]:
             ts = _month_ts(row["month"])
             if row.get("capture_price") is not None:
                 prices.append((ts, row["capture_price"]))
+            if row.get("capture_price_floor0") is not None:
+                floors.append((ts, row["capture_price_floor0"]))
             if row.get("value_factor") is not None:
                 factors.append((ts, row["value_factor"]))
         if prices:
             written += upsert_hourly(db, f"capture.{psr}.price", zone, prices, unit="EUR/MWh")
+        if floors:
+            # The named €0-floor variant (see capture.py) — its own series, so
+            # the export carries both readings instead of one contested number.
+            written += upsert_hourly(db, f"capture.{psr}.price_floor0", zone, floors,
+                                     unit="EUR/MWh")
         if factors:
             written += upsert_hourly(db, f"capture.{psr}.factor", zone, factors, unit="ratio")
     return written
