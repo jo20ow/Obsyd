@@ -114,7 +114,8 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
     <Panel
       id="power-capture"
       title={`CAPTURE RATE · ${data?.zone_label ?? zone}`}
-      info={data?.note || 'Generation-weighted price each technology achieved, vs. baseload.'}
+      info={[data?.note, data?.coverage_note].filter(Boolean).join(' — ')
+        || 'Generation-weighted price each technology achieved, vs. baseload.'}
       freshness={data}
       collapsible
       headerRight={
@@ -143,6 +144,7 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                 <tr className="text-[9px] text-neutral-600 uppercase tracking-wider">
                   <th className="text-left px-2 py-1">Technology</th>
                   <th className="text-right px-2 py-1" title="Generation-weighted average day-ahead price it achieved">Capture</th>
+                  <th className="text-right px-2 py-1" title="The same weighting with negative hours priced at €0 — a named variant, not a contract value. The gap to Capture is this technology's negative-price exposure in €/MWh.">€0-floor</th>
                   <th className="text-right px-2 py-1" title="Capture price ÷ the month's baseload price. Below 1.00 = earned less than baseload.">Value factor</th>
                   <th className="px-2 py-1"></th>
                   <th className="text-right px-2 py-1" title="Share of this technology's own output that landed in negative-price hours">Neg. output</th>
@@ -162,6 +164,9 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                         {f.label}
                       </td>
                       <td className="px-2 py-1.5 text-right text-neutral-200">€{L.capture_price.toFixed(1)}</td>
+                      <td className="px-2 py-1.5 text-right text-neutral-400">
+                        {L.capture_price_floor0 != null ? `€${L.capture_price_floor0.toFixed(1)}` : '—'}
+                      </td>
                       <td className={`px-2 py-1.5 text-right ${
                         vf == null ? 'text-neutral-700' : vf < 1 ? 'text-amber-400' : 'text-cyan-glow'
                       }`}>

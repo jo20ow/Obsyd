@@ -83,6 +83,17 @@ def test_hours_with_no_generation_row_do_not_move_the_denominator():
     assert absent["hours"] == 12 and zeroed["hours"] == 24
 
 
+def test_floor0_variant_prices_negative_hours_at_zero():
+    """The named €0-floor variant: a fleet earning −50 in half its hours and
+    +100 in the other half captures 25 unfloored, 50 floored — the spread IS
+    the negative-price exposure, told without a contract model."""
+    prices = _hours(0, {h: (-50.0 if h < 12 else 100.0) for h in range(24)})
+    gen = _hours(0, {h: 1_000.0 for h in range(24)})
+    m = capture_metrics(prices, gen)
+    assert m["capture_price"] == 25.0
+    assert m["capture_price_floor0"] == 50.0
+
+
 def test_a_dispatchable_fleet_captures_above_baseload():
     prices = _hours(0, {h: (100.0 if h < 12 else 20.0) for h in range(24)})
     gas = _hours(0, {h: (1_000.0 if h < 12 else 0.0) for h in range(24)})   # runs when dear
@@ -365,9 +376,9 @@ def test_the_sql_and_the_definition_agree(db_session):
             want = capture_metrics(prices[got["month"]], gen[got["month"]])
             # EXACT, not approximate. A rel=1e-3 tolerance is precisely wide enough to hide
             # the drift that actually happened.
-            for key in ("capture_price", "baseload_price", "value_factor",
-                        "hours", "days", "generation_gwh", "negative_gen_pct",
-                        "negative_hours"):
+            for key in ("capture_price", "capture_price_floor0", "baseload_price",
+                        "value_factor", "hours", "days", "generation_gwh",
+                        "negative_gen_pct", "negative_hours"):
                 assert got[key] == want[key], f"{fuel['psr']} {got['month']}.{key}"
             checked += 1
     assert checked >= 20, "too few month-fuel pairs to catch a boundary-crossing rounding"

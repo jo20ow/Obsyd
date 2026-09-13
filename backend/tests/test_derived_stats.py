@@ -96,8 +96,10 @@ def test_capture_series_equal_the_engine_exactly(db_session):
     solar = next(f for f in engine["fuels"] if f["psr"] == "B16")["data"][-1]
     ts = int(datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp())
     (got_ts, got_price), = read_hourly(db_session, "capture.B16.price", "DE_LU")
+    (_, got_floor0), = read_hourly(db_session, "capture.B16.price_floor0", "DE_LU")
     (_, got_factor), = read_hourly(db_session, "capture.B16.factor", "DE_LU")
     assert (got_ts, got_price) == (ts, solar["capture_price"])
+    assert got_floor0 == solar["capture_price_floor0"]
     assert got_factor == solar["value_factor"]
     # and the numbers themselves are the seeded arithmetic:
     assert got_price == 40.0

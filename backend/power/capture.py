@@ -47,6 +47,16 @@ FURTHER CAVEATS THAT TRAVEL WITH THE NUMBER
   zero produces a number, not a meaning.
 * These are day-ahead revenues only. Real assets also earn (or lose) in intraday,
   balancing and their PPA — the capture price is the market's mark, not a P&L.
+* NAMED VARIANTS instead of one contested number (methodology research 2026-09):
+  `capture_price` weights every published hour; `capture_price_floor0` floors
+  negative hours at €0. The literature and the PPA market use both — a single
+  unqualified number cannot represent both readings, so the desk ships both,
+  named. Neither is ever called a "PPA value": contract valuation needs
+  structure, tenor and transaction data this desk does not have.
+* COVERAGE: the volume leg is ENTSO-E's aggregated actual generation — the
+  TSO-visible fleet. Behind-the-meter PV is not in it at all, and coverage
+  varies by zone/technology (DE gas ≈ half of AGEB national statistics,
+  Unnewehr et al. 2021). The response carries a coverage_note saying so.
 """
 
 from __future__ import annotations
@@ -131,6 +141,15 @@ def capture_metrics(prices: dict[int, float], generation: dict[int, float]) -> d
         "days": len({_day(h) for h in hours}),
         "generation_gwh": round(total_gen / 1000.0, 1),  # hourly MW → MWh → GWh
         "capture_price": round(capture, 2),
+        # The €0-floor VARIANT: negative hours priced at zero in the numerator —
+        # the number a floored settlement would weight. Named as the statistic
+        # ("price with negatives floored"), never as a contract value: contract
+        # structures (no-settlement vs floor) differ in more than the floor.
+        # The spread to capture_price is the technology's negative-price
+        # exposure in EUR/MWh, told without a contract model.
+        "capture_price_floor0": round(
+            sum(max(p, 0.0) * g for p, g in zip(px, gen)) / total_gen, 2
+        ),
         "baseload_price": round(baseload, 2),
         # A ratio through zero is a number, not a meaning.
         "value_factor": round(capture / baseload, 3) if baseload > 0 else None,
@@ -184,6 +203,8 @@ WITH p AS (
 SELECT g.series_id                                        AS sid,
        strftime('%Y-%m', g.ts_utc, 'unixepoch')           AS month,
        SUM(p.price * g.gen)                               AS pxg,
+       -- €0-floor variant: negative hours priced at zero (see capture_metrics)
+       SUM(CASE WHEN p.price > 0 THEN p.price * g.gen ELSE 0 END) AS pxg_floor0,
        SUM(g.gen)                                         AS total_gen,
        COUNT(*)                                           AS hours,
        COUNT(DISTINCT date(g.ts_utc, 'unixepoch'))        AS days,
@@ -231,7 +252,7 @@ def _aggregate(db: Session, zone: str, start_ts: int) -> tuple[dict, dict]:
         text(_FUEL_SQL).bindparams(bindparam("gids", expanding=True)),
         {**params, "gids": list(gids)},
     ).all()
-    for sid, month, pxg, total_gen, hours, days, neg_gen, neg_hours in rows:
+    for sid, month, pxg, pxg_floor0, total_gen, hours, days, neg_gen, neg_hours in rows:
         if not total_gen or total_gen <= 0:
             continue  # a technology that produced nothing has no capture price
         psr = gids[sid].removeprefix("gen.")
@@ -240,6 +261,7 @@ def _aggregate(db: Session, zone: str, start_ts: int) -> tuple[dict, dict]:
             "days": int(days),
             "generation_gwh": round(total_gen / 1000.0, 1),  # hourly MW → MWh → GWh
             "capture_price": round(pxg / total_gen, 2),
+            "capture_price_floor0": round((pxg_floor0 or 0.0) / total_gen, 2),
             "negative_gen_pct": round(100.0 * (neg_gen or 0.0) / total_gen, 1),
             "negative_hours": int(neg_hours or 0),
             # Unrounded, and it matters: the value factor divides this by the baseload, and
@@ -353,9 +375,20 @@ def compute_capture(
         "note": (
             "Capture price = the generation-weighted average day-ahead price a technology "
             "actually achieved; value factor = capture price ÷ the month's baseload price "
-            "(the mean of ALL hours). Realised and backward-looking: arithmetic on published "
+            "(the mean of ALL hours). capture_price_floor0 = the same weighting with "
+            "negative hours priced at €0 — the spread between the two is the technology's "
+            "negative-price exposure in EUR/MWh (named variants, not contract values). "
+            "Realised and backward-looking: arithmetic on published "
             "auction results, not a model and not a forecast. Below 1.00 the technology "
             "earned less than baseload — for solar and wind, that is cannibalisation. "
             "Day-ahead only: real assets also earn in intraday, balancing and their PPA."
+        ),
+        "coverage_note": (
+            "Volumes are ENTSO-E aggregated actual generation (16.1.B&C) — the "
+            "TSO-visible fleet, not the national one. Behind-the-meter PV is absent "
+            "entirely, and coverage varies by zone and technology (German gas is "
+            "roughly half of national statistics; Unnewehr et al. 2021). The capture "
+            "price of the visible fleet is exact for that fleet — the denominator is "
+            "named so nobody mistakes it for the national average."
         ),
     }
