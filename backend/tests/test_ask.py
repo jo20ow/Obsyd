@@ -109,6 +109,50 @@ def test_partial_period_is_flagged(db_session):
     assert monthly["partial_period"] is None  # Feb 2026 is complete
 
 
+def test_first_partial_year_is_named(db_session):
+    """A record starting mid-year must not wear a full year's label silently
+    (the DE 2018 bar was really Oct–Dec 2018)."""
+    pts = [(int(datetime(2023, 10, 1, tzinfo=UTC).timestamp()) + d * 86400, 2.0)
+           for d in range(20)]
+    upsert_hourly(db_session, "price.negative_hours", "FR", pts, unit="h")
+    out = answer(db_session, "negative hours France 2022 to 2024",
+                 now=datetime(2026, 1, 1, tzinfo=UTC))
+    assert any("2023 is a partial year" in c for c in out["coverage"])
+    assert any("2022–2022 not on record" in c for c in out["coverage"])
+
+
+def test_yearly_capture_factor_is_generation_weighted(db_session):
+    """Owner audit of the numbers: the yearly capture factor must be the
+    GENERATION-WEIGHTED figure from raw hours — an unweighted mean of monthly
+    factors overweights winter and reads too high. Seed: baseload 100 all
+    year, solar produces only in 50-price hours → weighted factor exactly
+    0.50 (the unweighted-monthly reading would sit above it whenever volumes
+    vary)."""
+    from backend.power.ask import answer_structured
+
+    prices, gen = [], []
+    for day in range(300):
+        base = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp()) + day * 86400
+        for h in range(24):
+            prices.append((base + h * 3600, 150.0 if h % 2 else 50.0))
+        for h in (0, 2, 4, 6):  # 4 solar hours/day, all in the 50-price slots
+            gen.append((base + h * 3600, 1000.0))
+    upsert_hourly(db_session, "price.dayahead", "ES", prices, unit="EUR/MWh")
+    upsert_hourly(db_session, "gen.B16", "ES", gen, unit="MW")
+
+    out = answer_structured(db_session, "capture_solar", ["ES"], 2023, 2024,
+                            now=datetime(2026, 1, 1, tzinfo=UTC))
+    assert out["available"] is True
+    assert {r["period"]: r.get("ES") for r in out["rows"]} == {"2024": 0.5}
+    assert "Generation-weighted" in out["note"]
+
+    # Monthly grain still reads the stored exact monthly factors (none seeded
+    # here → honest no-data, not a silently recomputed number).
+    monthly = answer_structured(db_session, "capture_solar", ["ES"], 2024, 2024,
+                                now=datetime(2026, 1, 1, tzinfo=UTC))
+    assert monthly["available"] is False
+
+
 # ─── endpoint / premium gate ─────────────────────────────────────────────────
 
 

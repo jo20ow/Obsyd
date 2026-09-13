@@ -15,6 +15,25 @@ const ZONE_COLORS = ['#1d4ed8', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#0e
 
 const selectCls = 'bg-surface border border-border rounded px-2 py-1.5 font-mono text-[11px] text-neutral-200 focus:border-cyan-glow/40 outline-none'
 
+// Unit-aware number rendering — axis ticks and tooltip values share it, so
+// a ratio reads ×0.67, congestion costs €2.4B, load 61 GW (never 61,000).
+function fmtVal(unit, v) {
+  const a = Math.abs(v)
+  if (unit === 'MW') return a >= 1000 ? `${(v / 1000).toFixed(a >= 10000 ? 0 : 1)} GW` : `${Math.round(v)} MW`
+  if (unit === 'MWh') return a >= 1e6 ? `${(v / 1e6).toFixed(1)} TWh` : `${(v / 1e3).toFixed(0)} GWh`
+  if (unit === 'EUR') return a >= 1e9 ? `€${(v / 1e9).toFixed(1)}B` : a >= 1e6 ? `€${(v / 1e6).toFixed(0)}M` : `€${Math.round(v).toLocaleString()}`
+  if (unit === 'EUR/MW') return a >= 1000 ? `€${(v / 1000).toFixed(1)}k/MW` : `€${Math.round(v)}/MW`
+  if (unit === 'ratio') return `×${Number(v).toFixed(2)}`
+  if (unit === 'h') return `${Math.round(v).toLocaleString()} h`
+  return `${Number(v).toLocaleString()} ${unit}`
+}
+
+const AXIS_LABEL = {
+  MW: 'mean output', MWh: 'mean filling', EUR: 'total cost', 'EUR/MW': 'total spread',
+  ratio: 'value factor · ×1.00 = baseload', h: 'hours below €0',
+  'EUR/MWh': '€/MWh', 'gCO2eq/kWh': 'gCO₂eq/kWh',
+}
+
 /**
  * ASK as a FILTER, not a search engine (owner direction: a free-text box puts
  * the burden of guessing valid phrasings on the reader — dropdowns show what
@@ -170,9 +189,10 @@ export default function AskBox() {
               <BarChart data={result.rows} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid {...ct.grid} />
                 <XAxis dataKey="period" tick={ct.tick} />
-                <YAxis tick={ct.tick} width={54} />
+                <YAxis tick={ct.tick} width={64}
+                  tickFormatter={(v) => fmtVal(result.unit, v)} />
                 <Tooltip content={<MultiTip />} formatter={(v, n) => [
-                  `${Number(v).toLocaleString()} ${result.unit}`, labels[n] || n,
+                  fmtVal(result.unit, v), labels[n] || n,
                 ]} />
                 {(fuelsMode ? columns.length > 1 : columns.length > 1) && (
                   <Legend wrapperStyle={{ fontSize: 9, fontFamily: 'monospace' }} iconSize={7}
@@ -187,6 +207,12 @@ export default function AskBox() {
                 ))}
               </BarChart>
             </ResponsiveContainer>
+          )}
+          {result.rows?.length > 0 && (
+            <div className="font-mono text-[8px] text-neutral-700">
+              y = {AXIS_LABEL[result.unit] || result.unit}
+              {result.agg === 'sum' ? ' · totals per period' : ' · mean per period'}
+            </div>
           )}
 
           {(result.coverage || []).map((c) => (
