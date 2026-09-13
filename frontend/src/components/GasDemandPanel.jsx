@@ -5,7 +5,8 @@ import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
+import { fmtDate, useChartTheme } from '../utils/chart'
+import MultiTip from './ChartTip'
 
 const API = '/api'
 
@@ -101,7 +102,7 @@ export default function GasDemandPanel() {
                   <CartesianGrid {...ct.grid} />
                   <XAxis dataKey="date" tick={ct.tick} tickFormatter={fmtDate} interval="preserveStartEnd" minTickGap={60} />
                   <YAxis tick={ct.tick} width={28} />
-                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, name) => [`${Math.round(v).toLocaleString()} GWh`, name]} labelFormatter={fmtDate} />
+                  <Tooltip content={<MultiTip />} formatter={(v, name) => [`${Math.round(v).toLocaleString()} GWh`, name]} labelFormatter={fmtDate} />
                   <Area type="monotone" dataKey="power" stackId="1" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.15} strokeWidth={1} dot={false} />
                   <Area type="monotone" dataKey="heat" stackId="1" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.12} strokeWidth={1} dot={false} />
                   <Area type="monotone" dataKey="industrial" stackId="1" stroke="#64748b" fill="#64748b" fillOpacity={0.12} strokeWidth={1} dot={false} />

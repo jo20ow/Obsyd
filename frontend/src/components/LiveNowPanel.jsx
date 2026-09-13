@@ -7,6 +7,7 @@ import {
   ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
 import { fmtHour, fmtTs, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
+import MultiTip from './ChartTip'
 import { fuelColor, fuelLabel, sortFuels } from '../utils/fuels'
 
 const API = '/api'
@@ -171,7 +172,7 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
                     tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />
                   <Tooltip
-                    {...CHART_TOOLTIP_PROPS}
+                    content={<MultiTip />}
                     formatter={(v, name) => [v == null ? '—' : `${Math.round(v).toLocaleString()} MW`, name]}
                     labelFormatter={(h) => `${fmtHour(h)} UTC`}
                   />

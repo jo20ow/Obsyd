@@ -6,7 +6,8 @@ import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
+import { fmtDate, useChartTheme } from '../utils/chart'
+import MultiTip from './ChartTip'
 import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
@@ -124,7 +125,7 @@ export default function PowerGridPanel({ zone = 'DE_LU' }) {
                     tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />
                   <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
+                    content={<MultiTip />}
                     formatter={(v, name) => [`${Math.round(v).toLocaleString()} MW`, name]}
                     labelFormatter={fmtDate}
                   />

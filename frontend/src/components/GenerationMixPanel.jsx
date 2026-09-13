@@ -6,8 +6,9 @@ import { rangeDays, rangeStart } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
+import { fmtDate, useChartTheme } from '../utils/chart'
 import { fuelColor, sortFuels } from '../utils/fuels'
+import MultiTip from './ChartTip'
 
 const API = '/api'
 
@@ -116,7 +117,7 @@ export default function GenerationMixPanel({ zone = 'DE_LU' }) {
                     tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                   />
                   <Tooltip
-                    {...CHART_TOOLTIP_PROPS}
+                    content={<MultiTip />}
                     formatter={(v, name) => [`${Math.round(v).toLocaleString()} MW`, name]}
                     labelFormatter={fmtDate}
                   />
