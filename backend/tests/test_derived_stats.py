@@ -148,6 +148,68 @@ def test_spread_records_use_the_imbalance_band():
     assert _bounds("spread.da_imbalance") == (-20_000.0, 20_000.0)
 
 
+# ─── top-bottom spreads (TB1/TB2/TB4) ────────────────────────────────────────
+
+
+def _seed_day_prices(db, zone, values, day=datetime(2026, 9, 1, tzinfo=timezone.utc)):
+    base = int(day.timestamp())
+    upsert_hourly(db, "price.dayahead", zone,
+                  [(base + i * 3600, float(v)) for i, v in enumerate(values)],
+                  unit="EUR/MWh")
+    return base
+
+
+def test_tb_spreads_are_exact_and_monotone(db_session):
+    from backend.power.derived_stats import store_tb_spreads
+
+    # 24 hours 0..23 → TB1 = 23−0, TB2 = (23+22)−(0+1), TB4 = (23+22+21+20)−(0+1+2+3)
+    base = _seed_day_prices(db_session, "DE_LU", range(24))
+    store_tb_spreads(db_session, "DE_LU")
+    from backend.power.hourly_store import read_hourly
+    tb1 = read_hourly(db_session, "spread.tb1", "DE_LU")
+    tb2 = read_hourly(db_session, "spread.tb2", "DE_LU")
+    tb4 = read_hourly(db_session, "spread.tb4", "DE_LU")
+    assert tb1 == [(base, 23.0)]
+    assert tb2 == [(base, 44.0)]
+    assert tb4 == [(base, 80.0)]
+    assert tb1[0][1] <= tb2[0][1] <= tb4[0][1]
+
+
+def test_tb_skips_fragment_days_and_absent_zones(db_session):
+    """A day with under 20 priced hours is skipped (a fragment's TB is not a
+    day's TB); a zone with no day-ahead auction at all (GB) writes nothing —
+    absence is structural, never zero-filled."""
+    from backend.power.derived_stats import store_tb_spreads
+    from backend.power.hourly_store import read_hourly
+
+    _seed_day_prices(db_session, "FR", range(12))  # 12 hours only
+    assert store_tb_spreads(db_session, "FR") == 0
+    assert store_tb_spreads(db_session, "GB") == 0
+    assert read_hourly(db_session, "spread.tb1", "FR") == []
+
+
+def test_tb_negative_prices_widen_the_spread(db_session):
+    """Charging at a negative price is part of the statistic: TB1 of a day
+    spanning −50..+100 is 150, not 100."""
+    from backend.power.derived_stats import store_tb_spreads
+    from backend.power.hourly_store import read_hourly
+
+    values = [-50.0] + [50.0] * 22 + [100.0]
+    base = _seed_day_prices(db_session, "NL", values)
+    store_tb_spreads(db_session, "NL")
+    assert read_hourly(db_session, "spread.tb1", "NL") == [(base, 150.0)]
+
+
+def test_tb_wiring():
+    from backend.collectors.freshness import SPECS
+    from backend.power.series_catalog import series_label
+
+    assert any(s.key == "tb_spread_series" for s in SPECS)
+    assert "spread" in series_label("spread.tb2").lower()
+    assert "revenue" not in series_label("spread.tb2").lower()  # the naming doctrine
+    assert any("spread.tb2".startswith(p) for p in REVISION_EXCLUDED_PREFIXES)
+
+
 # ─── duration curves ─────────────────────────────────────────────────────────
 
 

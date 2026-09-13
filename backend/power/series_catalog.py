@@ -47,6 +47,12 @@ SERIES_LABELS: dict[str, str] = {
     # day-ahead auction — the label must never let the two be confused.
     "price.negative_hours": "Negative-price hours · per day",
     "spread.da_imbalance": "Imbalance − day-ahead spread",
+    # TB = top-bottom PRICE-SPREAD statistic (derived_stats.store_tb_spreads),
+    # deliberately NOT labelled "battery revenue" — real assets stack markets
+    # this number does not see.
+    "spread.tb1": "Day-ahead top-bottom spread TB1 · daily",
+    "spread.tb2": "Day-ahead top-bottom spread TB2 · daily",
+    "spread.tb4": "Day-ahead top-bottom spread TB4 · daily",
     "price.ida1.qh": "Intraday auction IDA1 · 15-min",
     "price.ida2.qh": "Intraday auction IDA2 · 15-min",
     "price.ida3.qh": "Intraday auction IDA3 · 15-min",

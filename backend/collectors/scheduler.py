@@ -420,6 +420,7 @@ async def _run_derived_stats_nightly():
         store_capture,
         store_da_imbalance_spread,
         store_negative_hours,
+        store_tb_spreads,
     )
     from backend.power.zones import POWER_ZONES
 
@@ -434,6 +435,7 @@ async def _run_derived_stats_nightly():
                 neg += store_negative_hours(db, zone, start_day=start_day)
                 cap += store_capture(db, zone, months=3)
                 spr += store_da_imbalance_spread(db, zone, start_ts=window_ts)
+                spr += store_tb_spreads(db, zone, start_ts=window_ts)
             except Exception as exc:
                 logger.error("derived stats %s failed: %s", zone, exc)
         # +1: the day-ahead auction has already published tomorrow's hours.
