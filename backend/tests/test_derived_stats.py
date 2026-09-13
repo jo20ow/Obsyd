@@ -172,3 +172,14 @@ def test_duration_refuses_fragments_and_unknown_series(db_session):
 
     assert compute_duration(db_session, "DE_LU", "price", 365)["available"] is False
     assert "series must be" in compute_duration(db_session, "DE_LU", "nope", 365)["reason"]
+
+
+def test_duration_route_holds_a_heavy_query_slot():
+    """Up to 3 years of hours are scanned + sorted per request — the concurrent-
+    scan shape heavy_query_guard exists for (the units/history precedent)."""
+    from backend.api_guard import heavy_query_guard
+    from backend.main import app
+
+    route = next(r for r in app.routes
+                 if getattr(r, "path", None) == "/api/power/duration")
+    assert heavy_query_guard in [d.call for d in route.dependant.dependencies]
