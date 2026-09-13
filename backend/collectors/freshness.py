@@ -167,6 +167,11 @@ SPECS += [
                   hourly_series="price.negative_hours"),
     FreshnessSpec("spread_series", PowerPriceDaily, "", timedelta(days=3),
                   hourly_series="spread.da_imbalance"),
+    # TB spread family (derived_stats.store_tb_spreads) — same nightly, but its
+    # own probe: da_imbalance needs BOTH legs while TB needs only day-ahead, so
+    # one going stale must not hide behind the other staying fresh.
+    FreshnessSpec("tb_spread_series", PowerPriceDaily, "", timedelta(days=3),
+                  hourly_series="spread.tb2"),
     FreshnessSpec("capture_series", PowerPriceDaily, "", timedelta(days=45),
                   hourly_series="capture.B16.factor"),
     # Convergence bands (backend/power/convergence.py), nightly derived job.

@@ -9,6 +9,7 @@ import RevisionsLedgerPanel from './components/RevisionsLedgerPanel'
 import EuropeDesk from './components/EuropeDesk'
 import { MAP_FALLBACK } from './components/MapFallback'
 import DurationCurvePanel from './components/DurationCurvePanel'
+import TbSpreadPanel from './components/TbSpreadPanel'
 import MeritOrderScatter from './components/MeritOrderScatter'
 import MarginalTechPanel from './components/MarginalTechPanel'
 import ForecastScoreboardPanel from './components/ForecastScoreboardPanel'
@@ -771,6 +772,11 @@ function Dashboard() {
             <ErrorBoundary name="duration-curve">
               <DurationCurvePanel zone={energyZone} />
             </ErrorBoundary>
+            <div className="mt-3">
+              <ErrorBoundary name="tb-spread">
+                <TbSpreadPanel zone={energyZone} />
+              </ErrorBoundary>
+            </div>
             <div className="mt-3">
               <ErrorBoundary name="genmix-history">
                 <GenMixHistoryPanel zone={energyZone} />

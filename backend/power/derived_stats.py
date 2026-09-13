@@ -1,11 +1,12 @@
-"""Two derived statistics promoted to first-class exported series.
+"""Derived statistics promoted to first-class exported series.
 
-Both numbers already existed inside the desk — the point of this module is the
-promotion: once a value lives in `power_hourly` it gets /api/v1/series, the
-catalog, CSV/Parquet, the snapshot, the Python client and the records engine
-for free, and THAT is what "the data gets more valuable" means here. Neither
-computes anything new; both mirror an existing single source of truth, so the
-panel and the export can never disagree.
+The point of this module is the promotion: once a value lives in
+`power_hourly` it gets /api/v1/series, the catalog, CSV/Parquet, the
+snapshot, the Python client and the records engine for free, and THAT is
+what "the data gets more valuable" means here. The mirrors (negative hours,
+capture) recompute an existing single source of truth, so the panel and the
+export can never disagree; the spread family (TB, DA-imbalance) is declared
+arithmetic on stored series.
 
 price.negative_hours  (one point per day, ts = 00:00 UTC, unit "h")
     Mirrors PowerPriceDaily.negative_hours — the resolution-weighted count
@@ -88,6 +89,53 @@ def store_capture(db: Session, zone: str, months: int = 3, *, today: date | None
             written += upsert_hourly(db, f"capture.{psr}.price", zone, prices, unit="EUR/MWh")
         if factors:
             written += upsert_hourly(db, f"capture.{psr}.factor", zone, factors, unit="ratio")
+    return written
+
+
+# ── day-ahead top-bottom spreads (TB1/TB2/TB4) ────────────────────────────────
+
+#: Battery-duration hours the TB family maps to (Modo Energy's naming: TBn =
+#: the n highest hourly prices minus the n lowest, per day — an n-hour system
+#: at one cycle/day).
+TB_WINDOWS = (1, 2, 4)
+
+#: A day with fewer priced hours than this is skipped — a TB spread on a
+#: fragment of a day is not a day's spread. 20 keeps DST days (23 h) in.
+TB_MIN_HOURS = 20
+
+
+def store_tb_spreads(db: Session, zone: str, start_ts: int | None = None) -> int:
+    """Daily top-bottom day-ahead spreads → spread.tb1/tb2/tb4 (EUR per MW
+    per UTC day, one point at 00:00).
+
+        TBn = Σ(n highest hourly prices) − Σ(n lowest hourly prices)
+
+    THE NAME IS THE STATISTIC — this is a price-spread index, NOT a battery
+    revenue benchmark: real assets stack intraday, balancing and ancillary
+    revenue (GB 2h systems earned ~1.4× TB2 in 2025), and naive day-ahead
+    trading does not capture the full perfect-foresight spread either. No
+    efficiency is applied (Modo's TB convention — a pure, reproducible price
+    statistic; an 85%-RTE variant would be a model, this is arithmetic).
+    UTC days, uniformly across zones (a declared parameter; Modo buckets
+    local days). GB has no day-ahead auction series, so it has none of these
+    by construction — a TB on the MID index would be a different statistic.
+    """
+    from backend.power.hourly_store import read_hourly
+
+    by_day: dict[int, list[float]] = {}
+    for ts, v in read_hourly(db, "price.dayahead", zone, start_ts):
+        by_day.setdefault(ts - ts % 86400, []).append(v)
+    points: dict[int, list[tuple[int, float]]] = {n: [] for n in TB_WINDOWS}
+    for day_ts, values in sorted(by_day.items()):
+        if len(values) < TB_MIN_HOURS:
+            continue
+        values.sort()
+        for n in TB_WINDOWS:
+            points[n].append((day_ts, sum(values[-n:]) - sum(values[:n])))
+    written = 0
+    for n, pts in points.items():
+        if pts:
+            written += upsert_hourly(db, f"spread.tb{n}", zone, pts, unit="EUR/MW-day")
     return written
 
 
