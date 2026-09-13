@@ -10,14 +10,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend import metering
 from backend.api_guard import cached_coverage, cached_value, heavy_query_guard
 from backend.auth.api_keys import resolve_request_key
-from backend.auth.dependencies import optional_pro
+from backend.auth.dependencies import optional_pro, require_pro
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
@@ -443,6 +443,49 @@ def _coverage_by_series(db: Session) -> list[dict]:
             })
     out.sort(key=lambda r: (r["series"], r["zone"]))
     return out
+
+
+@router.get("/archive")
+def archive_manifest(_rl: None = Depends(_rate_limit), _user: dict = Depends(require_pro)):
+    """The bulk archive's manifest: every prebuilt Parquet file (one per series
+    per calendar year, all zones, long format) with rows/zones/bytes/sha256.
+    PREMIUM (backend/premium.py) — the archive is the paid delivery layer;
+    files are served by /archive/{filename}."""
+    from backend.power.archive import read_manifest
+
+    m = read_manifest()
+    if m is None:
+        return {"available": False,
+                "reason": "Archive not built yet — the nightly archive job builds it."}
+    return {"available": True, **m}
+
+
+@router.get("/archive/{filename}")
+def archive_file(
+    filename: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _rl: None = Depends(_rate_limit),
+    _user: dict = Depends(require_pro),
+):
+    """One prebuilt archive file. The filename is validated against the
+    MANIFEST, never the filesystem — path traversal is closed by construction.
+    Keyed downloads are metered with the file's row count as points."""
+    from backend.power.archive import ARCHIVE_ROOT, read_manifest
+
+    m = read_manifest()
+    entry = next((e for e in (m or {}).get("files", []) if e["file"] == filename), None)
+    path = ARCHIVE_ROOT / filename
+    if entry is None or not path.exists():
+        raise HTTPException(status_code=404,
+                            detail="No such archive file — list them at /api/v1/archive.")
+    key = resolve_request_key(request, db)
+    if key is not None:
+        metering.record(key.id, requests=0, points=entry["rows"])
+    return FileResponse(path, media_type="application/vnd.apache.parquet",
+                        filename=filename,
+                        headers={"X-Attribution": "ENTSO-E; Energy-Charts CC BY 4.0; "
+                                                  "Elexon BMRS; NESO; SMARD CC BY 4.0"})
 
 
 @router.get("/series/catalog")
