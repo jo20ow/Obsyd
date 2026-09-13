@@ -2813,9 +2813,14 @@ def get_hydro(db: Session = Depends(get_db)):
 
 @router.get("/duration")
 def get_duration(zone: str = "DE_LU", series: str = "price", days: int = 365,
-                 db: Session = Depends(get_db)):
+                 db: Session = Depends(get_db),
+                 _guard: None = Depends(heavy_query_guard)):
     """Price / residual-load duration curve over a trailing window — the
-    distribution view of the store (backend/power/duration.py). Free tier."""
+    distribution view of the store (backend/power/duration.py). Free tier.
+
+    Behind heavy_query_guard: the window caps at 3 years (~27k rows scanned +
+    sorted per request), which is exactly the concurrent-scan shape the guard
+    exists for."""
     from backend.power.duration import compute_duration
 
     return compute_duration(db, _resolve_zone(zone), series, days)
