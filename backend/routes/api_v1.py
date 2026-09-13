@@ -447,23 +447,32 @@ def _coverage_by_series(db: Session) -> list[dict]:
 
 @router.get("/ask")
 def ask(
-    q: str = Query("", max_length=200, description="e.g. 'compare negative hours in Finland 2019 to 2025'"),
+    q: str = Query("", max_length=200, description="free text, e.g. 'negative hours Finland 2019 to 2025'"),
+    metric: str = Query("", max_length=40, description="metric id from the options list"),
+    zones: str = Query("", max_length=200, description="comma-separated zone keys"),
+    year_from: int | None = Query(None, ge=2015, le=2100, alias="from"),
+    year_to: int | None = Query(None, ge=2015, le=2100, alias="to"),
     db: Session = Depends(get_db),
     _rl: None = Depends(_rate_limit),
     _g: None = Depends(heavy_query_guard),
     _user: dict = Depends(require_pro),
 ):
-    """The question box: a DETERMINISTIC parser + declared per-metric
-    aggregation over the store (backend/power/ask.py) — no LLM, by standing
-    rule. Unparseable questions fail visibly with suggestions; the answer
-    echoes its full interpretation and names coverage gaps. PREMIUM preview.
-    An empty q returns the examples (the panel's mount probe)."""
-    from backend.power.ask import EXAMPLES, answer
+    """The question filter: DETERMINISTIC answers over the store
+    (backend/power/ask.py) — no LLM, by standing rule. Two front doors, one
+    answerer: structured params (metric/zones/from/to — what the app's filter
+    UI sends) or free text `q` (the API convenience). The answer echoes its
+    full interpretation and names coverage gaps. Called bare, it returns the
+    filter OPTIONS (metrics, places, year bounds) — the UI's single source.
+    PREMIUM preview."""
+    from backend.power.ask import EXAMPLES, answer, answer_structured, filter_options
 
-    if not q.strip():
-        return {"available": False, "examples": EXAMPLES,
-                "hint": "Ask one metric for one or more zones over a time range."}
-    return answer(db, q)
+    if metric:
+        zone_list = [z.strip() for z in zones.split(",") if z.strip()]
+        return answer_structured(db, metric, zone_list, year_from, year_to)
+    if q.strip():
+        return answer(db, q)
+    return {"available": False, "filters": filter_options(), "examples": EXAMPLES,
+            "hint": "Pick a metric and one or more places, or pass free text as q."}
 
 
 @router.get("/archive")

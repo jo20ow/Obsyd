@@ -137,6 +137,38 @@ def test_ask_endpoint_is_premium(db_session):
     body = _client(db_session, pro=True).get(
         "/api/v1/ask", params={"q": "negative hours Finland 2023 to 2024"}).json()
     assert body["available"] is True and body["rows"]
-    # The mount probe: empty q answers examples for pro, never data.
+    # Bare call = the filter OPTIONS (the UI's single source), never data.
     probe = _client(db_session, pro=True).get("/api/v1/ask").json()
-    assert probe["available"] is False and probe["examples"]
+    assert probe["available"] is False
+    assert {m["id"] for m in probe["filters"]["metrics"]} >= {"negative_hours", "mix"}
+    assert any(p["label"] == "Norway" and len(p["zones"]) == 5
+               for p in probe["filters"]["places"])
+
+
+def test_structured_params_reach_the_same_answerer(db_session):
+    _seed_neg_hours(db_session)
+    body = _client(db_session, pro=True).get(
+        "/api/v1/ask",
+        params={"metric": "negative_hours", "zones": "FI", "from": 2019, "to": 2024},
+    ).json()
+    assert body["available"] is True
+    assert body["column_kind"] == "zones"
+    assert {r["period"]: r.get("FI") for r in body["rows"]} == {"2023": 20.0, "2024": 50.0}
+    assert any("2019" in c for c in body["coverage"])
+
+
+def test_mix_metric_answers_with_fuel_columns(db_session):
+    base = int(datetime(2024, 6, 1, tzinfo=UTC).timestamp())
+    upsert_hourly(db_session, "gen.B16", "DE_LU", [(base, 5000.0)], unit="MW")
+    upsert_hourly(db_session, "gen.B19", "DE_LU", [(base, 15000.0)], unit="MW")
+    from backend.power.ask import answer_structured
+
+    out = answer_structured(db_session, "mix", ["DE_LU", "FR"], 2023, 2024,
+                            now=datetime(2026, 1, 1, tzinfo=UTC))
+    assert out["available"] is True and out["column_kind"] == "fuels"
+    assert set(out["columns"]) == {"B16", "B19"}
+    assert out["rows"] == [{"period": "2024", "B16": 5000.0, "B19": 15000.0}]
+    # One place at a time — the second zone is named as dropped, not silently eaten.
+    assert any("one place at a time" in c for c in out["coverage"])
+    # The leader is named with its label, not its PSR code.
+    assert "Wind Onshore" in out["sentence"] or "B19" not in out["sentence"]
