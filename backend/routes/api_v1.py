@@ -15,12 +15,14 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.api_guard import cached_coverage, cached_value, heavy_query_guard
+from backend.auth.dependencies import optional_pro
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
 from backend.database import get_db
 from backend.models.energy import InstalledCapacity, PowerGenMix, PowerHourly, SeriesDim, ZoneDim
 from backend.power.hourly_store import RowCapExceeded, read_hourly
 from backend.power.series_catalog import catalog_groups, series_group, series_label
+from backend.premium import PREMIUM_DETAIL, is_premium_series
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
@@ -229,10 +231,13 @@ def snapshot(
     db: Session = Depends(get_db),
     _rl: None = Depends(_rate_limit),
     _g: None = Depends(heavy_query_guard),
+    pro: bool = Depends(optional_pro),
 ):
     """Per-zone hourly values for one series over a window, aligned to a common
     timestamp grid ({timestamps: [...], zones: {zone: [v, ...]}}). Powers the map
     time-scrubber — one call, then the client slides the index. Descriptive."""
+    if is_premium_series(series) and not pro:
+        raise HTTPException(status_code=403, detail=PREMIUM_DETAIL)
     end_dt = _parse_ts(end, datetime.now(UTC))
     start_dt = _parse_ts(start, end_dt - timedelta(hours=hours))
     # start/end overrides mustn't defeat the `hours` cap: this scans every zone,
@@ -429,7 +434,8 @@ def _coverage_by_series(db: Session) -> list[dict]:
 
 
 @router.get("/series/catalog")
-def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g: None = Depends(heavy_query_guard)):
+def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit),
+            _g: None = Depends(heavy_query_guard), pro: bool = Depends(optional_pro)):
     """What's queryable: every series (key+unit+label+group), its groups
     (key+label, in display order), enabled zones, the overall hourly coverage
     window, and per-(series,zone) coverage — so a Chart-Builder can grey out a
@@ -440,17 +446,25 @@ def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g:
     `coverage`: it can lag `series` by up to that TTL, so a pair's absence there
     means "not yet reflected", not "definitely no data".
     """
+    # Premium-preview series (backend/premium.py) are ABSENT from the free
+    # listing, not shown-but-locked: hidden means hidden. The shared coverage
+    # cache is filtered per request the same way — it is one loop over a few
+    # hundred cached rows, so the cache itself stays tier-agnostic.
     series = [
         {"key": k, "unit": u, "label": series_label(k), "group": series_group(k)}
         for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()
+        if pro or not is_premium_series(k)
     ]
+    coverage_pairs = cached_value("coverage_by_series", lambda: _coverage_by_series(db))
+    if not pro:
+        coverage_pairs = [r for r in coverage_pairs if not is_premium_series(r["series"])]
     return {
         "available": bool(series),
         "series": series,
         "groups": catalog_groups(s["key"] for s in series),
         "zones": [{"key": k, "label": v["label"]} for k, v in POWER_ZONES.items()],
         "coverage": cached_coverage(lambda: _coverage_window(db)),
-        "coverage_by_series": cached_value("coverage_by_series", lambda: _coverage_by_series(db)),
+        "coverage_by_series": coverage_pairs,
         "series_count": len(series),
     }
 
@@ -467,6 +481,7 @@ def series(
     db: Session = Depends(get_db),
     _rl: None = Depends(_rate_limit),
     _g: None = Depends(heavy_query_guard),
+    pro: bool = Depends(optional_pro),
 ):
     """One series for one zone over a time range — the core data endpoint.
 
@@ -481,6 +496,8 @@ def series(
     `format=csv` streams a download (unbounded range); `format=json` is capped at
     100k points (use CSV for larger pulls). Descriptive, not a forecast.
     """
+    if is_premium_series(series) and not pro:
+        raise HTTPException(status_code=403, detail=PREMIUM_DETAIL)
     end_dt = _parse_ts(end, None) if end else None
     start_dt = _parse_ts(start, (end_dt or datetime.now(UTC)) - timedelta(days=DEFAULT_WINDOW_DAYS))
     if end_dt is not None and start_dt >= end_dt:

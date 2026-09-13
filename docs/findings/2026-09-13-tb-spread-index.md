@@ -4,6 +4,10 @@ Second analytics product of the quality doctrine. Implementation:
 `backend/power/derived_stats.py::store_tb_spreads`; series `spread.tb1/tb2/tb4`
 (EUR/MW-day, one point per UTC day); panel on the ANALYTICS tab.
 
+**Status: PREMIUM PREVIEW** (owner decision 2026-09-13) — methodology public (this
+doc, AGPL code); the served series and the panel are gated behind a pro session
+(`backend/premium.py`) while the product is tested.
+
 ## The naming decision — the whole point
 
 The methodology research (2026-09) established that a "battery revenue benchmark"

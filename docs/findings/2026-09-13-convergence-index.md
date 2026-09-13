@@ -5,6 +5,10 @@ canonical definition, validate before shipping"). Implementation:
 `backend/power/convergence.py`; series `conv.{full,low,hours,spread}.<TO>` under the
 border's sorted-first zone; endpoint `/api/power/convergence`; panel on the EUROPE tab.
 
+**Status: PREMIUM PREVIEW** (owner decision 2026-09-13) — the methodology is public
+(this doc, AGPL code); the served data and the panel are gated behind a pro session
+(`backend/premium.py`) while the product is tested.
+
 ## The canonical definition
 
 ACER, Market Monitoring Report 2024 ("Progress of EU electricity wholesale market

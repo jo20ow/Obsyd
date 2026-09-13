@@ -495,8 +495,7 @@ def compute_borders(db: Session, days: int = 30, *, now: datetime | None = None)
         "superseded_aggregate_flows": superseded,
         "note": (
             "Convergence = share of hours the two zones cleared within "
-            f"{COUPLED_EPS_EUR} EUR/MWh — ACER's 'full price convergence' band (MMR 2024; "
-            "band breakdown per border: /api/power/convergence). "
+            f"{COUPLED_EPS_EUR} EUR/MWh — ACER's 'full price convergence' band (MMR 2024). "
             "'At the rail' = flow at or above this border's own "
             "95th percentile over the last year. Where ENTSO-E publishes a day-ahead NTC "
             "(A61), utilization = |flow| ÷ NTC in the flow's direction "

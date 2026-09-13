@@ -287,9 +287,15 @@ def _latest_price_hour(db: Session, zone: str, month: str, start_ts: int) -> int
 
 
 def compute_capture(
-    db: Session, zone: str, months: int = 24, *, today: date | None = None
+    db: Session, zone: str, months: int = 24, *, today: date | None = None,
+    include_floor0: bool = True,
 ) -> dict:
-    """Capture price and value factor per technology per month for one zone."""
+    """Capture price and value factor per technology per month for one zone.
+
+    `include_floor0=False` omits the €0-floor variant (fields AND its note
+    sentence) — the premium preview (backend/premium.py): the route passes the
+    caller's tier, while the derived-series mirror keeps the default and
+    stores the variant."""
     if zone not in POWER_ZONES:
         return {"available": False, "zone": zone, "reason": f"Unknown zone {zone}."}
 
@@ -324,7 +330,9 @@ def compute_capture(
                 continue
             rows.append({
                 "month": month,
-                **{k: v for k, v in m.items() if not k.startswith("_")},
+                **{k: v for k, v in m.items()
+                   if not k.startswith("_")
+                   and (include_floor0 or k != "capture_price_floor0")},
                 "baseload_price": round(bl, 2),
                 # From the RAW capture price against the RAW baseload: rounding the
                 # numerator first and the ratio after rounds twice, and it shows in the
@@ -375,10 +383,12 @@ def compute_capture(
         "note": (
             "Capture price = the generation-weighted average day-ahead price a technology "
             "actually achieved; value factor = capture price ÷ the month's baseload price "
-            "(the mean of ALL hours). capture_price_floor0 = the same weighting with "
-            "negative hours priced at €0 — the spread between the two is the technology's "
-            "negative-price exposure in EUR/MWh (named variants, not contract values). "
-            "Realised and backward-looking: arithmetic on published "
+            "(the mean of ALL hours). "
+            + ("capture_price_floor0 = the same weighting with "
+               "negative hours priced at €0 — the spread between the two is the technology's "
+               "negative-price exposure in EUR/MWh (named variants, not contract values). "
+               if include_floor0 else "")
+            + "Realised and backward-looking: arithmetic on published "
             "auction results, not a model and not a forecast. Below 1.00 the technology "
             "earned less than baseload — for solar and wind, that is cannibalisation. "
             "Day-ahead only: real assets also earn in intraday, balancing and their PPA."

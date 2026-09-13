@@ -59,6 +59,8 @@ export default function TbSpreadPanel({ zone = 'DE_LU' }) {
     }
   }, [resp])
 
+  // Premium preview: 401/403 = not this session's tier — render nothing.
+  if (error && /HTTP (401|403)/.test(error)) return null
   if (error && !resp) {
     return (
       <div className="border border-red-500/20 bg-surface rounded px-4 py-3">
