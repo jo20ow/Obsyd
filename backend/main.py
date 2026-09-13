@@ -15,7 +15,7 @@ from backend.database import init_db
 from backend.migrations import run_migrations
 from backend.observability import TraceIDMiddleware, setup_logging
 from backend.routes import alert_rules as alert_rules_routes
-from backend.routes import alerts, api_v1, health, ports, prices, sentiment, vessels, voyages, weather
+from backend.routes import alerts, api_v1, health, keys, ports, prices, sentiment, vessels, voyages, weather
 from backend.routes import analytics as analytics_routes
 from backend.routes import atlas as atlas_routes
 from backend.routes import auth as auth_routes
@@ -194,6 +194,7 @@ app.include_router(metals_routes.router)
 app.include_router(atlas_routes.router)
 app.include_router(power_routes.router)
 app.include_router(api_v1.router)  # public data API v1 (/api/v1/series, catalog, meta)
+app.include_router(keys.router)  # API-key management (session-authenticated; Phase 2)
 app.include_router(quality_routes.router)  # /api/v1/quality/* — Honest-Record read API
 app.include_router(scoreboard_routes.router)  # /api/v1/scoreboard/* — forecast scoreboard read API
 app.include_router(embed_routes.router)  # /api/v1/badge/*.svg — embeddable status badges

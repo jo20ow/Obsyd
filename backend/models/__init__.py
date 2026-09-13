@@ -1,6 +1,8 @@
 from backend.models.alert_rules import AlertRule as AlertRule
 from backend.models.alert_rules import UserAlertEvent as UserAlertEvent
 from backend.models.alerts import Alert as Alert
+from backend.models.api_key import ApiKey as ApiKey
+from backend.models.api_key import ApiUsageDaily as ApiUsageDaily
 from backend.models.fleet import DailyFleetSummary as DailyFleetSummary
 from backend.models.jodi import JODIProduction as JODIProduction
 from backend.models.metals import CopperSupply as CopperSupply

@@ -452,6 +452,22 @@ async def _run_derived_stats_nightly():
         db.close()
 
 
+async def _run_api_usage_flush():
+    """Flush the in-memory API-usage counters (backend/metering.py) into
+    api_usage_daily. Every 5 minutes: recording never writes SQLite on the
+    read path (single worker + WAL — the audit doctrine); the flush is a
+    handful of upserts. Worst case on a hard restart: one interval's tail."""
+    from backend import metering
+
+    db = SessionLocal()
+    try:
+        metering.flush(db)
+    except Exception as exc:
+        logger.error("_run_api_usage_flush failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_records_nightly():
     """Recompute all-time records per series × zone (SQL min/max over
     power_hourly). Runs after the nightly power ingest so a record day is
@@ -827,6 +843,7 @@ def start_scheduler():
     scheduler.add_job(_run_ida_prices, CronTrigger(hour="10,14,21", minute=40), id="ida_prices_3x", **JOB_DEFAULTS)
     scheduler.add_job(_run_smard_congestion, CronTrigger(day_of_week="wed", hour=8, minute=20), id="smard_congestion_weekly", **JOB_DEFAULTS)
     scheduler.add_job(_run_derived_stats_nightly, CronTrigger(hour=23, minute=42), id="derived_stats_nightly", **JOB_DEFAULTS)
+    scheduler.add_job(_run_api_usage_flush, CronTrigger(minute="*/5"), id="api_usage_flush_5min", **JOB_DEFAULTS)
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical
     # store, no incremental state), and it wants the same freshly-ingested day underneath it.

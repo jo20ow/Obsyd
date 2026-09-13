@@ -14,7 +14,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend import metering
 from backend.api_guard import cached_coverage, cached_value, heavy_query_guard
+from backend.auth.api_keys import resolve_request_key
 from backend.auth.dependencies import optional_pro
 from backend.auth.ratelimit import allow, client_ip
 from backend.collectors.freshness import evaluate_freshness
@@ -22,8 +24,8 @@ from backend.database import get_db
 from backend.models.energy import InstalledCapacity, PowerGenMix, PowerHourly, SeriesDim, ZoneDim
 from backend.power.hourly_store import RowCapExceeded, read_hourly
 from backend.power.series_catalog import catalog_groups, series_group, series_label
-from backend.premium import PREMIUM_DETAIL, is_premium_series
 from backend.power.zones import DEFAULT_ZONE, POWER_ZONES, ZONE_REGISTRY
+from backend.premium import PREMIUM_DETAIL, is_premium_series
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
@@ -52,9 +54,14 @@ DISCLAIMER = (
 )
 
 
-def _rate_limit(request: Request) -> None:
+def _rate_limit(request: Request, db: Session = Depends(get_db)) -> None:
     if not allow([(f"v1:{client_ip(request)}", RATE_PER_MIN, 60.0)]):
         raise HTTPException(status_code=429, detail="Rate limit exceeded — slow down (120 req/min).")
+    # The metering chokepoint: every v1 endpoint depends on this, so resolving
+    # the API key here counts each keyed request exactly once (resolution is
+    # cached on request.state — a later optional_pro/require_pro reuses it).
+    # FastAPI shares the Depends(get_db) session with the endpoint's own.
+    resolve_request_key(request, db)
 
 
 def _parse_ts(s: str | None, default: datetime) -> datetime:
@@ -224,6 +231,7 @@ def genmix(
 
 @router.get("/snapshot")
 def snapshot(
+    request: Request,
     series: str = Query("price.dayahead", description="Series key to snapshot"),
     hours: int = Query(168, ge=1, le=744, description="Lookback window (default 7 days)"),
     start: str | None = Query(None, description="Override window start (ISO / YYYY-MM-DD)"),
@@ -273,6 +281,10 @@ def snapshot(
         col = [round(by[(key, ts)], 2) if (key, ts) in by else None for ts in timestamps]
         if any(x is not None for x in col):
             zones[key] = col
+    # len(by) = values actually served (unknown zones already dropped).
+    api_key = resolve_request_key(request, db)
+    if api_key is not None:
+        metering.record(api_key.id, requests=0, points=len(by))
     return {
         "available": bool(timestamps and zones),
         "series": series,
@@ -529,6 +541,14 @@ def series(
         ]
         tkey = "datetime_utc"
         cols = ("datetime_utc", "value")
+
+    # Volume metering for keyed requests: the rows this response carries,
+    # counted once whatever the format (CSV/parquet build from `rows` too).
+    # resolve_request_key is request-cached — no second lookup, no double
+    # request count.
+    key = resolve_request_key(request, db)
+    if key is not None:
+        metering.record(key.id, requests=0, points=len(rows))
 
     if format == "csv":
         zsafe = zone.replace("/", "_")
