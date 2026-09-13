@@ -456,17 +456,29 @@ async def _run_archive_nightly():
     """Rebuild the bulk Parquet archive's hot window (backend/power/archive.py:
     current + previous calendar year; older files build once if missing).
     05:40 UTC — after the 22:30 daily ingest, the 23:42 derived stats and the
-    04:10 backup have all settled."""
+    04:10 backup have all settled.
+
+    In a WORKER THREAD, deliberately: the build is minutes of pure sync
+    SQL+parquet work, and this scheduler runs jobs on the event loop — inline
+    it would stall every API request for the duration (the other nightly jobs
+    are short sync bursts; this one is not). The engine is configured
+    check_same_thread=False, and the session is created inside the thread."""
+    import asyncio
+
     from backend.power.archive import build_archive
 
-    db = SessionLocal()
+    def _work():
+        db = SessionLocal()
+        try:
+            return build_archive(db)
+        finally:
+            db.close()
+
     try:
-        out = build_archive(db)
+        out = await asyncio.to_thread(_work)
         logger.info("archive nightly: %s", out)
     except Exception as exc:
         logger.error("_run_archive_nightly failed: %s", exc)
-    finally:
-        db.close()
 
 
 async def _run_api_usage_flush():
