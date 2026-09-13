@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import CompactView from './components/CompactView'
 import AlertsPanel from './components/AlertsPanel'
 import SeriesExplorer from './components/SeriesExplorer'
+import AskBox from './components/AskBox'
 import CoveragePanel from './components/CoveragePanel'
 import DataQualityPanel from './components/DataQualityPanel'
 import RevisionsLedgerPanel from './components/RevisionsLedgerPanel'
@@ -842,6 +843,10 @@ function Dashboard() {
         {/* EXPLORE TAB — interactive query over the public data API (/api/v1/series) */}
         {activeTab === 'explore' && (
           <div className="space-y-3">
+            {/* Premium preview: renders null for non-pro sessions (mount probe). */}
+            <ErrorBoundary name="ask">
+              <AskBox />
+            </ErrorBoundary>
             <ErrorBoundary name="series-explorer">
               <SeriesExplorer />
             </ErrorBoundary>
