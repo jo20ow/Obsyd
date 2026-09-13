@@ -452,6 +452,23 @@ async def _run_derived_stats_nightly():
         db.close()
 
 
+async def _run_archive_nightly():
+    """Rebuild the bulk Parquet archive's hot window (backend/power/archive.py:
+    current + previous calendar year; older files build once if missing).
+    05:40 UTC — after the 22:30 daily ingest, the 23:42 derived stats and the
+    04:10 backup have all settled."""
+    from backend.power.archive import build_archive
+
+    db = SessionLocal()
+    try:
+        out = build_archive(db)
+        logger.info("archive nightly: %s", out)
+    except Exception as exc:
+        logger.error("_run_archive_nightly failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _run_api_usage_flush():
     """Flush the in-memory API-usage counters (backend/metering.py) into
     api_usage_daily. Every 5 minutes: recording never writes SQLite on the
@@ -844,6 +861,7 @@ def start_scheduler():
     scheduler.add_job(_run_smard_congestion, CronTrigger(day_of_week="wed", hour=8, minute=20), id="smard_congestion_weekly", **JOB_DEFAULTS)
     scheduler.add_job(_run_derived_stats_nightly, CronTrigger(hour=23, minute=42), id="derived_stats_nightly", **JOB_DEFAULTS)
     scheduler.add_job(_run_api_usage_flush, CronTrigger(minute="*/5"), id="api_usage_flush_5min", **JOB_DEFAULTS)
+    scheduler.add_job(_run_archive_nightly, CronTrigger(hour=5, minute=40), id="archive_nightly", **JOB_DEFAULTS)
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical
     # store, no incremental state), and it wants the same freshly-ingested day underneath it.
