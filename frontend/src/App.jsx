@@ -50,6 +50,7 @@ import ProductsPanel from './components/ProductsPanel'
 import Landing from './components/Landing'
 import LegalPage from './components/LegalPage'
 import DevDocsPage from './components/DevDocsPage'
+import LoginPage from './components/LoginPage'
 import { SectionLabel } from './components/doc/DocShell'
 import CommandPalette from './components/CommandPalette'
 import EmbedPage from './components/embed/EmbedPage'
@@ -215,6 +216,11 @@ function App() {
 
   if (pathname === '/impressum' || pathname === '/datenschutz') {
     return <LegalPage page={pathname.slice(1)} />
+  }
+  if (pathname === '/login') {
+    // Unlisted (not in nav/sitemap): the slim chrome carries no login button,
+    // but accounts still exist — see LoginPage.jsx.
+    return <LoginPage />
   }
   if (pathname === '/docs') {
     return <DevDocsPage />

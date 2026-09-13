@@ -64,7 +64,8 @@ export default function AlertRulesPanel() {
           lands in your on-site alert inbox when something deviates.
         </div>
         <div className="text-[11px] text-neutral-500">
-          Use <span className="text-cyan-glow">LOG IN</span> in the sidebar (a magic link, no password).
+          <a href="/login" className="text-cyan-glow hover:underline">Log in here</a>{' '}
+          (a magic link, no password).
         </div>
       </div>
     )
