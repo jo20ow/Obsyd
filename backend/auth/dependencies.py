@@ -41,6 +41,32 @@ def require_auth(request: Request, obsyd_token: str | None = Cookie(None)) -> di
     return user
 
 
+def optional_pro(request: Request, obsyd_token: str | None = Cookie(None)) -> bool:
+    """True when the request carries a valid session whose newest subscription
+    passes is_pro — NEVER raises (anonymous callers get False, not a 401).
+
+    The premium preview's soft check (backend/premium.py): free endpoints that
+    merely omit premium fields, and the catalog that merely hides premium
+    series, need to know the tier without turning the whole endpoint into a
+    login wall. Cookie-less requests (most public traffic) short-circuit
+    before any DB read.
+    """
+    user = get_current_user(request, obsyd_token)
+    if not user:
+        return False
+    db = SessionLocal()
+    try:
+        sub = (
+            db.query(Subscription)
+            .filter(Subscription.email == user["email"])
+            .order_by(Subscription.id.desc())
+            .first()
+        )
+        return bool(is_pro(sub))
+    finally:
+        db.close()
+
+
 def require_pro(request: Request, obsyd_token: str | None = Cookie(None)) -> dict:
     """Require Pro subscription (paid or in-trial). Raises 401/403 otherwise.
 

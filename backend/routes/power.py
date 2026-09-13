@@ -36,6 +36,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.api_guard import cached_value, heavy_query_guard
+from backend.auth.dependencies import optional_pro, require_pro
 from backend.config import settings
 from backend.database import get_db
 from backend.models.energy import (
@@ -1607,17 +1608,19 @@ def get_capture(
     zone: str = Query(DEFAULT_ZONE, description="Bidding zone key"),
     months: int = Query(24, ge=1, le=120),
     db: Session = Depends(get_db),
+    pro: bool = Depends(optional_pro),
 ):
     """What a solar (or wind, or gas) MWh actually earned: the generation-weighted
     capture price per fuel per month, and the value factor against baseload.
 
     The metric the European power market argues about most, and which no free EU
     tool publishes per bidding zone. Realised arithmetic on published auction
-    results — not a model. See backend/power/capture.py.
+    results — not a model. See backend/power/capture.py. Free tier; the €0-floor
+    variant fields ride only for premium sessions (backend/premium.py).
     """
     from backend.power.capture import compute_capture
 
-    return compute_capture(db, _resolve_zone(zone), months=months)
+    return compute_capture(db, _resolve_zone(zone), months=months, include_floor0=pro)
 
 
 @router.get("/episodes")
@@ -1772,12 +1775,14 @@ def get_convergence(
     days: int = Query(365, ge=30, le=1095),
     db: Session = Depends(get_db),
     _guard: None = Depends(heavy_query_guard),
+    _user: dict = Depends(require_pro),
 ):
     """Day-ahead price convergence per border in ACER's MMR bands (full ≤1 /
     moderate 1–10 / low >10 EUR/MWh, % of hours), aggregated exactly from the
-    stored daily conv.* series (backend/power/convergence.py). Free tier,
-    descriptive. Behind heavy_query_guard: a 3-year window reads ~250k daily
-    rows across 63 borders."""
+    stored daily conv.* series (backend/power/convergence.py). Descriptive.
+    PREMIUM preview (backend/premium.py): 401/403 without a pro session — the
+    panel hides itself on either. Behind heavy_query_guard: a 3-year window
+    reads ~250k daily rows across 63 borders."""
     from backend.power.convergence import compute_convergence
 
     out = compute_convergence(db, days=days)

@@ -109,6 +109,7 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
   const belowStrikeCount = hasStrike
     ? worstRecent.filter((r) => r.capture_price < strike).length
     : null
+  const hasFloor0 = fuels.some((f) => f.latest?.capture_price_floor0 != null)
 
   return (
     <Panel
@@ -144,7 +145,11 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                 <tr className="text-[9px] text-neutral-600 uppercase tracking-wider">
                   <th className="text-left px-2 py-1">Technology</th>
                   <th className="text-right px-2 py-1" title="Generation-weighted average day-ahead price it achieved">Capture</th>
-                  <th className="text-right px-2 py-1" title="The same weighting with negative hours priced at €0 — a named variant, not a contract value. The gap to Capture is this technology's negative-price exposure in €/MWh.">€0-floor</th>
+                  {/* Premium preview: the backend omits the €0-floor variant for
+                      free sessions, so the column only exists when it arrives. */}
+                  {hasFloor0 && (
+                    <th className="text-right px-2 py-1" title="The same weighting with negative hours priced at €0 — a named variant, not a contract value. The gap to Capture is this technology's negative-price exposure in €/MWh.">€0-floor</th>
+                  )}
                   <th className="text-right px-2 py-1" title="Capture price ÷ the month's baseload price. Below 1.00 = earned less than baseload.">Value factor</th>
                   <th className="px-2 py-1"></th>
                   <th className="text-right px-2 py-1" title="Share of this technology's own output that landed in negative-price hours">Neg. output</th>
@@ -164,9 +169,11 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
                         {f.label}
                       </td>
                       <td className="px-2 py-1.5 text-right text-neutral-200">€{L.capture_price.toFixed(1)}</td>
-                      <td className="px-2 py-1.5 text-right text-neutral-400">
-                        {L.capture_price_floor0 != null ? `€${L.capture_price_floor0.toFixed(1)}` : '—'}
-                      </td>
+                      {hasFloor0 && (
+                        <td className="px-2 py-1.5 text-right text-neutral-400">
+                          {L.capture_price_floor0 != null ? `€${L.capture_price_floor0.toFixed(1)}` : '—'}
+                        </td>
+                      )}
                       <td className={`px-2 py-1.5 text-right ${
                         vf == null ? 'text-neutral-700' : vf < 1 ? 'text-amber-400' : 'text-cyan-glow'
                       }`}>
