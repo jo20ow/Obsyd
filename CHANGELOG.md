@@ -4,6 +4,31 @@ Notable changes to OBSYD. Versions correspond to GitHub releases (and, from 1.0.
 on, to the Zenodo-archived releases referenced in [CITATION.cff](CITATION.cff)).
 The Python client is versioned separately (`clients/python`, tags `client-vX.Y.Z`).
 
+## 1.2.1 — 2026-09-14
+
+Corrections from a full-site QA pass — data honesty first.
+
+- **Imbalance prices: curveType A03 decoded correctly.** ENTSO-E A85 documents
+  publish variable-sized blocks (a point holds until the next position); the
+  parser previously mapped each point to a single settlement period, which in
+  dual-priced control areas (ES: separate excess/insufficiency series) left
+  periods covered by only one of the two series — and re-fetches then logged
+  restatements the source never made. `imbalance.price*` in dual-priced zones
+  is the per-period mean of both series, and its catalog caveat now says so.
+  Affected windows are re-ingested; the resulting one-time corrections appear
+  in the revisions ledger.
+- **Per-unit generation (A73) revived** — ENTSO-E silently began enforcing a
+  1-day request window (~Aug 2026); requests now chunk per day and the feed has
+  been backfilled over the gap.
+- **Solar completeness measured within the published solar day** — many TSOs
+  omit dark hours instead of publishing zeros; a flat 24 h denominator graded
+  every night as missing data. Interior gaps still count.
+- **Arrival lag anchored on the frontier batch** — a history backfill no longer
+  reports the age of the backfilled window as feed latency.
+- Drivers panel names the day a day-ahead mean belongs to (D+1 after the
+  auction) instead of implying "today"; catalog/coverage responses are served
+  from a permanently warmed cache.
+
 ## 1.2.0 — 2026-09-14
 
 The open data base widens: a 38th zone outside ENTSO-E, an estimated CO₂ layer,

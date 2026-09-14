@@ -41,6 +41,36 @@ def control_area_eic(zone: str) -> str | None:
     return ZONE_REGISTRY.get(zone, {}).get("eic")
 
 
+def _period_slot_count(period, start, res_hours) -> int | None:
+    """Slots in a Period from its timeInterval end, or None when unparseable."""
+    end_el = next((e for e in period.iter() if _localname(e.tag) == "end"), None)
+    end = _parse_utc(end_el.text) if end_el is not None else None
+    if end is None or end <= start:
+        return None
+    return int(round((end - start).total_seconds() / 3600.0 / res_hours))
+
+
+def _expand_a03(points: list[tuple[int, float]], curve_type: str,
+                n_slots: int | None) -> list[tuple[int, float]]:
+    """curveType A03 = variable-sized blocks: a Point is valid FROM its position
+    UNTIL the next Point's position (the last one until period end) — omitted
+    positions repeat the previous value. Mapping each Point to exactly one slot
+    (the old reading) silently dropped every repeated slot; in dual-priced
+    control areas (ES: category A04 excess + A05 insufficiency series in one
+    document) that left slots covered by only ONE of the two series, and the
+    per-slot average then jumped on the next re-fetch — the revision ledger
+    logged phantom "restatements" the source never made (QA walkthrough,
+    2026-09-14: exact −50% steps). Every other curve type stays literal."""
+    if curve_type != "A03" or not points:
+        return points
+    pts = sorted(points)
+    out: list[tuple[int, float]] = []
+    for i, (pos, v) in enumerate(pts):
+        nxt = pts[i + 1][0] if i + 1 < len(pts) else ((n_slots + 1) if n_slots else pos + 1)
+        out.extend((p, v) for p in range(pos, max(nxt, pos + 1)))
+    return out
+
+
 def parse_imbalance_prices(xml_text: str) -> dict[str, dict[int, float]]:
     """Parse an A85 imbalance-prices document into {YYYY-MM-DD: {hour_utc: mean_price}}.
 
@@ -57,6 +87,7 @@ def parse_imbalance_prices(xml_text: str) -> dict[str, dict[int, float]]:
     for ts in root.iter():
         if _localname(ts.tag) != "TimeSeries":
             continue
+        curve = next((e.text for e in ts if _localname(e.tag) == "curveType"), "") or ""
         for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
             start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
             res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
@@ -66,6 +97,7 @@ def parse_imbalance_prices(xml_text: str) -> dict[str, dict[int, float]]:
             res_hours = _RESOLUTION_HOURS.get((res_el.text or "").strip())
             if start is None or res_hours is None:
                 continue
+            raw: list[tuple[int, float]] = []
             for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
                 pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
                 # DIRECT child only — not the nested Financial_Price amounts.
@@ -73,11 +105,12 @@ def parse_imbalance_prices(xml_text: str) -> dict[str, dict[int, float]]:
                 if pos is None or amt is None:
                     continue
                 try:
-                    t = start + timedelta(hours=res_hours * (int(pos) - 1))
-                    v = float(amt)
+                    raw.append((int(pos), float(amt)))
                 except (ValueError, TypeError):
                     continue
-                utc = t.astimezone(timezone.utc)
+            n_slots = _period_slot_count(period, start, res_hours)
+            for pos, v in _expand_a03(raw, curve.strip(), n_slots):
+                utc = (start + timedelta(hours=res_hours * (pos - 1))).astimezone(timezone.utc)
                 by_day_hour.setdefault(utc.strftime("%Y-%m-%d"), {}).setdefault(utc.hour, []).append(v)
 
     return {
@@ -104,6 +137,7 @@ def parse_imbalance_quarter_hourly(xml_text: str) -> list[tuple[int, float]]:
     for ts in root.iter():
         if _localname(ts.tag) != "TimeSeries":
             continue
+        curve = next((e.text for e in ts if _localname(e.tag) == "curveType"), "") or ""
         for period in (e for e in ts.iter() if _localname(e.tag) == "Period"):
             start_el = next((e for e in period.iter() if _localname(e.tag) == "start"), None)
             res_el = next((e for e in period.iter() if _localname(e.tag) == "resolution"), None)
@@ -114,6 +148,7 @@ def parse_imbalance_quarter_hourly(xml_text: str) -> list[tuple[int, float]]:
             start = _parse_utc(start_el.text)
             if start is None:
                 continue
+            raw: list[tuple[int, float]] = []
             for point in (e for e in period.iter() if _localname(e.tag) == "Point"):
                 pos = next((e.text for e in point if _localname(e.tag) == "position"), None)
                 # DIRECT child only — not the nested Financial_Price amounts.
@@ -121,10 +156,12 @@ def parse_imbalance_quarter_hourly(xml_text: str) -> list[tuple[int, float]]:
                 if pos is None or amt is None:
                     continue
                 try:
-                    slot = start + timedelta(minutes=15 * (int(pos) - 1))
-                    v = float(amt)
+                    raw.append((int(pos), float(amt)))
                 except (ValueError, TypeError):
                     continue
+            n_slots = _period_slot_count(period, start, 0.25)
+            for pos, v in _expand_a03(raw, curve.strip(), n_slots):
+                slot = start + timedelta(minutes=15 * (pos - 1))
                 epoch = int(slot.astimezone(timezone.utc).timestamp())
                 by_ts.setdefault(epoch, []).append(v)
 

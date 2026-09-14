@@ -122,6 +122,27 @@ def test_summary_revision_count_and_arrival_lag(db_session):
     assert cell["arrival_lag_s"] == _H
 
 
+def test_arrival_lag_ignores_history_backfills(db_session):
+    """A later backfill batch delivering OLD hours must not replace the frontier
+    lag with the age of the backfilled window (the 2015 deep backfill had
+    IE-SEM reporting '2081.8 d behind')."""
+    _q(db_session, "DE_LU", "load.actual", _day(1), 24, 24)
+    sid, zid = _ids(db_session, "load.actual", "DE_LU")
+    frontier_ts = NOW_S - 100 - _H
+    db_session.add(IngestArrival(series_id=sid, zone_id=zid, observed_at=NOW_S - 100,
+                                 n_new=4, n_changed=0, min_ts_new=frontier_ts - 3 * _H,
+                                 max_ts_new=frontier_ts))
+    # Newest by wall clock, but its newest hour lies a year in the past.
+    db_session.add(IngestArrival(series_id=sid, zone_id=zid, observed_at=NOW_S - 10,
+                                 n_new=8760, n_changed=0,
+                                 min_ts_new=frontier_ts - 366 * _D,
+                                 max_ts_new=frontier_ts - 365 * _D))
+    db_session.commit()
+
+    (cell,) = _client(db_session).get("/api/v1/quality/summary").json()["zones"][0]["series"]
+    assert cell["arrival_lag_s"] == _H
+
+
 def test_summary_zone_flag_cell_carries_no_completeness(db_session):
     _q(db_session, "DE_LU", "_zone", _day(1), 0, 0,
        flags=[{"rule": "gen_below_load_exports", "hours": [], "detail": {}}])

@@ -189,7 +189,10 @@ export default function AlertsPanel({ weatherAlerts = [] }) {
           const summary = zones.length > 0
             ? `${ruleAlerts.length} ${label}: ${zones.join(', ')}`
             : `${ruleAlerts.length} ${label}`
-          items.push({ type: 'group', rule, vertical, id: `group-${vertical}-${rule}`, severity: ruleAlerts[0].severity, summary, alerts: ruleAlerts })
+          // The group wears its WORST member's severity — the first row in API
+          // order can be a warning sitting on top of criticals.
+          const worst = ruleAlerts.reduce((a, b) => (sevRank(b.severity) < sevRank(a.severity) ? b : a))
+          items.push({ type: 'group', rule, vertical, id: `group-${vertical}-${rule}`, severity: worst.severity, summary, alerts: ruleAlerts })
         } else {
           items.push(...ruleAlerts.map((a) => ({ type: 'single', ...a })))
         }

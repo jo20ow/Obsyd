@@ -45,6 +45,46 @@ def test_parse_ignores_nested_financial_price():
     assert out[0] == 120.0
 
 
+def _a85_series(series, start="2026-06-01T00:00Z", end="2026-06-02T00:00Z", res="PT60M"):
+    """Multi-TimeSeries builder: series = [(curve_type, [(pos, value), …]), …]."""
+    body = ""
+    for curve, points in series:
+        pts = "".join(
+            f"<Point><position>{p}</position>"
+            f"<imbalance_Price.amount>{v}</imbalance_Price.amount></Point>"
+            for p, v in points
+        )
+        body += (f"<TimeSeries><curveType>{curve}</curveType><Period>"
+                 f"<timeInterval><start>{start}</start><end>{end}</end></timeInterval>"
+                 f"<resolution>{res}</resolution>{pts}</Period></TimeSeries>")
+    return f'<?xml version="1.0"?><Balancing_MarketDocument xmlns="{NS}">{body}</Balancing_MarketDocument>'
+
+
+def test_parse_a03_curve_fills_forward_to_the_next_point():
+    # curveType A03 = variable-sized blocks: a point holds until the next
+    # position; the last one until period end.
+    xml = _a85_series([("A03", [(1, 100.0), (13, 200.0)])])
+    out = parse_imbalance_prices(xml)["2026-06-01"]
+    assert len(out) == 24
+    assert out[0] == 100.0 and out[11] == 100.0
+    assert out[12] == 200.0 and out[23] == 200.0
+
+
+def test_parse_dual_priced_series_average_covers_every_slot():
+    # Dual pricing (ES): excess (A04) + insufficiency (A05) series in one
+    # document; the sparse A03 series must expand BEFORE averaging, or slots
+    # covered by only one series jump on the next re-fetch (phantom
+    # restatements in the revision ledger).
+    xml = _a85_series([
+        ("A03", [(1, 0.0)]),            # excess price: flat 0, published once
+        ("A03", [(h, 100.0 + h) for h in range(1, 25)]),  # insufficiency, all slots
+    ])
+    out = parse_imbalance_prices(xml)["2026-06-01"]
+    assert len(out) == 24
+    assert out[0] == pytest.approx((0.0 + 101.0) / 2)
+    assert out[23] == pytest.approx((0.0 + 124.0) / 2)
+
+
 def test_parse_acknowledgement_is_empty():
     ack = '<?xml version="1.0"?><Acknowledgement_MarketDocument><mRID>x</mRID></Acknowledgement_MarketDocument>'
     assert parse_imbalance_prices(ack) == {}

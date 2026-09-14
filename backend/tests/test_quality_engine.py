@@ -67,6 +67,21 @@ def test_completeness_counts_present_hours_of_24(db_session):
     assert _flags(row) == []
 
 
+def test_solar_completeness_measured_within_the_published_solar_day(db_session):
+    """Many TSOs omit dark hours instead of publishing zeros — solar is graded
+    against its first..last published hour, not a flat 24h denominator that
+    calls every night missing data. An interior hole still counts."""
+    # 06:00–18:00 published, 12:00 missing → 12 present of a 13-hour span
+    _seed_hours(db_session, "gen.B16", "DE_LU",
+                DAY, {h: 500.0 for h in range(6, 19) if h != 12})
+    db_session.commit()
+    compute_and_store_quality(db_session, "DE_LU", DAY)
+
+    row = _row(db_session, "gen.B16")
+    assert row.hours_present == 12
+    assert row.hours_expected == 13
+
+
 def test_qh_series_expects_96_intervals(db_session):
     day_start = day_hour_ts(DAY, 0)
     points = [(day_start + i * 900, 50.0) for i in range(90)]  # 90 of 96 quarter-hours

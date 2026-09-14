@@ -23,7 +23,7 @@ export default function LoginPage() {
         <AuthButton />
         {user?.authenticated && (
           <div className="pt-2">
-            <LinkButton href="/app" primary>Open the desk →</LinkButton>
+            <LinkButton href="/app" primary>Open the live desk →</LinkButton>
           </div>
         )}
       </div>

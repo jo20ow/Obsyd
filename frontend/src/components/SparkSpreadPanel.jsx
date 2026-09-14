@@ -5,7 +5,7 @@ import { rangeDays } from '../utils/ranges'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { fmtDate, CHART_TOOLTIP_STYLE, useChartTheme } from '../utils/chart'
+import { fmtDate, CHART_TOOLTIP_PROPS, useChartTheme } from '../utils/chart'
 import TrackRecordBadge from './TrackRecordBadge'
 
 const API = '/api'
@@ -54,7 +54,6 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
       title={`SPARK SPREAD · ${zoneLabel} · CCGT MARGIN`}
       info="Spark spread = power − gas × heat-rate (CCGT generation margin). Measures the theoretical profitability of gas-fired power generation. Positive = burning gas to generate electricity is profitable. Gas leg = TTF (the European benchmark hub) for every zone. Clean spark (− CO₂ cost) coming once EUA data is wired."
       collapsible
-      defaultCollapsed
       headerRight={
         spread != null && (
           <span className="font-mono text-[10px] font-bold" style={{ color: spreadColor }}>
@@ -123,7 +122,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
                     width={30}
                   />
                   <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
+                    {...CHART_TOOLTIP_PROPS}
                     formatter={(v) => [
                       `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(1)} €/MWh`,
                       'Spark Spread',
@@ -131,11 +130,13 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
                     labelFormatter={fmtDate}
                   />
                   <ReferenceLine y={0} stroke="#444" />
+                  {/* Accent, not green: the header comment's rule — a positive
+                      pre-carbon spread is not a profit, so no profit colour. */}
                   <Area
                     type="monotone"
                     dataKey="dirty_spark_spread"
-                    stroke="#4ade80"
-                    fill="#4ade80"
+                    stroke={ct.accent}
+                    fill={ct.accent}
                     fillOpacity={0.06}
                     strokeWidth={1.5}
                     dot={false}
@@ -143,7 +144,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
                 </AreaChart>
               </ResponsiveContainer>
               <div className="flex items-center justify-center gap-4 mt-1 font-mono text-[8px] text-neutral-600">
-                <span style={{ color: '#4ade80' }}>▬ spark spread</span>
+                <span style={{ color: ct.accent }}>▬ spark spread</span>
                 <span className="text-neutral-600">— zero line</span>
               </div>
             </div>

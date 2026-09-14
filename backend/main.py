@@ -132,7 +132,7 @@ app = FastAPI(
         "gas that fuels them, from the official record (ENTSO-E, Energy-Charts, GIE). "
         "Programmatic access: GET /api/v1/series (JSON/CSV). Free, descriptive, AGPL-3.0."
     ),
-    version="1.2.0",
+    version="1.2.1",
     lifespan=lifespan,
     # Serve interactive docs under /api/* so the existing reverse-proxy exposes them
     # publicly without a Caddy change (the proxy already forwards /api/*).
