@@ -45,8 +45,13 @@ export default function DataSeriesPage({ seriesKey }) {
     return zones.includes('DE_LU') ? 'DE_LU' : zones[0]
   }, [coverage])
 
+  // Computed ONCE: a Date.now() inline in the URL makes every render mint a
+  // new URL, and a url-keyed fetch hook then refetches forever.
+  const previewStart = useMemo(
+    () => new Date(Date.now() - 180 * 86400e3).toISOString().slice(0, 10), [],
+  )
   const previewUrl = previewZone
-    ? `${API}/v1/series?series=${seriesKey}&zone=${previewZone}&resolution=daily&start=${new Date(Date.now() - 180 * 86400e3).toISOString().slice(0, 10)}`
+    ? `${API}/v1/series?series=${seriesKey}&zone=${previewZone}&resolution=daily&start=${previewStart}`
     : null
   const { data: preview } = useFetchWithError(previewUrl, { deps: [previewUrl] })
   const chart = (preview?.data || []).map((p) => ({ x: p.date, v: p.value }))
