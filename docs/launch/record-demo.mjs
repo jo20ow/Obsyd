@@ -41,8 +41,8 @@ await page.addInitScript(() => {
     d.style.cssText = [
       'position:fixed', 'left:0', 'top:0', 'width:18px', 'height:18px',
       'margin:-9px 0 0 -9px', 'border-radius:50%', 'z-index:2147483647',
-      'pointer-events:none', 'background:rgba(122,165,232,0.35)',
-      'border:2px solid #7aa5e8', 'box-shadow:0 0 12px 2px rgba(122,165,232,0.6)',
+      'pointer-events:none', 'background:rgba(34,211,238,0.35)',
+      'border:2px solid #22d3ee', 'box-shadow:0 0 12px 2px rgba(34,211,238,0.6)',
       'transition:transform 0.08s ease', 'transform:translate(640px,360px)',
     ].join(';')
     document.body.appendChild(d)
@@ -73,20 +73,16 @@ await glideTo('#desk-nav select')
 await wait(500)
 await page.locator('#desk-nav select').selectOption(TO)
 await wait(300)
-// The hero line reads "<Zone-Label> · day-ahead €…"; labels are the zone key
-// with dashes (DE_LU → DE-LU, IT_SICILIA → IT-Sicilia) — match case-insensitively.
-await page.waitForFunction(
-  (label) => new RegExp(`${label} \\u00b7 day-ahead \\u20ac`, 'i').test(document.body.innerText),
-  TO.replace(/_/g, '-'),
-  { timeout: 15000 },
-).catch(() => {})
+await page.waitForFunction(() => {
+  const el = [...document.querySelectorAll('*')].find(e => e.childElementCount === 0 && e.textContent.includes('POWER SITUATION'))
+  return el && !/DE-LU/.test(el.closest('div[class*="border"]')?.innerText || '')
+}, { timeout: 8000 }).catch(() => {})
 await wait(3200)          // beat 2: the price jump lands
 
 await page.evaluate(() => {
   const el = [...document.querySelectorAll('*')].find(e => e.childElementCount === 0 && /DRIVERS/.test(e.textContent))
   el?.closest('div[class*="border"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 })
-await page.mouse.move(140, 620, { steps: 12 })  // park the cursor off the charts (stray tooltips)
 await wait(4000)          // beat 3: the driver card — the "why"
 
 await context.close()
