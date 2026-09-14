@@ -80,7 +80,7 @@ export default function DocShell({ children, maxWidth = 'max-w-3xl', nav = null 
               GitHub
             </a>
             <a href="/app" className="text-cyan-glow hover:opacity-80">
-              Open the desk →
+              Open the live desk →
             </a>
           </nav>
         </div>

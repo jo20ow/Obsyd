@@ -75,6 +75,20 @@ def test_sum_metric_totals_per_year_and_names_coverage(db_session):
     assert "FI: 50 h in 2024" in out["sentence"]
 
 
+def test_interior_year_gap_is_named(db_session):
+    """A year absent BETWEEN record start and the window end must be said out
+    loud — the QA walkthrough had DE-LU's mix jump 2015 → 2018 with 2016–2017
+    silently missing from the chart."""
+    for year in (2021, 2024):  # 2022–2023 missing mid-record
+        pts = [(int(datetime(year, 3, 1 + d, tzinfo=UTC).timestamp()), 3.0)
+               for d in range(5)]
+        upsert_hourly(db_session, "price.negative_hours", "FI", pts, unit="h")
+    out = answer(db_session, "negative stunden Finnland 2021 bis 2024",
+                 now=datetime(2026, 9, 14, tzinfo=UTC))
+    assert out["available"] is True
+    assert any("2022–2023" in c and "no data on record" in c for c in out["coverage"])
+
+
 def test_mean_metric_averages_and_single_year_goes_monthly(db_session):
     base = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
     upsert_hourly(db_session, "price.dayahead", "FR",

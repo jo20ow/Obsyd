@@ -28,7 +28,12 @@ export default function DurationCurvePanel({ zone = 'DE_LU' }) {
   const { data: resp, loading, error } = useFetchWithError(url, { deps: [m.key, zone, start] })
 
   const { curve, stats } = useMemo(() => {
-    const vals = (resp?.data || []).map((p) => p.value * m.scale).filter((v) => v != null && !Number.isNaN(v))
+    // Filter BEFORE scaling: `null * scale` is 0 in JS, and a null hour must
+    // not enter the curve as a €0 hour (it skews median and the <€0 count).
+    const vals = (resp?.data || [])
+      .map((p) => p.value)
+      .filter((v) => v != null && !Number.isNaN(v))
+      .map((v) => v * m.scale)
     vals.sort((a, b) => b - a) // descending
     const n = vals.length
     if (!n) return { curve: [], stats: null }

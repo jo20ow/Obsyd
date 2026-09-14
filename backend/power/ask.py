@@ -380,6 +380,32 @@ def _coverage_note(label: str, oldest: int | None, year_from: int | None,
     return f"{label}: record starts {first.date()} — " + "; ".join(parts) + "."
 
 
+def _compress_years(years: list[int]) -> str:
+    """[2016, 2017, 2020] → '2016–2017, 2020'."""
+    out: list[str] = []
+    i = 0
+    while i < len(years):
+        j = i
+        while j + 1 < len(years) and years[j + 1] == years[j] + 1:
+            j += 1
+        out.append(str(years[i]) if i == j else f"{years[i]}–{years[j]}")
+        i = j + 1
+    return ", ".join(out)
+
+
+def _gap_note(label: str, present_years: set[int], first_year: int,
+              year_from: int | None, year_to: int) -> str | None:
+    """The honesty line about MID-record holes: `_coverage_note` covers the
+    left edge, but a year absent between the record start and the window end
+    silently vanished from the chart (QA walkthrough: DE-LU mix showed
+    2015 → 2018 with 2016–2017 simply not there and no word about it)."""
+    lo = max(first_year, year_from) if year_from is not None else first_year
+    gaps = [y for y in range(lo, year_to + 1) if y not in present_years]
+    if not gaps:
+        return None
+    return f"{label}: no data on record for {_compress_years(gaps)}."
+
+
 def answer_structured(db: Session, metric_id: str, zones: list[str],
                       year_from: int | None, year_to: int | None,
                       *, now: datetime | None = None) -> dict:
@@ -429,6 +455,15 @@ def answer_structured(db: Session, metric_id: str, zones: list[str],
         note = _coverage_note(_zone_label(zone), oldest, year_from, year_to, monthly)
         if note:
             coverage.append(note)
+        if not monthly and oldest is not None and per_col:
+            # Union across fuels: one fuel ending (nuclear exit) is history,
+            # not a hole — only a year absent from EVERY fuel is a data gap.
+            present = {int(p) for c in per_col.values() for p in c}
+            gap = _gap_note(_zone_label(zone),
+                            present, datetime.fromtimestamp(oldest, tz=UTC).year,
+                            year_from, year_to)
+            if gap:
+                coverage.append(gap)
         display_zones = [zone]
     else:
         per_col = {}
@@ -459,6 +494,12 @@ def answer_structured(db: Session, metric_id: str, zones: list[str],
                 note = _coverage_note(_zone_label(zone), oldest, year_from, year_to, monthly)
                 if note:
                     coverage.append(note)
+                if not monthly and combined:
+                    gap = _gap_note(_zone_label(zone), {int(p) for p in combined},
+                                    datetime.fromtimestamp(oldest, tz=UTC).year,
+                                    year_from, year_to)
+                    if gap:
+                        coverage.append(gap)
         column_labels = {z: _zone_label(z) for z in zones}
         display_zones = zones
 
