@@ -288,6 +288,7 @@ export default function Landing() {
             <LinkButton href="/docs" primary>
               API docs &amp; quickstart →
             </LinkButton>
+            <LinkButton href="/data">Data catalog</LinkButton>
             <LinkButton href="/api/docs">Swagger UI</LinkButton>
             <LinkButton href="https://pypi.org/project/obsyd/" external>
               obsyd on PyPI

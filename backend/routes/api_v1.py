@@ -521,6 +521,29 @@ def archive_file(
                                                   "Elexon BMRS; NESO; SMARD CC BY 4.0"})
 
 
+@router.get("/sitemap-data.xml")
+def sitemap_data(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit)):
+    """Sitemap for the per-series /data pages (referenced from robots.txt).
+    Premium-preview series stay out — hidden means hidden, also from
+    crawlers. Cached an hour; the key set changes only when a collector
+    registers a new series."""
+    def _build() -> str:
+        keys = [k for (k,) in db.query(SeriesDim.key).order_by(SeriesDim.key).all()
+                if not is_premium_series(k)]
+        urls = "\n".join(
+            f"  <url><loc>https://obsyd.dev/data/{k}</loc><changefreq>weekly</changefreq></url>"
+            for k in keys
+        )
+        return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                f"{urls}\n</urlset>\n")
+
+    xml = cached_value("sitemap_data", _build, ttl=3600.0)
+    from fastapi.responses import Response
+
+    return Response(content=xml, media_type="application/xml")
+
+
 @router.get("/series/catalog")
 def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit),
             _g: None = Depends(heavy_query_guard), pro: bool = Depends(optional_pro)):
@@ -538,8 +561,14 @@ def catalog(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit),
     # listing, not shown-but-locked: hidden means hidden. The shared coverage
     # cache is filtered per request the same way — it is one loop over a few
     # hundred cached rows, so the cache itself stays tier-agnostic.
+    from backend.power.series_meta import series_meta
+
     series = [
-        {"key": k, "unit": u, "label": series_label(k), "group": series_group(k)}
+        {"key": k, "unit": u, "label": series_label(k), "group": series_group(k),
+         # The data-dictionary layer (provider-survey follow-up): the series'
+         # contract — description/source/cadence/licence/caveat — on the wire
+         # instead of as prose in docs.
+         **series_meta(k)}
         for k, u in db.query(SeriesDim.key, SeriesDim.unit).order_by(SeriesDim.key).all()
         if pro or not is_premium_series(k)
     ]

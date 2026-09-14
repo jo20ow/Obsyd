@@ -31,6 +31,8 @@ SERIES_LABELS: dict[str, str] = {
     "imbalance.price.qh": "Imbalance price · 15-min",
     "load.actual": "Load · actual",
     "load.forecast": "Load · TSO forecast",
+    "wind.forecast": "Wind · TSO day-ahead forecast",
+    "solar.forecast": "Solar · TSO day-ahead forecast",
     "residual.actual": "Residual load · actual",
     "residual.forecast": "Residual load · TSO forecast",
     "generation.forecast": "Generation · TSO forecast",
