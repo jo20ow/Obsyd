@@ -67,14 +67,17 @@ _STATIC: dict[str, dict] = {
         "source": f"{ENTSOE} (imbalance prices; DE-LU via the country EIC / reBAP)",
         "cadence": "hourly means of the settlement periods; settles with a lag of hours to days",
         "licence": LIC_ENTSOE,
-        "caveat": "Single-TSO zones; settlement values can be restated (see the revisions ledger).",
+        "caveat": ("Single-TSO zones; settlement values can be restated (see the revisions "
+                   "ledger). Dual-priced control areas (e.g. ES) publish separate excess/"
+                   "insufficiency prices — this series carries their per-period mean."),
     },
     "imbalance.price.qh": {
         "description": "Raw 15-minute imbalance-settlement price steps.",
         "source": f"{ENTSOE} (imbalance prices)",
         "cadence": "15-min settlement periods, published with a lag of hours to days",
         "licence": LIC_ENTSOE,
-        "caveat": None,
+        "caveat": ("Dual-priced control areas (e.g. ES) publish separate excess/"
+                   "insufficiency prices — this series carries their per-period mean."),
     },
     "imbalance.price.hh": {
         "description": "Raw half-hourly GB system price (single-price settlement).",

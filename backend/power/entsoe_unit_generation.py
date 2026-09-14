@@ -29,9 +29,12 @@ Acknowledgement_MarketDocument. So: a 200-ACK is genuine emptiness and is CACHED
 any >= 400 raises and caches NOTHING (a parameter bug must not become permanent
 emptiness on disk).
 
-WINDOWING: an 8-day window is accepted (probe: 530 KB, no 1-day limit), there is
-NO pagination (explicit offset=0/100 return the identical document), no ZIP.
-Fetched in 7-day chunks. Resolution is mostly PT60M with some PT15M; several
+WINDOWING: ENTSO-E enforces a 1-DAY maximum since ~2026-08 ("must not span more
+than 1 day" — re-probe 2026-09-14; the original 2026-07-28 probe still saw 8-day
+windows accepted, and the silent switch 400'd every multi-day request and starved
+this feed for six weeks). There is NO pagination (explicit offset=0/100 return
+the identical document), no ZIP. Fetched in 1-day chunks (CHUNK_DAYS).
+Resolution is mostly PT60M with some PT15M; several
 TimeSeries can cover the same unit (68 TS / 35 units at Amprion) — per-TS hourly
 means are averaged per unit-hour.
 
@@ -95,8 +98,13 @@ A73_PROCESS = "A16"  # realised
 #: source would serve the wrong document back from disk.
 CACHE_SOURCE = "entsoe_a73"
 
-#: Probe-proven window size (8 days accepted; 7 keeps the chunk arithmetic simple).
-CHUNK_DAYS = 7
+#: 1 day, since ~2026-08: ENTSO-E now enforces "The time interval of Data Item
+#: Actual Generation Output per Generation Unit [16.1.A] must not span more
+#: than 1 day" (re-probe 2026-09-14 — the exact 400 phrase). The original
+#: 8-day probe result (2026-07-28) is history; every multi-day request 400s,
+#: which is what silently starved this feed from 2026-08-03 until the QA
+#: walkthrough caught the STALE chip.
+CHUNK_DAYS = 1
 
 #: Ingest zone → list of (label, in_Domain EIC) actually ANSWERING for it.
 #: Swept by the probe 2026-07-28: the DE-LU bidding-zone EIC answers nothing for
@@ -259,7 +267,7 @@ async def ingest_unit_generation_window(
     zones: list[str] | None = None,
     overwrite: bool = False,
 ) -> dict:
-    """Fetch + upsert per-unit generation for [start, end), 7-day chunks per CTA.
+    """Fetch + upsert per-unit generation for [start, end), 1-day chunks per CTA.
 
     Zone-gated on A73_ZONES: a zone without an A73 domain config is skipped loudly
     (the registry knows more zones than answer this doctype). Unit EICs are disjoint

@@ -163,7 +163,8 @@ export default function PowerOverviewMatrix({ selectedZone, onSelect, compact = 
                     {z.price_close != null ? `${compact ? '' : '€'}${z.price_close.toFixed(0)}` : '—'}
                   </td>
                   <td className={`${cellX} py-2 text-right num ${zColor(z.residual_z)}`}>
-                    {z.residual_gw != null ? `${z.residual_gw.toFixed(0)}${compact ? '' : ' GW'}` : '—'}
+                    {/* `|| 0` folds JS's negative zero: toFixed(-0.3) renders "-0 GW" */}
+                    {z.residual_gw != null ? `${Math.round(z.residual_gw) || 0}${compact ? '' : ' GW'}` : '—'}
                   </td>
                   <td className={`${edgeX} py-2 text-right num text-neutral-300 whitespace-nowrap`}>
                     {z.renewable_reliable === false ? '—' : z.renewable_share != null ? `${Math.round(z.renewable_share * 100)}%` : '—'}

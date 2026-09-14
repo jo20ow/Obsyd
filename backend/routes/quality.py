@@ -165,20 +165,30 @@ def _pctl(values: list[int], q: float) -> int | None:
 
 
 def _latest_frontier_lags(db: Session) -> dict[tuple[int, int], int]:
-    """(series_id, zone_id) → observed_at − max_ts_new of the NEWEST arrival row
-    that brought new hours (rows with n_new == 0 carry no frontier and are
-    skipped). ONE greatest-per-group join over ingest_arrival instead of a
-    point query per summary cell (O(cells) SELECTs at 37 zones × 6 series —
-    pinned by the SELECT-budget test). Lag may be NEGATIVE: day-ahead auctions
-    publish hours that lie in the future, so their frontier runs ahead of the
-    wall clock — that is the honest number, not an error. Should two frontier
-    batches for one pair share the same observed_at second, MIN(max_ts_new)
-    wins — the conservative (larger) lag."""
+    """(series_id, zone_id) → first observed_at − max_ts_new of the arrival row
+    holding the pair's FRONTIER (its greatest max_ts_new; rows with
+    n_new == 0 carry no frontier and are skipped).
+
+    Anchored on the frontier row, NOT the newest fetch: the newest arrival can
+    be a history backfill delivering OLD hours, and observed_at − max_ts_new
+    then reports the age of the backfilled window as if it were feed latency
+    (the 2015 deep backfill had IE-SEM showing "2081.8 d behind"; QA
+    walkthrough). The frontier row measures what the number claims: how long
+    after an hour the feed actually delivered it.
+
+    ONE greatest-per-group join over ingest_arrival instead of a point query
+    per summary cell (O(cells) SELECTs at 37 zones × 6 series — pinned by the
+    SELECT-budget test). Lag may be NEGATIVE: day-ahead auctions publish hours
+    that lie in the future, so the frontier runs ahead of the wall clock —
+    that is the honest number, not an error. Should several batches share the
+    frontier hour (rolling-window overwrite re-pulls), MIN(observed_at) wins:
+    the first time the hour arrived is its publication latency; a later
+    re-fetch of the same hour is not."""
     newest = (
         db.query(
             IngestArrival.series_id.label("sid"),
             IngestArrival.zone_id.label("zid"),
-            func.max(IngestArrival.observed_at).label("obs"),
+            func.max(IngestArrival.max_ts_new).label("mts"),
         )
         .filter(IngestArrival.max_ts_new.isnot(None))
         .group_by(IngestArrival.series_id, IngestArrival.zone_id)
@@ -188,17 +198,16 @@ def _latest_frontier_lags(db: Session) -> dict[tuple[int, int], int]:
         db.query(
             IngestArrival.series_id,
             IngestArrival.zone_id,
-            IngestArrival.observed_at,
-            func.min(IngestArrival.max_ts_new),
+            func.min(IngestArrival.observed_at),
+            IngestArrival.max_ts_new,
         )
         .join(
             newest,
             (IngestArrival.series_id == newest.c.sid)
             & (IngestArrival.zone_id == newest.c.zid)
-            & (IngestArrival.observed_at == newest.c.obs),
+            & (IngestArrival.max_ts_new == newest.c.mts),
         )
-        .filter(IngestArrival.max_ts_new.isnot(None))
-        .group_by(IngestArrival.series_id, IngestArrival.zone_id, IngestArrival.observed_at)
+        .group_by(IngestArrival.series_id, IngestArrival.zone_id, IngestArrival.max_ts_new)
         .all()
     )
     return {(sid, zid): int(obs - mts) for sid, zid, obs, mts in rows}

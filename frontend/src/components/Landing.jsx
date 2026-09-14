@@ -52,6 +52,12 @@ const SOURCES = [
     license: 'CC BY 4.0',
   },
   {
+    source: 'SMARD (Bundesnetzagentur)',
+    what: 'Germany: congestion-management & redispatch costs',
+    cadence: 'Weekly',
+    license: 'CC BY 4.0',
+  },
+  {
     source: 'GIE (AGSI / ALSI) + ENTSOG',
     what: 'European gas storage, LNG send-out & pipeline flows',
     cadence: 'Daily',
@@ -135,7 +141,8 @@ export default function Landing() {
               GitHub
             </a>
             <a href="/app" className="text-cyan-glow hover:opacity-80">
-              {user ? 'Open app →' : 'Live demo →'}
+              {/* One name for one destination: "the live desk", everywhere. */}
+              {user ? 'Open the desk →' : 'Open the live desk →'}
             </a>
           </nav>
         </div>
@@ -167,6 +174,21 @@ export default function Landing() {
           Built on the official record: ENTSO-E · Fraunhofer Energy-Charts (CC BY 4.0) · GIE —
           free and open source (AGPL-3.0), no paywall, no account needed · citable:{' '}
           <a href="#cite" className="text-cyan-glow hover:underline">DOI {DOI}</a>
+        </p>
+      </section>
+
+      {/* PRODUCT SHOT — the desk itself, above the fold-ish. Theme-matched pair
+          (only one is visible; see .landing-shot rules in index.css); re-render
+          with frontend/scripts/landing-shot.mjs after visual changes. */}
+      <section className="max-w-5xl mx-auto px-5 pb-14 sm:pb-16">
+        <a href="/app" className="block border border-border rounded overflow-hidden shadow-lg hover:border-cyan-glow/40 transition-colors">
+          <img src="/desk-dark.png" alt="The Obsyd desk: all 38 zones, live prices and the European power map"
+            className="landing-shot-dark w-full" loading="lazy" />
+          <img src="/desk-light.png" alt="The Obsyd desk: all 38 zones, live prices and the European power map"
+            className="landing-shot-light w-full" loading="lazy" />
+        </a>
+        <p className="mt-2 font-mono text-[10px] text-neutral-600 text-center">
+          The live desk — Europe right now, every zone, no account.
         </p>
       </section>
 
@@ -256,7 +278,7 @@ export default function Landing() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          <LinkButton href="/app" primary>
+          <LinkButton href="/app#alerts" primary>
             Set up your alerts →
           </LinkButton>
           <span className="text-[12px] text-neutral-500">Log in with a magic link — no card, no spam.</span>

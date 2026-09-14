@@ -157,3 +157,9 @@ html.light .obsyd-md { --md-ink: #111827; }
 .obsyd-md th { background: var(--color-surface-light); font-weight: 600; }
 .obsyd-md hr { border: none; border-top: 1px solid var(--color-border); margin: 1.5rem 0; }
 .obsyd-md blockquote { border-left: 2px solid var(--color-border); padding-left: 0.75rem; color: #8b8fa3; margin: 0.75rem 0; }
+
+/* Landing product shot: one theme-matched image visible at a time
+   (html.light toggled by ThemeContext, mirroring .obsyd-md above). */
+.landing-shot-light { display: none; }
+html.light .landing-shot-light { display: block; }
+html.light .landing-shot-dark { display: none; }

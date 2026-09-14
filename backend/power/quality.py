@@ -13,7 +13,10 @@ at 23:00 UTC" is a statement about the feed, not about the market, and none of
 it predicts anything.
 
 Completeness counts the series' native intervals: 24 for hourly series, 96 for
-`.qh` quarter-hour series (`hours_expected`). A day with zero points still gets
+`.qh` quarter-hour series (`hours_expected`). Exception gen.B16: solar is graded
+within its published solar day (first..last present hour) because many TSOs omit
+the dark hours instead of publishing zeros — a 24h denominator would grade every
+night as missing. A day with zero points still gets
 a row (hours_present=0) ONLY while the series shows activity in the surrounding
 30 days — otherwise the zone simply doesn't carry that series, and a row would
 be noise, not information.
@@ -320,7 +323,18 @@ def compute_and_store_range(db: Session, zone: str, start_day: str, end_day: str
             else:
                 flags = [f for rule in QUALITY_RULES.get(key, ())
                          if (f := rule(day_points, day_start, ctx)) is not None]
-                metrics = {"hours_present": len(day_points), "hours_expected": expected, "flags": flags}
+                # Solar: many TSOs simply omit the dark hours instead of
+                # publishing zeros, so a flat 24h denominator graded every
+                # night as missing data (~50% "complete" — physics, not a
+                # defect; QA walkthrough). Measure completeness within the
+                # published solar day (first..last hour present): interior
+                # holes still count, a fully absent day still grades 0/24,
+                # and zones that DO publish night zeros span 24h anyway.
+                expected_day = expected
+                if key == "gen.B16" and day_points:
+                    span = (max(day_points) - min(day_points)) // _HOUR_S + 1
+                    expected_day = int(span)
+                metrics = {"hours_present": len(day_points), "hours_expected": expected_day, "flags": flags}
             w, r = _upsert(db, zone, key, day, metrics)
             written += w
             removed += r

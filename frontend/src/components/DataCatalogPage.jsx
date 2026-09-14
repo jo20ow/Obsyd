@@ -42,8 +42,11 @@ export default function DataCatalogPage() {
       </div>
       <p className="text-[13px] text-neutral-400 leading-relaxed max-w-2xl mb-5">
         Every queryable series with its contract — what it is, where it comes from, how it
-        arrives, and under which licence. {data?.series_count ? `${data.series_count} series` : ''}
-        {data?.coverage?.from ? ` · record since ${String(data.coverage.from).slice(0, 10)}` : ''}.
+        arrives, and under which licence.
+        {/* Suffix only when there is a fact to state — no dangling " ." while loading. */}
+        {data?.series_count
+          ? ` ${data.series_count} series${data?.coverage?.from ? ` · record since ${String(data.coverage.from).slice(0, 10)}` : ''}.`
+          : ''}
       </p>
       <input
         value={q}
