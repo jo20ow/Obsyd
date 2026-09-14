@@ -4,6 +4,46 @@ Notable changes to OBSYD. Versions correspond to GitHub releases (and, from 1.0.
 on, to the Zenodo-archived releases referenced in [CITATION.cff](CITATION.cff)).
 The Python client is versioned separately (`clients/python`, tags `client-vX.Y.Z`).
 
+## 1.2.0 — 2026-09-14
+
+The open data base widens: a 38th zone outside ENTSO-E, an estimated CO₂ layer,
+derived statistics as first-class series, and the desk's documentation moving
+onto its own domain. Descriptive throughout, as ever.
+
+- **Great Britain (38th zone)** — served from Elexon Insights + NESO embedded
+  wind/solar estimates (folded into load/mix with the estimate published as its
+  own transparent series). GB carries the Elexon Market Index (`price.mid`)
+  instead of a day-ahead auction — GB auctions are licensed, and the label says
+  so. History from 2019.
+- **Estimated CO₂ intensity** (`co2.intensity.lifecycle` / `.direct`) for all 38
+  zones, hourly: published generation mix × declared per-technology factors
+  (IPCC AR5 / Electricity Maps set). Production-based, technology-average — an
+  estimate, labeled as one, with the full factor table in the repo. Map layer,
+  panel, records, and a client notebook included.
+- **Derived series promoted to the catalog** — daily negative-price hours
+  (`price.negative_hours`), monthly capture prices & value factors per
+  technology (`capture.<PSR>.*` — solar cannibalisation as a queryable series),
+  the imbalance-vs-day-ahead spread (`spread.da_imbalance`), and price/residual
+  **duration curves** via `/api/power/duration`.
+- **German congestion-management costs** (`congestion.cost.*`, SMARD/
+  Bundesnetzagentur CC BY 4.0, monthly since 2022-07) and **intraday-auction
+  prices** (`price.ida1-3.qh`) for the one zone that publishes them on the
+  Transparency Platform (Spain, from 2026) — the coverage probe is documented.
+- **Hourly history extended to ENTSO-E's 2015 floor** across the ENTSO-E zones
+  (prices, load, mix, forecasts, flows where the source carries them). Bidding
+  zones younger than that say so: DE-LU begins 2018-10 (the DE-AT-LU split) and
+  a first partial year is named, never silently averaged into a full one.
+- **Multi-series tooltips carry color marks**, the range selector gained **MAX**
+  (everything on record), and cross-border flows on the map show direction.
+- **Optional API keys** — free accounts (magic-link login at `/login`) can mint
+  keys (`/api/v1/keys`, or the new `/account` page) and see their own usage
+  (`/api/v1/keys/usage`). The public API stays keyless; keys exist for usage
+  tracking and future higher-throughput tiers.
+- **Docs on the product domain** — the full API reference now renders at
+  `/docs/reference` (same file as `docs/API.md`), this changelog at
+  `/changelog`, live coverage at `/status`, and embeds/badges are documented
+  on `/docs`.
+
 ## 1.1.0 — 2026-08-05
 
 The Honest Record: OBSYD now documents the official record's own behavior — and

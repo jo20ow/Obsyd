@@ -1,0 +1,28 @@
+# OBSYD — the European electricity desk (obsyd.dev)
+
+> Free, open-source (AGPL-3.0) observation desk and public data API for the
+> European power market: 38 bidding zones, hourly canonical store (prices,
+> load, generation mix, forecasts, flows, CO2 intensity estimates, derived
+> statistics), built on free official sources (ENTSO-E Transparency,
+> Fraunhofer Energy-Charts CC BY 4.0, GIE, Elexon BMRS, NESO, SMARD).
+> Descriptive throughout — no forecasts of its own. All timestamps UTC.
+
+## Docs
+
+- [API quickstart](https://obsyd.dev/docs): base URL, auth (public), formats, endpoints overview
+- [Full API reference](https://obsyd.dev/docs/reference): every endpoint with parameters, the complete series-key table with units and caveats, revisions policy, embedding, attribution — rendered from docs/API.md
+- [OpenAPI JSON](https://obsyd.dev/api/openapi.json): machine-readable schema
+- [Changelog](https://obsyd.dev/changelog): release notes for data consumers
+- [Data status](https://obsyd.dev/status): live per-source freshness
+
+## Data access
+
+- [Series endpoint](https://obsyd.dev/api/v1/series?series=price.dayahead&zone=DE_LU&resolution=daily): one series, one zone; format=json|csv|parquet
+- [Series catalog](https://obsyd.dev/api/v1/series/catalog): every queryable series with unit, label, group and coverage
+- [Meta](https://obsyd.dev/api/v1/meta): sources, licenses, attribution, disclaimer
+- [Python client](https://pypi.org/project/obsyd/): pip install obsyd → pandas DataFrames
+
+## Source
+
+- [GitHub](https://github.com/jo20ow/Obsyd): AGPL-3.0, self-hostable, methodology in code
+- [Citation](https://obsyd.dev/#cite): DOI 10.5281/zenodo.21699869

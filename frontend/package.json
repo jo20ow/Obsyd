@@ -18,6 +18,7 @@
     "deck.gl": "^9.2.10",
     "lightweight-charts": "^5.1.0",
     "maplibre-gl": "^5.19.0",
+    "marked": "^14.1.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-map-gl": "^8.1.0",

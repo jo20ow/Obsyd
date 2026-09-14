@@ -12,10 +12,12 @@ const GITHUB = 'https://github.com/jo20ow/Obsyd'
 const API_MD = `${GITHUB}/blob/main/docs/API.md`
 
 const QUICK_LINKS = [
+  { label: 'Full API reference', href: '/docs/reference', external: false },
   { label: 'Swagger UI ↗', href: '/api/docs', external: false },
   { label: 'ReDoc ↗', href: '/api/redoc', external: false },
   { label: 'OpenAPI JSON ↗', href: '/api/openapi.json', external: false },
-  { label: 'Full reference (docs/API.md) ↗', href: API_MD, external: true },
+  { label: 'Changelog', href: '/changelog', external: false },
+  { label: 'Data status', href: '/status', external: false },
 ]
 
 const ENDPOINTS = [
@@ -72,7 +74,10 @@ export default function DevDocsPage() {
         <SectionLabel className="mb-5">QUICKSTART</SectionLabel>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-border border border-border rounded overflow-hidden mb-6">
           <SpecCell label="BASE URL">https://obsyd.dev/api/v1</SpecCell>
-          <SpecCell label="AUTH">none — fully public</SpecCell>
+          <SpecCell label="AUTH">
+            none — fully public. Optional API keys (free account) identify your
+            requests and unlock a usage view: <a href="/account" className="text-cyan-glow hover:underline">/account</a>
+          </SpecCell>
           <SpecCell label="RATE LIMIT">~120 req/min per IP</SpecCell>
         </div>
         <CodeBlock title="CURL" className="mb-4">
@@ -98,14 +103,58 @@ export default function DevDocsPage() {
           {'\n'}
           <span className="text-neutral-500"># → a pandas DataFrame, UTC-indexed. That&apos;s it.</span>
         </CodeBlock>
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-5">
           <LinkButton href="https://pypi.org/project/obsyd/" external>
             obsyd on PyPI
           </LinkButton>
           <LinkButton href={`${GITHUB}/tree/main/clients/python`} external>
-            Client + example notebooks
+            Client source
           </LinkButton>
         </div>
+        <div className="text-[12px] text-neutral-500 leading-relaxed">
+          Worked example notebooks (rendered on nbviewer):{' '}
+          {[
+            ['15-min prices', '01_quarter_hour_prices'],
+            ['capture rates & negative prices', '02_capture_rates_negative_prices'],
+            ['cross-border flows', '03_cross_border_flows'],
+            ['CO₂ intensity', '04_co2_intensity'],
+          ].map(([label, nb], i) => (
+            <span key={nb}>
+              {i > 0 && ' · '}
+              <a
+                className="text-cyan-glow hover:underline"
+                target="_blank" rel="noopener noreferrer"
+                href={`https://nbviewer.org/github/jo20ow/Obsyd/blob/main/clients/python/examples/${nb}.ipynb`}
+              >
+                {label}
+              </a>
+            </span>
+          ))}
+        </div>
+      </section>
+
+      {/* EMBEDS & BADGES */}
+      <section className="mb-14">
+        <SectionLabel className="mb-5">EMBEDS &amp; BADGES</SectionLabel>
+        <p className="text-[13px] text-neutral-400 leading-relaxed max-w-2xl mb-5">
+          Three live widgets (day-ahead price, generation mix, load) embed anywhere as an
+          iframe, and an SVG badge puts a zone&apos;s latest figure in any README. Attribution is
+          baked into the frame; both refresh themselves.
+        </p>
+        <CodeBlock title="IFRAME" className="mb-4">
+          &lt;iframe src=<span className="text-amber-300">&quot;https://obsyd.dev/embed/DE_LU/price&quot;</span>
+          {'\n'}
+          {'        '}width=<span className="text-amber-300">&quot;520&quot;</span> height=<span className="text-amber-300">&quot;320&quot;</span> frameborder=<span className="text-amber-300">&quot;0&quot;</span>&gt;&lt;/iframe&gt;
+          {'\n\n'}
+          <span className="text-neutral-500">{'// metrics: price · genmix · load — any enabled zone key'}</span>
+        </CodeBlock>
+        <CodeBlock title="MARKDOWN BADGE" className="mb-4">
+          ![DE-LU day-ahead](https://obsyd.dev/api/v1/badge/DE_LU/price.svg)
+        </CodeBlock>
+        <p className="text-[12px] text-neutral-500">
+          Details and terms:{' '}
+          <a href="/docs/reference#embedding" className="text-cyan-glow hover:underline">reference §Embedding</a>.
+        </p>
       </section>
 
       {/* ENDPOINTS */}
@@ -121,12 +170,16 @@ export default function DevDocsPage() {
         </div>
         <p className="mt-3 text-[12px] text-neutral-500">
           Full parameter reference with every series key:{' '}
-          <a href={API_MD} target="_blank" rel="noopener noreferrer" className="text-cyan-glow hover:underline">
-            docs/API.md on GitHub
+          <a href="/docs/reference" className="text-cyan-glow hover:underline">
+            /docs/reference
           </a>
           {' · '}interactive:{' '}
           <a href="/api/docs" className="text-cyan-glow hover:underline">
             Swagger UI
+          </a>
+          {' · '}source:{' '}
+          <a href={API_MD} target="_blank" rel="noopener noreferrer" className="text-cyan-glow hover:underline">
+            GitHub
           </a>
         </p>
       </section>
