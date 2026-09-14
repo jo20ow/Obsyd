@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
-from backend.power.smard import parse_costs_csv, ingest_congestion_costs
 from backend.power import smard
 from backend.power.hourly_store import read_hourly
+from backend.power.smard import ingest_congestion_costs, parse_costs_csv
 
 CSV = (
     "﻿Datum von;Datum bis;ÜNB-Netzsicherheit [€] Originalauflösungen;"

@@ -258,6 +258,29 @@ df = Obsyd().series("price.dayahead", "DE_LU", start="2024-01-01", resolution="d
 DataFrames with tz-aware UTC indexes, typed errors, built-in 429 backoff.
 Source + executable example notebooks: `clients/python/` in the repo.
 
+## API keys (optional)
+
+The public API needs no key. Keys exist for users who want their requests
+**identified** — a per-key usage view (requests + data points served, daily) —
+and they are the hook for future higher-throughput tiers. Free account
+(magic-link login, no password), up to 5 active keys, revocation is immediate.
+
+Manage keys in the browser at [obsyd.dev/account](https://obsyd.dev/account),
+or over the API with your session cookie:
+
+```bash
+# mint (the raw key is shown ONCE — only a hash is stored)
+curl -b "obsyd_token=…" -H 'content-type: application/json' \
+     -X POST https://obsyd.dev/api/v1/keys -d '{"label":"research"}'
+# list / revoke / usage
+curl -b "obsyd_token=…" https://obsyd.dev/api/v1/keys
+curl -b "obsyd_token=…" -X DELETE https://obsyd.dev/api/v1/keys/<id>
+curl -b "obsyd_token=…" https://obsyd.dev/api/v1/keys/usage
+```
+
+Send a key as `X-Api-Key: obsyd_…` or `Authorization: Bearer obsyd_…` on any
+`/api/v1/*` request.
+
 ## Embedding
 
 Two ways to put live Obsyd data on your own page — no API key, no JS to write.

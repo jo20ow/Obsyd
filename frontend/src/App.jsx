@@ -51,6 +51,10 @@ import ProductsPanel from './components/ProductsPanel'
 import Landing from './components/Landing'
 import LegalPage from './components/LegalPage'
 import DevDocsPage from './components/DevDocsPage'
+import DevReferencePage from './components/DevReferencePage'
+import ChangelogPage from './components/ChangelogPage'
+import StatusPage from './components/StatusPage'
+import AccountPage from './components/AccountPage'
 import LoginPage from './components/LoginPage'
 import { SectionLabel } from './components/doc/DocShell'
 import CommandPalette from './components/CommandPalette'
@@ -136,6 +140,12 @@ function DeskFooter({ onHowToRead }) {
       <a href="/#cite" className="hover:text-cyan-glow">Cite this desk — DOI 10.5281/zenodo.21699869</a>
       <span>·</span>
       <a href="/docs" className="hover:text-cyan-glow">API docs</a>
+      <span>·</span>
+      <a href="/changelog" className="hover:text-cyan-glow">Changelog</a>
+      <span>·</span>
+      <a href="/status" className="hover:text-cyan-glow">Status</a>
+      <span>·</span>
+      <a href="/account" className="hover:text-cyan-glow">Account</a>
       <span>·</span>
       <button onClick={onHowToRead} className="hover:text-cyan-glow">How to read this desk</button>
     </div>
@@ -230,6 +240,21 @@ function App() {
   }
   if (pathname === '/docs') {
     return <DevDocsPage />
+  }
+  if (pathname === '/docs/reference') {
+    // The full API reference (docs/API.md), rendered on the product's own
+    // domain instead of living as a GitHub blob link.
+    return <DevReferencePage />
+  }
+  if (pathname === '/changelog') {
+    return <ChangelogPage />
+  }
+  if (pathname === '/status') {
+    return <StatusPage />
+  }
+  if (pathname === '/account') {
+    // Session-authenticated key management (free feature; keys are optional).
+    return <AccountPage />
   }
   if (pathname === '/builder') {
     return <BuilderShell />

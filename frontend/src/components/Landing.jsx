@@ -228,9 +228,9 @@ export default function Landing() {
           Don&apos;t watch the desk. Let it watch for you.
         </h2>
         <p className="text-[13px] text-neutral-400 leading-relaxed max-w-2xl mb-10">
-          You shouldn&apos;t have to refresh a dozen tabs to know when the energy system moves. OBSYD
-          turns the radar into your inbox — set the alerts that matter, and it pings you with the
-          evidence the moment something deviates. Free, like the rest of it.
+          You shouldn&apos;t have to refresh a dozen tabs to know when the energy system moves. Set
+          the alerts that matter, and every firing lands in your on-desk inbox with the evidence —
+          plus a public RSS feed of the anomaly radar. Free, like the rest of it.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
           <div className="border-t-2 border-border pt-4">
@@ -303,11 +303,12 @@ export default function Landing() {
       <section id="pricing" className="max-w-5xl mx-auto px-5 py-16 sm:py-20">
         <SectionLabel className="mb-4">PRICING</SectionLabel>
         <h2 className="font-display text-2xl sm:text-3xl font-semibold text-neutral-100 mb-4">
-          It&apos;s free. All of it.
+          The desk and the data API are free.
         </h2>
         <p className="text-[13px] text-neutral-400 max-w-2xl leading-relaxed">
-          Desk, radar, API — everything on obsyd.dev is unlocked. No card, no account, no limits.
-          The same code self-hosts under AGPL-3.0 with your own keys.
+          Everything you see here — the desk, the radar, the public API with CSV and Parquet —
+          costs nothing and needs no card and no account. The same code self-hosts under
+          AGPL-3.0 with your own source keys.
         </p>
       </section>
 
@@ -348,6 +349,10 @@ export default function Landing() {
             <a href="/api/alerts/rss" className="text-cyan-glow hover:underline">Anomaly radar RSS</a>
             {' · '}
             <a href="/docs" className="text-cyan-glow hover:underline">API</a>
+            {' · '}
+            <a href="/changelog" className="hover:text-neutral-300">Changelog</a>
+            {' · '}
+            <a href="/status" className="hover:text-neutral-300">Status</a>
             {' · '}
             <a href="/impressum" className="hover:text-neutral-300">Impressum</a>
             {' · '}
