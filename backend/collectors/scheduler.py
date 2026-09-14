@@ -17,10 +17,13 @@ Schedule (UTC):
   - Retention: daily 04:00; collector watchdog: daily 09:00
 """
 
+import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from backend.analytics.validation.scorecards import recompute_scorecards_job
 from backend.collectors.energy_prices import collect_energy_prices
@@ -481,6 +484,32 @@ async def _run_archive_nightly():
         logger.error("_run_archive_nightly failed: %s", exc)
 
 
+async def _run_coverage_warm():
+    """Keep the catalog's coverage caches permanently warm.
+
+    The two catalog scans (`_coverage_window` full scan + `_coverage_by_series`
+    per-pair seeks) take multi-second cold on the ~90M-row power_hourly — the QA
+    walkthrough measured a >3.5 s first paint on /data after every TTL rollover.
+    Recomputing here every 30 min against the 1 h TTL means no user request ever
+    pays the scan. In to_thread: this is long sync DB work and the scheduler
+    runs ON the event loop (single-worker doctrine)."""
+    from backend.api_guard import warm_value
+    from backend.routes.api_v1 import _coverage_by_series, _coverage_window
+
+    def _work():
+        db = SessionLocal()
+        try:
+            warm_value("coverage", lambda: _coverage_window(db))
+            warm_value("coverage_by_series", lambda: _coverage_by_series(db))
+        finally:
+            db.close()
+
+    try:
+        await asyncio.to_thread(_work)
+    except Exception as exc:
+        logger.error("_run_coverage_warm failed: %s", exc)
+
+
 async def _run_api_usage_flush():
     """Flush the in-memory API-usage counters (backend/metering.py) into
     api_usage_daily. Every 5 minutes: recording never writes SQLite on the
@@ -873,6 +902,11 @@ def start_scheduler():
     scheduler.add_job(_run_smard_congestion, CronTrigger(day_of_week="wed", hour=8, minute=20), id="smard_congestion_weekly", **JOB_DEFAULTS)
     scheduler.add_job(_run_derived_stats_nightly, CronTrigger(hour=23, minute=42), id="derived_stats_nightly", **JOB_DEFAULTS)
     scheduler.add_job(_run_api_usage_flush, CronTrigger(minute="*/5"), id="api_usage_flush_5min", **JOB_DEFAULTS)
+    # Every 30 min against the caches' 1 h TTL, plus one run ~90 s after boot
+    # (next_run_time) so even the first catalog hit after a restart is warm.
+    scheduler.add_job(_run_coverage_warm, IntervalTrigger(minutes=30),
+                      next_run_time=datetime.now(timezone.utc) + timedelta(seconds=90),
+                      id="coverage_warm_30min", **JOB_DEFAULTS)
     scheduler.add_job(_run_archive_nightly, CronTrigger(hour=5, minute=40), id="archive_nightly", **JOB_DEFAULTS)
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical

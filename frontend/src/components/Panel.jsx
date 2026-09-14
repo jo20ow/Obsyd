@@ -205,8 +205,10 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
 
   return (
     <div id={id ? `panel-${id}` : undefined} className="border border-border bg-surface rounded overflow-hidden shadow-sm">
+      {/* flex-wrap + ml-auto: on a narrow panel the chip row wraps to a second
+          line instead of truncating the title to "EU …" (QA walkthrough). */}
       <div
-        className={`flex items-center justify-between px-4 py-2.5 ${
+        className={`flex flex-wrap items-center justify-between gap-y-1 px-4 py-2.5 ${
           !collapsed ? 'border-b border-border/50' : ''
         }`}
       >
@@ -216,7 +218,7 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
           </span>
           {info && <InfoPopover text={info} wide={infoWide} />}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
           {freshness && <FreshnessCaption meta={freshness} />}
           {downloadUrl && (
             <a

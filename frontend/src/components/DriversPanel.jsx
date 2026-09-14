@@ -146,7 +146,10 @@ export default function DriversPanel({ zone = 'DE_LU' }) {
                 <span className="text-neutral-200">€{a.mean_price.toFixed(0)}</span> on average
                 (p10–p90: €{a.p10.toFixed(0)}–€{a.p90.toFixed(0)}).
                 {data.price?.value != null && (
-                  <> Today is <span className="text-cyan-glow">€{data.price.value.toFixed(0)}</span>.</>
+                  // The latest cleared day is D+1 after the auction — name it,
+                  // never "today" (its date rides on the price driver).
+                  <> The latest cleared day{data.price.date ? ` (${data.price.date})` : ''} averages{' '}
+                  <span className="text-cyan-glow">€{data.price.value.toFixed(0)}</span>.</>
                 )}
               </span>
             ) : (

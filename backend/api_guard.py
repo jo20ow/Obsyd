@@ -81,6 +81,23 @@ def cached_value(key: str, compute: Callable[[], object], *, ttl: float = _COVER
         return value
 
 
+def warm_value(key: str, compute: Callable[[], object], *, ttl: float = _COVERAGE_TTL,
+               now: float | None = None) -> object:
+    """Recompute `key` unconditionally and store it — the scheduler's warmer path.
+
+    `cached_value` only recomputes once a slot has EXPIRED, so the first request
+    after every TTL rollover paid the full scan (the catalog's coverage table is
+    a multi-second walk over ~90M rows cold). A warmer that re-runs more often
+    than the TTL keeps the slot permanently fresh; user requests then always hit
+    the fast path.
+    """
+    t = time.monotonic() if now is None else now
+    value = compute()
+    with _cache_lock:
+        _cache[key] = {"value": value, "expires": t + ttl}
+    return value
+
+
 def cached_coverage(compute: Callable[[], object], *, now: float | None = None) -> object:
     """The catalog's global coverage window, cached under its own key.
 

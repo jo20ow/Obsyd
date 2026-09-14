@@ -52,6 +52,12 @@ const SOURCES = [
     license: 'CC BY 4.0',
   },
   {
+    source: 'SMARD (Bundesnetzagentur)',
+    what: 'Germany: congestion-management & redispatch costs',
+    cadence: 'Weekly',
+    license: 'CC BY 4.0',
+  },
+  {
     source: 'GIE (AGSI / ALSI) + ENTSOG',
     what: 'European gas storage, LNG send-out & pipeline flows',
     cadence: 'Daily',
@@ -256,7 +262,7 @@ export default function Landing() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          <LinkButton href="/app" primary>
+          <LinkButton href="/app#alerts" primary>
             Set up your alerts →
           </LinkButton>
           <span className="text-[12px] text-neutral-500">Log in with a magic link — no card, no spam.</span>

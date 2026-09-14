@@ -191,6 +191,14 @@ def compute_drivers(db: Session, zone: str, *, today: _date | None = None) -> di
         "price", "Day-ahead price", latest_price.mean_price, "EUR/MWh",
         [p.mean_price for p in prices[:-1] if p.mean_price is not None],
     )
+    if price_stat:
+        # After the ~12:45 auction the latest day-ahead DAY is tomorrow while
+        # the grid actuals are today's — two different days on one screen. Say
+        # which day the price mean belongs to instead of letting "Today €178"
+        # sit beside a hero showing today's current hour (QA walkthrough).
+        price_stat["date"] = latest_price.date
+        if latest_price.date > latest_grid.date:
+            price_stat["label"] = f"Day-ahead price (D+1, {latest_price.date})"
 
     drivers: list[dict] = []
     d = _driver("residual", "Residual load", latest_grid.residual_mw, "MW",
@@ -338,7 +346,11 @@ def _headline(zone: str, price: dict | None, drivers: list[dict], outage: dict |
     if price is None or price["value"] is None:
         return f"{label} · no price today."
 
-    head = f"{label} cleared at €{price['value']:.0f}/MWh"
+    # The latest cleared day-ahead DAY is tomorrow once the ~12:45 auction is
+    # out — name the day rather than implying "today" next to a hero that shows
+    # today's current hour (QA walkthrough: €178 headline beside a €240 hero).
+    day = f" for {price['date']}" if price.get("date") else ""
+    head = f"{label} cleared at €{price['value']:.0f}/MWh on average{day}"
     if price["z"] is not None:
         head += f" ({price['z']:+.1f}σ vs its {BASELINE_DAYS}d norm)"
 
