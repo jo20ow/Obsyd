@@ -47,6 +47,7 @@ export default function SparkSpreadPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={`${API}/power/spark-spread?days=${rangeDays(range)}&zone=${zone}`}
       source="ENTSO-E A44 power · TTF gas"
       id="spark-spread"
       freshness={data}

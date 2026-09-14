@@ -83,6 +83,7 @@ export default function MarginalTechPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={`${API}/power/marginal?zone=${zone}`}
       id="marginal-tech"
       title="PRICE-SETTING TECH (ESTIMATED)"
       freshness={data}

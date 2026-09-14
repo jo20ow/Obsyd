@@ -113,6 +113,7 @@ export default function CapturePanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={`${API}/power/capture?zone=${zone}&months=36`}
       id="power-capture"
       title={`CAPTURE RATE · ${data?.zone_label ?? zone}`}
       info={[data?.note, data?.coverage_note].filter(Boolean).join(' — ')

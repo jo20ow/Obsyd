@@ -87,6 +87,7 @@ export default function LiveNowPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={url}
       id="power-live"
       freshness={data}
       title={`LIVE NOW · ${zl}`}

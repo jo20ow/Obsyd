@@ -81,6 +81,7 @@ export default function RevisionsLedgerPanel() {
 
   return (
     <Panel
+      apiUrl={url}
       id="revisions-ledger"
       title="REVISIONS LEDGER · SOURCE RESTATEMENTS"
       info={<RevisionsLegend />}

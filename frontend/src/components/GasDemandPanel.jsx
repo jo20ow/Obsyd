@@ -61,6 +61,7 @@ export default function GasDemandPanel() {
 
   return (
     <Panel
+      apiUrl={`${API}/gas/demand?days=${rangeDays(range)}`}
       id="gas-demand"
       freshness={demand.data}
       title="EU GAS DEMAND"

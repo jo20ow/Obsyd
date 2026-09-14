@@ -309,7 +309,12 @@ export default function SeriesExplorer() {
     return set
   }, [catalog])
 
-  const { frame, loading, error, perRow } = useSeriesFrame(rows, range, resolution)
+  // Explicit date window (both set → overrides the preset range). Survey
+  // finding: presets only — no way to ask for exactly Q1 2023.
+  const [winFrom, setWinFrom] = useState('')
+  const [winTo, setWinTo] = useState('')
+  const window_ = winFrom && winTo && winFrom < winTo ? { from: winFrom, to: winTo } : null
+  const { frame, loading, error, perRow } = useSeriesFrame(rows, range, resolution, window_)
 
   // Dual-axis-by-unit assignment: the left axis anchors to the FIRST row with
   // a known unit — not strictly row 0 — so a slow-to-load or errored row 0
@@ -407,6 +412,14 @@ export default function SeriesExplorer() {
             >
               ↓ CSV
             </a>
+            <a
+              href={(perRow[i]?.downloadUrl || '#').replace('&format=csv', '')}
+              target="_blank" rel="noopener noreferrer"
+              className="font-mono text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+              title="Open this row's data as JSON (the API URL)"
+            >
+              JSON
+            </a>
             {i > 0 && (
               <button
                 onClick={() => removeExtraRow(i - 1)}
@@ -443,6 +456,18 @@ export default function SeriesExplorer() {
           </button>
         )}
         <div className="flex items-center gap-1 ml-auto">
+          <input type="date" value={winFrom} onChange={(e) => setWinFrom(e.target.value)}
+            title="Explicit start date (overrides the range preset when both dates are set)"
+            className="bg-surface border border-border rounded px-1.5 py-0.5 font-mono text-[9px] text-neutral-400 focus:border-cyan-glow/40 outline-none" />
+          <span className="font-mono text-[9px] text-neutral-600">→</span>
+          <input type="date" value={winTo} onChange={(e) => setWinTo(e.target.value)}
+            title="Explicit end date (exclusive)"
+            className="bg-surface border border-border rounded px-1.5 py-0.5 font-mono text-[9px] text-neutral-400 focus:border-cyan-glow/40 outline-none" />
+          {window_ && (
+            <button onClick={() => { setWinFrom(''); setWinTo('') }}
+              title="Back to the range presets"
+              className="font-mono text-[9px] px-1 py-0.5 rounded border border-border text-neutral-500 hover:text-red-400">×</button>
+          )}
           {['hourly', 'daily'].map((rz) => (
             <button key={rz} onClick={() => setResolution(rz)}
               className={`font-mono text-[9px] px-2 py-0.5 rounded border ${resolution === rz ? 'text-violet-300 border-violet-400/40 bg-violet-400/10' : 'text-neutral-500 border-border hover:text-neutral-300'}`}>

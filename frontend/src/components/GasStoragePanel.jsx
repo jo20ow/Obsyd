@@ -29,6 +29,7 @@ export default function GasStoragePanel() {
 
   return (
     <Panel
+      apiUrl={`${API}/gas/storage?days=${rangeDays(range)}`}
       id="gas-storage"
       freshness={data}
       title="EU GAS STORAGE · AGSI"

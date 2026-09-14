@@ -58,6 +58,7 @@ export default function GasBalancePanel() {
 
   return (
     <Panel
+      apiUrl={`${API}/gas/balance?days=${rangeDays(range)}`}
       source="GIE AGSI · ENTSOG · ENTSO-E power burn"
       id="gas-balance"
       freshness={data}

@@ -187,6 +187,7 @@ export default function DataQualityPanel() {
 
   return (
     <Panel
+      apiUrl={`${API}/v1/quality/summary`}
       id="data-quality"
       title="DATA QUALITY · COMPLETENESS & FLAGS"
       info={<QualityLegend />}
