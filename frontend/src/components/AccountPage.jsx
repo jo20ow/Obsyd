@@ -176,8 +176,11 @@ export default function AccountPage() {
               <tr key={`${r.day}-${r.key_id}`} className="border-b border-border/30">
                 <td className="px-3 py-2 text-neutral-400">{r.day}</td>
                 <td className="px-3 py-2 text-neutral-500">{r.prefix}…</td>
-                <td className="px-3 py-2 text-right text-neutral-300">{r.requests.toLocaleString()}</td>
-                <td className="px-3 py-2 text-right text-neutral-300">{r.points.toLocaleString()}</td>
+                {/* Fixed en-US grouping: the browser's locale turned 635476
+                    points into "635.476", which reads as ~635 to half the
+                    audience — a metering number must be unambiguous. */}
+                <td className="px-3 py-2 text-right text-neutral-300">{r.requests.toLocaleString('en-US')}</td>
+                <td className="px-3 py-2 text-right text-neutral-300">{r.points.toLocaleString('en-US')}</td>
               </tr>
             ))}
             {usage?.length === 0 && (
