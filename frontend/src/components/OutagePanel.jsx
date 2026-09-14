@@ -81,6 +81,7 @@ export default function OutagePanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={`${API}/power/outages?zone=${zone}`}
       source="ENTSO-E A77 · generation unavailability"
       id="power-outages"
       title={`${view === 'transmission' ? 'TRANSMISSION' : 'GENERATION'} OUTAGES · ${zoneLabel}`}

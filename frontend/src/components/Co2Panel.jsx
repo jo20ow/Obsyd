@@ -62,6 +62,7 @@ export default function Co2Panel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={url}
       source="Derived · ENTSO-E A75 mix × IPCC AR5 / Electricity Maps factors"
       id="power-co2"
       freshness={data}

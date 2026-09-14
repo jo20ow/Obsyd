@@ -98,7 +98,7 @@ export default function ConvergencePanel() {
       info={<ConvergenceLegend />}
       infoWide
       collapsible
-      downloadUrl={url}
+      apiUrl={url}
       headerRight={
         <span className="flex items-center gap-2 font-mono text-[9px] text-neutral-600">
           {[90, 365].map((d) => (

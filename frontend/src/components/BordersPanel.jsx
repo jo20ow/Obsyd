@@ -179,6 +179,7 @@ export default function BordersPanel({ focus }) {
 
   return (
     <Panel
+      apiUrl={`${API}/power/borders?days=30`}
       source="ENTSO-E A44 spreads · A61 NTC · Fraunhofer Energy-Charts flows (CC BY 4.0)"
       id="power-borders"
       title="BORDERS · PRICE CONVERGENCE & CONGESTION"

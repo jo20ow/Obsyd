@@ -46,6 +46,7 @@ export default function EpisodeArchivePanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={`${API}/power/episodes?zone=${zone}&kind=${kind}`}
       id="power-episodes"
       title={`EPISODE ARCHIVE · ${zone}`}
       info={data?.note || 'Runs of consecutive qualifying days, re-derived nightly from the published record.'}

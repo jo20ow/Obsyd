@@ -270,6 +270,7 @@ export default function ForecastScoreboardPanel({ zone = 'DE_LU' }) {
 
   return (
     <Panel
+      apiUrl={`${API}/v1/scoreboard/summary?zone=${zone}`}
       id="forecast-scoreboard"
       title={view === 'ranking' ? 'FORECAST SCOREBOARD · ALL ZONES' : `FORECAST SCOREBOARD · ${zoneLabel(zone)}`}
       info={<ScoreboardLegend />}

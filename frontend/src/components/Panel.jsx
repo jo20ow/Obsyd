@@ -34,10 +34,23 @@ export function InfoPopover({ text, wide = false }) {
   )
 }
 
+const chipCls = (active) =>
+  `font-code text-[9px] tracking-wider border rounded px-1.5 py-0.5 transition-colors ${
+    active
+      ? 'text-cyan-glow border-cyan-glow/40'
+      : 'text-neutral-500 border-border hover:text-cyan-glow hover:border-cyan-glow/40'
+  }`
+
+function _jsonUrl(url) {
+  const u = new URL(url, window.location.origin)
+  u.searchParams.delete('format')
+  return u
+}
+
 // "API" chip: copies the panel's underlying JSON API URL — the CSV downloadUrl
-// minus its format param, absolutized against the current origin so it stays
-// correct on obsyd.dev and on a self-hosted instance alike.
-function ApiChip({ downloadUrl }) {
+// minus its format param (or a JSON-only apiUrl verbatim), absolutized against
+// the current origin so it stays correct on a self-hosted instance alike.
+function ApiChip({ url }) {
   const [copied, setCopied] = useState(false)
   const timer = useRef(null)
 
@@ -47,9 +60,7 @@ function ApiChip({ downloadUrl }) {
     e.stopPropagation()
     let apiUrl
     try {
-      const u = new URL(downloadUrl, window.location.origin)
-      u.searchParams.delete('format')
-      apiUrl = u.toString()
+      apiUrl = _jsonUrl(url).toString()
     } catch {
       return
     }
@@ -61,21 +72,109 @@ function ApiChip({ downloadUrl }) {
   }
 
   return (
-    <button
-      onClick={copy}
-      className={`font-code text-[9px] tracking-wider border rounded px-1.5 py-0.5 transition-colors ${
-        copied
-          ? 'text-cyan-glow border-cyan-glow/40'
-          : 'text-neutral-500 border-border hover:text-cyan-glow hover:border-cyan-glow/40'
-      }`}
-      title="Copy this panel's JSON API URL"
-    >
+    <button onClick={copy} className={chipCls(copied)} title="Copy this panel's JSON API URL">
       {copied ? '✓ copied' : 'API'}
     </button>
   )
 }
 
-export default function Panel({ id, title, info, infoWide = false, collapsible = false, defaultCollapsed = false, expandSignal, headerRight, downloadUrl, freshness, source, children }) {
+// "PY" chip: copies a ready-to-run Python snippet for the panel's data — the
+// obsyd client for /api/v1/series URLs, plain requests for everything else
+// (the survey's "copy as code" exit ramp on every chart).
+function PyChip({ url }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const copy = (e) => {
+    e.stopPropagation()
+    let snippet
+    try {
+      const u = _jsonUrl(url)
+      const p = u.searchParams
+      if (u.pathname === '/api/v1/series' && p.get('series') && p.get('zone')) {
+        const start = p.get('start') ? `, start="${p.get('start')}"` : ''
+        snippet = `from obsyd import Obsyd\ndf = Obsyd().series("${p.get('series')}", "${p.get('zone')}"${start})`
+      } else {
+        snippet = `import requests\ndata = requests.get("${u.toString()}").json()`
+      }
+    } catch {
+      return
+    }
+    navigator.clipboard?.writeText(snippet).then(() => {
+      setCopied(true)
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
+
+  return (
+    <button onClick={copy} className={chipCls(copied)} title="Copy a Python snippet for this panel's data">
+      {copied ? '✓ copied' : 'PY'}
+    </button>
+  )
+}
+
+// "↓ PNG" — export the panel's largest chart SVG as a 2x PNG with the theme
+// background and a small obsyd.dev attribution (the Energy-Charts share-image
+// pattern). Renders nothing useful for table-only panels: the click simply
+// finds no svg and flashes a dash.
+function PngChip({ containerRef, filename }) {
+  const [state, setState] = useState(null) // null | 'ok' | 'none'
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const flash = (s) => {
+    setState(s)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setState(null), 1500)
+  }
+
+  const exportPng = (e) => {
+    e.stopPropagation()
+    const root = containerRef.current
+    const svgs = root ? [...root.querySelectorAll('svg')] : []
+    if (!svgs.length) { flash('none'); return }
+    const svg = svgs.reduce((a, b) =>
+      (b.clientWidth * b.clientHeight > a.clientWidth * a.clientHeight ? b : a))
+    const w = svg.clientWidth || 600
+    const h = svg.clientHeight || 300
+    const clone = svg.cloneNode(true)
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    const img = new Image()
+    img.onload = () => {
+      const scale = 2
+      const canvas = document.createElement('canvas')
+      canvas.width = w * scale
+      canvas.height = (h + 14) * scale
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = getComputedStyle(root).backgroundColor || '#0f1115'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.scale(scale, scale)
+      ctx.drawImage(img, 0, 0, w, h)
+      ctx.font = '9px ui-monospace, monospace'
+      ctx.fillStyle = '#8b8fa3'
+      ctx.fillText('obsyd.dev', w - 52, h + 9)
+      const a = document.createElement('a')
+      a.download = filename
+      a.href = canvas.toDataURL('image/png')
+      a.click()
+      flash('ok')
+    }
+    img.onerror = () => flash('none')
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone))
+  }
+
+  return (
+    <button onClick={exportPng} className={chipCls(state === 'ok')}
+      title="Download this panel's chart as a PNG">
+      {state === 'ok' ? '✓ saved' : state === 'none' ? '–' : '↓ PNG'}
+    </button>
+  )
+}
+
+export default function Panel({ id, title, info, infoWide = false, collapsible = false, defaultCollapsed = false, expandSignal, headerRight, downloadUrl, apiUrl, freshness, source, children }) {
+  const bodyRef = useRef(null)
   const [collapsed, setCollapsed] = useState(() => {
     if (!collapsible) return false
     try {
@@ -120,16 +219,23 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
         <div className="flex items-center gap-2 shrink-0">
           {freshness && <FreshnessCaption meta={freshness} />}
           {downloadUrl && (
+            <a
+              href={downloadUrl}
+              onClick={(e) => e.stopPropagation()}
+              className="font-code text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
+              title="Download this panel's data as CSV (the same URL serves JSON or Parquet via format=)"
+            >
+              ↓ CSV
+            </a>
+          )}
+          {/* downloadUrl = a real CSV exists; apiUrl = JSON-only desk endpoint.
+              Either way the chip row gives every data panel its exit ramps
+              (the survey's rule: every chart converts viewers to API users). */}
+          {(downloadUrl || apiUrl) && (
             <>
-              <a
-                href={downloadUrl}
-                onClick={(e) => e.stopPropagation()}
-                className="font-code text-[9px] tracking-wider border border-border rounded px-1.5 py-0.5 text-neutral-500 hover:text-cyan-glow hover:border-cyan-glow/40 transition-colors"
-                title="Download this panel's data as CSV (the same URL serves JSON or Parquet via format=)"
-              >
-                ↓ CSV
-              </a>
-              <ApiChip downloadUrl={downloadUrl} />
+              <ApiChip url={downloadUrl || apiUrl} />
+              <PyChip url={downloadUrl || apiUrl} />
+              <PngChip containerRef={bodyRef} filename={`obsyd_${id || 'chart'}.png`} />
             </>
           )}
           {headerRight}
@@ -144,7 +250,7 @@ export default function Panel({ id, title, info, infoWide = false, collapsible =
           )}
         </div>
       </div>
-      {!collapsed && children}
+      {!collapsed && <div ref={bodyRef}>{children}</div>}
       {/* Visible provenance line (was buried in ⓘ popovers) — pass the exact
           source claim, e.g. "ENTSO-E A44 · day-ahead auction". */}
       {!collapsed && source && (

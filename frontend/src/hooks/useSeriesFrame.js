@@ -9,8 +9,9 @@ const API = '/api'
 // on a fast zone/series edit.
 export const MAX_SERIES_ROWS = 6
 
-function seriesUrl(row, start, resolution) {
+function seriesUrl(row, start, resolution, end) {
   return `${API}/v1/series?series=${encodeURIComponent(row.series)}&zone=${encodeURIComponent(row.zone)}&start=${start}&resolution=${resolution}`
+    + (end ? `&end=${end}` : '')
 }
 
 /**
@@ -48,8 +49,12 @@ function seriesUrl(row, start, resolution) {
  *   - `loading`/`error`: whole-frame convenience flags (error mirrors row 0,
  *     the row that gates the chart rendering anything at all).
  */
-export default function useSeriesFrame(rows, range, resolution = 'daily') {
-  const start = rangeStart(range)
+export default function useSeriesFrame(rows, range, resolution = 'daily', window_ = null) {
+  // An explicit {from, to} window (the Explorer's date picker) overrides the
+  // preset range; `to` is exclusive-ish only in the API's own [start, end)
+  // sense — callers pass plain YYYY-MM-DD.
+  const start = window_?.from || rangeStart(range)
+  const end = window_?.to || null
   const activeRows = useMemo(
     () => (rows || []).filter((r) => r?.series && r?.zone).slice(0, MAX_SERIES_ROWS),
     [rows]
@@ -63,15 +68,15 @@ export default function useSeriesFrame(rows, range, resolution = 'daily') {
   const FALLBACK_URL = `${API}/v1/series?series=price.dayahead&zone=DE_LU&start=${start}&resolution=${resolution}`
   const urlOf = (i) => {
     const r = slot(i)
-    return r ? seriesUrl(r, start, resolution) : FALLBACK_URL
+    return r ? seriesUrl(r, start, resolution, end) : FALLBACK_URL
   }
 
-  const r0 = useFetchWithError(urlOf(0), { deps: [start, resolution] })
-  const r1 = useFetchWithError(urlOf(1), { deps: [start, resolution] })
-  const r2 = useFetchWithError(urlOf(2), { deps: [start, resolution] })
-  const r3 = useFetchWithError(urlOf(3), { deps: [start, resolution] })
-  const r4 = useFetchWithError(urlOf(4), { deps: [start, resolution] })
-  const r5 = useFetchWithError(urlOf(5), { deps: [start, resolution] })
+  const r0 = useFetchWithError(urlOf(0), { deps: [start, end, resolution] })
+  const r1 = useFetchWithError(urlOf(1), { deps: [start, end, resolution] })
+  const r2 = useFetchWithError(urlOf(2), { deps: [start, end, resolution] })
+  const r3 = useFetchWithError(urlOf(3), { deps: [start, end, resolution] })
+  const r4 = useFetchWithError(urlOf(4), { deps: [start, end, resolution] })
+  const r5 = useFetchWithError(urlOf(5), { deps: [start, end, resolution] })
   const responses = [r0, r1, r2, r3, r4, r5]
 
   const tkey = resolution === 'daily' ? 'date' : 'datetime_utc'
@@ -106,7 +111,7 @@ export default function useSeriesFrame(rows, range, resolution = 'daily') {
         count: resp?.count ?? points.length,
         available: resp ? resp.available !== false : null,
         reason: resp?.reason ?? null,
-        downloadUrl: `${seriesUrl(row, start, resolution)}&format=csv`,
+        downloadUrl: `${seriesUrl(row, start, resolution, end)}&format=csv`,
         loading: responses[i].loading,
         error: responses[i].error,
         partialHours: last?.hours != null && last.hours < 24 ? last.hours : null,
@@ -118,7 +123,7 @@ export default function useSeriesFrame(rows, range, resolution = 'daily') {
     // slot's loading/error; rowSig covers row identity/order; start/
     // resolution/tkey cover the query window — together the full input surface.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [r0.data, r1.data, r2.data, r3.data, r4.data, r5.data, respSig, rowSig, tkey, resolution, start])
+  }, [r0.data, r1.data, r2.data, r3.data, r4.data, r5.data, respSig, rowSig, tkey, resolution, start, end])
 
   const loading = activeRows.length > 0 && responses.slice(0, activeRows.length).some((r) => r.loading)
   const error = activeRows.length > 0 && responses[0].error && !responses[0].data ? responses[0].error : null

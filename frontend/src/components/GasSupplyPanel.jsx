@@ -36,6 +36,7 @@ export default function GasSupplyPanel() {
 
   return (
     <Panel
+      apiUrl={`${API}/gas/supply?days=${rangeDays(range)}`}
       id="gas-supply"
       freshness={data}
       title="EU GAS IMPORTS · ENTSOG"
