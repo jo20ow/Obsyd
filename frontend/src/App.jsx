@@ -53,6 +53,8 @@ import LegalPage from './components/LegalPage'
 import DevDocsPage from './components/DevDocsPage'
 import DevReferencePage from './components/DevReferencePage'
 import ChangelogPage from './components/ChangelogPage'
+import DataCatalogPage from './components/DataCatalogPage'
+import DataSeriesPage from './components/DataSeriesPage'
 import StatusPage from './components/StatusPage'
 import AccountPage from './components/AccountPage'
 import LoginPage from './components/LoginPage'
@@ -140,6 +142,8 @@ function DeskFooter({ onHowToRead }) {
       <a href="/#cite" className="hover:text-cyan-glow">Cite this desk — DOI 10.5281/zenodo.21699869</a>
       <span>·</span>
       <a href="/docs" className="hover:text-cyan-glow">API docs</a>
+      <span>·</span>
+      <a href="/data" className="hover:text-cyan-glow">Data catalog</a>
       <span>·</span>
       <a href="/changelog" className="hover:text-cyan-glow">Changelog</a>
       <span>·</span>
@@ -255,6 +259,13 @@ function App() {
   if (pathname === '/account') {
     // Session-authenticated key management (free feature; keys are optional).
     return <AccountPage />
+  }
+  if (pathname === '/data') {
+    return <DataCatalogPage />
+  }
+  if (pathname.startsWith('/data/')) {
+    // One page per series — the dataset-page pattern from the provider survey.
+    return <DataSeriesPage seriesKey={decodeURIComponent(pathname.slice('/data/'.length))} />
   }
   if (pathname === '/builder') {
     return <BuilderShell />

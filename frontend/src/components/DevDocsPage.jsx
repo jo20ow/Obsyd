@@ -12,6 +12,7 @@ const GITHUB = 'https://github.com/jo20ow/Obsyd'
 const API_MD = `${GITHUB}/blob/main/docs/API.md`
 
 const QUICK_LINKS = [
+  { label: 'Data catalog', href: '/data', external: false },
   { label: 'Full API reference', href: '/docs/reference', external: false },
   { label: 'Swagger UI ↗', href: '/api/docs', external: false },
   { label: 'ReDoc ↗', href: '/api/redoc', external: false },
