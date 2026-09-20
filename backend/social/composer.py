@@ -92,25 +92,25 @@ def _try_record(records: list[dict] | None, zones: list[dict], today: date) -> P
             when = date.fromisoformat(str(r["date"]))
         except (ValueError, KeyError, TypeError):
             continue
-        # "since" needs real history behind it (the 2015 moat); a brand-new
-        # series hitting a record in its first months is not a story.
-        # (records is the desk's own list; span is implicit in the date.)
-        if not str(r.get("series", "")).startswith("price."):
-            continue  # a non-price record has no ranked-price illustration (v1)
+        # ONLY the canonical hourly day-ahead series. The .qh/.hh/.ida variants
+        # have short histories (15-min SDAC trading only began 2025-10), so their
+        # "max on record" is not a meaningful extreme and must never wear the
+        # long-history framing — the dry-run caught exactly this (a €321 ES .qh
+        # "record" while hourly ES topped €500 in the 2022 crisis).
+        if r.get("series") != "price.dayahead":
+            continue
         kind = r.get("kind", "max")
-        label = r.get("label") or r.get("series", "a series")
-        unit = r.get("unit", "")
         zone = r.get("zone_label") or r.get("zone", "")
         superlative = "highest" if kind == "max" else "lowest"
         val = r["value"]
-        val_s = f"{val:,.0f} {unit}".strip()
-        head = f"{zone} just set its {superlative} {label} on record: {val_s}."
+        val_s = f"€{val:,.0f}/MWh"
+        head = f"{zone} just printed its {superlative} day-ahead power price on record: {val_s}."
         return Post(
             kind="record",
-            text=f"{head}\n\nHourly data back to 2015 — this is the {superlative} in the series.",
-            alt_text=f"{zone} {label} {superlative} on record: {val_s} on {when}.",
+            text=f"{head}\n\nAcross the full hourly history on our desk — descriptive, from the official record.",
+            alt_text=f"{zone} day-ahead {superlative} on record: {val_s} on {when}.",
             reply="Full history + free API → obsyd.dev",
-            headline=f"{zone}: {superlative} {label} on record",
+            headline=f"{zone}: {superlative} day-ahead price on record",
             rows=_ranked_rows(zones),
             highlight=zone,
             dedup_key=f"{today}-record-{r.get('series')}-{kind}",

@@ -66,7 +66,18 @@ def test_record_beats_everything():
     zones.append(_zone("SE4", 278.0, zed=4.0, state="STRESSED"))
     post = compose(_overview(zones), records=records, today=TODAY)
     assert post.kind == "record"
-    assert "highest" in post.text and "2015" in post.text
+    assert "highest" in post.text and "€512/MWh" in post.text
+    assert post.highlight == "SE4"
+
+
+def test_quarter_hour_record_never_claims_a_long_history():
+    # A .qh max (15-min series, history only since 2025-10) must NOT surface as a
+    # "record" — its extreme isn't the meaningful all-time high. Falls through.
+    records = [{"fresh": True, "kind": "max", "series": "price.dayahead.qh",
+                "label": "day-ahead price", "unit": "EUR/MWh", "value": 321.0,
+                "zone_label": "ES", "date": "2026-09-14"}]
+    post = compose(_overview(_calm_field()), records=records, today=TODAY)
+    assert post.kind == "daily_map"
 
 
 def test_stale_record_is_ignored():

@@ -51,8 +51,10 @@ def _gather(db: Session) -> tuple[dict, list[dict]]:
         fresh_cut = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp())
         # zone→label straight from the overview we just built (single source).
         labels = {z["zone"]: z.get("zone_label", z["zone"]) for z in overview.get("zones", [])}
+        # Only the canonical hourly day-ahead series carries a meaningful
+        # long-history extreme (the composer enforces this too; belt and braces).
         rows = (db.query(PowerRecord)
-                .filter(PowerRecord.series_key.like("price.%"),
+                .filter(PowerRecord.series_key == "price.dayahead",
                         PowerRecord.ts_utc >= fresh_cut)
                 .all())
         for r in rows:
