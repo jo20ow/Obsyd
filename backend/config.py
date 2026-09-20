@@ -78,6 +78,17 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr("obsyd-jwt-change-me-in-production")
     jwt_expiry_days: int = 30
 
+    # X / Twitter auto-post (write-only, own brand account). All four keys must
+    # be present for a live post; absent OR x_social_dry_run=true → the daily job
+    # composes + renders + logs but never calls the network (safe default).
+    x_api_key: Optional[SecretStr] = None
+    x_api_secret: Optional[SecretStr] = None
+    x_access_token: Optional[SecretStr] = None
+    x_access_secret: Optional[SecretStr] = None
+    x_social_dry_run: bool = False
+    #: Master off-switch — set true to silence the daily post without pulling keys.
+    x_social_disabled: bool = False
+
     # LLM (BYOK)
     openai_api_key: Optional[SecretStr] = None
     anthropic_api_key: Optional[SecretStr] = None

@@ -49,3 +49,5 @@ watchfiles==1.1.1
 websockets==16.0
 yfinance==1.2.0
 openpyxl
+Pillow==12.3.0
+requests-oauthlib==2.0.0
