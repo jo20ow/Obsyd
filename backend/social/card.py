@@ -108,27 +108,34 @@ def render_bars(title: str, rows: list[dict], *, subtitle: str | None = None,
         _footer(d, footer)
         return _finish(img)
 
-    vals = [r["value"] for r in rows]
+    # A row with value None is a SEPARATOR (a "⋯" gap between the two ends of a
+    # top-N/bottom-N view) — it draws no bar and doesn't count toward the scale.
+    vals = [r["value"] for r in rows if r.get("value") is not None]
+    if not vals:
+        _footer(d, footer)
+        return _finish(img)
     zero_ref = min(min(vals), 0.0)
     denom = (max(vals) - zero_ref) or 1.0
-    label_w = 150
-    bar_x = PAD + label_w
+    bar_x = PAD + 150
     bar_max = W - PAD - 70
 
     n = len(rows)
-    row_h = min(15, (H - top - 30) / n)
+    row_h = min(22, (H - top - 30) / n)
     for i, r in enumerate(rows):
         y = top + i * row_h
         yc = (y + row_h / 2) * S
+        if r.get("value") is None:  # separator
+            d.text((PAD * S, yc), "⋯", font=_font(10), fill=MUTED, anchor="lm")
+            continue
         hi = highlight is not None and r["label"] == highlight
-        d.text((PAD * S, yc), str(r["label"]), font=_font(10),
+        d.text((PAD * S, yc), str(r["label"]), font=_font(11),
                fill=INK if hi else MUTED, anchor="lm")
         frac = (r["value"] - zero_ref) / denom
         bw = max(3, frac * (bar_max - bar_x))
         d.rounded_rectangle(
-            [(bar_x * S, (y + 1) * S), ((bar_x + bw) * S, (y + row_h - 1) * S)],
+            [(bar_x * S, (y + 2) * S), ((bar_x + bw) * S, (y + row_h - 2) * S)],
             radius=2 * S, fill=ACCENT if hi else BAR)
-        d.text(((bar_x + bw + 6) * S, yc), str(r["disp"]), font=_font(10),
+        d.text(((bar_x + bw + 6) * S, yc), str(r["disp"]), font=_font(11),
                fill=INK if hi else MUTED, anchor="lm")
 
     _footer(d, footer)
@@ -162,7 +169,8 @@ def render_trend(title: str, years: list[int], series: list[dict], *,
     while g <= mx * 1.02:
         y = py1 - (g / (mx or 1)) * (py1 - py0)
         d.line([(px0 * S, y * S), (px1 * S, y * S)], fill=GRID, width=1 * S)
-        d.text(((px0 - 6) * S, y * S), str(int(g)), font=_font(9), fill=MUTED, anchor="rm")
+        lbl = f"{g:.1f}" if step < 1 else str(int(g))
+        d.text(((px0 - 6) * S, y * S), lbl, font=_font(9), fill=MUTED, anchor="rm")
         g += step
 
     n = len(years)
@@ -188,7 +196,7 @@ def render_trend(title: str, years: list[int], series: list[dict], *,
 
 
 def _nice_step(mx: float) -> float:
-    for step in (10, 20, 50, 100, 200, 500, 1000, 2000, 5000):
+    for step in (0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000):
         if mx / step <= 5:
             return step
     return 10000

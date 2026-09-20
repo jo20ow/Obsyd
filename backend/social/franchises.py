@@ -66,6 +66,14 @@ def _reply(link: str = "obsyd.dev") -> str:
     return f"Live across 38 European zones + free API → {link}"
 
 
+def _ends(rows: list[dict], k: int = 6) -> list[dict]:
+    """A ranking's two ends with a separator between — a 37-row card overlaps
+    its own labels; the story of a 'spread' is the extremes, not the middle."""
+    if len(rows) <= 2 * k + 1:
+        return rows
+    return rows[:k] + [{"label": "⋯", "value": None, "disp": ""}] + rows[-k:]
+
+
 # ── Mon — price leaderboard ──────────────────────────────────────────────────
 
 def price_leaderboard(db: Session, now: datetime) -> Post | None:
@@ -76,7 +84,7 @@ def price_leaderboard(db: Session, now: datetime) -> Post | None:
     ranked = sorted(means.items(), key=lambda kv: kv[1])
     lo_z, lo_v = ranked[0]
     hi_z, hi_v = ranked[-1]
-    rows = [{"label": _label(z), "value": v, "disp": f"€{v:,.0f}"} for z, v in ranked]
+    rows = _ends([{"label": _label(z), "value": v, "disp": f"€{v:,.0f}"} for z, v in ranked])
     text = (f"Europe's power prices last week: cheapest in {_label(lo_z)} at "
             f"€{lo_v:,.0f}/MWh, priciest in {_label(hi_z)} at €{hi_v:,.0f} — a "
             f"€{hi_v - lo_v:,.0f}/MWh gap across one connected grid.")
@@ -165,7 +173,7 @@ def co2_clean_dirty(db: Session, now: datetime) -> Post | None:
     clean_z, clean_v = ranked[0]
     dirty_z, dirty_v = ranked[-1]
     ratio = dirty_v / clean_v if clean_v else 0
-    rows = [{"label": _label(z), "value": v, "disp": f"{v:,.0f}g"} for z, v in ranked]
+    rows = _ends([{"label": _label(z), "value": v, "disp": f"{v:,.0f}g"} for z, v in ranked])
     text = (f"Cleanest power in Europe yesterday: {_label(clean_z)} at {clean_v:,.0f} g CO₂/kWh. "
             f"Dirtiest: {_label(dirty_z)} at {dirty_v:,.0f} g — {ratio:.0f}× more.\n\n"
             f"Same market, same day. (Estimated, production-based.)")
@@ -229,24 +237,26 @@ def renewable_peak(db: Session, now: datetime) -> Post | None:
 
 # ── Sat — the rotating "then vs now" trend (the moat) ────────────────────────
 #: Each entry rotates in by ISO-week: (metric_id, [zones], title, colors).
+#: Negative-price hours make the strongest "then vs now" bars — a flat zero
+#: exploding into hundreds, on a clean integer axis. Different country pairs
+#: keep it fresh week to week (each is a distinct story: solar Iberia, wind
+#: Nordics, the nuclear/coal grids catching up). Capture factors were dropped:
+#: 0.7-0.9 trends render visually flat and undersell the story.
 _TREND_ROTATION = [
-    ("negative_hours", ["ES", "FI"], "From never to routine: negative power prices",
-     "hours below €0 per year", ["blue", "amber"]),
-    ("capture_solar", ["DE_LU"], "Solar's shrinking payday in Germany",
-     "solar capture factor (× baseload price)", ["blue"]),
-    ("negative_hours", ["NL", "DE_LU"], "Negative power prices: the new normal",
-     "hours below €0 per year", ["blue", "amber"]),
-    ("capture_wind", ["DK1"], "What Danish wind earns, year by year",
-     "wind capture factor (× baseload price)", ["blue"]),
-    ("negative_hours", ["FR", "PL"], "Negative prices reach the nuclear & coal grids",
-     "hours below €0 per year", ["blue", "amber"]),
+    (["ES", "FI"], "From never to routine: negative power prices", ["blue", "amber"]),
+    (["NL", "DE_LU"], "Negative power prices go mainstream", ["blue", "amber"]),
+    (["FR", "PL"], "Negative prices reach the nuclear & coal grids", ["blue", "amber"]),
+    (["DK1", "SE4"], "The Nordic wind glut, year by year", ["blue", "amber"]),
+    (["BE", "AT"], "Negative power prices spread across Europe", ["blue", "amber"]),
 ]
+_TREND_YSUB = "hours below €0 per year"
 
 
 def trend_callback(db: Session, now: datetime) -> Post | None:
     from backend.power.ask import answer_structured
 
-    metric, zones, title, ysub, colors = _TREND_ROTATION[now.isocalendar().week % len(_TREND_ROTATION)]
+    zones, title, colors = _TREND_ROTATION[now.isocalendar().week % len(_TREND_ROTATION)]
+    metric, ysub = "negative_hours", _TREND_YSUB
     out = answer_structured(db, metric, zones, 2015, now.year - 1, now=now)
     if not out.get("available"):
         return None
@@ -266,12 +276,11 @@ def trend_callback(db: Session, now: datetime) -> Post | None:
     last = next(((y, v) for y, v in reversed(vals) if v is not None), None)
     if not first or not last:
         return None
-    is_capture = metric.startswith("capture")
-    fmt = (lambda v: f"×{v:.2f}") if is_capture else (lambda v: f"{v:,.0f} h")
+    def fmt(v):
+        return f"{v:,.0f} h"
     text = (f"{_country(lead)}, then vs now:\n\n"
             f"{first[0]}: {fmt(first[1])}\n{last[0]}: {fmt(last[1])}\n\n"
-            + ("Europe's energy transition, made visible." if not is_capture
-               else "The more you build, the less each unit earns when it runs — 'cannibalisation'."))
+            "Europe's energy transition, made visible.")
     return Post(
         kind="trend_callback",
         text=text,
@@ -296,8 +305,8 @@ def europe_now(db: Session, now: datetime) -> Post | None:
         return None
     ranked = sorted(zs, key=lambda z: z["price_close"])
     lo, hi = ranked[0], ranked[-1]
-    rows = [{"label": z.get("zone_label", z["zone"]), "value": z["price_close"],
-             "disp": f"€{z['price_close']:,.0f}"} for z in ranked]
+    rows = _ends([{"label": z.get("zone_label", z["zone"]), "value": z["price_close"],
+                  "disp": f"€{z['price_close']:,.0f}"} for z in ranked])
     spread = hi["price_close"] - lo["price_close"]
     text = (f"Europe's power right now: €{lo['price_close']:,.0f}/MWh in "
             f"{lo.get('zone_label', lo['zone'])}, €{hi['price_close']:,.0f} in "
