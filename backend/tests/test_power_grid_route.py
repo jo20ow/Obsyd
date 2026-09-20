@@ -1,7 +1,7 @@
 """Tests for GET /api/power/grid (residual load + Dunkelflaute)."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -25,7 +25,7 @@ def _clear_dependency_overrides():
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 # Dates well within the last 120 days so route window tests find them.
-_TODAY = date.today()
+_TODAY = datetime.now(timezone.utc).date()
 _D1 = (_TODAY - timedelta(days=3)).isoformat()
 _D2 = (_TODAY - timedelta(days=2)).isoformat()
 _D3 = (_TODAY - timedelta(days=1)).isoformat()

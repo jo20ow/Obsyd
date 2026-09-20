@@ -1,7 +1,7 @@
 """Tests for USGS copper supply parser and /api/metals/copper route."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -143,7 +143,7 @@ def test_parsed_bad_xlsx_does_not_crash():
 # ─── route integration tests ──────────────────────────────────────────────────
 
 
-_TODAY = date.today()
+_TODAY = datetime.now(timezone.utc).date()
 _D1 = (_TODAY - timedelta(days=60)).strftime("%Y-%m-01")   # ~2 months ago
 _D2 = (_TODAY - timedelta(days=30)).strftime("%Y-%m-01")   # ~1 month ago
 

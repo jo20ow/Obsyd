@@ -5,7 +5,7 @@ exposure/grouping. This is a different subsystem from test_alert_rules.py
 (which covers the Pro user rule-builder) — keep them separate.
 """
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -323,7 +323,7 @@ def test_sentiment_relative_jump_info(db_session):
 def test_run_all_detectors_power_gas_only(db_session):
     # Refocus 2026-07-03: the radar registry runs only power/gas detectors. A seeded
     # sentiment score must NOT surface (sentiment moved to the sibling project).
-    fresh = date.today().isoformat()
+    fresh = datetime.now(timezone.utc).date().isoformat()
     db_session.add(GasBalance(date=fresh, residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
     db_session.add(SentimentScore(date=fresh, risk_score=9.0, risk_factors="[]"))
     db_session.commit()
@@ -340,7 +340,7 @@ def test_run_all_detectors_isolates_failures(db_session, monkeypatch):
         raise RuntimeError("detector exploded")
 
     monkeypatch.setattr("backend.signals.detectors.DETECTORS", [boom, detect_gas_balance])
-    db_session.add(GasBalance(date=date.today().isoformat(), residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
+    db_session.add(GasBalance(date=datetime.now(timezone.utc).date().isoformat(), residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
     db_session.commit()
 
     n = run_all_detectors(db_session)  # must not raise
@@ -581,7 +581,7 @@ def test_is_stale_helper():
 
 def test_run_all_detectors_suppresses_stale_data(db_session):
     # A gas SIGNAL from a month ago must NOT surface as a current anomaly.
-    old = (date.today() - timedelta(days=30)).isoformat()
+    old = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
     db_session.add(GasBalance(date=old, residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
     db_session.commit()
     run_all_detectors(db_session)
@@ -590,7 +590,7 @@ def test_run_all_detectors_suppresses_stale_data(db_session):
 
 def test_run_all_detectors_emits_fresh_data(db_session):
     # The same SIGNAL dated today must surface.
-    fresh = date.today().isoformat()
+    fresh = datetime.now(timezone.utc).date().isoformat()
     db_session.add(GasBalance(date=fresh, residual_7d=-800, z_score=3.5, flag="SIGNAL:supply↑"))
     db_session.commit()
     run_all_detectors(db_session)
@@ -605,7 +605,7 @@ def test_run_all_detectors_emits_fresh_data(db_session):
 
 
 def test_dunkelflaute_suppressed_on_incomplete_coverage(db_session):
-    d = date.today().isoformat()
+    d = datetime.now(timezone.utc).date().isoformat()
     # Load 10 GW, wind+solar ~1% → would flag. But the generation mix only reports
     # ~4.8 GW total (<60% of load) → coverage too low to trust the share → suppress.
     db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60, load_hours=24, gen_hours=24))
@@ -617,7 +617,7 @@ def test_dunkelflaute_suppressed_on_incomplete_coverage(db_session):
 
 def test_dunkelflaute_suppressed_when_no_generation_mix(db_session):
     # Grid present but no generation-mix rows at all → cannot validate coverage → suppress.
-    d = date.today().isoformat()
+    d = datetime.now(timezone.utc).date().isoformat()
     db_session.add(PowerGrid(date=d, zone="NL", load_mw=10000, wind_mw=70, solar_mw=60, load_hours=24, gen_hours=24))
     db_session.commit()
     assert detect_dunkelflaute(db_session) == []
@@ -743,11 +743,11 @@ def test_forced_outages_latest_capacity_year_wins(db_session):
 
 
 def _seed_imbalance(db, zone="DE_LU", days=30, normal_peak=120.0, last_peak=None):
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from backend.power.hourly_store import day_hour_ts, upsert_hourly
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     points = []
     for i in range(days):
         d = (today - timedelta(days=days - 1 - i)).isoformat()
@@ -800,11 +800,11 @@ def test_price_spike_window_equals_the_hero_baseline():
 
 
 def _seed_prices(db, zone="DE_LU", days=40, base=60.0, last=None):
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from backend.models.energy import PowerPriceDaily
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     for i in range(days):
         d = (today - timedelta(days=days - 1 - i)).isoformat()
         price = last if (i == days - 1 and last is not None) else base + (i % 5)
@@ -881,13 +881,13 @@ def test_hydro_max_age_override_survives_runner(db_session):
     """A 10-day-old weekly hydro point must survive run_all_detectors — the
     per-vertical 'power: 3' window would wrongly suppress it without the
     per-result max_age_days override."""
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from backend.models.alerts import Alert
     from backend.signals.detectors import run_all_detectors
 
     _seed_hydro(db_session, last=30e6)
-    run_all_detectors(db_session, today=date.today() + timedelta(days=10))
+    run_all_detectors(db_session, today=datetime.now(timezone.utc).date() + timedelta(days=10))
     rules = {a.rule for a in db_session.query(Alert).all()}
     assert "hydro_deviation" in rules
 

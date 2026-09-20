@@ -1,0 +1,6 @@
+#!/bin/sh
+# Doctrine gate — deterministic project-rule checks (scripts/check_doctrine.py).
+# Installed via: git config core.hooksPath githooks
+PY=".venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+exec "$PY" scripts/check_doctrine.py

@@ -24,7 +24,7 @@ from backend.models.energy import (
 )
 
 # UTC, not local: the routes bucket on datetime.utcnow().date(). With a local
-# date.today() these tests fail for the two hours between local and UTC midnight
+# datetime.now(timezone.utc).date() these tests fail for the two hours between local and UTC midnight
 # (same fix as test_power_situation.py).
 _TODAY = datetime.now(timezone.utc).date()
 

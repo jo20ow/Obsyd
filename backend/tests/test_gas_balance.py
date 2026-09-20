@@ -104,7 +104,7 @@ def test_latest_carries_the_supply_and_demand_it_claims_to_show(db_session):
     `latest` only ever carried date/residual_7d/z_score/flag, so the panel printed "supply —
     demand — GWh" every day of its life: a broken template, on the hero of the tab, while the
     numbers sat in the very rows below it (9,675 / 5,891 GWh on the day this was found)."""
-    from datetime import date, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from fastapi.testclient import TestClient
 
@@ -112,7 +112,7 @@ def test_latest_carries_the_supply_and_demand_it_claims_to_show(db_session):
     from backend.main import app
     from backend.models.gas import GasBalance
 
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     for i in range(3):
         db_session.add(GasBalance(
             date=(today - timedelta(days=2 - i)).isoformat(),

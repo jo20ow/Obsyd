@@ -1,7 +1,7 @@
 """Day-ahead load forecast vs actual: the /api/power/load-forecast join + error."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -10,7 +10,7 @@ from backend.models.energy import PowerGrid, PowerLoadForecast
 
 
 def test_load_forecast_joins_actual_error_and_forward(db_session):
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     d2 = (today - timedelta(days=2)).isoformat()
     d1 = (today - timedelta(days=1)).isoformat()
     dtom = (today + timedelta(days=1)).isoformat()
