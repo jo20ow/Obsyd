@@ -98,7 +98,11 @@ def run_once(db: Session, *, now: datetime | None = None) -> dict:
     png = render_card(post.headline, post.rows, highlight=post.highlight)
     result = poster.post(post.text, post.alt_text, png,
                          reply=reply, dedup=post.dedup_key)
-    _record(post.dedup_key, result)
+    # Dedup guards against a double LIVE post, so only a live post consumes the
+    # day's key. A dry-run is an inspection (writes a card to data/social/) and
+    # must not block the real post of the same day when keys are later added.
+    if not result.get("dry_run"):
+        _record(post.dedup_key, result)
     return {"posted": True, "kind": post.kind, "dry_run": result.get("dry_run", False),
             "dedup": post.dedup_key, **({"tweet_id": result["tweet_id"]}
                                         if "tweet_id" in result else {})}
