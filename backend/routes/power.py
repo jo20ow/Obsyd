@@ -681,13 +681,10 @@ def get_load_forecast_hourly(
     }
 
 
-@router.get("/overview")
-def get_power_overview(db: Session = Depends(get_db)):
-    """All bidding zones at a glance — the single-glance overview (rows = zones,
-    each with its state + key metrics + vs-normal z-scores). Uses the batched
-    loader (load_power_situations_bulk) — same synthesis as the per-zone detail,
-    ~7 queries instead of 37 × ~6. Sync def: FastAPI runs it in the threadpool,
-    so the (still synchronous) DB work no longer blocks the event loop."""
+def build_power_overview(db: Session) -> dict:
+    """The overview payload as a plain function (no Depends), so background jobs
+    (the daily social post) read the EXACT same synthesis the API serves instead
+    of an HTTP self-call. The route is a thin wrapper over this."""
     zones = []
     for sit in load_power_situations_bulk(db).values():
         if not sit.get("available"):
@@ -713,6 +710,16 @@ def get_power_overview(db: Session = Depends(get_db)):
         "zones": zones,
         "baseline_days": SITUATION_BASELINE_DAYS,  # the window the z columns use
     }
+
+
+@router.get("/overview")
+def get_power_overview(db: Session = Depends(get_db)):
+    """All bidding zones at a glance — the single-glance overview (rows = zones,
+    each with its state + key metrics + vs-normal z-scores). Uses the batched
+    loader (load_power_situations_bulk) — same synthesis as the per-zone detail,
+    ~7 queries instead of 37 × ~6. Sync def: FastAPI runs it in the threadpool,
+    so the (still synchronous) DB work no longer blocks the event loop."""
+    return build_power_overview(db)
 
 
 # ─── Power situation synthesis (the desk top-line) ───────────────────────────

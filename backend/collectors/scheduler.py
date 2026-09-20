@@ -29,6 +29,7 @@ from backend.analytics.validation.scorecards import recompute_scorecards_job
 from backend.collectors.energy_prices import collect_energy_prices
 from backend.collectors.retention import run_retention
 from backend.collectors.spark_spreads import collect_spark_spreads
+from backend.config import settings
 from backend.database import SessionLocal
 from backend.notifications.alert_runner import process_alert_rules
 from backend.notifications.collector_watchdog import check_collectors
@@ -510,6 +511,31 @@ async def _run_coverage_warm():
         logger.error("_run_coverage_warm failed: %s", exc)
 
 
+async def _run_social_daily():
+    """Compose + render + post the one daily X card (in to_thread: DB reads +
+    image render + a synchronous HTTP post, none of which belong on the event
+    loop). Safe by construction — the runner dry-runs unless all four X keys are
+    present and dry-run is off, and it self-dedups, so a re-fire never
+    double-posts. 15:30 UTC = after the afternoon price top-up, so all zones
+    carry the latest day."""
+    if settings.x_social_disabled:
+        return
+
+    def _work():
+        db = SessionLocal()
+        try:
+            from backend.social.runner import run_once
+            return run_once(db)
+        finally:
+            db.close()
+
+    try:
+        out = await asyncio.to_thread(_work)
+        logger.info("social daily: %s", out)
+    except Exception as exc:
+        logger.error("_run_social_daily failed: %s", exc)
+
+
 async def _run_api_usage_flush():
     """Flush the in-memory API-usage counters (backend/metering.py) into
     api_usage_daily. Every 5 minutes: recording never writes SQLite on the
@@ -907,6 +933,9 @@ def start_scheduler():
     scheduler.add_job(_run_coverage_warm, IntervalTrigger(minutes=30),
                       next_run_time=datetime.now(timezone.utc) + timedelta(seconds=90),
                       id="coverage_warm_30min", **JOB_DEFAULTS)
+    # Daily X post: 15:30 UTC (17:30 CET), after the 15:10 afternoon price
+    # top-up so every zone carries the latest day. Dry-runs until keys are set.
+    scheduler.add_job(_run_social_daily, CronTrigger(hour=15, minute=30), id="social_daily", **JOB_DEFAULTS)
     scheduler.add_job(_run_archive_nightly, CronTrigger(hour=5, minute=40), id="archive_nightly", **JOB_DEFAULTS)
     scheduler.add_job(_run_records_nightly, CronTrigger(hour=23, minute=45), id="records_nightly", **JOB_DEFAULTS)
     # Episodes: 23:50, right after the records — same doctrine (full recompute from the canonical
