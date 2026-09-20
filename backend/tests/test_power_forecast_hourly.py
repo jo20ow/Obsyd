@@ -7,7 +7,7 @@ midday solar trough, Dunkelflaute windows).
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -143,7 +143,7 @@ async def test_ingest_persists_hourly_forecast(db_session, monkeypatch):
 
 
 def test_load_forecast_hourly_endpoint_returns_tomorrow(db_session):
-    tom = (date.today() + timedelta(days=1)).isoformat()
+    tom = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
     series = [
         {"hour": h, "load_mw": 55_000.0, "wind_mw": 12_000.0,
          "solar_mw": 8_000.0, "residual_mw": 35_000.0}

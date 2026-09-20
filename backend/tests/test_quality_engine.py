@@ -7,7 +7,7 @@ synthetic-positive and one boundary-negative case; conservatism is the design
 constraint (a false positive costs exactly the trust the product exists for).
 
 Times are epoch-UTC throughout, and the tests read the UTC clock instead of
-hardcoding calendar days (repo rule #111: date.today() made suites fail between
+hardcoding calendar days (repo rule #111: datetime.now(timezone.utc).date() made suites fail between
 00–02 local).
 """
 

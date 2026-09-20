@@ -15,7 +15,7 @@ missing — and each is NULL when its subset is empty. `n_hours` never shrinks
 for either.
 
 Times are epoch-UTC throughout, and the tests read the UTC clock instead of
-hardcoding calendar days (repo rule #111: date.today() made suites fail between
+hardcoding calendar days (repo rule #111: datetime.now(timezone.utc).date() made suites fail between
 00–02 local).
 """
 

@@ -8,7 +8,7 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -48,7 +48,7 @@ def _zero_live_pacing(monkeypatch):
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
-_TODAY = date.today()
+_TODAY = datetime.now(timezone.utc).date()
 _D1 = (_TODAY - timedelta(days=3)).isoformat()
 _D2 = (_TODAY - timedelta(days=2)).isoformat()
 _D3 = (_TODAY - timedelta(days=1)).isoformat()

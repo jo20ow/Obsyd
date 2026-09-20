@@ -169,7 +169,7 @@ def test_no_data_returns_zero_counts(db_session):
 
 def test_spark_route_computes_per_zone(db_session, monkeypatch):
     """/api/power/spark-spread computes live per zone from EnergyPrice(POWER_<zone>) × TTF."""
-    from datetime import date, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from fastapi.testclient import TestClient
 
@@ -178,7 +178,7 @@ def test_spark_route_computes_per_zone(db_session, monkeypatch):
     from backend.main import app
 
     monkeypatch.setattr(_settings, "gas_ccgt_efficiency", 0.50)
-    d = (date.today() - timedelta(days=5)).isoformat()
+    d = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
     _seed(db_session, "POWER_FR", [(d, 90.0)])
     _seed(db_session, "TTF", [(d, 30.0)])
 
@@ -209,7 +209,7 @@ def test_spark_route_efficiency_override(db_session, monkeypatch):
     the spread, the break-even carbon price and the carbon intensity all re-derive
     consistently from it. The default (unspecified) request still echoes the efficiency
     it actually used."""
-    from datetime import date, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from fastapi.testclient import TestClient
 
@@ -219,7 +219,7 @@ def test_spark_route_efficiency_override(db_session, monkeypatch):
     from backend.power.spark import breakeven_eua, co2_intensity
 
     monkeypatch.setattr(_settings, "gas_ccgt_efficiency", 0.50)
-    d = (date.today() - timedelta(days=5)).isoformat()
+    d = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
     _seed(db_session, "POWER_DE", [(d, 90.0)])
     _seed(db_session, "TTF", [(d, 30.0)])
 

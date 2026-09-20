@@ -11,7 +11,7 @@ declared on the wire), helpful 400s, honest available:false, and the v1 guard
 stack (shared rate budget, heavy slots, per-window ranking cache).
 
 Posture B: every asserted number GRADES a forecast ENTSO-E published — OBSYD
-forecasts nothing. Times read the UTC clock, never date.today() (repo rule #111).
+forecasts nothing. Times read the UTC clock, never datetime.now(timezone.utc).date() (repo rule #111).
 """
 from __future__ import annotations
 

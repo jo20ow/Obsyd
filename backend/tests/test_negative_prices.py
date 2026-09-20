@@ -213,8 +213,8 @@ def _seed_daily(db, rows: list[dict]) -> None:
 
 def test_route_enriched_fields_present(db_session):
     """When PowerPriceDaily rows exist, each data point has negative_hours + negative flag."""
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()
     d1 = (today - timedelta(days=3)).isoformat()
     d2 = (today - timedelta(days=2)).isoformat()
 
@@ -240,8 +240,8 @@ def test_route_enriched_fields_present(db_session):
 
 def test_route_negative_days_count(db_session):
     """negative_days count equals the number of rows where negative_hours > 0."""
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()
     rows = [
         {"date": (today - timedelta(days=i)).isoformat(),
          "mean_price": 50.0, "min_price": -5.0, "max_price": 80.0, "negative_hours": 1}
@@ -264,8 +264,8 @@ def test_route_fallback_when_no_daily_table(db_session):
 
 def test_route_latest_has_negative_hours(db_session):
     """latest object includes negative_hours and negative fields."""
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()
     d1 = (today - timedelta(days=1)).isoformat()
     _seed_daily(db_session, [
         {"date": d1, "mean_price": 30.0, "min_price": -50.0, "max_price": 80.0, "negative_hours": 5},

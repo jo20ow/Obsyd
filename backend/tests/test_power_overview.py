@@ -1,7 +1,7 @@
 """Single-glance power overview: /api/power/overview (all zones at once)."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,7 +51,7 @@ def test_overview_returns_seeded_zone_with_state(db_session):
 
 
 def _seed_zone(db, zone, *, base_price, load, wind, solar, days=40, gen_coverage=0.8):
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     for i in range(days):
         d = (today - timedelta(days=days - 1 - i)).isoformat()
         db.add(PowerPriceDaily(date=d, zone=zone, mean_price=base_price + (i % 7),
@@ -63,7 +63,7 @@ def _seed_zone(db, zone, *, base_price, load, wind, solar, days=40, gen_coverage
 
 
 def _seed_multi(db):
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     _seed_zone(db, "DE_LU", base_price=80.0, load=55_000.0, wind=9_000.0, solar=5_000.0)
     _seed_zone(db, "FR", base_price=60.0, load=48_000.0, wind=3_000.0, solar=4_000.0)
     # NL: incomplete A75 coverage (~33% of load) → renewable share untrusted

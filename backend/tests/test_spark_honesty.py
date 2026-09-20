@@ -77,14 +77,14 @@ def test_the_api_does_not_republish_the_gas_leg(db_session):
     A MITIGATION, not a cure, and the docstring says so: the heat rate is published and the power
     price is public, so the spread can be inverted back to the gas leg by anyone who cares. The
     real fix is a free redistributable European gas benchmark, and there is not one."""
-    from datetime import date, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from fastapi.testclient import TestClient
 
     from backend.database import get_db
     from backend.main import app
 
-    d = (date.today() - timedelta(days=3)).isoformat()
+    d = (datetime.now(timezone.utc).date() - timedelta(days=3)).isoformat()
     db_session.add(EnergyPrice(date=d, symbol="POWER_DE", close=122.81))
     db_session.add(EnergyPrice(date=d, symbol="TTF", close=48.655))
     db_session.commit()

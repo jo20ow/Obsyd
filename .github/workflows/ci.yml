@@ -24,6 +24,9 @@ jobs:
       - name: Lint (ruff)
         run: ruff check backend/
 
+      - name: Doctrine gates
+        run: python scripts/check_doctrine.py
+
       - name: Tests (pytest)
         run: python -m pytest backend/tests/ -q
 

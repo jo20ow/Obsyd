@@ -107,7 +107,7 @@ async def request_magic_link(body: MagicLinkRequest, request: Request):
 
 
 @router.get("/verify")
-async def verify_magic_link(token: str, response: Response):
+def verify_magic_link(token: str, response: Response):
     """Verify magic link token and set session cookie."""
     payload = verify_token(token)
     if not payload:
@@ -170,7 +170,7 @@ async def verify_magic_link(token: str, response: Response):
 
 
 @router.get("/me")
-async def get_me(user: dict | None = Depends(get_current_user)):
+def get_me(user: dict | None = Depends(get_current_user)):
     """Get current user info and subscription status."""
     if not user:
         return {"authenticated": False, "tier": "free"}
@@ -197,7 +197,7 @@ async def get_me(user: dict | None = Depends(get_current_user)):
 
 
 @router.post("/logout")
-async def logout(response: Response):
+def logout(response: Response):
     """Clear auth cookie."""
     response.delete_cookie(
         key="obsyd_token",

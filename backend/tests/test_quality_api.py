@@ -7,7 +7,7 @@ helpful 400s on bad params, honest available:false on valid-but-empty
 combinations, and the v1 guard stack (shared rate budget, heavy slots).
 
 Posture B: every asserted field describes what the SOURCE published/restated.
-Times read the UTC clock, never date.today() (repo rule #111).
+Times read the UTC clock, never datetime.now(timezone.utc).date() (repo rule #111).
 """
 from __future__ import annotations
 

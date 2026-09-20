@@ -29,7 +29,7 @@ def _clear_dependency_overrides():
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 # UTC, not local: the routes bucket on datetime.utcnow().date(). With a local
-# date.today() these tests fail for the two hours between local and UTC midnight
+# datetime.now(timezone.utc).date() these tests fail for the two hours between local and UTC midnight
 # (CEST is UTC+2) — a flake that only ever fires in the middle of the night.
 _TODAY = datetime.now(timezone.utc).date()
 
