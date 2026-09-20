@@ -1,11 +1,18 @@
-"""Render the daily-post image — a ranked day-ahead price card, drawn directly
-with Pillow (no browser, no SVG toolchain, no system libs beyond the Pillow
-wheel). One card serves every post kind: the continental price ranking, with an
-optional highlighted zone and a headline band.
+"""Render the daily-post image — data-driven, drawn with Pillow (no browser, no
+SVG toolchain, no system libs beyond the Pillow wheel).
+
+A franchise never draws pixels: it returns a card SPEC (a dict), and `render()`
+dispatches on spec["card"] to one of a small set of renderers:
+
+  * "bars"  — a horizontal-bar leaderboard/ranking (price ranking, battery TB2,
+              CO₂, weekly negative hours). Each row carries a numeric `value`
+              (bar length) and a pre-formatted `disp` string (what's printed),
+              so the renderer stays dumb; one row may be `highlight`ed.
+  * "trend" — grouped bars over years (the "then vs now" story), one colored
+              series per country/metric with a legend.
 
 Palette matches the desk's redesign vocabulary (ink-blue accent on an off-white
-or dark ground) so a post reads as Obsyd at a glance. 1600×900 (16:9, X's
-preferred single-image ratio), rendered at 2× and downscaled for crisp text.
+ground). 1600×900 at 2× for crisp text.
 """
 from __future__ import annotations
 
@@ -14,99 +21,187 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-# ── Layout (logical px, ×SCALE at draw time) ─────────────────────────────────
-W, H = 800, 450
-SCALE = 2
-PAD = 32
-ROW_H = 15
-BAR_X = 150
-BAR_MAX = W - PAD - 70  # right edge of the longest bar, leaving room for €value
+W, H, S = 800, 450, 2
+PAD = 40
 
-# ── Palette (light ground; the account posts one consistent look) ────────────
-BG = (250, 250, 249)          # off-white ground
-INK = (23, 23, 23)            # near-black text
-MUTED = (120, 120, 128)       # captions
-ACCENT = (29, 78, 216)        # ink-blue (#1d4ed8) — the redesign accent
-BAR = (191, 205, 236)         # bar fill — one color (length carries the price)
-BAR_HI = (29, 78, 216)        # highlighted zone bar (the event subject)
+BG = (250, 250, 249)
+INK = (23, 23, 23)
+MUTED = (120, 120, 128)
+ACCENT = (29, 78, 216)     # ink-blue #1d4ed8 — the redesign accent
+BAR = (206, 216, 240)      # calm bar fill (length carries the value)
+GRID = (228, 228, 226)
 
-_FONT_CANDIDATES = (
-    "/System/Library/Fonts/Helvetica.ttc",                       # macOS
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",           # Debian/Ubuntu
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+#: Named series colors for trend cards — CVD-separated, on-brand.
+PALETTE = {
+    "blue": ACCENT,
+    "amber": (217, 119, 6),
+    "teal": (13, 148, 136),
+    "slate": (100, 116, 139),
+}
+
+_FONTS = (
+    "/System/Library/Fonts/Helvetica.ttc",                 # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",     # Debian/Ubuntu (VPS)
 )
 
 
-def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    for path in _FONT_CANDIDATES:
-        p = Path(path)
-        if p.exists() and (("Bold" in path) == bold or path.endswith(".ttc")):
+def _font(size: int) -> ImageFont.FreeTypeFont:
+    for path in _FONTS:
+        if Path(path).exists():
             try:
-                return ImageFont.truetype(path, size * SCALE)
+                return ImageFont.truetype(path, size * S)
             except OSError:
                 continue
     return ImageFont.load_default()
 
 
-def render_card(headline: str, rows: list[dict], *, highlight: str | None = None,
-                footer: str = "obsyd.dev · day-ahead €/MWh · ENTSO-E") -> bytes:
-    """Draw the ranked card and return PNG bytes. `rows` = [{zone, price, state}]
-    cheapest-first (the composer sorts them). At most the extremes+middle are
-    labelled if the list is long, so text never collides."""
-    img = Image.new("RGB", (W * SCALE, H * SCALE), BG)
-    d = ImageDraw.Draw(img)
+def _header(d: ImageDraw.ImageDraw, title: str, subtitle: str | None) -> int:
+    """Draw the title band (+ optional subtitle) and accent rule. Returns the y
+    (logical px) where content may begin."""
+    lines = _wrap(title, 34)
+    y = PAD
+    for ln in lines[:2]:
+        d.text((PAD * S, y * S), ln, font=_font(24), fill=INK)
+        y += 32
+    rule_y = y + 4
+    d.line([(PAD * S, rule_y * S), ((W - PAD) * S, rule_y * S)], fill=ACCENT, width=2 * S)
+    y = rule_y + 14
+    if subtitle:
+        d.text((PAD * S, y * S), subtitle, font=_font(13), fill=MUTED)
+        y += 24
+    return y
 
-    f_head = _font(20, bold=True)
-    f_row = _font(9)
-    f_val = _font(9, bold=True)
-    f_foot = _font(9)
 
-    d.text((PAD * SCALE, PAD * SCALE), headline, font=f_head, fill=INK)
-    d.line([(PAD * SCALE, (PAD + 30) * SCALE), ((W - PAD) * SCALE, (PAD + 30) * SCALE)],
-           fill=ACCENT, width=2 * SCALE)
+def _wrap(text: str, width: int) -> list[str]:
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        if len(cur) + len(w) + 1 <= width:
+            cur = f"{cur} {w}".strip()
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
 
-    if not rows:
-        img = img.resize((W, H), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, "PNG")
-        return buf.getvalue()
 
-    prices = [r["price"] for r in rows]
-    pmin, pmax = min(prices), max(prices)
-    # Bars scale from the cheapest (short) to priciest (full width); a negative
-    # price still gets a visible stub so the row is never empty.
-    zero_ref = min(pmin, 0.0)
-    denom = (pmax - zero_ref) or 1.0
+def _footer(d: ImageDraw.ImageDraw, text: str) -> None:
+    d.text((PAD * S, (H - 26) * S), text, font=_font(10), fill=MUTED)
 
-    top = PAD + 44
-    n = len(rows)
-    # If the list is tall, thin the row height to fit without scrolling.
-    row_h = min(ROW_H, (H - top - 30) / n)
 
-    # ONE price encoding (bar length); color carries only the highlight, never a
-    # second data axis — a "stressed" red bar on a cheap zone reads as expensive
-    # and fights the length. The stress nuance lives in the post TEXT instead.
-    for i, r in enumerate(rows):
-        y = top + i * row_h
-        yc = (y + row_h / 2) * SCALE
-        hi = highlight and r["zone"] == highlight
-        color = BAR_HI if hi else BAR
-
-        d.text((PAD * SCALE, yc), r["zone"], font=f_row,
-               fill=INK if hi else MUTED, anchor="lm")
-
-        frac = (r["price"] - zero_ref) / denom
-        bar_w = max(3, frac * (BAR_MAX - BAR_X))
-        d.rounded_rectangle(
-            [(BAR_X * SCALE, (y + 1) * SCALE),
-             ((BAR_X + bar_w) * SCALE, (y + row_h - 1) * SCALE)],
-            radius=2 * SCALE, fill=color)
-        d.text(((BAR_X + bar_w + 6) * SCALE, yc), f"€{r['price']:,.0f}",
-               font=f_val, fill=INK if hi else MUTED, anchor="lm")
-
-    d.text((PAD * SCALE, (H - 22) * SCALE), footer, font=f_foot, fill=MUTED)
-
+def _finish(img: Image.Image) -> bytes:
     img = img.resize((W, H), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, "PNG")
     return buf.getvalue()
+
+
+def render_bars(title: str, rows: list[dict], *, subtitle: str | None = None,
+                footer: str = "obsyd.dev", highlight: str | None = None) -> bytes:
+    """Horizontal-bar leaderboard. `rows` = [{label, value, disp}] in the order
+    to draw (caller sorts). Bars scale to the max |value|; `disp` is printed at
+    the bar end; the `highlight` label (if any) is drawn in accent."""
+    img = Image.new("RGB", (W * S, H * S), BG)
+    d = ImageDraw.Draw(img)
+    top = _header(d, title, subtitle)
+    if not rows:
+        _footer(d, footer)
+        return _finish(img)
+
+    vals = [r["value"] for r in rows]
+    zero_ref = min(min(vals), 0.0)
+    denom = (max(vals) - zero_ref) or 1.0
+    label_w = 150
+    bar_x = PAD + label_w
+    bar_max = W - PAD - 70
+
+    n = len(rows)
+    row_h = min(15, (H - top - 30) / n)
+    for i, r in enumerate(rows):
+        y = top + i * row_h
+        yc = (y + row_h / 2) * S
+        hi = highlight is not None and r["label"] == highlight
+        d.text((PAD * S, yc), str(r["label"]), font=_font(10),
+               fill=INK if hi else MUTED, anchor="lm")
+        frac = (r["value"] - zero_ref) / denom
+        bw = max(3, frac * (bar_max - bar_x))
+        d.rounded_rectangle(
+            [(bar_x * S, (y + 1) * S), ((bar_x + bw) * S, (y + row_h - 1) * S)],
+            radius=2 * S, fill=ACCENT if hi else BAR)
+        d.text(((bar_x + bw + 6) * S, yc), str(r["disp"]), font=_font(10),
+               fill=INK if hi else MUTED, anchor="lm")
+
+    _footer(d, footer)
+    return _finish(img)
+
+
+def render_trend(title: str, years: list[int], series: list[dict], *,
+                 subtitle: str | None = None, footer: str = "obsyd.dev") -> bytes:
+    """Grouped bars over years. `series` = [{name, color, values}] where values
+    aligns with `years`; color is a PALETTE name. A legend names each series."""
+    img = Image.new("RGB", (W * S, H * S), BG)
+    d = ImageDraw.Draw(img)
+    top = _header(d, title, subtitle)
+
+    # legend
+    lx = PAD
+    for s in series:
+        c = PALETTE.get(s["color"], ACCENT)
+        d.rounded_rectangle([(lx * S, top * S), ((lx + 14) * S, (top + 10) * S)],
+                            radius=2 * S, fill=c)
+        d.text(((lx + 20) * S, (top + 5) * S), s["name"], font=_font(11), fill=INK, anchor="lm")
+        lx += 30 + len(s["name"]) * 8
+    plot_top = top + 26
+
+    all_vals = [v for s in series for v in s["values"] if v is not None]
+    mx = max(all_vals) if all_vals else 1.0
+    step = _nice_step(mx)
+    px0, px1 = PAD + 34, W - PAD
+    py0, py1 = plot_top, H - 60
+    g = 0
+    while g <= mx * 1.02:
+        y = py1 - (g / (mx or 1)) * (py1 - py0)
+        d.line([(px0 * S, y * S), (px1 * S, y * S)], fill=GRID, width=1 * S)
+        d.text(((px0 - 6) * S, y * S), str(int(g)), font=_font(9), fill=MUTED, anchor="rm")
+        g += step
+
+    n = len(years)
+    gw = (px1 - px0) / n
+    k = len(series)
+    bw = gw * 0.7 / k
+    for i, yr in enumerate(years):
+        cx = px0 + i * gw + gw / 2
+        for j, s in enumerate(series):
+            v = s["values"][i]
+            if not v:
+                continue
+            h = (v / (mx or 1)) * (py1 - py0)
+            x = cx + (j - (k - 1) / 2) * bw
+            d.rounded_rectangle(
+                [((x - bw / 2) * S, (py1 - h) * S), ((x + bw / 2) * S, py1 * S)],
+                radius=2 * S, fill=PALETTE.get(s["color"], ACCENT))
+        lbl = str(yr) if (yr % 5 == 0 or yr == years[-1]) else str(yr)[2:]
+        d.text((cx * S, (py1 + 6) * S), lbl, font=_font(9), fill=MUTED, anchor="mt")
+
+    _footer(d, footer)
+    return _finish(img)
+
+
+def _nice_step(mx: float) -> float:
+    for step in (10, 20, 50, 100, 200, 500, 1000, 2000, 5000):
+        if mx / step <= 5:
+            return step
+    return 10000
+
+
+def render(spec: dict) -> bytes:
+    """Dispatch a card spec to its renderer."""
+    kind = spec.get("card", "bars")
+    if kind == "trend":
+        return render_trend(spec["title"], spec["years"], spec["series"],
+                            subtitle=spec.get("subtitle"),
+                            footer=spec.get("footer", "obsyd.dev"))
+    return render_bars(spec["title"], spec.get("rows", []),
+                       subtitle=spec.get("subtitle"),
+                       footer=spec.get("footer", "obsyd.dev"),
+                       highlight=spec.get("highlight"))
