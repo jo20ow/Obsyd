@@ -89,9 +89,15 @@ def run_once(db: Session, *, now: datetime | None = None) -> dict:
         logger.info("social: %s already posted — skip", post.dedup_key)
         return {"posted": False, "reason": "already_posted", "dedup": post.dedup_key}
 
+    # The link self-reply carries X's $0.20 URL-post premium (vs $0.015 plain);
+    # gated off by default so the account runs at ~cents/month — the image's
+    # obsyd.dev wordmark + the bio carry the link instead.
+    from backend.config import settings
+    reply = post.reply if settings.x_social_link_reply else None
+
     png = render_card(post.headline, post.rows, highlight=post.highlight)
     result = poster.post(post.text, post.alt_text, png,
-                         reply=post.reply, dedup=post.dedup_key)
+                         reply=reply, dedup=post.dedup_key)
     _record(post.dedup_key, result)
     return {"posted": True, "kind": post.kind, "dry_run": result.get("dry_run", False),
             "dedup": post.dedup_key, **({"tweet_id": result["tweet_id"]}

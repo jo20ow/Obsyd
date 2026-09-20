@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     x_social_dry_run: bool = False
     #: Master off-switch — set true to silence the daily post without pulling keys.
     x_social_disabled: bool = False
+    #: Post the link self-reply? X bills a URL post at $0.20 vs $0.015 for a
+    #: plain one (Feb-2026 pay-per-use), so the link reply is ~90% of the running
+    #: cost. Default OFF: the image already carries the obsyd.dev wordmark and the
+    #: bio holds the link, so the account stays ~$0.60/mo instead of ~$6.60/mo.
+    x_social_link_reply: bool = False
 
     # LLM (BYOK)
     openai_api_key: Optional[SecretStr] = None
