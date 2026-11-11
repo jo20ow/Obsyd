@@ -77,9 +77,15 @@ def db_session(monkeypatch):
         if hasattr(mod, "SessionLocal"):
             monkeypatch.setattr(mod, "SessionLocal", TestSessionLocal)
 
+    # Process-global TTL caches (freshness, catalog coverage) would otherwise carry
+    # one test's DB state into the next.
+    from backend.api_guard import _reset_coverage_cache
+
+    _reset_coverage_cache()
     session = TestSessionLocal()
     try:
         yield session
     finally:
         session.close()
         test_engine.dispose()
+        _reset_coverage_cache()

@@ -42,7 +42,8 @@ def test_history_ascending(client, db_session):
     for i, d in enumerate(["2026-06-30", "2026-07-01", "2026-07-02"]):
         db_session.add(FREDSeries(series_id="DGS10", date=d, value=4.0 + i * 0.1))
     db_session.commit()
-    body = client.get("/api/rates/history?series=dgs10&days=90").json()
+    # Fixed July dates: a 90-day window rots with the calendar, so ask wide.
+    body = client.get("/api/rates/history?series=dgs10&days=3650").json()
     assert body["available"] is True and body["series"] == "DGS10"
     assert len(body["data"]) == 3
     assert body["data"] == sorted(body["data"], key=lambda x: x["date"])

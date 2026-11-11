@@ -48,12 +48,19 @@ function SidebarContent({ tabs, activeTab, onNavigate, onOpenPalette }) {
   const [health, setHealth] = useState(null)
 
   useEffect(() => {
+    // Every open desk tab polls this, so keep it gentle: data frontiers move hourly
+    // at the fastest, and a background tab needs no status dots at all. A per-minute
+    // poll from every idle tab was the bulk of the 2026-11-10/11 server queueing.
     const c = new AbortController()
-    const poll = () => fetch('/api/health/collectors', { signal: c.signal })
-      .then((r) => (r.ok ? r.json() : null)).then(setHealth).catch(() => {})
+    const poll = () => {
+      if (document.hidden) return
+      fetch('/api/health/collectors', { signal: c.signal })
+        .then((r) => (r.ok ? r.json() : null)).then(setHealth).catch(() => {})
+    }
     poll()
-    const id = setInterval(poll, 60_000)
-    return () => { clearInterval(id); c.abort() }
+    const id = setInterval(poll, 5 * 60_000)
+    document.addEventListener('visibilitychange', poll)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', poll); c.abort() }
   }, [])
 
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '')
