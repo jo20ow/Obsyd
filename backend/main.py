@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.client_concurrency import PerClientConcurrencyMiddleware
 from backend.collectors.scheduler import start_scheduler, stop_scheduler
 from backend.database import init_db
 from backend.migrations import run_migrations
@@ -140,6 +141,10 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+# Innermost (added first) so CORS still decorates its 429s for cross-origin API users.
+# Caps one client's concurrent /api/* requests; see backend/client_concurrency.py.
+app.add_middleware(PerClientConcurrencyMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
