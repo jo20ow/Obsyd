@@ -323,3 +323,21 @@ def evaluate_freshness(db, *, now: datetime | None = None) -> dict[str, dict]:
             "max_age_days": spec.max_age.total_seconds() / 86400,
         }
     return out
+
+
+# The read-side callers (/api/health/collectors, polled every minute by every open
+# desk tab, and /api/v1/status) don't need second-level accuracy: data frontiers
+# move hourly at the fastest. Uncached, the ~80 MAX() probes (p50 2.8 s, tail
+# >100 s on prod) held DB connections and threadpool threads per poll, queueing the
+# cheap endpoints — /api/v1/meta hit 4–10 s and the heartbeat timed out
+# (2026-11-10/11). The watchdog keeps calling evaluate_freshness directly.
+FRESHNESS_CACHE_TTL = 60.0
+
+
+def cached_freshness(db, *, now: float | None = None) -> dict[str, dict]:
+    """`evaluate_freshness`, recomputed at most once per FRESHNESS_CACHE_TTL seconds."""
+    from backend.api_guard import cached_value
+
+    return cached_value(
+        "freshness", lambda: evaluate_freshness(db), ttl=FRESHNESS_CACHE_TTL, now=now
+    )

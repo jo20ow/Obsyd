@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.collectors.freshness import evaluate_freshness
+from backend.collectors.freshness import cached_freshness
 from backend.database import get_db
 
 router = APIRouter()
@@ -28,7 +28,7 @@ def collector_status(db: Session = Depends(get_db)):
     the write timestamp — they're rewritten nightly, so a write-time probe would
     look fresh even with a frozen data frontier. See backend/collectors/freshness.py.
     """
-    status = evaluate_freshness(db)
+    status = cached_freshness(db)
     return {
         **{k: v["fresh"] for k, v in status.items()},
         "last_seen": {k: v["last_seen"] for k, v in status.items()},

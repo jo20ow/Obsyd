@@ -19,7 +19,7 @@ from backend.api_guard import cached_coverage, cached_value, heavy_query_guard
 from backend.auth.api_keys import resolve_request_key
 from backend.auth.dependencies import optional_pro, require_pro
 from backend.auth.ratelimit import allow, client_ip
-from backend.collectors.freshness import evaluate_freshness
+from backend.collectors.freshness import cached_freshness
 from backend.database import get_db
 from backend.models.energy import InstalledCapacity, PowerGenMix, PowerHourly, SeriesDim, ZoneDim
 from backend.power.hourly_store import RowCapExceeded, read_hourly
@@ -115,7 +115,7 @@ def status(db: Session = Depends(get_db), _rl: None = Depends(_rate_limit), _g: 
     desk (from the shared freshness spec). `healthy` is true when every product-critical
     source is within its window. The transparency answer to a black-box feed — 'here is
     exactly what is fresh and what is stale right now.'"""
-    fr = evaluate_freshness(db)
+    fr = cached_freshness(db)
     # Only the power/gas desk's own sources (the dormant non-power probes stay internal).
     keep = {"power_flows", "gas_balance", "ttf"}
     items = [
